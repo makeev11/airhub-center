@@ -16,6 +16,7 @@ import { Route as workflowsDotworkflowIdRouteImport } from "./routes/workflows.$
 import { Route as projectsDotprojectIdRouteImport } from "./routes/projects.$projectId";
 import { Route as messagesDotnewRouteImport } from "./routes/messages.new";
 import { Route as channelsDotchannelIdRouteImport } from "./routes/channels.$channelId";
+import { Route as bookingDotscheduleRouteImport } from "./routes/booking.schedule";
 import { Route as channelsDotchannelIdDotpostsDotpostIdRouteImport } from "./routes/channels.$channelId.posts.$postId";
 
 const workflowsRoute = workflowsRouteImport.update({
@@ -73,6 +74,11 @@ const channelsDotchannelIdRoute = channelsDotchannelIdRouteImport.update({
   path: "/channels/$channelId",
   getParentRoute: () => rootRouteImport,
 } as any);
+const bookingDotscheduleRoute = bookingDotscheduleRouteImport.update({
+  id: "/booking/schedule",
+  path: "/booking/schedule",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const channelsDotchannelIdDotpostsDotpostIdRoute =
   channelsDotchannelIdDotpostsDotpostIdRouteImport.update({
     id: "/channels/$channelId/posts/$postId",
@@ -88,6 +94,7 @@ export interface FileRoutesByFullPath {
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/booking/schedule": typeof bookingDotscheduleRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -102,6 +109,7 @@ export interface FileRoutesByTo {
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/booking/schedule": typeof bookingDotscheduleRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -117,6 +125,7 @@ export interface FileRoutesById {
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/booking/schedule": typeof bookingDotscheduleRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -133,6 +142,7 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/settings"
     | "/workflows"
+    | "/booking/schedule"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
@@ -147,6 +157,7 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/settings"
     | "/workflows"
+    | "/booking/schedule"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
@@ -161,6 +172,7 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/settings"
     | "/workflows"
+    | "/booking/schedule"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
@@ -176,6 +188,7 @@ export interface RootRouteChildren {
   remindersRoute: typeof remindersRoute;
   settingsRoute: typeof settingsRoute;
   workflowsRoute: typeof workflowsRoute;
+  bookingDotscheduleRoute: typeof bookingDotscheduleRoute;
   channelsDotchannelIdRoute: typeof channelsDotchannelIdRoute;
   messagesDotnewRoute: typeof messagesDotnewRoute;
   projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
@@ -262,6 +275,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof channelsDotchannelIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/booking/schedule": {
+      id: "/booking/schedule";
+      path: "/booking/schedule";
+      fullPath: "/booking/schedule";
+      preLoaderRoute: typeof bookingDotscheduleRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/channels/$channelId/posts/$postId": {
       id: "/channels/$channelId/posts/$postId";
       path: "/channels/$channelId/posts/$postId";
@@ -280,6 +300,7 @@ const rootRouteChildren: RootRouteChildren = {
   remindersRoute: remindersRoute,
   settingsRoute: settingsRoute,
   workflowsRoute: workflowsRoute,
+  bookingDotscheduleRoute: bookingDotscheduleRoute,
   channelsDotchannelIdRoute: channelsDotchannelIdRoute,
   messagesDotnewRoute: messagesDotnewRoute,
   projectsDotprojectIdRoute: projectsDotprojectIdRoute,
