@@ -144,9 +144,6 @@ function LessonCard({
         </div>
         <div className="flex flex-wrap gap-1.5">
           <Badge variant={places.variant}>{places.label}</Badge>
-          <Badge variant={lesson.trial.mode === "free" ? "success" : "info"}>
-            {trialLabel(lesson)}
-          </Badge>
         </div>
       </button>
     </Card>
