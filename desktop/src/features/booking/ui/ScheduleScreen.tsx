@@ -75,8 +75,8 @@ function availability(lesson: ScheduleLesson): {
 
 function trialLabel(lesson: ScheduleLesson) {
   return lesson.trial.mode === "free"
-    ? "Пробное бесплатно"
-    : `Пробное ${moneyFormatter.format(lesson.trial.priceRub)}`;
+    ? "Пробное: бесплатно"
+    : `Пробное: ${moneyFormatter.format(lesson.trial.priceRub)}`;
 }
 
 function teacherLabel(lesson: ScheduleLesson) {
@@ -105,14 +105,20 @@ function LessonCard({
         onClick={() => onOpen(lesson)}
         type="button"
       >
-        <div className="flex items-start justify-between gap-2">
-          <span className="text-sm font-semibold">
+        <div className="space-y-1.5">
+          <span className="block text-sm font-semibold">
             {lesson.startTime}–{lesson.endTime}
           </span>
           {lesson.status === "moved" ? (
-            <Badge variant="warning">Перенесено</Badge>
+            <Badge className="max-w-full" variant="warning">
+              Перенесено
+            </Badge>
           ) : null}
-          {isCancelled ? <Badge variant="destructive">Отменено</Badge> : null}
+          {isCancelled ? (
+            <Badge className="max-w-full" variant="destructive">
+              Отменено
+            </Badge>
+          ) : null}
         </div>
         <div className={isCancelled ? "opacity-60" : undefined}>
           <p className="text-sm font-semibold leading-snug">
