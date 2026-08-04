@@ -2,9 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  deriveShellRoute,
   markAllReadSources,
   shouldBounceForChannelNotification,
 } from "./AppShell.helpers.ts";
+
+test("deriveShellRoute selects the embedded booking workspace", () => {
+  assert.deepEqual(deriveShellRoute("/booking/schedule"), {
+    selectedChannelId: null,
+    selectedView: "booking",
+  });
+});
 
 test("shouldBounceForChannelNotification_allowsTopLevelChannelMessages", () => {
   assert.equal(shouldBounceForChannelNotification([["h", "channel"]]), true);

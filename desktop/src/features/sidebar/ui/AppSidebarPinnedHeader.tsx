@@ -1,5 +1,6 @@
 import { Activity, Bot, FolderGit2, Inbox, Zap } from "lucide-react";
 
+import { BookingSidebarNav } from "@/features/booking/ui/BookingSidebarNav";
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import { FeatureGate } from "@/shared/features";
 import type { Channel, SearchHit } from "@/shared/api/types";
@@ -19,7 +20,8 @@ type SidebarSelectedView =
   | "agents"
   | "workflows"
   | "pulse"
-  | "projects";
+  | "projects"
+  | "booking";
 
 type AppSidebarPinnedHeaderProps = {
   channelLabels: Record<string, string>;
@@ -170,6 +172,7 @@ export function AppSidebarPrimaryMenu({
           </SidebarMenuItem>
         </FeatureGate>
       </SidebarMenu>
+      <BookingSidebarNav isActive={selectedView === "booking"} />
     </SidebarHeader>
   );
 }

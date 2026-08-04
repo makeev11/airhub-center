@@ -95,14 +95,8 @@ type AppSidebarProps = {
   selfPresenceStatus: PresenceStatus;
   errorMessage?: string;
   selectedChannelId: string | null;
-  selectedView:
-    | "home"
-    | "channel"
-    | "messages"
-    | "agents"
-    | "workflows"
-    | "pulse"
-    | "projects";
+  // biome-ignore format: keep compact to stay within file size limit
+  selectedView: "home" | "channel" | "messages" | "agents" | "workflows" | "pulse" | "projects" | "booking";
   unreadChannelCounts: ReadonlyMap<string, number>;
   unreadChannelIds: ReadonlySet<string>;
   communities: Community[];
