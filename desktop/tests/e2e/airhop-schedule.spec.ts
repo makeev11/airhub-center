@@ -27,7 +27,9 @@ test("Buzz AirHop schedule is embedded beside the existing Buzz navigation", asy
   await expect(page.getByText("Перенесено")).toBeVisible();
   await expect(page.getByText("Отменено")).toBeVisible();
 
-  await page.getByTestId("airhop-branch-filter").selectOption("kurskaya");
+  const branchFilter = page.getByTestId("airhop-branch-filter");
+  await expect(branchFilter).toHaveCSS("appearance", "none");
+  await branchFilter.selectOption("kurskaya");
   await expect(page.locator('[data-testid^="airhop-lesson-"]')).toHaveCount(7);
 
   const firstLesson = page.locator('[data-testid^="airhop-lesson-"]').first();
