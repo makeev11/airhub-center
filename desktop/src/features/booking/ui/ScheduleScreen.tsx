@@ -299,7 +299,7 @@ export function ScheduleScreen({ requestedDemo }: { requestedDemo?: string }) {
             <label className="flex items-center gap-2 text-sm">
               <span className="text-muted-foreground">Филиал</span>
               <select
-                className="h-9 rounded-lg border border-input/40 bg-background px-3 text-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-9 appearance-none rounded-lg border border-input/40 bg-background px-3 text-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                 data-testid="airhop-branch-filter"
                 onChange={(event) =>
                   setBranchFilter(event.target.value as BranchFilter)
