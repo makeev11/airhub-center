@@ -57,8 +57,18 @@ test("parseInviteInput_https_url_encoded_code_decoded", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buzz://join deep link URLs
+// airhop://join and legacy buzz://join deep link URLs
 // ---------------------------------------------------------------------------
+
+test("parseInviteInput_airhop_join_returns_relay_and_code", () => {
+  const result = parseInviteInput(
+    "airhop://join?relay=wss://relay.example.com&code=abc123",
+  );
+  assert.deepEqual(result, {
+    relayWsUrl: "wss://relay.example.com",
+    code: "abc123",
+  });
+});
 
 test("parseInviteInput_buzz_join_with_wss_relay_returns_relay_and_code", () => {
   const result = parseInviteInput(

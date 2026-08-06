@@ -6,6 +6,12 @@ use url::Url;
 
 use crate::nostr_bind;
 
+/// AirHop owns the canonical scheme. `buzz` remains input-only compatibility
+/// for links created before the application was rebranded.
+pub(crate) fn supported_deep_link_scheme(scheme: &str) -> bool {
+    matches!(scheme, "airhop" | "buzz")
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PendingCommunityDeepLink {
@@ -104,7 +110,8 @@ fn activate_main_window(app: &tauri::AppHandle) {
     }
 }
 
-/// Parse the query string of a `buzz://message?…` URL into the JSON
+/// Parse the query string of an `airhop://message?…` URL (or legacy Buzz URL)
+/// into the JSON
 /// payload emitted on `deep-link-message`. Returns `None` when a required
 /// param (`channel`, `id`) is missing or empty — mirroring the validation
 /// policy of the `connect` arm so the frontend never sees a half-formed
@@ -136,7 +143,8 @@ fn parse_message_deep_link(url: &Url) -> Option<serde_json::Value> {
     }))
 }
 
-/// Parse the query string of a `buzz://join?…` URL into the JSON payload
+/// Parse the query string of an `airhop://join?…` URL (or legacy Buzz URL)
+/// into the JSON payload
 /// emitted on `deep-link-join`. Requires a ws(s) `relay` URL and a non-empty
 /// `code`; returns `None` otherwise so the frontend never sees a half-formed
 /// payload.
@@ -291,10 +299,10 @@ fn parse_nostr_bind_deep_link(url: &Url) -> Result<NostrBindDeepLinkPayload, Str
     })
 }
 
-/// Handle an incoming `buzz://` deep link URL.
+/// Handle an incoming canonical `airhop://` or legacy `buzz://` deep link URL.
 ///
 /// Currently supports:
-/// - `buzz://connect?relay=<ws(s)://...>` — emits `deep-link-connect` to the frontend
+/// - `airhop://connect?relay=<ws(s)://...>` — emits `deep-link-connect` to the frontend
 pub(crate) fn handle_deep_link_url(app: &tauri::AppHandle, url_str: &str) {
     let url = match Url::parse(url_str) {
         Ok(u) => u,
@@ -304,7 +312,7 @@ pub(crate) fn handle_deep_link_url(app: &tauri::AppHandle, url_str: &str) {
         }
     };
 
-    if url.scheme() != "buzz" {
+    if !supported_deep_link_scheme(url.scheme()) {
         eprintln!("buzz-desktop: ignoring unsupported deep link scheme: {url_str}");
         return;
     }
@@ -320,7 +328,7 @@ pub(crate) fn handle_deep_link_url(app: &tauri::AppHandle, url_str: &str) {
             let _ = app.emit("deep-link-connect", relay_url);
         }
         Some("join") => {
-            // `buzz://join?relay=<ws(s)://...>&code=<invite code>` — fired by
+            // `airhop://join?relay=<ws(s)://...>&code=<invite code>` — fired by
             // the relay's /invite/<code> landing page. The frontend claims the
             // invite against the relay's HTTP API, then adds the workspace.
             let Some(payload) = parse_join_deep_link(&url) else {
@@ -351,7 +359,7 @@ pub(crate) fn handle_deep_link_url(app: &tauri::AppHandle, url_str: &str) {
             let _ = app.emit("deep-link-add-community", payload);
         }
         Some("message") => {
-            // `buzz://message?channel=<uuid>&id=<eventId>[&thread=<rootId>]`
+            // `airhop://message?channel=<uuid>&id=<eventId>[&thread=<rootId>]`
             //
             // Validation policy mirrors the `connect` arm: parse what we
             // need, refuse to emit anything if a required param is missing
@@ -390,8 +398,16 @@ mod tests {
 
     use super::{
         parse_add_community_deep_link, parse_join_deep_link, parse_message_deep_link,
-        parse_nostr_bind_deep_link, PendingCommunityDeepLink, PendingCommunityDeepLinks,
+        parse_nostr_bind_deep_link, supported_deep_link_scheme, PendingCommunityDeepLink,
+        PendingCommunityDeepLinks,
     };
+
+    #[test]
+    fn supports_airhop_and_legacy_buzz_deep_link_schemes_only() {
+        assert!(supported_deep_link_scheme("airhop"));
+        assert!(supported_deep_link_scheme("buzz"));
+        assert!(!supported_deep_link_scheme("other"));
+    }
 
     fn pending(id: &str, relay_url: &str, code: Option<&str>) -> PendingCommunityDeepLink {
         PendingCommunityDeepLink {
@@ -443,7 +459,7 @@ mod tests {
     #[test]
     fn parse_add_community_deep_link_extracts_relay_and_name() {
         let url = Url::parse(
-            "buzz://add-community?relay=wss%3A%2F%2Facme.communities.buzz.xyz&name=Acme%20Team&ignored=value",
+            "airhop://add-community?relay=wss%3A%2F%2Facme.communities.buzz.xyz&name=Acme%20Team&ignored=value",
         )
         .unwrap();
         let payload = parse_add_community_deep_link(&url).unwrap();
@@ -479,7 +495,7 @@ mod tests {
 
     #[test]
     fn parse_message_deep_link_extracts_required_params() {
-        let url = Url::parse("buzz://message?channel=abc&id=xyz").unwrap();
+        let url = Url::parse("airhop://message?channel=abc&id=xyz").unwrap();
         let payload = parse_message_deep_link(&url).expect("required params present");
         assert_eq!(payload["channelId"], "abc");
         assert_eq!(payload["messageId"], "xyz");
@@ -487,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_message_deep_link_accepts_buzz_scheme() {
+    fn parse_message_deep_link_accepts_legacy_buzz_scheme() {
         let url = Url::parse("buzz://message?channel=abc&id=xyz").unwrap();
         let payload = parse_message_deep_link(&url).expect("required params present");
         assert_eq!(payload["channelId"], "abc");
@@ -529,7 +545,7 @@ mod tests {
 
     #[test]
     fn parse_join_deep_link_extracts_relay_and_code() {
-        let url = Url::parse("buzz://join?relay=wss%3A%2F%2Frelay.example&code=abc.def").unwrap();
+        let url = Url::parse("airhop://join?relay=wss%3A%2F%2Frelay.example&code=abc.def").unwrap();
         let payload = parse_join_deep_link(&url).expect("required params present");
         assert_eq!(payload["relayUrl"], "wss://relay.example");
         assert_eq!(payload["code"], "abc.def");

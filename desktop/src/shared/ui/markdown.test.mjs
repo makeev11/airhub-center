@@ -521,9 +521,9 @@ test("rehypeImageGallery: leaves a single trailing image in the text flow", () =
 
 // Regression test: react-markdown's `defaultUrlTransform` strips unknown
 // schemes (returns `""`) before our `a` component override can see them,
-// which would break copy → paste → click for `buzz://message?…` links
+// which would break copy → paste → click for `airhop://message?…` links
 // end-to-end. We pass a custom `urlTransform` that delegates to the
-// default for `buzz://message` and legacy `buzz://message` hrefs.
+// default for canonical `airhop://message` and legacy `buzz://message` hrefs.
 //
 // This test renders real `<ReactMarkdown>` with the production transform
 // and asserts the link href survives to the rendered DOM. Mirrors the
@@ -553,24 +553,24 @@ function renderMarkdown(content) {
   );
 }
 
-test("messageLinkUrlTransform: preserves buzz://message href", () => {
+test("messageLinkUrlTransform: preserves airhop://message href", () => {
   const html = renderMarkdown(
-    "Click [here](buzz://message?channel=abc&id=xyz)",
+    "Click [here](airhop://message?channel=abc&id=xyz)",
   );
   // HTML-encoded `&` in attributes is fine — the browser decodes back to `&`.
-  assert.match(html, /href="buzz:\/\/message\?channel=abc&(?:amp;)?id=xyz"/);
+  assert.match(html, /href="airhop:\/\/message\?channel=abc&(?:amp;)?id=xyz"/);
 });
 
-test("messageLinkUrlTransform: preserves buzz://message autolink href", () => {
-  const html = renderMarkdown("<buzz://message?channel=abc&id=xyz>");
-  assert.match(html, /href="buzz:\/\/message\?channel=abc&(?:amp;)?id=xyz"/);
+test("messageLinkUrlTransform: preserves airhop://message autolink href", () => {
+  const html = renderMarkdown("<airhop://message?channel=abc&id=xyz>");
+  assert.match(html, /href="airhop:\/\/message\?channel=abc&(?:amp;)?id=xyz"/);
 });
 
-test("messageLinkUrlTransform: preserves buzz://message href with thread", () => {
+test("messageLinkUrlTransform: preserves airhop://message href with thread", () => {
   const html = renderMarkdown(
-    "[link](buzz://message?channel=c1&id=m1&thread=t1)",
+    "[link](airhop://message?channel=c1&id=m1&thread=t1)",
   );
-  assert.match(html, /href="buzz:\/\/message\?[^"]*thread=t1"/);
+  assert.match(html, /href="airhop:\/\/message\?[^"]*thread=t1"/);
 });
 
 test("messageLinkUrlTransform: still strips javascript: scheme", () => {
@@ -623,7 +623,7 @@ test("remarkSpoilers: block delimiter spoilers expose a block prop to React", ()
   assert.equal(spoilerProps?.["data-block-spoiler"], "");
 });
 
-// `remark-gfm`'s autolinker only covers http(s)://, so bare `buzz://message`
+// `remark-gfm`'s autolinker only covers http(s)://, so bare `airhop://message`
 // URLs in plain text never reach any rendering path without this plugin.
 // The plugin emits a custom `message-link` HAST element which markdown.tsx
 // renders as an inline pill. Tests operate on the mdast tree directly —
@@ -644,12 +644,12 @@ function text(value) {
   return { type: "text", value };
 }
 
-test("remarkMessageLinks: bare buzz://message URL is replaced", () => {
-  const tree = runPlugin(paragraph(text("buzz://message?channel=c&id=m")));
+test("remarkMessageLinks: bare airhop://message URL is replaced", () => {
+  const tree = runPlugin(paragraph(text("airhop://message?channel=c&id=m")));
   const para = tree.children[0];
   assert.equal(para.children.length, 1);
   assert.equal(para.children[0].type, "message-link");
-  assert.equal(para.children[0].value, "buzz://message?channel=c&id=m");
+  assert.equal(para.children[0].value, "airhop://message?channel=c&id=m");
   assert.equal(para.children[0].data.hName, "message-link");
 });
 

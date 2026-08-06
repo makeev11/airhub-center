@@ -46,7 +46,7 @@ use app_state::{build_app_state, resolve_persisted_identity, AppState};
 use builderlab::*;
 use commands::*;
 use deep_link::{
-    acknowledge_pending_community_deep_link, handle_deep_link_url,
+    acknowledge_pending_community_deep_link, handle_deep_link_url, supported_deep_link_scheme,
     take_pending_community_deep_link, PendingCommunityDeepLinks,
 };
 use huddle::audio_output::{
@@ -117,7 +117,10 @@ pub fn run() {
             }
             // Forward any deep link URLs from the duplicate launch.
             for arg in &argv {
-                if arg.starts_with("buzz://") {
+                if url::Url::parse(arg)
+                    .ok()
+                    .is_some_and(|url| supported_deep_link_scheme(url.scheme()))
+                {
                     handle_deep_link_url(app, arg);
                 }
             }

@@ -16,7 +16,7 @@ const THREAD =
 
 test("buildMessageLink → parseMessageLink round-trips without thread", () => {
   const url = buildMessageLink({ channelId: CHANNEL, messageId: MESSAGE });
-  assert.equal(url, `buzz://message?channel=${CHANNEL}&id=${MESSAGE}`);
+  assert.equal(url, `airhop://message?channel=${CHANNEL}&id=${MESSAGE}`);
 
   const parsed = parseMessageLink(url);
   assert.equal(parsed.ok, true);
@@ -53,8 +53,8 @@ test("buildMessageLink treats null/empty thread as absent", () => {
     messageId: MESSAGE,
     threadRootId: "",
   });
-  assert.equal(a, `buzz://message?channel=${CHANNEL}&id=${MESSAGE}`);
-  assert.equal(b, `buzz://message?channel=${CHANNEL}&id=${MESSAGE}`);
+  assert.equal(a, `airhop://message?channel=${CHANNEL}&id=${MESSAGE}`);
+  assert.equal(b, `airhop://message?channel=${CHANNEL}&id=${MESSAGE}`);
 });
 
 test("buildMessageLink rejects missing required params", () => {
@@ -70,8 +70,8 @@ test("parseMessageLink rejects unsupported schemes", () => {
   assert.equal(r.ok === false && r.reason, "wrong-scheme");
 });
 
-test("parseMessageLink rejects buzz:// with wrong host", () => {
-  const r = parseMessageLink(`buzz://connect?relay=wss://example.com`);
+test("parseMessageLink rejects AirHop links with the wrong host", () => {
+  const r = parseMessageLink(`airhop://connect?relay=wss://example.com`);
   assert.equal(r.ok, false);
   assert.equal(r.ok === false && r.reason, "wrong-host");
 });
@@ -104,16 +104,16 @@ test("parseMessageLink accepts legacy buzz://message links", () => {
   });
 });
 
-test("isMessageLink matches buzz://message and legacy buzz://message", () => {
+test("isMessageLink matches canonical AirHop and legacy Buzz message links", () => {
   assert.equal(
-    isMessageLink(`buzz://message?channel=${CHANNEL}&id=${MESSAGE}`),
+    isMessageLink(`airhop://message?channel=${CHANNEL}&id=${MESSAGE}`),
     true,
   );
   assert.equal(
     isMessageLink(`buzz://message?channel=${CHANNEL}&id=${MESSAGE}`),
     true,
   );
-  assert.equal(isMessageLink("buzz://connect?relay=wss://x"), false);
+  assert.equal(isMessageLink("airhop://connect?relay=wss://x"), false);
   assert.equal(isMessageLink("buzz://connect?relay=wss://x"), false);
   assert.equal(isMessageLink("https://example.com"), false);
   assert.equal(isMessageLink(undefined), false);
@@ -121,7 +121,7 @@ test("isMessageLink matches buzz://message and legacy buzz://message", () => {
 });
 
 test("resolveMessageLinkRenderTarget distinguishes autolinks from labeled links", () => {
-  const href = `buzz://message?channel=${CHANNEL}&id=${MESSAGE}`;
+  const href = `airhop://message?channel=${CHANNEL}&id=${MESSAGE}`;
 
   assert.deepEqual(resolveMessageLinkRenderTarget({ href, label: href }), {
     kind: "pill",

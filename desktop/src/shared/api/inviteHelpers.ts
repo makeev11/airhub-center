@@ -1,10 +1,14 @@
 export const INVITE_EXPIRED_ERROR = "invite_expired";
 export const INVITE_EXHAUSTED_ERROR = "invite_exhausted";
 
+const CANONICAL_APP_SCHEME = "airhop";
+const SUPPORTED_APP_SCHEMES = new Set([CANONICAL_APP_SCHEME, "buzz"]);
+
 /**
  * Parsed invite — either a full (relay + code) or bare-code form.
  *
- * URL inputs (`https://`, `http://`, `buzz://join`) always carry a
+ * URL inputs (`https://`, `http://`, `airhop://join`, legacy `buzz://join`)
+ * always carry a
  * `relayWsUrl` (already normalised to `ws(s)://`).  A bare code (no scheme,
  * no slashes) omits it — the caller decides which relay to target.
  */
@@ -18,7 +22,8 @@ export type ParsedInvite =
  * Accepted input forms:
  *  - `https://<relay>/invite/<code>` → `{ relayWsUrl: "wss://<relay>", code }`
  *  - `http://<relay>/invite/<code>`  → `{ relayWsUrl: "ws://<relay>", code }`
- *  - `buzz://join?relay=<wsUrl>&code=<code>` → `{ relayWsUrl, code }`
+ *  - `airhop://join?relay=<wsUrl>&code=<code>` → `{ relayWsUrl, code }`
+ *  - legacy `buzz://join?...` → the same result
  *  - bare code (no `://`, no `/`)    → `{ code }`
  *
  * Returns `null` for empty input or inputs that don't match any form.
@@ -31,9 +36,9 @@ export function parseInviteInput(input: string): ParsedInvite | null {
   try {
     const url = new URL(trimmed);
 
-    // buzz://join?relay=...&code=...
+    // Canonical airhop://join and legacy buzz://join.
     // Non-special schemes put the authority in `host`, not `pathname`.
-    if (url.protocol === "buzz:") {
+    if (SUPPORTED_APP_SCHEMES.has(url.protocol.slice(0, -1))) {
       if (url.host !== "join") return null;
       const relay = url.searchParams.get("relay");
       const code = url.searchParams.get("code");

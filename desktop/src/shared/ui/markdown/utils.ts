@@ -166,10 +166,10 @@ export function isInsideHiddenSpoiler(element: Element): boolean {
 }
 
 /**
- * `urlTransform` for `<ReactMarkdown>` that preserves `buzz://message?…`
- * links. The default transform strips unknown schemes (returns `""`) before
- * the `a` component override can see them, which would break copy → paste →
- * click end-to-end. Everything else delegates to `defaultUrlTransform`.
+ * `urlTransform` for `<ReactMarkdown>` that preserves canonical
+ * `airhop://message?…` and legacy `buzz://message?…` links. The default
+ * transform strips unknown schemes before the `a` component override can see
+ * them. Everything else delegates to `defaultUrlTransform`.
  */
 export function messageLinkUrlTransform(value: string, key: string): string {
   if (key === "href" && isMessageLink(value)) {
