@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Buzz",
+  "productName": "AirHop",
   "version": "0.5.4",
-  "identifier": "xyz.block.buzz.app",
+  "identifier": "ru.airhop.centers.app",
   "build": {
     "beforeDevCommand": {
       "script": "exec ./node_modules/.bin/vite",
@@ -45,7 +45,7 @@
     },
     "deep-link": {
       "desktop": {
-        "schemes": ["buzz"]
+        "schemes": ["airhop"]
       }
     }
   },

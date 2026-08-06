@@ -51,3 +51,24 @@ test("generated AirHop artwork matches the browser and installer contract", () =
     height: 532,
   });
 });
+
+test("Tauri packages an independent AirHop application", () => {
+  const release = JSON.parse(
+    readFileSync("src-tauri/tauri.conf.json", "utf8"),
+  );
+  const development = JSON.parse(
+    readFileSync("src-tauri/tauri.dev.conf.json", "utf8"),
+  );
+  const plist = readFileSync("src-tauri/Info.plist", "utf8");
+
+  assert.equal(release.productName, "AirHop");
+  assert.equal(release.identifier, "ru.airhop.centers.app");
+  assert.deepEqual(release.plugins["deep-link"].desktop.schemes, ["airhop"]);
+  assert.equal(development.productName, "AirHop Dev");
+  assert.equal(development.identifier, "ru.airhop.centers.app.dev");
+  assert.match(
+    plist,
+    /<key>CFBundleDisplayName<\/key>\s*<string>AirHop<\/string>/,
+  );
+  assert.doesNotMatch(plist, /<string>Buzz<\/string>/);
+});
