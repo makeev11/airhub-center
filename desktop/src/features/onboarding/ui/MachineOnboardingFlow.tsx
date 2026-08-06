@@ -10,6 +10,7 @@ import {
 } from "@/shared/api/tauriIdentity";
 import type { IdentityStorage } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
+import { AirHopWordmark } from "@/shared/ui/airhop-brand/AirHopBrand";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 import { BackupStep } from "./BackupStep";
 import { DefaultConfigStep } from "./DefaultConfigStep";
@@ -214,13 +215,9 @@ export function MachineOnboardingFlow({
               effect="mask-reveal-up"
               transitionKey="machine-identity"
             >
-              <img
-                alt="Buzz"
-                className="w-full max-w-[600px]"
-                src="/landing/buzz-wordmark.png"
-              />
+              <AirHopWordmark className="text-[clamp(4rem,12vw,8rem)] leading-none" />
               <p className="mt-2 max-w-[560px] text-center text-2xl font-normal leading-none text-foreground">
-                Your people, your agents, your projects —<br />
+                Your center, your team, your agents —<br />
                 all in one place.
               </p>
               {error ? (
@@ -285,7 +282,7 @@ export function MachineOnboardingFlow({
                     ? "Enter your backup password to unlock your key and restore your identity."
                     : identityLost
                       ? "Your identity is no longer in the system keyring. Re-import your nsec to restore it."
-                      : "If you already have a Buzz account, enter your private key below to get started."}
+                      : "If you already have an AirHop account, enter your private key below to get started."}
                 </p>
               </motion.div>
               <div className="buzz-onboarding-key-import-position w-full">

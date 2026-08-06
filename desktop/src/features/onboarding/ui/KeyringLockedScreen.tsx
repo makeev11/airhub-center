@@ -65,7 +65,7 @@ export function KeyringLockedScreen() {
               }}
               type="button"
             >
-              Relaunch Buzz
+              Relaunch AirHop
             </Button>
             <Button
               className="h-10 w-full"

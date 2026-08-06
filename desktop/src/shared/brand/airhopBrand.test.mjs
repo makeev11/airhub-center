@@ -53,22 +53,64 @@ test("generated AirHop artwork matches the browser and installer contract", () =
 });
 
 test("Tauri packages an independent AirHop application", () => {
-  const release = JSON.parse(
-    readFileSync("src-tauri/tauri.conf.json", "utf8"),
-  );
+  const release = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
   const development = JSON.parse(
     readFileSync("src-tauri/tauri.dev.conf.json", "utf8"),
   );
   const plist = readFileSync("src-tauri/Info.plist", "utf8");
 
   assert.equal(release.productName, "AirHop");
-  assert.equal(release.identifier, "ru.airhop.centers.app");
+  assert.equal(release.identifier, "ru.airhop.centers");
   assert.deepEqual(release.plugins["deep-link"].desktop.schemes, ["airhop"]);
   assert.equal(development.productName, "AirHop Dev");
-  assert.equal(development.identifier, "ru.airhop.centers.app.dev");
+  assert.equal(development.identifier, "ru.airhop.centers.dev");
   assert.match(
     plist,
     /<key>CFBundleDisplayName<\/key>\s*<string>AirHop<\/string>/,
   );
   assert.doesNotMatch(plist, /<string>Buzz<\/string>/);
+});
+
+test("first launch presents AirHop instead of the inherited Buzz wordmark", () => {
+  const flow = readFileSync(
+    "src/features/onboarding/ui/MachineOnboardingFlow.tsx",
+    "utf8",
+  );
+  const help = readFileSync(
+    "src/features/onboarding/ui/IdentityKeyHelpDialog.tsx",
+    "utf8",
+  );
+
+  assert.match(flow, /AirHopWordmark/);
+  assert.doesNotMatch(flow, /landing\/buzz-wordmark\.png/);
+  assert.doesNotMatch(flow, /alt="Buzz"/);
+  assert.doesNotMatch(flow, /Buzz account/);
+  assert.doesNotMatch(help, /Buzz uses an identity key/);
+  assert.doesNotMatch(help, /belongs to you, not Buzz/);
+});
+
+test("product-owned onboarding and account copy names AirHop", () => {
+  const productCopyFiles = [
+    "src/features/communities/ui/HostedCommunityOnboarding.tsx",
+    "src/features/communities/ui/HostedCommunityCreateFlow.tsx",
+    "src/features/onboarding/ui/BackupStep.tsx",
+    "src/features/onboarding/ui/CommunityOnboardingFlow.tsx",
+    "src/features/onboarding/ui/DefaultConfigStep.tsx",
+    "src/features/onboarding/ui/KeyringLockedScreen.tsx",
+    "src/features/onboarding/ui/RecoveryScreen.tsx",
+    "src/features/onboarding/ui/RelaunchRequiredScreen.tsx",
+    "src/features/onboarding/ui/ResetFailedScreen.tsx",
+    "src/features/onboarding/ui/SetupStep.tsx",
+    "src/features/onboarding/welcomeCanvas.ts",
+    "src/features/onboarding/welcomeGuide.ts",
+    "src/features/onboarding/welcomeKickoff.ts",
+    "src/features/settings/ui/HostedCommunitiesSettingsCard.tsx",
+    "src/features/settings/ui/ProfileSettingsCard.tsx",
+  ];
+  const inheritedProductPhrases =
+    /Buzz identity|Welcome to Buzz|across Buzz|using Buzz|Take me to Buzz|Restart Buzz|Relaunch Buzz|Buzz (?:checks|keeps|needs|was unable)/;
+
+  for (const path of productCopyFiles) {
+    assert.doesNotMatch(readFileSync(path, "utf8"), inheritedProductPhrases);
+  }
 });
