@@ -14,7 +14,7 @@ AirHop HQ is deliberately outside this implementation. It will receive a separat
 
 - The product name is written exactly as `AirHop` in native metadata, technical configuration, and user-facing copy in every locale.
 - The existing round AirHop mark with the paper plane is the canonical square source asset.
-- The existing Cyrillic AirHop wordmark is the canonical horizontal source asset.
+- The product wordmark is rendered as the exact text `AirHop` beside the canonical mark; localized or Cyrillic wordmarks are not used in the centers application.
 - Buzz artwork must not remain in AirHop-owned product surfaces.
 - Buzz interaction patterns and design-system components remain; this is a product branding change, not a visual redesign.
 
