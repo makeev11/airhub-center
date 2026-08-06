@@ -1,4 +1,5 @@
 import { currencyMinorUnitExponent } from "@/features/booking/lib/bookingMoney";
+import type { Weekday } from "@/features/booking/model/bookingCore";
 
 export type BookingMessages = {
   scheduleTitle: string;
@@ -180,6 +181,7 @@ function asCalendarDate(isoDate: string): Date {
 export type BookingFormatters = {
   date: (isoDate: string) => string;
   weekday: (isoDate: string) => string;
+  weekdayName: (weekday: Weekday) => string;
   weekdayDate: (isoDate: string) => string;
   shortDate: (isoDate: string) => string;
   money: (amountMinor: number, currency: string) => string;
@@ -207,15 +209,34 @@ export function createBookingFormatters(locale: string): BookingFormatters {
     month: "short",
     timeZone: "UTC",
   });
+  const weekdayNameFormatter = new Intl.DateTimeFormat(resolvedLocale, {
+    weekday: "long",
+    timeZone: "UTC",
+  });
+  const weekdayDates: Record<Weekday, string> = {
+    monday: "2026-08-03",
+    tuesday: "2026-08-04",
+    wednesday: "2026-08-05",
+    thursday: "2026-08-06",
+    friday: "2026-08-07",
+    saturday: "2026-08-08",
+    sunday: "2026-08-09",
+  };
+  const capitalize = (value: string) =>
+    value
+      ? `${value[0].toLocaleUpperCase(resolvedLocale)}${value.slice(1)}`
+      : value;
 
   return {
     date: (isoDate) => dateFormatter.format(asCalendarDate(isoDate)),
     weekday: (isoDate) => weekdayFormatter.format(asCalendarDate(isoDate)),
+    weekdayName: (weekday) =>
+      capitalize(
+        weekdayNameFormatter.format(asCalendarDate(weekdayDates[weekday])),
+      ),
     weekdayDate: (isoDate) => {
       const value = weekdayDateFormatter.format(asCalendarDate(isoDate));
-      return value
-        ? `${value[0].toLocaleUpperCase(resolvedLocale)}${value.slice(1)}`
-        : value;
+      return capitalize(value);
     },
     shortDate: (isoDate) => shortDateFormatter.format(asCalendarDate(isoDate)),
     money: (amountMinor, currency) => {
