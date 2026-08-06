@@ -517,31 +517,71 @@ export const paymentExpectationStatusSchema = z.enum([
   "cancelled",
 ]);
 
-export const paymentExpectationSchema = z.object({
-  id: bookingIdSchema,
-  organizationId: bookingIdSchema,
-  familyId: bookingIdSchema,
-  childId: bookingIdSchema,
-  enrollmentId: bookingIdSchema,
-  tariffId: bookingIdSchema,
-  tariffNameSnapshot: z.string().trim().min(1).max(160),
-  amountMinor: z.number().int().nonnegative().safe(),
-  currency: z
-    .string()
-    .regex(/^[A-Z]{3}$/)
-    .refine((currency) => currencyMinorUnitExponent(currency) !== null, {
-      message: "Unknown currency",
-    }),
-  dueDate: isoDateSchema,
-  status: paymentExpectationStatusSchema,
-  paidAt: z.string().datetime({ offset: true }).optional(),
-  paidBy: z.string().trim().min(1).max(200).optional(),
-  cancelledAt: z.string().datetime({ offset: true }).optional(),
-  cancelledBy: z.string().trim().min(1).max(200).optional(),
-  internalReason: z.string().trim().min(1).max(4_000).optional(),
-  createdAt: z.string().datetime({ offset: true }),
-  updatedAt: z.string().datetime({ offset: true }),
-});
+export const paymentExpectationSchema = z
+  .object({
+    id: bookingIdSchema,
+    organizationId: bookingIdSchema,
+    familyId: bookingIdSchema,
+    childId: bookingIdSchema,
+    enrollmentId: bookingIdSchema,
+    tariffId: bookingIdSchema,
+    tariffNameSnapshot: z.string().trim().min(1).max(160),
+    amountMinor: z.number().int().nonnegative().safe(),
+    currency: z
+      .string()
+      .regex(/^[A-Z]{3}$/)
+      .refine((currency) => currencyMinorUnitExponent(currency) !== null, {
+        message: "Unknown currency",
+      }),
+    dueDate: isoDateSchema,
+    status: paymentExpectationStatusSchema,
+    paidAt: z.string().datetime({ offset: true }).optional(),
+    paidBy: z.string().trim().min(1).max(200).optional(),
+    cancelledAt: z.string().datetime({ offset: true }).optional(),
+    cancelledBy: z.string().trim().min(1).max(200).optional(),
+    internalReason: z.string().trim().min(1).max(4_000).optional(),
+    createdAt: z.string().datetime({ offset: true }),
+    updatedAt: z.string().datetime({ offset: true }),
+  })
+  .superRefine((payment, context) => {
+    const addStatusIssue = (message: string) => {
+      context.addIssue({
+        code: "custom",
+        path: ["status"],
+        message,
+      });
+    };
+    if (
+      payment.status === "expected" &&
+      (payment.paidAt ||
+        payment.paidBy ||
+        payment.cancelledAt ||
+        payment.cancelledBy ||
+        payment.internalReason)
+    ) {
+      addStatusIssue("Expected payment cannot contain resolution fields");
+    }
+    if (
+      payment.status === "paid" &&
+      (!payment.paidAt ||
+        !payment.paidBy ||
+        payment.cancelledAt ||
+        payment.cancelledBy ||
+        payment.internalReason)
+    ) {
+      addStatusIssue("Paid payment requires paid audit fields only");
+    }
+    if (
+      payment.status === "cancelled" &&
+      (!payment.cancelledAt ||
+        !payment.cancelledBy ||
+        !payment.internalReason ||
+        payment.paidAt ||
+        payment.paidBy)
+    ) {
+      addStatusIssue("Cancelled payment requires cancellation audit fields");
+    }
+  });
 
 export const intakeRequestSchema = z.object({
   id: bookingIdSchema,
