@@ -106,8 +106,7 @@ export function isMessageLink(href: string | undefined | null): boolean {
   if (!href) return false;
   return [...SUPPORTED_APP_SCHEMES].some(
     (scheme) =>
-      href.startsWith(`${scheme}://message?`) ||
-      href === `${scheme}://message`,
+      href.startsWith(`${scheme}://message?`) || href === `${scheme}://message`,
   );
 }
 

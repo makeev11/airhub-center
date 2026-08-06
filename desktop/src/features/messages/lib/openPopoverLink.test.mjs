@@ -22,7 +22,10 @@ function makeSpies() {
 
 test("airhop://message deep-link routes in-app, not the OS opener", () => {
   const { handlers, external, inApp } = makeSpies();
-  openPopoverLink(`airhop://message?channel=${CHANNEL}&id=${MESSAGE}`, handlers);
+  openPopoverLink(
+    `airhop://message?channel=${CHANNEL}&id=${MESSAGE}`,
+    handlers,
+  );
   assert.equal(external.length, 0);
   assert.deepEqual(inApp, [
     { channelId: CHANNEL, messageId: MESSAGE, threadRootId: null },

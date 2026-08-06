@@ -22,9 +22,6 @@ export type FuzzyLogoProps = {
 };
 
 /** AirHop compatibility adapter for older loading-indicator call sites. */
-export function FuzzyLogo({
-  className,
-  ariaLabel = "AirHop",
-}: FuzzyLogoProps) {
+export function FuzzyLogo({ className, ariaLabel = "AirHop" }: FuzzyLogoProps) {
   return <AirHopLoadingMark ariaLabel={ariaLabel} className={className} />;
 }

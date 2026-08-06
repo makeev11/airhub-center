@@ -187,11 +187,7 @@ function CommunityButton({
   );
 }
 
-function CommunityDragOverlay({
-  iconUrl,
-}: {
-  iconUrl: string | null;
-}) {
+function CommunityDragOverlay({ iconUrl }: { iconUrl: string | null }) {
   return (
     <div
       className="flex h-9 w-9 cursor-grabbing items-center justify-center overflow-hidden rounded-xl bg-primary text-xs font-semibold text-primary-foreground opacity-90 shadow-lg ring-1 ring-sidebar-border"

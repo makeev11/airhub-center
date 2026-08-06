@@ -7,10 +7,7 @@ import {
 import { cn } from "@/shared/lib/cn";
 import "./airhop-brand.css";
 
-type AirHopMarkProps = Omit<
-  React.ComponentProps<"img">,
-  "alt" | "src"
-> & {
+type AirHopMarkProps = Omit<React.ComponentProps<"img">, "alt" | "src"> & {
   decorative?: boolean;
 };
 
@@ -35,10 +32,7 @@ export function AirHopMark({
 export function AirHopWordmark({ className }: { className?: string }) {
   return (
     <span
-      className={cn(
-        "inline-flex items-center gap-2 font-semibold",
-        className,
-      )}
+      className={cn("inline-flex items-center gap-2 font-semibold", className)}
     >
       <AirHopMark className="size-[1.35em]" />
       <span>{AIRHOP_PRODUCT_NAME}</span>
