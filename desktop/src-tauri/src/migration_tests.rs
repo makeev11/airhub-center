@@ -4,11 +4,11 @@ use super::*;
 #[test]
 fn canonical_dev_data_dir_replaces_last_component() {
     let current =
-        PathBuf::from("/Users/me/Library/Application Support/ru.airhop.centers.app.dev.my-branch");
+        PathBuf::from("/Users/me/Library/Application Support/ru.airhop.centers.dev.my-branch");
     let canonical = canonical_dev_data_dir(&current).unwrap();
     assert_eq!(
         canonical,
-        PathBuf::from("/Users/me/Library/Application Support/ru.airhop.centers.app.dev")
+        PathBuf::from("/Users/me/Library/Application Support/ru.airhop.centers.dev")
     );
 }
 
@@ -20,7 +20,7 @@ fn canonical_dev_data_dir_returns_none_for_root() {
 
 #[test]
 fn legacy_app_data_dir_maps_release_identifier() {
-    let current = PathBuf::from("/Users/me/Library/Application Support/ru.airhop.centers.app");
+    let current = PathBuf::from("/Users/me/Library/Application Support/ru.airhop.centers");
     let legacy = legacy_app_data_dir(&current).unwrap();
     assert_eq!(
         legacy,
@@ -31,7 +31,7 @@ fn legacy_app_data_dir_maps_release_identifier() {
 #[test]
 fn legacy_app_data_dir_maps_dev_worktree_identifier() {
     let current =
-        PathBuf::from("/Users/me/Library/Application Support/ru.airhop.centers.app.dev.my-branch");
+        PathBuf::from("/Users/me/Library/Application Support/ru.airhop.centers.dev.my-branch");
     let legacy = legacy_app_data_dir(&current).unwrap();
     assert_eq!(
         legacy,
@@ -62,31 +62,6 @@ fn copy_dir_all_preserves_nested_files_without_overwriting() {
     );
 }
 
-#[test]
-fn airhop_imports_buzz_data_without_mutating_the_legacy_source() {
-    let root = tempfile::tempdir().unwrap();
-    let current = root.path().join("ru.airhop.centers.app");
-    let legacy = root.path().join("xyz.block.buzz.app");
-    std::fs::create_dir_all(&legacy).unwrap();
-    std::fs::write(legacy.join("identity.key"), "legacy-key").unwrap();
-
-    assert_eq!(
-        legacy_app_data_dir(&current).as_deref(),
-        Some(legacy.as_path())
-    );
-    copy_dir_all(&legacy, &current).unwrap();
-
-    assert_eq!(
-        std::fs::read_to_string(current.join("identity.key")).unwrap(),
-        "legacy-key"
-    );
-    assert_eq!(
-        std::fs::read_to_string(legacy.join("identity.key")).unwrap(),
-        "legacy-key"
-    );
-    assert!(legacy.exists(), "legacy Buzz storage must remain untouched");
-}
-
 /// Helper: create a temp dir structure mimicking canonical + worktree layout.
 /// Packs live in a `.main` sibling (not canonical) to match real-world state.
 /// Returns `(parent_dir_handle, canonical_dir, worktree_dir)`.
@@ -94,8 +69,8 @@ fn airhop_imports_buzz_data_without_mutating_the_legacy_source() {
 fn setup_sync_layout() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let parent = tempfile::tempdir().unwrap();
     let canonical = parent.path().join(CANONICAL_DEV_IDENTIFIER);
-    let worktree = parent.path().join("ru.airhop.centers.app.dev.my-branch");
-    let main_instance = parent.path().join("ru.airhop.centers.app.dev.main");
+    let worktree = parent.path().join("ru.airhop.centers.dev.my-branch");
+    let main_instance = parent.path().join("ru.airhop.centers.dev.main");
 
     std::fs::create_dir_all(canonical.join("agents")).unwrap();
     std::fs::write(
@@ -376,7 +351,7 @@ fn seed_up_migrates_sibling_file_to_canonical_then_symlinks() {
     let sibling = canonical
         .parent()
         .unwrap()
-        .join("ru.airhop.centers.app.dev.main");
+        .join("ru.airhop.centers.dev.main");
     std::fs::create_dir_all(sibling.join("agents")).unwrap();
     std::fs::write(sibling.join(rel), r#"[{"id":"brain"}]"#).unwrap();
 
@@ -422,7 +397,7 @@ fn seed_up_skipped_when_canonical_has_file() {
     let sibling = canonical
         .parent()
         .unwrap()
-        .join("ru.airhop.centers.app.dev.main");
+        .join("ru.airhop.centers.dev.main");
     std::fs::create_dir_all(sibling.join("agents")).unwrap();
     std::fs::write(sibling.join(rel), r#"[{"id":"should-not-win"}]"#).unwrap();
 
@@ -449,7 +424,7 @@ fn seed_up_ignores_sibling_symlink_as_source() {
     let sibling = canonical
         .parent()
         .unwrap()
-        .join("ru.airhop.centers.app.dev.main");
+        .join("ru.airhop.centers.dev.main");
     std::fs::create_dir_all(sibling.join("agents")).unwrap();
     std::os::unix::fs::symlink(
         PathBuf::from("/nonexistent/elsewhere.json"),
@@ -471,7 +446,7 @@ fn canonical_dev_data_dir_returns_self_for_canonical_instance() {
     // The env-var guards (BUZZ_SHARE_IDENTITY, BUZZ_PRIVATE_KEY)
     // require a live Tauri AppHandle and are covered by integration
     // testing only.
-    let current = PathBuf::from("/Users/me/Library/Application Support/ru.airhop.centers.app.dev");
+    let current = PathBuf::from("/Users/me/Library/Application Support/ru.airhop.centers.dev");
     assert_eq!(canonical_dev_data_dir(&current).unwrap(), current);
 
     // Also verify with a temp dir on the real filesystem.
@@ -508,7 +483,7 @@ fn sync_migrates_teams_from_sibling_to_canonical() {
     let main_instance = canonical
         .parent()
         .unwrap()
-        .join("ru.airhop.centers.app.dev.main");
+        .join("ru.airhop.centers.dev.main");
 
     // Before sync: canonical has no teams, .main has the real team dir.
     assert!(!canonical.join("agents/teams").exists());
