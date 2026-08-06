@@ -12,8 +12,7 @@ AirHop HQ is deliberately outside this implementation. It will receive a separat
 
 ## Brand contract
 
-- The native and technical product name is `AirHop`.
-- Russian user-facing copy uses `Аирхоп` where a localized brand label is appropriate.
+- The product name is written exactly as `AirHop` in native metadata, technical configuration, and user-facing copy in every locale.
 - The existing round AirHop mark with the paper plane is the canonical square source asset.
 - The existing Cyrillic AirHop wordmark is the canonical horizontal source asset.
 - Buzz artwork must not remain in AirHop-owned product surfaces.
