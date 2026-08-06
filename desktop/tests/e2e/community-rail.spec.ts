@@ -65,6 +65,14 @@ test.describe("community rail", () => {
     const buttonB = page.getByTestId(`community-rail-button-${COMMUNITY_B.id}`);
     await expect(buttonA).toBeVisible();
     await expect(buttonB).toBeVisible();
+    const fallback = page
+      .getByTestId("community-rail-default-airhop-mark")
+      .first();
+    await expect(fallback).toBeVisible();
+    await expect(fallback.locator("img")).toHaveAttribute(
+      "src",
+      "/airhop/mark.svg",
+    );
 
     // The active community is marked via aria-current.
     await expect(buttonA).toHaveAttribute("aria-current", "true");

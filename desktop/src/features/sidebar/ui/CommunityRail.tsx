@@ -35,8 +35,8 @@ import {
   ContextMenuTrigger,
 } from "@/shared/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { AirHopMark } from "@/shared/ui/airhop-brand/AirHopBrand";
 import { cn } from "@/shared/lib/cn";
-import { getInitials } from "@/shared/lib/initials";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 
 type CommunityRailProps = {
@@ -152,7 +152,12 @@ function CommunityButton({
                     src={iconUrl}
                   />
                 ) : (
-                  getInitials(community.name) || "🐝"
+                  <span
+                    className="h-full w-full"
+                    data-testid="community-rail-default-airhop-mark"
+                  >
+                    <AirHopMark className="h-full w-full" />
+                  </span>
                 )}
               </span>
               {showBadge ? (
@@ -183,10 +188,8 @@ function CommunityButton({
 }
 
 function CommunityDragOverlay({
-  community,
   iconUrl,
 }: {
-  community: Community;
   iconUrl: string | null;
 }) {
   return (
@@ -202,7 +205,12 @@ function CommunityDragOverlay({
           src={iconUrl}
         />
       ) : (
-        getInitials(community.name) || "🐝"
+        <span
+          className="h-full w-full"
+          data-testid="community-rail-default-airhop-mark"
+        >
+          <AirHopMark className="h-full w-full" />
+        </span>
       )}
     </div>
   );
@@ -402,7 +410,6 @@ export function CommunityRail({
         <DragOverlay>
           {draggingCommunity ? (
             <CommunityDragOverlay
-              community={draggingCommunity}
               iconUrl={iconsByCommunity[draggingCommunity.id] ?? null}
             />
           ) : null}
