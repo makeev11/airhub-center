@@ -9,6 +9,15 @@ import {
   AIRHOP_TOUCH_ICON_PATH,
 } from "./airhopBrand.ts";
 
+function readPngDimensions(path) {
+  const png = readFileSync(path);
+  assert.equal(png.subarray(1, 4).toString("ascii"), "PNG");
+  return {
+    width: png.readUInt32BE(16),
+    height: png.readUInt32BE(20),
+  };
+}
+
 test("AirHop exposes one exact product name and asset contract", () => {
   assert.equal(AIRHOP_PRODUCT_NAME, "AirHop");
   assert.equal(AIRHOP_MARK_PATH, "/airhop/mark.svg");
@@ -26,4 +35,19 @@ test("the browser document identifies AirHop before React loads", () => {
     /rel="apple-touch-icon"[^>]+href="\/airhop\/apple-touch-icon\.png"/,
   );
   assert.doesNotMatch(html, /href="\/buzz\.svg/);
+});
+
+test("generated AirHop artwork matches the browser and installer contract", () => {
+  assert.equal(existsSync("public/airhop/apple-touch-icon.png"), true);
+  assert.equal(existsSync("src-tauri/icons/icon.icns"), true);
+  assert.equal(existsSync("src-tauri/icons/icon.ico"), true);
+  assert.equal(existsSync("src-tauri/icons/dmg-background.png"), true);
+  assert.deepEqual(readPngDimensions("public/airhop/apple-touch-icon.png"), {
+    width: 180,
+    height: 180,
+  });
+  assert.deepEqual(readPngDimensions("src-tauri/icons/dmg-background.png"), {
+    width: 660,
+    height: 532,
+  });
 });
