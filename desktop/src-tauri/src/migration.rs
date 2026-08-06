@@ -1,8 +1,8 @@
-//! Worktree data sync and on-launch reconciliation for the Buzz desktop app.
+//! Worktree data sync and on-launch reconciliation for the AirHop desktop app.
 //!
 //! **Worktree sync** (`sync_shared_agent_data`): Per-launch symlink creation
 //! from the current worktree data directory to the canonical dev data
-//! directory (`xyz.block.buzz.app.dev`). Only runs when
+//! directory (`ru.airhop.centers.app.dev`). Only runs when
 //! `BUZZ_SHARE_IDENTITY=1` and `BUZZ_PRIVATE_KEY` is set. All dev
 //! instances share the same physical files — edits in any worktree are
 //! immediately visible to all others.
@@ -21,9 +21,11 @@ use tauri::Manager;
 
 use crate::util::replace_with_symlink;
 
-const CANONICAL_DEV_IDENTIFIER: &str = "xyz.block.buzz.app.dev";
-const LEGACY_CANONICAL_DEV_IDENTIFIER: &str = "xyz.block.sprout.app.dev";
-const LEGACY_RELEASE_IDENTIFIER: &str = "xyz.block.sprout.app";
+const AIRHOP_RELEASE_IDENTIFIER: &str = "ru.airhop.centers.app";
+const AIRHOP_DEV_IDENTIFIER: &str = "ru.airhop.centers.app.dev";
+const LEGACY_BUZZ_RELEASE_IDENTIFIER: &str = "xyz.block.buzz.app";
+const LEGACY_BUZZ_DEV_IDENTIFIER: &str = "xyz.block.buzz.app.dev";
+const CANONICAL_DEV_IDENTIFIER: &str = AIRHOP_DEV_IDENTIFIER;
 
 /// JSON files symlinked from worktree data directories to the canonical
 /// dev data directory. Only data files — never `agent-pids/` or `logs/`.
@@ -41,8 +43,8 @@ const SHARED_AGENT_DIRS: &[&str] = &["agents/teams"];
 
 /// Returns `true` when `name` is a dev data dir name — i.e. it is exactly the
 /// canonical dev identifier or a worktree variant separated by a `.` (e.g.
-/// `xyz.block.buzz.app.dev.my-branch`). Rejects prefix-collisions such as
-/// `xyz.block.buzz.app.developer`. This is the authoritative dev/prod
+/// `ru.airhop.centers.app.dev.my-branch`). Rejects prefix-collisions such as
+/// `ru.airhop.centers.app.developer`. This is the authoritative dev/prod
 /// discriminator shared by `run_boot_migrations`, `sync_shared_agent_data`,
 /// and `reconcile_target_dir`.
 pub(crate) fn is_dev_data_dir_name(name: &str) -> bool {
@@ -58,10 +60,15 @@ fn canonical_dev_data_dir(current: &Path) -> Option<PathBuf> {
 
 pub(crate) fn legacy_app_data_dir(current: &Path) -> Option<PathBuf> {
     let name = current.file_name()?.to_str()?;
-    let legacy_name = if name.starts_with(CANONICAL_DEV_IDENTIFIER) {
-        name.replacen(CANONICAL_DEV_IDENTIFIER, LEGACY_CANONICAL_DEV_IDENTIFIER, 1)
-    } else if name.starts_with("xyz.block.buzz.app") {
-        name.replacen("xyz.block.buzz.app", LEGACY_RELEASE_IDENTIFIER, 1)
+    let legacy_name = if name == AIRHOP_DEV_IDENTIFIER {
+        LEGACY_BUZZ_DEV_IDENTIFIER.to_owned()
+    } else if let Some(suffix) = name.strip_prefix(AIRHOP_DEV_IDENTIFIER) {
+        if !suffix.starts_with('.') {
+            return None;
+        }
+        format!("{LEGACY_BUZZ_DEV_IDENTIFIER}{suffix}")
+    } else if name == AIRHOP_RELEASE_IDENTIFIER {
+        LEGACY_BUZZ_RELEASE_IDENTIFIER.to_owned()
     } else {
         return None;
     };
@@ -194,7 +201,7 @@ fn run_boot_migrations_inner(app: &tauri::AppHandle, reset_completed: bool) {
 }
 
 /// Copy one-time app state from the legacy app identifier directory to
-/// the current Buzz identifier directory. The Tauri identifier controls the app
+/// the current AirHop identifier directory. The Tauri identifier controls the app
 /// data path, so without this copy a product rename would look like a fresh
 /// install and users would lose their persisted identity and agent settings.
 pub fn migrate_legacy_app_data_dir(app: &tauri::AppHandle) {

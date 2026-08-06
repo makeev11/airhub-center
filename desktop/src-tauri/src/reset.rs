@@ -21,12 +21,12 @@ use std::path::{Path, PathBuf};
 
 /// Sentinel path: `<app_data_dir.parent>/.<bundle_id>.reset-pending`
 /// where `bundle_id` is the file-name component of `app_data_dir`
-/// (e.g. `xyz.block.buzz.app` or `xyz.block.buzz.app.dev`).
+/// (e.g. `ru.airhop.centers.app` or `ru.airhop.centers.app.dev`).
 pub(crate) fn sentinel_path(app_data_dir: &Path) -> PathBuf {
     let bundle_id = app_data_dir
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or("buzz");
+        .unwrap_or("airhop");
     let name = format!(".{bundle_id}.reset-pending");
     match app_data_dir.parent() {
         Some(parent) => parent.join(name),
@@ -94,9 +94,9 @@ pub(crate) struct ResetOutcome {
 /// Wipe parameters assembled by `lib.rs` and passed into `run_boot_reset_with_keychain`.
 pub(crate) struct ResetContext<'a> {
     pub app_data_dir: &'a Path,
-    /// Legacy App Support dir for this build (Sprout import source). When
-    /// present and non-empty, wiped alongside `app_data_dir` to prevent
-    /// `migrate_legacy_app_data_dir` from restoring the old identity.
+    /// Optional compatibility directory used only by isolated reset tests.
+    /// Production AirHop resets never provide the legacy Buzz import source:
+    /// importing must not mutate or delete data owned by another application.
     pub legacy_app_data_dir: Option<PathBuf>,
     /// Nest dir (`~/.buzz` or `~/.buzz-dev`) scoped to this build's variant,
     /// injected so unit tests can override without touching the global OnceLock.
@@ -123,12 +123,11 @@ pub(crate) fn run_boot_reset(app_data_dir: &Path) -> ResetOutcome {
 
     let store = crate::secret_store::SecretStore::keyring(crate::app_state::keyring_service());
     let home_dir = dirs::home_dir();
-    let legacy_dir = crate::migration::legacy_app_data_dir(app_data_dir);
     let nest_dir = crate::managed_agents::nest_dir();
 
     let ctx = ResetContext {
         app_data_dir,
-        legacy_app_data_dir: legacy_dir,
+        legacy_app_data_dir: None,
         nest_dir,
         keychain: &store,
         home_dir,
@@ -146,7 +145,7 @@ fn trash_path(original: &Path) -> PathBuf {
         original
             .file_name()
             .and_then(|n| n.to_str())
-            .unwrap_or("buzz")
+            .unwrap_or("airhop")
     ))
 }
 
@@ -391,7 +390,7 @@ mod tests {
         let dir = tmp
             .path()
             .join("Application Support")
-            .join("xyz.block.buzz.app");
+            .join("ru.airhop.centers.app");
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -572,7 +571,7 @@ mod tests {
         let app_data = tmp
             .path()
             .join("Application Support")
-            .join("xyz.block.buzz.app.dev");
+            .join("ru.airhop.centers.app.dev");
         std::fs::create_dir_all(&app_data).unwrap();
         write_sentinel(&app_data).unwrap();
 
@@ -608,7 +607,7 @@ mod tests {
         let app_data = tmp
             .path()
             .join("Application Support")
-            .join("xyz.block.buzz.app");
+            .join("ru.airhop.centers.app");
         std::fs::create_dir_all(&app_data).unwrap();
         write_sentinel(&app_data).unwrap();
 
@@ -659,6 +658,39 @@ mod tests {
 
         assert!(outcome.completed, "reset must complete");
         assert!(!legacy_dir.exists(), "legacy app-data dir must be removed");
+    }
+
+    #[test]
+    fn test_airhop_reset_leaves_buzz_storage_untouched() {
+        let tmp = TempDir::new().unwrap();
+        let app_support = tmp.path().join("Application Support");
+        let app_data = app_support.join("ru.airhop.centers.app");
+        let buzz_data = app_support.join("xyz.block.buzz.app");
+
+        std::fs::create_dir_all(&app_data).unwrap();
+        std::fs::write(app_data.join("config.json"), b"airhop").unwrap();
+        std::fs::create_dir_all(&buzz_data).unwrap();
+        std::fs::write(buzz_data.join("identity.key"), b"buzz-identity").unwrap();
+        write_sentinel(&app_data).unwrap();
+
+        let kc = FakeKeychain::ok();
+        let outcome = run_boot_reset_with_keychain(ResetContext {
+            app_data_dir: &app_data,
+            legacy_app_data_dir: None,
+            nest_dir: None,
+            keychain: &kc,
+            home_dir: None,
+            is_dev: false,
+        });
+
+        assert!(outcome.completed, "AirHop reset must complete");
+        assert!(!app_data.exists(), "AirHop storage must be removed");
+        assert!(buzz_data.exists(), "Buzz storage belongs to another app");
+        assert_eq!(
+            std::fs::read(buzz_data.join("identity.key")).unwrap(),
+            b"buzz-identity",
+            "Buzz storage content must remain unchanged"
+        );
     }
 
     // ── Test 9: unknown error during delete → failed, sentinel kept ────────
@@ -715,7 +747,7 @@ mod tests {
         let app_data = tmp
             .path()
             .join("Application Support")
-            .join("xyz.block.buzz.app.dev");
+            .join("ru.airhop.centers.app.dev");
         std::fs::create_dir_all(&app_data).unwrap();
         write_sentinel(&app_data).unwrap();
 
@@ -777,13 +809,13 @@ mod tests {
     fn test_crash_retry_cleans_prior_deterministic_trash() {
         let tmp = TempDir::new().unwrap();
         let app_support = tmp.path().join("Application Support");
-        let app_data = app_support.join("xyz.block.buzz.app");
+        let app_data = app_support.join("ru.airhop.centers.app");
         std::fs::create_dir_all(&app_data).unwrap();
         write_sentinel(&app_data).unwrap();
 
         // Simulate a prior crashed boot: originals absent, deterministic trash
         // present from the crash (as if the process renamed then died).
-        let trash_app_dir = app_support.join("xyz.block.buzz.app.reset-trash");
+        let trash_app_dir = app_support.join("ru.airhop.centers.app.reset-trash");
         std::fs::create_dir_all(&trash_app_dir).unwrap();
         std::fs::write(trash_app_dir.join("identity.key"), b"old-key").unwrap();
 
@@ -811,7 +843,7 @@ mod tests {
     fn test_keychain_fail_restores_all_then_retry_cleans() {
         let tmp = TempDir::new().unwrap();
         let app_support = tmp.path().join("Application Support");
-        let app_data = app_support.join("xyz.block.buzz.app");
+        let app_data = app_support.join("ru.airhop.centers.app");
         std::fs::create_dir_all(&app_data).unwrap();
         std::fs::write(app_data.join("config.json"), b"{}").unwrap();
 
@@ -859,7 +891,7 @@ mod tests {
         assert!(!app_data.exists(), "app-data must be gone");
         assert!(!legacy.exists(), "legacy must be gone");
         // No trash directories should remain.
-        let trash_app = app_support.join("xyz.block.buzz.app.reset-trash");
+        let trash_app = app_support.join("ru.airhop.centers.app.reset-trash");
         let trash_legacy = app_support.join("xyz.block.sprout.app.reset-trash");
         assert!(!trash_app.exists(), "app trash must be cleaned");
         assert!(!trash_legacy.exists(), "legacy trash must be cleaned");
