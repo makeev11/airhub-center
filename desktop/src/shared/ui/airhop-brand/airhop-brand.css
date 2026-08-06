@@ -1,0 +1,25 @@
+@keyframes airhop-mark-breathe {
+  0%,
+  100% {
+    opacity: 0.82;
+    transform: scale(0.96);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.airhop-loading-mark {
+  animation: airhop-mark-breathe 1.8s ease-in-out infinite;
+  transform-origin: center;
+  will-change: opacity, transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .airhop-loading-mark {
+    animation: none;
+    will-change: auto;
+  }
+}
