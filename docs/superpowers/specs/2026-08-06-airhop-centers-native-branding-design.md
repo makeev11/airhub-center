@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-06  
 **Scope:** `buzz-airhop` application for children's centers  
-**Status:** Approved direction, awaiting written-spec review
+**Status:** Approved
 
 ## Goal
 
@@ -20,7 +20,7 @@ AirHop HQ is deliberately outside this implementation. It will receive a separat
 
 ## Asset strategy
 
-Keep one checked-in canonical mark and one checked-in canonical wordmark in the desktop public assets. Generate platform-specific derivatives from the canonical mark rather than maintaining unrelated hand-edited versions.
+Keep one checked-in canonical mark in the desktop public assets. Render the exact text `AirHop` beside it where a horizontal brand signature is needed. Generate platform-specific derivatives from the canonical mark rather than maintaining unrelated hand-edited versions.
 
 Required derivatives:
 
@@ -31,7 +31,7 @@ Required derivatives:
 - Windows `.ico`;
 - store and Windows tile PNGs already referenced by the Tauri project.
 
-The mark must stay legible at 16×16 pixels. Small derivatives use the round mark alone; they never include the wordmark or fine text. The wordmark is used only where sufficient horizontal space exists. Assets should be optimized once at build time and loaded as static files; no runtime image processing or network dependency is introduced.
+The mark must stay legible at 16×16 pixels. Small derivatives use the round mark alone; they never include text. The `AirHop` text signature is used only where sufficient horizontal space exists. Assets should be optimized once at build time and loaded as static files; no runtime image processing or network dependency is introduced.
 
 ## Native application identity
 
