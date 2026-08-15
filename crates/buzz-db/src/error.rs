@@ -72,6 +72,14 @@ pub enum DbError {
     /// A seat-holding booking or management credential conflicts with an existing row.
     #[error("AirHub booking conflicts with an existing reservation")]
     AirhopBookingConflict,
+
+    /// An idempotent AirHub command receipt exists but has not reached a terminal state.
+    #[error("AirHub command is already in progress")]
+    AirhopCommandInProgress,
+
+    /// An idempotent AirHub command receipt is durably marked failed.
+    #[error("AirHub command previously failed")]
+    AirhopCommandPreviouslyFailed,
 }
 
 /// Convenience alias for `Result<T, DbError>`.

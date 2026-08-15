@@ -20,7 +20,7 @@ pub enum BookingVisitKind {
 }
 
 impl BookingVisitKind {
-    const fn as_db_str(self) -> &'static str {
+    pub(super) const fn as_db_str(self) -> &'static str {
         match self {
             Self::Trial => "trial",
             Self::Single => "single",
@@ -130,6 +130,7 @@ pub async fn reserve_booking(
            ON org.community_id = o.community_id AND org.id = o.organization_id \
          WHERE o.community_id = $1 AND o.organization_id = $2 \
            AND o.recurrence_rule_id = $3 AND o.original_date = $4 \
+           AND o.starts_at > now() \
          FOR UPDATE OF o",
     )
     .bind(tenant.community().as_uuid())
@@ -422,6 +423,28 @@ fn parse_booking_row(row: sqlx::postgres::PgRow) -> Result<BookingRecord> {
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
+}
+
+/// Loads one booking from the authoritative writer transaction.
+pub(super) async fn get_booking_by_id(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    booking_id: Uuid,
+) -> Result<Option<BookingRecord>> {
+    let row = sqlx::query(
+        "SELECT id, organization_id, family_id, representative_id, child_id, \
+                recurrence_rule_id, original_date, visit_kind, status, version, \
+                created_at, updated_at \
+         FROM airhop_bookings \
+         WHERE community_id = $1 AND organization_id = $2 AND id = $3",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(booking_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    row.map(parse_booking_row).transpose()
 }
 
 #[cfg(test)]

@@ -561,7 +561,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 26);
+        assert_eq!(migrations.len(), 29);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -919,6 +919,25 @@ mod tests {
         assert!(heartbeat.contains("epoch"));
         assert!(heartbeat.contains("INSERT INTO replica_heartbeat (id) VALUES (1)"));
         assert!(heartbeat.contains("_operator_global_tables"));
+
+        assert_eq!(migrations[26].version, 27);
+        let airhop_foundation = migrations[26].sql.as_str();
+        assert!(airhop_foundation.contains("CREATE TABLE airhop_organizations"));
+        assert!(airhop_foundation.contains("CREATE TABLE airhop_commands"));
+        assert!(airhop_foundation.contains("CREATE TABLE airhop_domain_events"));
+        assert!(airhop_foundation.contains("CREATE TABLE airhop_outbox"));
+
+        assert_eq!(migrations[27].version, 28);
+        let airhop_schedule = migrations[27].sql.as_str();
+        assert!(airhop_schedule.contains("CREATE TABLE airhop_branches"));
+        assert!(airhop_schedule.contains("CREATE TABLE airhop_groups"));
+        assert!(airhop_schedule.contains("CREATE TABLE airhop_lesson_occurrences"));
+
+        assert_eq!(migrations[28].version, 29);
+        let airhop_customers = migrations[28].sql.as_str();
+        assert!(airhop_customers.contains("CREATE TABLE airhop_families"));
+        assert!(airhop_customers.contains("CREATE TABLE airhop_consents"));
+        assert!(airhop_customers.contains("CREATE TABLE airhop_bookings"));
     }
 
     #[test]
@@ -1161,7 +1180,7 @@ mod tests {
         run_migrations(&pool)
             .await
             .expect("retry succeeds after operator repair");
-        assert_eq!(applied_versions(&pool).await.last().copied(), Some(26));
+        assert_eq!(applied_versions(&pool).await.last().copied(), Some(29));
     }
 
     #[tokio::test]

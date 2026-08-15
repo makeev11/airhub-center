@@ -18,6 +18,8 @@ use crate::{Db, DbError, Result};
 
 /// Capacity-safe booking persistence.
 pub mod booking;
+/// Atomic public booking command application service.
+pub mod public_booking;
 /// Authoritative occurrence read-model persistence.
 pub mod schedule;
 
