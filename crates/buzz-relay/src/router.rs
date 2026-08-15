@@ -50,6 +50,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 
     let git_policy_router = api::git::git_policy_router(state.clone());
 
+    let airhop_public_router = Router::new()
+        .route(
+            "/api/airhop/public/bookings",
+            post(api::airhop_public::create_public_booking),
+        )
+        .layer(RequestBodyLimitLayer::new(16 * 1024))
+        .with_state(state.clone());
+
     let admin_enabled = state.config.admin.is_some();
     let admin_web_dir = state
         .config
@@ -136,7 +144,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     let mut merged = api_router
         .merge(media_router)
         .merge(git_router)
-        .merge(git_policy_router);
+        .merge(git_policy_router)
+        .merge(airhop_public_router);
     if let Some(admin_router) = admin_router {
         merged = merged.merge(admin_router);
     }

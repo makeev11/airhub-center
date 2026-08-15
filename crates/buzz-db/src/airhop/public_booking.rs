@@ -107,7 +107,7 @@ pub struct CreatePublicBookingInput {
     pub idempotency_digest: [u8; 32],
     /// Keyed digest used to locate exact phone matches without indexing raw PII.
     pub phone_match_digest: [u8; 32],
-    /// SHA-256 hash of the canonical request body.
+    /// Tenant-scoped keyed digest of the canonical request body.
     pub request_hash: [u8; 32],
     /// Keyed digest of the opaque management credential returned by the route.
     pub management_token_digest: [u8; 32],

@@ -1144,6 +1144,7 @@ dependencies = [
  "chrono",
  "deadpool-redis",
  "futures-util",
+ "hex",
  "nostr",
  "redis",
  "serde",
@@ -1193,6 +1194,7 @@ dependencies = [
 name = "buzz-relay"
 version = "0.2.0"
 dependencies = [
+ "airhop-core",
  "anyhow",
  "async-compression",
  "async-trait",

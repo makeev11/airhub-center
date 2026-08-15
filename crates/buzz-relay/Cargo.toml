@@ -16,6 +16,7 @@ name = "buzz-relay"
 path = "src/main.rs"
 
 [dependencies]
+airhop-core = { workspace = true }
 buzz-core = { workspace = true }
 buzz-conformance = { workspace = true }
 buzz-db = { workspace = true }

@@ -409,9 +409,7 @@ pub async fn insert_pending_command(
     .ok_or_else(|| DbError::NotFound("AirHub idempotent command receipt".to_owned()))?;
     let command = parse_command_row(row)?;
     if command.request_hash.as_slice() != input.request_hash {
-        return Err(DbError::InvalidData(
-            "AirHub idempotency key was reused with a different request".to_owned(),
-        ));
+        return Err(DbError::AirhopIdempotencyConflict);
     }
     Ok(CommandInsertOutcome::Existing(command))
 }

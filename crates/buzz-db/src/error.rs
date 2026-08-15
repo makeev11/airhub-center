@@ -80,6 +80,10 @@ pub enum DbError {
     /// An idempotent AirHub command receipt is durably marked failed.
     #[error("AirHub command previously failed")]
     AirhopCommandPreviouslyFailed,
+
+    /// An idempotency key was reused with a different canonical request body.
+    #[error("AirHub idempotency key was reused with a different request")]
+    AirhopIdempotencyConflict,
 }
 
 /// Convenience alias for `Result<T, DbError>`.

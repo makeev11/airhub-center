@@ -94,6 +94,46 @@ impl RedisRateLimiter {
     pub fn new(pool: deadpool_redis::Pool) -> Self {
         Self { pool }
     }
+
+    /// Increments a tenant-scoped anonymous quota identified only by a keyed digest.
+    ///
+    /// Public unauthenticated surfaces have no pubkey, so callers first HMAC a
+    /// privacy-sensitive fingerprint such as an IP address or normalized phone.
+    /// Redis receives only that digest. `namespace` separates independent
+    /// operations and is restricted to a small safe key alphabet.
+    pub async fn check_scoped_anonymous(
+        &self,
+        ctx: &TenantContext,
+        namespace: &str,
+        fingerprint_digest: &[u8; 32],
+        window_secs: u64,
+        limit: u64,
+    ) -> Result<RateLimitResult, AuthError> {
+        let key = anonymous_rate_limit_key(ctx, namespace, fingerprint_digest)?;
+        run_rate_limit(&self.pool, &key, window_secs, limit).await
+    }
+}
+
+fn anonymous_rate_limit_key(
+    ctx: &TenantContext,
+    namespace: &str,
+    fingerprint_digest: &[u8; 32],
+) -> Result<String, AuthError> {
+    if namespace.is_empty()
+        || namespace.len() > 48
+        || !namespace
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(AuthError::Internal(
+            "invalid anonymous rate-limit namespace".to_owned(),
+        ));
+    }
+    Ok(format!(
+        "buzz:{}:ratelimit:anon:{namespace}:{}",
+        ctx.community(),
+        hex::encode(fingerprint_digest)
+    ))
 }
 
 impl RateLimiter for RedisRateLimiter {
@@ -117,5 +157,38 @@ impl RateLimiter for RedisRateLimiter {
     ) -> Result<RateLimitResult, AuthError> {
         let key = buzz_auth::rate_limit::ip_rate_limit_key(ip);
         run_rate_limit(&self.pool, &key, window_secs, limit).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use buzz_core::CommunityId;
+    use uuid::Uuid;
+
+    #[test]
+    fn anonymous_keys_are_tenant_and_namespace_scoped_without_raw_fingerprint() {
+        let first =
+            TenantContext::resolved(CommunityId::from_uuid(Uuid::from_u128(1)), "first.example");
+        let second =
+            TenantContext::resolved(CommunityId::from_uuid(Uuid::from_u128(2)), "second.example");
+        let digest = [0xab; 32];
+        let first_ip =
+            anonymous_rate_limit_key(&first, "airhop_ip", &digest).expect("valid anonymous key");
+        let first_phone =
+            anonymous_rate_limit_key(&first, "airhop_phone", &digest).expect("valid anonymous key");
+        let second_ip =
+            anonymous_rate_limit_key(&second, "airhop_ip", &digest).expect("valid anonymous key");
+        assert_ne!(first_ip, first_phone);
+        assert_ne!(first_ip, second_ip);
+        assert!(first_ip.ends_with(&hex::encode(digest)));
+        assert!(!first_ip.contains("first.example"));
+    }
+
+    #[test]
+    fn anonymous_namespace_rejects_redis_key_delimiters() {
+        let tenant =
+            TenantContext::resolved(CommunityId::from_uuid(Uuid::from_u128(1)), "relay.example");
+        assert!(anonymous_rate_limit_key(&tenant, "airhop:ip", &[1; 32]).is_err());
     }
 }

@@ -1,5 +1,7 @@
 //! Relay configuration from environment variables.
 
+use std::collections::BTreeMap;
+use std::fmt;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -44,6 +46,52 @@ pub struct JoinPolicyConfig {
     pub age_attestation_required: bool,
     /// Content-derived identifier binding receipts to the exact policy revision.
     pub version: String,
+}
+
+#[derive(Clone)]
+struct AirhopSecret([u8; 32]);
+
+impl fmt::Debug for AirhopSecret {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("AirhopSecret([REDACTED])")
+    }
+}
+
+/// Opt-in security and abuse-control settings for public AirHub booking.
+#[derive(Debug, Clone)]
+pub struct AirhopPublicBookingConfig {
+    index_key: AirhopSecret,
+    management_keys: BTreeMap<i16, AirhopSecret>,
+    current_management_key_version: i16,
+    ip_requests_per_minute: u64,
+    phone_requests_per_hour: u64,
+    client_ip_header: Option<axum::http::HeaderName>,
+}
+
+impl AirhopPublicBookingConfig {
+    pub(crate) const fn index_key(&self) -> &[u8; 32] {
+        &self.index_key.0
+    }
+
+    pub(crate) fn management_key(&self, version: i16) -> Option<&[u8; 32]> {
+        self.management_keys.get(&version).map(|secret| &secret.0)
+    }
+
+    pub(crate) const fn current_management_key_version(&self) -> i16 {
+        self.current_management_key_version
+    }
+
+    pub(crate) const fn ip_requests_per_minute(&self) -> u64 {
+        self.ip_requests_per_minute
+    }
+
+    pub(crate) const fn phone_requests_per_hour(&self) -> u64 {
+        self.phone_requests_per_hour
+    }
+
+    pub(crate) fn client_ip_header(&self) -> Option<&axum::http::HeaderName> {
+        self.client_ip_header.as_ref()
+    }
 }
 
 /// Relay runtime configuration, loaded from environment variables.
@@ -97,6 +145,8 @@ pub struct Config {
     pub slow_client_grace_limit: u8,
     /// Authentication provider configuration.
     pub auth: buzz_auth::AuthConfig,
+    /// Public AirHub booking security configuration. Absent disables the endpoint.
+    pub airhop_public_booking: Option<AirhopPublicBookingConfig>,
     /// Whether REST API requests must present a valid token. Independent of
     /// WebSocket protocol auth, which is *always* required by REQ/EVENT/COUNT.
     pub require_auth_token: bool,
@@ -296,6 +346,132 @@ fn positive_u64_from_env(name: &str, default: u64) -> Result<u64, ConfigError> {
             "{name} must be valid Unicode"
         ))),
     }
+}
+
+fn optional_unicode_env(name: &str) -> Result<Option<String>, ConfigError> {
+    match std::env::var(name) {
+        Ok(raw) => Ok(Some(raw.trim().to_owned()).filter(|value| !value.is_empty())),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(ConfigError::InvalidValue(format!(
+            "{name} must be valid Unicode"
+        ))),
+    }
+}
+
+fn parse_airhop_secret(name: &str, raw: &str) -> Result<AirhopSecret, ConfigError> {
+    let bytes = hex::decode(raw).map_err(|_| {
+        ConfigError::InvalidValue(format!("{name} must be exactly 64 hexadecimal characters"))
+    })?;
+    let key: [u8; 32] = bytes.try_into().map_err(|_| {
+        ConfigError::InvalidValue(format!("{name} must be exactly 64 hexadecimal characters"))
+    })?;
+    if key.iter().all(|byte| *byte == 0) {
+        return Err(ConfigError::InvalidValue(format!(
+            "{name} cannot be an all-zero key"
+        )));
+    }
+    Ok(AirhopSecret(key))
+}
+
+fn airhop_public_booking_config_from_env() -> Result<Option<AirhopPublicBookingConfig>, ConfigError>
+{
+    const INDEX_KEY_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_INDEX_KEY";
+    const MANAGEMENT_KEYS_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_MANAGEMENT_KEYS";
+    const CURRENT_VERSION_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_CURRENT_KEY_VERSION";
+    const IP_LIMIT_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_IP_REQUESTS_PER_MINUTE";
+    const PHONE_LIMIT_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_PHONE_REQUESTS_PER_HOUR";
+    const CLIENT_IP_HEADER_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_CLIENT_IP_HEADER";
+
+    let index_key = optional_unicode_env(INDEX_KEY_ENV)?;
+    let management_keys = optional_unicode_env(MANAGEMENT_KEYS_ENV)?;
+    let current_version = optional_unicode_env(CURRENT_VERSION_ENV)?;
+    let ip_limit = optional_unicode_env(IP_LIMIT_ENV)?;
+    let phone_limit = optional_unicode_env(PHONE_LIMIT_ENV)?;
+    let client_ip_header = optional_unicode_env(CLIENT_IP_HEADER_ENV)?;
+    if index_key.is_none()
+        && management_keys.is_none()
+        && current_version.is_none()
+        && ip_limit.is_none()
+        && phone_limit.is_none()
+        && client_ip_header.is_none()
+    {
+        return Ok(None);
+    }
+    let index_key = parse_airhop_secret(
+        INDEX_KEY_ENV,
+        index_key.as_deref().ok_or_else(|| {
+            ConfigError::InvalidValue(format!(
+                "{INDEX_KEY_ENV}, {MANAGEMENT_KEYS_ENV}, and {CURRENT_VERSION_ENV} must be configured together"
+            ))
+        })?,
+    )?;
+    let raw_management_keys = management_keys.ok_or_else(|| {
+        ConfigError::InvalidValue(format!(
+            "{INDEX_KEY_ENV}, {MANAGEMENT_KEYS_ENV}, and {CURRENT_VERSION_ENV} must be configured together"
+        ))
+    })?;
+    let current_management_key_version = current_version
+        .ok_or_else(|| {
+            ConfigError::InvalidValue(format!(
+                "{INDEX_KEY_ENV}, {MANAGEMENT_KEYS_ENV}, and {CURRENT_VERSION_ENV} must be configured together"
+            ))
+        })?
+        .parse::<i16>()
+        .ok()
+        .filter(|version| *version > 0)
+        .ok_or_else(|| {
+            ConfigError::InvalidValue(format!(
+                "{CURRENT_VERSION_ENV} must be a positive 16-bit integer"
+            ))
+        })?;
+
+    let mut parsed_management_keys = BTreeMap::new();
+    for entry in raw_management_keys.split(',') {
+        let (version, raw_key) = entry.trim().split_once(':').ok_or_else(|| {
+            ConfigError::InvalidValue(format!(
+                "{MANAGEMENT_KEYS_ENV} entries must use version:64-hex-key"
+            ))
+        })?;
+        let version = version
+            .trim()
+            .parse::<i16>()
+            .ok()
+            .filter(|version| *version > 0)
+            .ok_or_else(|| {
+                ConfigError::InvalidValue(format!(
+                    "{MANAGEMENT_KEYS_ENV} versions must be positive 16-bit integers"
+                ))
+            })?;
+        let key = parse_airhop_secret(MANAGEMENT_KEYS_ENV, raw_key.trim())?;
+        if parsed_management_keys.insert(version, key).is_some() {
+            return Err(ConfigError::InvalidValue(format!(
+                "{MANAGEMENT_KEYS_ENV} contains duplicate version {version}"
+            )));
+        }
+    }
+    if !parsed_management_keys.contains_key(&current_management_key_version) {
+        return Err(ConfigError::InvalidValue(format!(
+            "{CURRENT_VERSION_ENV} must select a version present in {MANAGEMENT_KEYS_ENV}"
+        )));
+    }
+
+    let client_ip_header = client_ip_header
+        .map(|value| {
+            value.parse::<axum::http::HeaderName>().map_err(|_| {
+                ConfigError::InvalidValue(format!(
+                    "{CLIENT_IP_HEADER_ENV} must be a valid HTTP header name"
+                ))
+            })
+        })
+        .transpose()?;
+    Ok(Some(AirhopPublicBookingConfig {
+        index_key,
+        management_keys: parsed_management_keys,
+        current_management_key_version,
+        ip_requests_per_minute: positive_u64_from_env(IP_LIMIT_ENV, 10)?,
+        phone_requests_per_hour: positive_u64_from_env(PHONE_LIMIT_ENV, 5)?,
+        client_ip_header,
+    }))
 }
 
 fn rate_limit_config_from_env() -> Result<buzz_auth::RateLimitConfig, ConfigError> {
@@ -633,6 +809,7 @@ impl Config {
         let auth = buzz_auth::AuthConfig {
             rate_limits: rate_limit_config_from_env()?,
         };
+        let airhop_public_booking = airhop_public_booking_config_from_env()?;
 
         if !require_auth_token {
             warn!(
@@ -946,6 +1123,7 @@ impl Config {
             max_frame_bytes,
             slow_client_grace_limit,
             auth,
+            airhop_public_booking,
             require_auth_token,
             cors_origins,
             relay_private_key,
@@ -1009,6 +1187,7 @@ mod tests {
         assert!(config.max_connections > 0);
         assert!(config.send_buffer_size > 0);
         assert_eq!(config.max_frame_bytes, DEFAULT_MAX_FRAME_BYTES);
+        assert!(config.airhop_public_booking.is_none());
         assert!(config.slow_client_grace_limit > 0);
         assert!(
             !config.pubkey_allowlist_enabled,
@@ -1051,6 +1230,67 @@ mod tests {
             config.huddle_audio_available,
             "huddle_audio_available should default to true so single-pod (N=1) keeps today's huddle behavior"
         );
+    }
+
+    #[test]
+    fn airhop_booking_keyring_is_opt_in_rotatable_and_redacted() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let names = [
+            "BUZZ_AIRHOP_PUBLIC_BOOKING_INDEX_KEY",
+            "BUZZ_AIRHOP_PUBLIC_BOOKING_MANAGEMENT_KEYS",
+            "BUZZ_AIRHOP_PUBLIC_BOOKING_CURRENT_KEY_VERSION",
+            "BUZZ_AIRHOP_PUBLIC_BOOKING_IP_REQUESTS_PER_MINUTE",
+            "BUZZ_AIRHOP_PUBLIC_BOOKING_PHONE_REQUESTS_PER_HOUR",
+            "BUZZ_AIRHOP_PUBLIC_BOOKING_CLIENT_IP_HEADER",
+        ];
+        let previous = names.map(std::env::var_os);
+        for name in names {
+            std::env::remove_var(name);
+        }
+        std::env::set_var("BUZZ_AIRHOP_PUBLIC_BOOKING_IP_REQUESTS_PER_MINUTE", "7");
+        assert!(airhop_public_booking_config_from_env().is_err());
+        std::env::remove_var("BUZZ_AIRHOP_PUBLIC_BOOKING_IP_REQUESTS_PER_MINUTE");
+
+        let index_key = "11".repeat(32);
+        let first_management_key = "22".repeat(32);
+        let second_management_key = "33".repeat(32);
+        std::env::set_var("BUZZ_AIRHOP_PUBLIC_BOOKING_INDEX_KEY", &index_key);
+        std::env::set_var(
+            "BUZZ_AIRHOP_PUBLIC_BOOKING_MANAGEMENT_KEYS",
+            format!("1:{first_management_key},2:{second_management_key}"),
+        );
+        std::env::set_var("BUZZ_AIRHOP_PUBLIC_BOOKING_CURRENT_KEY_VERSION", "2");
+        std::env::set_var("BUZZ_AIRHOP_PUBLIC_BOOKING_IP_REQUESTS_PER_MINUTE", "7");
+        std::env::set_var("BUZZ_AIRHOP_PUBLIC_BOOKING_PHONE_REQUESTS_PER_HOUR", "3");
+        std::env::set_var(
+            "BUZZ_AIRHOP_PUBLIC_BOOKING_CLIENT_IP_HEADER",
+            "x-envoy-external-address",
+        );
+
+        let config = airhop_public_booking_config_from_env()
+            .expect("valid AirHub booking config")
+            .expect("AirHub booking enabled");
+        assert_eq!(config.current_management_key_version(), 2);
+        assert!(config.management_key(1).is_some());
+        assert!(config.management_key(2).is_some());
+        assert_eq!(config.ip_requests_per_minute(), 7);
+        assert_eq!(config.phone_requests_per_hour(), 3);
+        assert_eq!(
+            config.client_ip_header().map(|name| name.as_str()),
+            Some("x-envoy-external-address")
+        );
+        let debug = format!("{config:?}");
+        assert!(!debug.contains(&index_key));
+        assert!(!debug.contains(&first_management_key));
+        assert!(!debug.contains(&second_management_key));
+        assert!(debug.contains("REDACTED"));
+
+        for (name, value) in names.into_iter().zip(previous) {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
     }
 
     #[test]
