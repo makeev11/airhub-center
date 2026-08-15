@@ -67,6 +67,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "airhop-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1002,6 +1013,7 @@ dependencies = [
 name = "buzz-db"
 version = "0.1.0"
 dependencies = [
+ "airhop-core",
  "buzz-core",
  "chrono",
  "hex",

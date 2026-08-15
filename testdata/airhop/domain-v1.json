@@ -1,0 +1,130 @@
+{
+  "ageCases": [
+    {
+      "birthDate": "2020-08-10",
+      "lessonDate": "2026-08-09",
+      "completedMonths": 71
+    },
+    {
+      "birthDate": "2020-08-10",
+      "lessonDate": "2026-08-10",
+      "completedMonths": 72
+    },
+    {
+      "birthDate": "2020-08-31",
+      "lessonDate": "2026-02-28",
+      "completedMonths": 65
+    },
+    {
+      "birthDate": "2026-08-11",
+      "lessonDate": "2026-08-10",
+      "completedMonths": null
+    }
+  ],
+  "bookingTransitionCases": [
+    {
+      "from": "pending_confirmation",
+      "to": "confirmed",
+      "allowed": true
+    },
+    {
+      "from": "pending_confirmation",
+      "to": "rejected",
+      "allowed": true
+    },
+    {
+      "from": "confirmed",
+      "to": "cancelled_by_parent",
+      "allowed": true
+    },
+    {
+      "from": "confirmed",
+      "to": "rejected",
+      "allowed": false
+    },
+    {
+      "from": "rejected",
+      "to": "confirmed",
+      "allowed": false
+    },
+    {
+      "from": "cancelled_by_center",
+      "to": "cancelled_by_center",
+      "allowed": true
+    }
+  ],
+  "seatHoldingCases": [
+    {
+      "status": "pending_confirmation",
+      "holdsSeat": true
+    },
+    {
+      "status": "confirmed",
+      "holdsSeat": true
+    },
+    {
+      "status": "rejected",
+      "holdsSeat": false
+    },
+    {
+      "status": "cancelled_by_parent",
+      "holdsSeat": false
+    },
+    {
+      "status": "cancelled_by_center",
+      "holdsSeat": false
+    }
+  ],
+  "recurrenceCases": [
+    {
+      "startsOn": "2026-08-10",
+      "endsOn": "2026-08-21",
+      "weekdays": ["tuesday", "thursday"],
+      "date": "2026-08-11",
+      "occurs": true
+    },
+    {
+      "startsOn": "2026-08-10",
+      "endsOn": "2026-08-21",
+      "weekdays": ["tuesday", "thursday"],
+      "date": "2026-08-12",
+      "occurs": false
+    },
+    {
+      "startsOn": "2026-08-10",
+      "endsOn": "2026-08-21",
+      "weekdays": ["tuesday", "thursday"],
+      "date": "2026-08-25",
+      "occurs": false
+    }
+  ],
+  "capacityCases": [
+    {
+      "enrollmentStatus": "active",
+      "bookingStatus": "pending_confirmation",
+      "sameChild": true,
+      "expectedOccupancy": 1,
+      "capacity": 1,
+      "candidateIsExistingChild": true,
+      "candidateAllowed": true
+    },
+    {
+      "enrollmentStatus": "active",
+      "bookingStatus": "confirmed",
+      "sameChild": false,
+      "expectedOccupancy": 2,
+      "capacity": 2,
+      "candidateIsExistingChild": false,
+      "candidateAllowed": false
+    },
+    {
+      "enrollmentStatus": "paused",
+      "bookingStatus": "cancelled_by_parent",
+      "sameChild": false,
+      "expectedOccupancy": 0,
+      "capacity": 1,
+      "candidateIsExistingChild": false,
+      "candidateAllowed": true
+    }
+  ]
+}

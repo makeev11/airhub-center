@@ -11,6 +11,8 @@
 
 /// Explicit deployment-global admin report reads.
 pub mod admin_moderation;
+/// AirHub operational organization, command, event, and outbox persistence.
+pub mod airhop;
 /// API token storage and lookup.
 pub mod api_token;
 /// Relay-scoped archived identity persistence (NIP-IA).

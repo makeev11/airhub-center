@@ -48,6 +48,30 @@ pub enum DbError {
     /// A stored timestamp value could not be interpreted.
     #[error("invalid timestamp: {0}")]
     InvalidTimestamp(i64),
+
+    /// The stable AirHub lesson is cancelled, archived, or otherwise unavailable.
+    #[error("AirHub lesson occurrence is unavailable")]
+    AirhopOccurrenceUnavailable,
+
+    /// The child is outside the group's inclusive age limits on the lesson date.
+    #[error("child does not match the AirHub lesson age limits")]
+    AirhopAgeMismatch,
+
+    /// The occurrence has no seat for another distinct child.
+    #[error("AirHub lesson occurrence is at capacity")]
+    AirhopCapacityFull,
+
+    /// The requested trial or one-off visit kind is disabled by effective policy.
+    #[error("requested AirHub visit kind is disabled")]
+    AirhopVisitDisabled,
+
+    /// Family, representative, child, consent, or command identity is inconsistent.
+    #[error("AirHub booking identity is inconsistent")]
+    AirhopIdentityMismatch,
+
+    /// A seat-holding booking or management credential conflicts with an existing row.
+    #[error("AirHub booking conflicts with an existing reservation")]
+    AirhopBookingConflict,
 }
 
 /// Convenience alias for `Result<T, DbError>`.
