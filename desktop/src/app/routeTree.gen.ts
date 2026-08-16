@@ -17,6 +17,9 @@ import { Route as projectsDotprojectIdRouteImport } from "./routes/projects.$pro
 import { Route as messagesDotnewRouteImport } from "./routes/messages.new";
 import { Route as channelsDotchannelIdRouteImport } from "./routes/channels.$channelId";
 import { Route as bookingDotscheduleRouteImport } from "./routes/booking.schedule";
+import { Route as bookingDotdemoHostRouteImport } from "./routes/booking.demo-host";
+import { Route as bookingDotpublicRouteImport } from "./routes/booking.public";
+import { Route as bookingDotmanageDottokenRouteImport } from "./routes/booking.manage.$token";
 import { Route as channelsDotchannelIdDotpostsDotpostIdRouteImport } from "./routes/channels.$channelId.posts.$postId";
 
 const workflowsRoute = workflowsRouteImport.update({
@@ -79,6 +82,22 @@ const bookingDotscheduleRoute = bookingDotscheduleRouteImport.update({
   path: "/booking/schedule",
   getParentRoute: () => rootRouteImport,
 } as any);
+const bookingDotdemoHostRoute = bookingDotdemoHostRouteImport.update({
+  id: "/booking/demo-host",
+  path: "/booking/demo-host",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const bookingDotpublicRoute = bookingDotpublicRouteImport.update({
+  id: "/booking/",
+  path: "/booking/",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const bookingDotmanageDottokenRoute =
+  bookingDotmanageDottokenRouteImport.update({
+    id: "/booking/manage/$token",
+    path: "/booking/manage/$token",
+    getParentRoute: () => rootRouteImport,
+  } as any);
 const channelsDotchannelIdDotpostsDotpostIdRoute =
   channelsDotchannelIdDotpostsDotpostIdRouteImport.update({
     id: "/channels/$channelId/posts/$postId",
@@ -94,11 +113,14 @@ export interface FileRoutesByFullPath {
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/booking/": typeof bookingDotpublicRoute;
+  "/booking/demo-host": typeof bookingDotdemoHostRoute;
   "/booking/schedule": typeof bookingDotscheduleRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/booking/manage/$token": typeof bookingDotmanageDottokenRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRoutesByTo {
@@ -109,11 +131,14 @@ export interface FileRoutesByTo {
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/booking": typeof bookingDotpublicRoute;
+  "/booking/demo-host": typeof bookingDotdemoHostRoute;
   "/booking/schedule": typeof bookingDotscheduleRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/booking/manage/$token": typeof bookingDotmanageDottokenRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRoutesById {
@@ -125,11 +150,14 @@ export interface FileRoutesById {
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/booking/": typeof bookingDotpublicRoute;
+  "/booking/demo-host": typeof bookingDotdemoHostRoute;
   "/booking/schedule": typeof bookingDotscheduleRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/booking/manage/$token": typeof bookingDotmanageDottokenRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRouteTypes {
@@ -142,11 +170,14 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/settings"
     | "/workflows"
+    | "/booking/"
+    | "/booking/demo-host"
     | "/booking/schedule"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/booking/manage/$token"
     | "/channels/$channelId/posts/$postId";
   fileRoutesByTo: FileRoutesByTo;
   to:
@@ -157,11 +188,14 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/settings"
     | "/workflows"
+    | "/booking"
+    | "/booking/demo-host"
     | "/booking/schedule"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/booking/manage/$token"
     | "/channels/$channelId/posts/$postId";
   id:
     | "__root__"
@@ -172,11 +206,14 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/settings"
     | "/workflows"
+    | "/booking/"
+    | "/booking/demo-host"
     | "/booking/schedule"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/booking/manage/$token"
     | "/channels/$channelId/posts/$postId";
   fileRoutesById: FileRoutesById;
 }
@@ -188,11 +225,14 @@ export interface RootRouteChildren {
   remindersRoute: typeof remindersRoute;
   settingsRoute: typeof settingsRoute;
   workflowsRoute: typeof workflowsRoute;
+  bookingDotpublicRoute: typeof bookingDotpublicRoute;
+  bookingDotdemoHostRoute: typeof bookingDotdemoHostRoute;
   bookingDotscheduleRoute: typeof bookingDotscheduleRoute;
   channelsDotchannelIdRoute: typeof channelsDotchannelIdRoute;
   messagesDotnewRoute: typeof messagesDotnewRoute;
   projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
   workflowsDotworkflowIdRoute: typeof workflowsDotworkflowIdRoute;
+  bookingDotmanageDottokenRoute: typeof bookingDotmanageDottokenRoute;
   channelsDotchannelIdDotpostsDotpostIdRoute: typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 
@@ -282,6 +322,27 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof bookingDotscheduleRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/booking/demo-host": {
+      id: "/booking/demo-host";
+      path: "/booking/demo-host";
+      fullPath: "/booking/demo-host";
+      preLoaderRoute: typeof bookingDotdemoHostRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/booking/": {
+      id: "/booking/";
+      path: "/booking";
+      fullPath: "/booking/";
+      preLoaderRoute: typeof bookingDotpublicRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/booking/manage/$token": {
+      id: "/booking/manage/$token";
+      path: "/booking/manage/$token";
+      fullPath: "/booking/manage/$token";
+      preLoaderRoute: typeof bookingDotmanageDottokenRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/channels/$channelId/posts/$postId": {
       id: "/channels/$channelId/posts/$postId";
       path: "/channels/$channelId/posts/$postId";
@@ -300,11 +361,14 @@ const rootRouteChildren: RootRouteChildren = {
   remindersRoute: remindersRoute,
   settingsRoute: settingsRoute,
   workflowsRoute: workflowsRoute,
+  bookingDotpublicRoute: bookingDotpublicRoute,
+  bookingDotdemoHostRoute: bookingDotdemoHostRoute,
   bookingDotscheduleRoute: bookingDotscheduleRoute,
   channelsDotchannelIdRoute: channelsDotchannelIdRoute,
   messagesDotnewRoute: messagesDotnewRoute,
   projectsDotprojectIdRoute: projectsDotprojectIdRoute,
   workflowsDotworkflowIdRoute: workflowsDotworkflowIdRoute,
+  bookingDotmanageDottokenRoute: bookingDotmanageDottokenRoute,
   channelsDotchannelIdDotpostsDotpostIdRoute:
     channelsDotchannelIdDotpostsDotpostIdRoute,
 };

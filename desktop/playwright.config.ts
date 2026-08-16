@@ -25,6 +25,7 @@ export default defineConfig({
         "**/key-import-reveal.spec.ts",
         "**/navigation.spec.ts",
         "**/airhop-schedule.spec.ts",
+        "**/airhop-public-booking.spec.ts",
         "**/channels.spec.ts",
         "**/channel-shared-header-backdrop.spec.ts",
         "**/channel-composer-overflow.spec.ts",

@@ -74,9 +74,10 @@ function availability(lesson: ScheduleLesson): {
 }
 
 function trialLabel(lesson: ScheduleLesson) {
+  if (lesson.trial.mode === "disabled") return "Пробное недоступно";
   return lesson.trial.mode === "free"
     ? "Пробное: бесплатно"
-    : `Пробное: ${moneyFormatter.format(lesson.trial.priceRub)}`;
+    : `Пробное: ${moneyFormatter.format(lesson.trial.amountMinor / 100)}`;
 }
 
 function teacherLabel(lesson: ScheduleLesson) {
@@ -185,7 +186,9 @@ function LessonDetails({
             </p>
             {lesson.movedFrom ? (
               <p className="text-xs text-amber-600 dark:text-amber-400">
-                Перенесено с {lesson.movedFrom}
+                Перенесено с{" "}
+                {dateFormatter.format(asDate(lesson.movedFrom.date))},{" "}
+                {lesson.movedFrom.startTime}–{lesson.movedFrom.endTime}
               </p>
             ) : null}
           </div>

@@ -12,6 +12,8 @@ import {
 } from "react";
 
 import { router } from "@/app/router";
+import { PublicBookingApp } from "@/app/PublicBookingApp";
+import { useIsPublicBookingLocation } from "@/app/publicBookingRoute";
 import {
   completeCommunityViewTransition,
   replaceCommunityDestinationRoute,
@@ -711,17 +713,31 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
 export function App() {
   useReloadShortcut();
   useInitialRenderReady();
+  const isPublicBookingLocation = useIsPublicBookingLocation();
   const [sharedIdentity, setSharedIdentity] = useState<boolean | null>(null);
   const [queryClient] = useState(createBuzzQueryClient);
 
   useEffect(() => {
+    if (isPublicBookingLocation) {
+      setSharedIdentity(false);
+      return;
+    }
+    setSharedIdentity(null);
     isSharedIdentityCmd()
       .then(setSharedIdentity)
       .catch((err) => {
         console.warn("is_shared_identity command failed:", err);
         setSharedIdentity(false);
       });
-  }, []);
+  }, [isPublicBookingLocation]);
+
+  if (isPublicBookingLocation) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <PublicBookingApp />
+      </QueryClientProvider>
+    );
+  }
 
   if (sharedIdentity === null) return <AppLoadingGate />;
 
