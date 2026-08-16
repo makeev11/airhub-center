@@ -41,6 +41,20 @@ const childCreateOutcomeSchema = z.object({
   hasPendingDuplicate: z.boolean(),
   replayed: z.boolean(),
 });
+const representativeStatusOutcomeSchema = z.object({
+  representativeId: uuidSchema,
+  status: z.enum(["active", "archived"]),
+  version: z.number().int().positive(),
+  hasPendingDuplicate: z.boolean(),
+  replayed: z.boolean(),
+});
+const childStatusOutcomeSchema = z.object({
+  childId: uuidSchema,
+  status: z.enum(["active", "archived"]),
+  version: z.number().int().positive(),
+  hasPendingDuplicate: z.boolean(),
+  replayed: z.boolean(),
+});
 
 export type StaffRepresentativeContactChannel = z.infer<
   typeof contactChannelSchema
@@ -56,6 +70,26 @@ export type StaffRepresentativeCreateOutcome = z.infer<
   typeof representativeCreateOutcomeSchema
 >;
 export type StaffChildCreateOutcome = z.infer<typeof childCreateOutcomeSchema>;
+export type StaffRepresentativeStatusOutcome = z.infer<
+  typeof representativeStatusOutcomeSchema
+>;
+export type StaffChildStatusOutcome = z.infer<typeof childStatusOutcomeSchema>;
+
+export type SetStaffFamilyRepresentativeStatusInput = {
+  familyId: string;
+  representativeId: string;
+  expectedVersion: number;
+  status: "active" | "archived";
+  idempotencyKey?: string;
+};
+
+export type SetStaffFamilyChildStatusInput = {
+  familyId: string;
+  childId: string;
+  expectedVersion: number;
+  status: "active" | "archived";
+  idempotencyKey?: string;
+};
 
 export type AddStaffFamilyRepresentativeInput = {
   familyId: string;
@@ -105,6 +139,12 @@ export interface StaffFamilyCommandService {
   addRepresentative(
     input: AddStaffFamilyRepresentativeInput,
   ): Promise<StaffRepresentativeCreateOutcome>;
+  setChildStatus(
+    input: SetStaffFamilyChildStatusInput,
+  ): Promise<StaffChildStatusOutcome>;
+  setRepresentativeStatus(
+    input: SetStaffFamilyRepresentativeStatusInput,
+  ): Promise<StaffRepresentativeStatusOutcome>;
   updateFamily(
     input: UpdateStaffFamilyInput,
   ): Promise<StaffFamilyUpdateOutcome>;
@@ -260,6 +300,56 @@ export class HttpStaffFamilyCommandService
     );
   }
 
+  async setChildStatus(
+    input: SetStaffFamilyChildStatusInput,
+  ): Promise<StaffChildStatusOutcome> {
+    const familyId = uuidSchema.safeParse(input.familyId);
+    const childId = uuidSchema.safeParse(input.childId);
+    if (
+      !familyId.success ||
+      !childId.success ||
+      !validVersion(input.expectedVersion) ||
+      !validStatus(input.status)
+    ) {
+      throw new StaffFamilyCommandApiError(
+        400,
+        "Invalid AirHub child lifecycle command.",
+      );
+    }
+    return this.request(
+      "PUT",
+      `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/children/${encodeURIComponent(childId.data)}/status`,
+      { expectedVersion: input.expectedVersion, status: input.status },
+      childStatusOutcomeSchema,
+      input.idempotencyKey,
+    );
+  }
+
+  async setRepresentativeStatus(
+    input: SetStaffFamilyRepresentativeStatusInput,
+  ): Promise<StaffRepresentativeStatusOutcome> {
+    const familyId = uuidSchema.safeParse(input.familyId);
+    const representativeId = uuidSchema.safeParse(input.representativeId);
+    if (
+      !familyId.success ||
+      !representativeId.success ||
+      !validVersion(input.expectedVersion) ||
+      !validStatus(input.status)
+    ) {
+      throw new StaffFamilyCommandApiError(
+        400,
+        "Invalid AirHub representative lifecycle command.",
+      );
+    }
+    return this.request(
+      "PUT",
+      `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/representatives/${encodeURIComponent(representativeId.data)}/status`,
+      { expectedVersion: input.expectedVersion, status: input.status },
+      representativeStatusOutcomeSchema,
+      input.idempotencyKey,
+    );
+  }
+
   async updateFamily(
     input: UpdateStaffFamilyInput,
   ): Promise<StaffFamilyUpdateOutcome> {
@@ -406,6 +496,10 @@ export class HttpStaffFamilyCommandService
 
 function validVersion(value: number): boolean {
   return Number.isInteger(value) && value > 0;
+}
+
+function validStatus(value: string): value is "active" | "archived" {
+  return value === "active" || value === "archived";
 }
 
 function invalidUpdate(entity: string): StaffFamilyCommandApiError {

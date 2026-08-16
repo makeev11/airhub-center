@@ -275,3 +275,72 @@ test("child creation normalizes its note and signs its POST collection resource"
     ["method", "POST"],
   ]);
 });
+
+test("representative lifecycle signs its exact status resource", async () => {
+  let requested;
+  let signedInput;
+  const service = new HttpStaffFamilyCommandService({
+    relayHttpUrl: async () => "https://center.example/",
+    signEvent: async (input) => {
+      signedInput = input;
+      return signedEvent(input);
+    },
+    fetch: async (url, init) => {
+      requested = { url, init };
+      return new Response(
+        JSON.stringify({
+          representativeId: REPRESENTATIVE_ID,
+          status: "archived",
+          version: 4,
+          hasPendingDuplicate: false,
+          replayed: false,
+        }),
+      );
+    },
+  });
+  await service.setRepresentativeStatus({
+    familyId: FAMILY_ID,
+    representativeId: REPRESENTATIVE_ID,
+    expectedVersion: 3,
+    status: "archived",
+    idempotencyKey: "representative-status-1",
+  });
+  const expectedUrl = `https://center.example/api/airhop/staff/v1/families/${FAMILY_ID}/representatives/${REPRESENTATIVE_ID}/status`;
+  assert.equal(requested.url, expectedUrl);
+  assert.equal(requested.init.method, "PUT");
+  assert.deepEqual(JSON.parse(requested.init.body), {
+    expectedVersion: 3,
+    status: "archived",
+  });
+  assert.deepEqual(signedInput.tags.slice(0, 2), [
+    ["u", expectedUrl],
+    ["method", "PUT"],
+  ]);
+});
+
+test("child lifecycle preserves commitment conflict details", async () => {
+  const service = new HttpStaffFamilyCommandService({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async () =>
+      new Response(
+        JSON.stringify({
+          error: "Family member has active enrollment or future bookings",
+        }),
+        { status: 409 },
+      ),
+  });
+  await assert.rejects(
+    service.setChildStatus({
+      familyId: FAMILY_ID,
+      childId: CHILD_ID,
+      expectedVersion: 5,
+      status: "archived",
+    }),
+    (error) =>
+      error instanceof StaffFamilyCommandApiError &&
+      error.status === 409 &&
+      error.message ===
+        "Family member has active enrollment or future bookings",
+  );
+});
