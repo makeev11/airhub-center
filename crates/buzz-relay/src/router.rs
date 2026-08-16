@@ -116,6 +116,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             put(api::airhop_staff::set_family_status),
         )
         .route(
+            "/api/airhop/staff/v1/families/{family_id}/primary-representative",
+            put(api::airhop_staff::set_family_primary_representative),
+        )
+        .route(
             "/api/airhop/staff/v1/families/{family_id}/representatives",
             post(api::airhop_staff::add_family_representative),
         )

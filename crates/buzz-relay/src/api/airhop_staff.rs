@@ -27,6 +27,7 @@ use buzz_db::airhop::family_member_lifecycle::{
     FamilyMemberStatus, SetFamilyChildStatusInput, SetFamilyRepresentativeStatusInput,
 };
 use buzz_db::airhop::family_members::{AddFamilyChildInput, AddFamilyRepresentativeInput};
+use buzz_db::airhop::family_primary_representative::SetFamilyPrimaryRepresentativeInput;
 use buzz_db::airhop::staff_queue::{
     StaffBookingQueueCursor, StaffBookingQueueFilter, StaffBookingQueueRow,
 };
@@ -132,6 +133,13 @@ pub(crate) struct AddFamilyChildBody {
 pub(crate) struct SetFamilyMemberStatusBody {
     expected_version: i64,
     status: FamilyMemberStatus,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SetFamilyPrimaryRepresentativeBody {
+    expected_version: i64,
+    representative_id: Uuid,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -464,6 +472,49 @@ pub(crate) async fn update_family(
         .map_err(map_db_error)?;
     Ok(Json(json!({
         "familyId": outcome.family_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed
+    })))
+}
+
+/// Reassigns the family primary edge to an active representative in that family.
+pub(crate) async fn set_family_primary_representative(
+    State(state): State<Arc<AppState>>,
+    Path(family_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/families/{family_id}/primary-representative");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: SetFamilyPrimaryRepresentativeBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .set_airhop_family_primary_representative(
+            &tenant,
+            &SetFamilyPrimaryRepresentativeInput {
+                family_id,
+                representative_id: request.representative_id,
+                expected_version: request.expected_version,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.primary-representative.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: Sha256::digest(&body).into(),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "familyId": outcome.family_id,
+        "representativeId": outcome.representative_id,
+        "previousRepresentativeId": outcome.previous_representative_id,
         "version": outcome.version,
         "replayed": outcome.replayed
     })))
@@ -1199,6 +1250,10 @@ fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
         DbError::AirhopMemberHasActiveCommitments => api_error(
             StatusCode::CONFLICT,
             "Family member has active enrollment or future bookings",
+        ),
+        DbError::AirhopRepresentativeUnavailable => api_error(
+            StatusCode::CONFLICT,
+            "Representative must be active and belong to this family",
         ),
         DbError::AirhopIdempotencyConflict => api_error(
             StatusCode::CONFLICT,

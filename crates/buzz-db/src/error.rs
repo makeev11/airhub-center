@@ -100,6 +100,10 @@ pub enum DbError {
     /// A family member still has active enrollment or future booking commitments.
     #[error("AirHub family member has active or future commitments")]
     AirhopMemberHasActiveCommitments,
+
+    /// The selected representative cannot become the active family primary contact.
+    #[error("AirHub representative is unavailable as primary contact")]
+    AirhopRepresentativeUnavailable,
 }
 
 /// Convenience alias for `Result<T, DbError>`.
