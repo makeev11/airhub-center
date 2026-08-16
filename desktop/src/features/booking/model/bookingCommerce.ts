@@ -62,9 +62,7 @@ function rangesOverlap(
   );
 }
 
-export function weeklySelectionKey(
-  selection: WeeklyScheduleSelection,
-): string {
+export function weeklySelectionKey(selection: WeeklyScheduleSelection): string {
   return `${selection.recurrenceRuleId}:${selection.weekday}`;
 }
 
@@ -72,7 +70,9 @@ function requireTariff(
   workspace: BookingWorkspace,
   tariffId: string,
 ): BookingTariff {
-  const tariff = workspace.tariffs.find((candidate) => candidate.id === tariffId);
+  const tariff = workspace.tariffs.find(
+    (candidate) => candidate.id === tariffId,
+  );
   if (!tariff) {
     throw new BookingCommerceError(
       "unknown_tariff",

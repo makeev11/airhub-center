@@ -92,11 +92,11 @@ export function createEnrollment(
     );
   }
   if (!group) {
-    throw new BookingEntityMutationError(
-      `Unknown group ${enrollment.groupId}`,
-    );
+    throw new BookingEntityMutationError(`Unknown group ${enrollment.groupId}`);
   }
-  if (workspace.enrollments.some((candidate) => candidate.id === enrollment.id)) {
+  if (
+    workspace.enrollments.some((candidate) => candidate.id === enrollment.id)
+  ) {
     throw new BookingEntityMutationError(
       `Enrollment ${enrollment.id} already exists`,
     );
@@ -128,9 +128,7 @@ export function upsertAttendanceRecord(
   const attendance = attendanceRecordSchema.parse(input);
   requireOrganization(workspace, attendance.organizationId);
   if (!workspace.children.some((child) => child.id === attendance.childId)) {
-    throw new BookingEntityMutationError(
-      `Unknown child ${attendance.childId}`,
-    );
+    throw new BookingEntityMutationError(`Unknown child ${attendance.childId}`);
   }
   if (
     !materializeScheduleOccurrence(
@@ -455,7 +453,7 @@ export function upsertBookingGroup(
       const replacement = activeRules.find(
         (rule) => rule.id === selection.recurrenceRuleId,
       );
-      if (!replacement || !replacement.weekdays.includes(selection.weekday)) {
+      if (!replacement?.weekdays.includes(selection.weekday)) {
         throw new BookingEntityMutationError(
           `Recurrence rule ${selection.recurrenceRuleId} cannot remove ${selection.weekday} used by active enrollment ${enrollment.id}`,
         );

@@ -4,15 +4,25 @@ import test from "node:test";
 import * as bookingLocale from "./bookingLocale.ts";
 import { getBookingAdminMessages } from "./bookingAdminLocale.ts";
 
-const {
-  createBookingFormatters,
-  formatBookingAgeRange,
-  getBookingMessages,
-} = bookingLocale;
+const { createBookingFormatters, formatBookingAgeRange, getBookingMessages } =
+  bookingLocale;
 
 test("Booking locale keeps Russian as the MVP copy fallback", () => {
   assert.equal(getBookingMessages("ru-RU").scheduleTitle, "Расписание");
   assert.equal(getBookingMessages("tr-TR").scheduleTitle, "Расписание");
+});
+
+test("AirHop settings explain automatic time zone detection", () => {
+  const messages = getBookingAdminMessages("ru-RU");
+
+  assert.equal(
+    messages.timeZoneAutomatic("Asia/Tokyo"),
+    "Определить автоматически — Asia/Tokyo",
+  );
+  assert.equal(
+    messages.timeZoneHint,
+    "Выберите часовой пояс IANA из списка или определите его автоматически.",
+  );
 });
 
 test("Booking locale covers lesson overrides and working-hour accessibility", () => {

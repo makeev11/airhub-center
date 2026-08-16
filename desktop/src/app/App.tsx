@@ -22,6 +22,7 @@ import { deriveShellRoute } from "@/app/AppShell.helpers";
 import { ThemeGrainientBackground } from "@/app/ThemeGrainientBackground";
 import { useReloadShortcut } from "@/app/useReloadShortcut";
 import { KnownAgentPubkeysProvider } from "@/features/agents/useKnownAgentPubkeys";
+import { BookingWorkspaceProvider } from "@/features/booking/data/BookingWorkspaceProvider";
 import { huddleWindowChannelId } from "@/features/huddle/lib/huddleWindow";
 import { useAppOnboardingState } from "@/features/onboarding/hooks";
 import { useMachineOnboardingState } from "@/features/onboarding/machineOnboarding";
@@ -68,16 +69,14 @@ import {
   listenForDeepLinks,
 } from "@/shared/deep-link";
 import { cn } from "@/shared/lib/cn";
-import { BuzzMark } from "@/shared/ui/buzz-logo/BuzzMark";
-import { FlappingBee } from "@/shared/ui/buzz-logo/FlappingBee";
-import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
+import { AirHopLoadingMark } from "@/shared/ui/airhop-brand/AirHopBrand";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
-const LOADING_TEXT = "Setting up your community...";
+const LOADING_TEXT = "AirHop is starting...";
 
 // Minimum time the cold-boot splash stays on screen. A real boot resolves the
 // community in well under 100ms, and the native window setup plus first paint
-// can take longer than that — without a hold, the bee is unmounted before it is
+// can take longer than that — without a hold, the mark is unmounted before it is
 // ever visible. The hold runs as an overlay above the already-mounted app, so
 // time-to-interactive is unchanged; only the reveal waits.
 const BOOT_SPLASH_MIN_VISIBLE_MS = 1_200;
@@ -134,38 +133,18 @@ function useBootSplashHold(): BootSplashPhase {
   return phase;
 }
 
-// Animated Buzz mark for the loading gates. The static BuzzMark renders in
-// normal flow and sizes the box — it's plain SVG (no JS/SMIL), so it paints on
-// the very first frame even before scripting starts, avoiding a blank flash on
-// hard reload. The animated FuzzyLogo is layered on top and takes over once it
-// begins playing.
-function BeeLoader({
+function AirHopLoader({
   ariaLabel,
   className,
-  tintClassName = "text-foreground",
 }: {
   ariaLabel: string;
   className?: string;
-  tintClassName?: string;
 }) {
-  return (
-    <div className={cn("relative", tintClassName, className)}>
-      <BuzzMark className="block h-auto w-full" />
-      <FuzzyLogo
-        ariaLabel={ariaLabel}
-        className="absolute inset-0 h-full! w-full! [&>svg]:h-full [&>svg]:w-full [&>svg]:max-w-full"
-        fuzz
-        loop
-        loopRestSeconds={0}
-      />
-    </div>
-  );
+  return <AirHopLoadingMark ariaLabel={ariaLabel} className={className} />;
 }
 
-// Cold boot gate: the theme-adaptive grainient background with a single
-// centered Buzz bee flying over it — the same static mark as before, now with
-// its wings flapping (ported from the Buzz website's wing-flap). Replaces the
-// old "Setting up your community" text, which stays as an sr-only caption.
+// Cold boot gate: the theme-adaptive background with the lightweight AirHop
+// mark. The caption remains available to screen readers.
 function AppLoadingGate() {
   return (
     <div
@@ -176,7 +155,10 @@ function AppLoadingGate() {
       <StartupWindowDragRegion />
       <ThemeGrainientBackground />
       <span className="sr-only">{LOADING_TEXT}</span>
-      <FlappingBee className="relative z-10 h-auto w-28" />
+      <AirHopLoadingMark
+        ariaLabel={LOADING_TEXT}
+        className="relative z-10 size-28"
+      />
     </div>
   );
 }
@@ -200,10 +182,9 @@ function CommunitySwitchGate() {
       <StartupWindowDragRegion />
       <span className="sr-only">Switching community…</span>
       {showSpinner ? (
-        <BeeLoader
+        <AirHopLoader
           ariaLabel="Switching community…"
-          className="h-auto w-20"
-          tintClassName="text-muted-foreground"
+          className="size-20 opacity-80"
         />
       ) : null}
     </div>
@@ -238,9 +219,11 @@ function CommunityQueryProvider({ children }: { children: ReactNode }) {
 }
 
 function AppReady({
+  communityId,
   isSharedIdentity,
   isCommunitySwitch,
 }: {
+  communityId: string;
   isSharedIdentity: boolean;
   isCommunitySwitch: boolean;
 }) {
@@ -283,7 +266,9 @@ function AppReady({
       }
     >
       <KnownAgentPubkeysProvider>
-        <RouterProvider router={router} />
+        <BookingWorkspaceProvider storageScope={communityId}>
+          <RouterProvider router={router} />
+        </BookingWorkspaceProvider>
       </KnownAgentPubkeysProvider>
     </EncryptedBackupProvider>
   );
@@ -550,6 +535,7 @@ function CommunityApp({
     appContent = communityApplied ? (
       <CommunityQueryProvider key={communityKey}>
         <AppReady
+          communityId={activeCommunity?.id ?? "none"}
           isCommunitySwitch={isCommunitySwitch}
           key={communityKey}
           isSharedIdentity={sharedIdentity}

@@ -16,10 +16,20 @@ import { Route as workflowsDotworkflowIdRouteImport } from "./routes/workflows.$
 import { Route as projectsDotprojectIdRouteImport } from "./routes/projects.$projectId";
 import { Route as messagesDotnewRouteImport } from "./routes/messages.new";
 import { Route as channelsDotchannelIdRouteImport } from "./routes/channels.$channelId";
+import { Route as bookingDotteachersRouteImport } from "./routes/booking.teachers";
+import { Route as bookingDottariffsRouteImport } from "./routes/booking.tariffs";
+import { Route as bookingDotsettingsRouteImport } from "./routes/booking.settings";
 import { Route as bookingDotscheduleRouteImport } from "./routes/booking.schedule";
+import { Route as bookingDotrequestsRouteImport } from "./routes/booking.requests";
+import { Route as bookingDotpaymentsRouteImport } from "./routes/booking.payments";
+import { Route as bookingDotgroupsRouteImport } from "./routes/booking.groups";
 import { Route as bookingDotdemoHostRouteImport } from "./routes/booking.demo-host";
+import { Route as bookingDotclientsRouteImport } from "./routes/booking.clients";
+import { Route as bookingDotbranchesRouteImport } from "./routes/booking.branches";
 import { Route as bookingDotpublicRouteImport } from "./routes/booking.public";
+import { Route as bookingDotclientsDotindexRouteImport } from "./routes/booking.clients.index";
 import { Route as bookingDotmanageDottokenRouteImport } from "./routes/booking.manage.$token";
+import { Route as bookingDotclientsDotfamilyIdRouteImport } from "./routes/booking.clients.$familyId";
 import { Route as channelsDotchannelIdDotpostsDotpostIdRouteImport } from "./routes/channels.$channelId.posts.$postId";
 
 const workflowsRoute = workflowsRouteImport.update({
@@ -77,9 +87,39 @@ const channelsDotchannelIdRoute = channelsDotchannelIdRouteImport.update({
   path: "/channels/$channelId",
   getParentRoute: () => rootRouteImport,
 } as any);
+const bookingDotteachersRoute = bookingDotteachersRouteImport.update({
+  id: "/booking/teachers",
+  path: "/booking/teachers",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const bookingDottariffsRoute = bookingDottariffsRouteImport.update({
+  id: "/booking/tariffs",
+  path: "/booking/tariffs",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const bookingDotsettingsRoute = bookingDotsettingsRouteImport.update({
+  id: "/booking/settings",
+  path: "/booking/settings",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const bookingDotscheduleRoute = bookingDotscheduleRouteImport.update({
   id: "/booking/schedule",
   path: "/booking/schedule",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const bookingDotrequestsRoute = bookingDotrequestsRouteImport.update({
+  id: "/booking/requests",
+  path: "/booking/requests",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const bookingDotpaymentsRoute = bookingDotpaymentsRouteImport.update({
+  id: "/booking/payments",
+  path: "/booking/payments",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const bookingDotgroupsRoute = bookingDotgroupsRouteImport.update({
+  id: "/booking/groups",
+  path: "/booking/groups",
   getParentRoute: () => rootRouteImport,
 } as any);
 const bookingDotdemoHostRoute = bookingDotdemoHostRouteImport.update({
@@ -87,16 +127,38 @@ const bookingDotdemoHostRoute = bookingDotdemoHostRouteImport.update({
   path: "/booking/demo-host",
   getParentRoute: () => rootRouteImport,
 } as any);
+const bookingDotclientsRoute = bookingDotclientsRouteImport.update({
+  id: "/booking/clients",
+  path: "/booking/clients",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const bookingDotbranchesRoute = bookingDotbranchesRouteImport.update({
+  id: "/booking/branches",
+  path: "/booking/branches",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const bookingDotpublicRoute = bookingDotpublicRouteImport.update({
   id: "/booking/",
   path: "/booking/",
   getParentRoute: () => rootRouteImport,
 } as any);
+const bookingDotclientsDotindexRoute =
+  bookingDotclientsDotindexRouteImport.update({
+    id: "/",
+    path: "/",
+    getParentRoute: () => bookingDotclientsRoute,
+  } as any);
 const bookingDotmanageDottokenRoute =
   bookingDotmanageDottokenRouteImport.update({
     id: "/booking/manage/$token",
     path: "/booking/manage/$token",
     getParentRoute: () => rootRouteImport,
+  } as any);
+const bookingDotclientsDotfamilyIdRoute =
+  bookingDotclientsDotfamilyIdRouteImport.update({
+    id: "/$familyId",
+    path: "/$familyId",
+    getParentRoute: () => bookingDotclientsRoute,
   } as any);
 const channelsDotchannelIdDotpostsDotpostIdRoute =
   channelsDotchannelIdDotpostsDotpostIdRouteImport.update({
@@ -114,13 +176,23 @@ export interface FileRoutesByFullPath {
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/booking/": typeof bookingDotpublicRoute;
+  "/booking/branches": typeof bookingDotbranchesRoute;
+  "/booking/clients": typeof bookingDotclientsRouteWithChildren;
   "/booking/demo-host": typeof bookingDotdemoHostRoute;
+  "/booking/groups": typeof bookingDotgroupsRoute;
+  "/booking/payments": typeof bookingDotpaymentsRoute;
+  "/booking/requests": typeof bookingDotrequestsRoute;
   "/booking/schedule": typeof bookingDotscheduleRoute;
+  "/booking/settings": typeof bookingDotsettingsRoute;
+  "/booking/tariffs": typeof bookingDottariffsRoute;
+  "/booking/teachers": typeof bookingDotteachersRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/booking/clients/$familyId": typeof bookingDotclientsDotfamilyIdRoute;
   "/booking/manage/$token": typeof bookingDotmanageDottokenRoute;
+  "/booking/clients/": typeof bookingDotclientsDotindexRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRoutesByTo {
@@ -132,13 +204,22 @@ export interface FileRoutesByTo {
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/booking": typeof bookingDotpublicRoute;
+  "/booking/branches": typeof bookingDotbranchesRoute;
   "/booking/demo-host": typeof bookingDotdemoHostRoute;
+  "/booking/groups": typeof bookingDotgroupsRoute;
+  "/booking/payments": typeof bookingDotpaymentsRoute;
+  "/booking/requests": typeof bookingDotrequestsRoute;
   "/booking/schedule": typeof bookingDotscheduleRoute;
+  "/booking/settings": typeof bookingDotsettingsRoute;
+  "/booking/tariffs": typeof bookingDottariffsRoute;
+  "/booking/teachers": typeof bookingDotteachersRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/booking/clients/$familyId": typeof bookingDotclientsDotfamilyIdRoute;
   "/booking/manage/$token": typeof bookingDotmanageDottokenRoute;
+  "/booking/clients": typeof bookingDotclientsDotindexRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRoutesById {
@@ -151,13 +232,23 @@ export interface FileRoutesById {
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/booking/": typeof bookingDotpublicRoute;
+  "/booking/branches": typeof bookingDotbranchesRoute;
+  "/booking/clients": typeof bookingDotclientsRouteWithChildren;
   "/booking/demo-host": typeof bookingDotdemoHostRoute;
+  "/booking/groups": typeof bookingDotgroupsRoute;
+  "/booking/payments": typeof bookingDotpaymentsRoute;
+  "/booking/requests": typeof bookingDotrequestsRoute;
   "/booking/schedule": typeof bookingDotscheduleRoute;
+  "/booking/settings": typeof bookingDotsettingsRoute;
+  "/booking/tariffs": typeof bookingDottariffsRoute;
+  "/booking/teachers": typeof bookingDotteachersRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/booking/clients/$familyId": typeof bookingDotclientsDotfamilyIdRoute;
   "/booking/manage/$token": typeof bookingDotmanageDottokenRoute;
+  "/booking/clients/": typeof bookingDotclientsDotindexRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRouteTypes {
@@ -171,13 +262,23 @@ export interface FileRouteTypes {
     | "/settings"
     | "/workflows"
     | "/booking/"
+    | "/booking/branches"
+    | "/booking/clients"
     | "/booking/demo-host"
+    | "/booking/groups"
+    | "/booking/payments"
+    | "/booking/requests"
     | "/booking/schedule"
+    | "/booking/settings"
+    | "/booking/tariffs"
+    | "/booking/teachers"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/booking/clients/$familyId"
     | "/booking/manage/$token"
+    | "/booking/clients/"
     | "/channels/$channelId/posts/$postId";
   fileRoutesByTo: FileRoutesByTo;
   to:
@@ -189,13 +290,22 @@ export interface FileRouteTypes {
     | "/settings"
     | "/workflows"
     | "/booking"
+    | "/booking/branches"
     | "/booking/demo-host"
+    | "/booking/groups"
+    | "/booking/payments"
+    | "/booking/requests"
     | "/booking/schedule"
+    | "/booking/settings"
+    | "/booking/tariffs"
+    | "/booking/teachers"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/booking/clients/$familyId"
     | "/booking/manage/$token"
+    | "/booking/clients"
     | "/channels/$channelId/posts/$postId";
   id:
     | "__root__"
@@ -207,13 +317,23 @@ export interface FileRouteTypes {
     | "/settings"
     | "/workflows"
     | "/booking/"
+    | "/booking/branches"
+    | "/booking/clients"
     | "/booking/demo-host"
+    | "/booking/groups"
+    | "/booking/payments"
+    | "/booking/requests"
     | "/booking/schedule"
+    | "/booking/settings"
+    | "/booking/tariffs"
+    | "/booking/teachers"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/booking/clients/$familyId"
     | "/booking/manage/$token"
+    | "/booking/clients/"
     | "/channels/$channelId/posts/$postId";
   fileRoutesById: FileRoutesById;
 }
@@ -226,8 +346,16 @@ export interface RootRouteChildren {
   settingsRoute: typeof settingsRoute;
   workflowsRoute: typeof workflowsRoute;
   bookingDotpublicRoute: typeof bookingDotpublicRoute;
+  bookingDotbranchesRoute: typeof bookingDotbranchesRoute;
+  bookingDotclientsRoute: typeof bookingDotclientsRouteWithChildren;
   bookingDotdemoHostRoute: typeof bookingDotdemoHostRoute;
+  bookingDotgroupsRoute: typeof bookingDotgroupsRoute;
+  bookingDotpaymentsRoute: typeof bookingDotpaymentsRoute;
+  bookingDotrequestsRoute: typeof bookingDotrequestsRoute;
   bookingDotscheduleRoute: typeof bookingDotscheduleRoute;
+  bookingDotsettingsRoute: typeof bookingDotsettingsRoute;
+  bookingDottariffsRoute: typeof bookingDottariffsRoute;
+  bookingDotteachersRoute: typeof bookingDotteachersRoute;
   channelsDotchannelIdRoute: typeof channelsDotchannelIdRoute;
   messagesDotnewRoute: typeof messagesDotnewRoute;
   projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
@@ -315,11 +443,53 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof channelsDotchannelIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/booking/teachers": {
+      id: "/booking/teachers";
+      path: "/booking/teachers";
+      fullPath: "/booking/teachers";
+      preLoaderRoute: typeof bookingDotteachersRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/booking/tariffs": {
+      id: "/booking/tariffs";
+      path: "/booking/tariffs";
+      fullPath: "/booking/tariffs";
+      preLoaderRoute: typeof bookingDottariffsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/booking/settings": {
+      id: "/booking/settings";
+      path: "/booking/settings";
+      fullPath: "/booking/settings";
+      preLoaderRoute: typeof bookingDotsettingsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/booking/schedule": {
       id: "/booking/schedule";
       path: "/booking/schedule";
       fullPath: "/booking/schedule";
       preLoaderRoute: typeof bookingDotscheduleRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/booking/requests": {
+      id: "/booking/requests";
+      path: "/booking/requests";
+      fullPath: "/booking/requests";
+      preLoaderRoute: typeof bookingDotrequestsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/booking/payments": {
+      id: "/booking/payments";
+      path: "/booking/payments";
+      fullPath: "/booking/payments";
+      preLoaderRoute: typeof bookingDotpaymentsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/booking/groups": {
+      id: "/booking/groups";
+      path: "/booking/groups";
+      fullPath: "/booking/groups";
+      preLoaderRoute: typeof bookingDotgroupsRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/booking/demo-host": {
@@ -329,6 +499,20 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof bookingDotdemoHostRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/booking/clients": {
+      id: "/booking/clients";
+      path: "/booking/clients";
+      fullPath: "/booking/clients";
+      preLoaderRoute: typeof bookingDotclientsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/booking/branches": {
+      id: "/booking/branches";
+      path: "/booking/branches";
+      fullPath: "/booking/branches";
+      preLoaderRoute: typeof bookingDotbranchesRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/booking/": {
       id: "/booking/";
       path: "/booking";
@@ -336,12 +520,26 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof bookingDotpublicRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/booking/clients/": {
+      id: "/booking/clients/";
+      path: "/";
+      fullPath: "/booking/clients/";
+      preLoaderRoute: typeof bookingDotclientsDotindexRouteImport;
+      parentRoute: typeof bookingDotclientsRoute;
+    };
     "/booking/manage/$token": {
       id: "/booking/manage/$token";
       path: "/booking/manage/$token";
       fullPath: "/booking/manage/$token";
       preLoaderRoute: typeof bookingDotmanageDottokenRouteImport;
       parentRoute: typeof rootRouteImport;
+    };
+    "/booking/clients/$familyId": {
+      id: "/booking/clients/$familyId";
+      path: "/$familyId";
+      fullPath: "/booking/clients/$familyId";
+      preLoaderRoute: typeof bookingDotclientsDotfamilyIdRouteImport;
+      parentRoute: typeof bookingDotclientsRoute;
     };
     "/channels/$channelId/posts/$postId": {
       id: "/channels/$channelId/posts/$postId";
@@ -353,6 +551,19 @@ declare module "@tanstack/react-router" {
   }
 }
 
+interface bookingDotclientsRouteChildren {
+  bookingDotclientsDotfamilyIdRoute: typeof bookingDotclientsDotfamilyIdRoute;
+  bookingDotclientsDotindexRoute: typeof bookingDotclientsDotindexRoute;
+}
+
+const bookingDotclientsRouteChildren: bookingDotclientsRouteChildren = {
+  bookingDotclientsDotfamilyIdRoute: bookingDotclientsDotfamilyIdRoute,
+  bookingDotclientsDotindexRoute: bookingDotclientsDotindexRoute,
+};
+
+const bookingDotclientsRouteWithChildren =
+  bookingDotclientsRoute._addFileChildren(bookingDotclientsRouteChildren);
+
 const rootRouteChildren: RootRouteChildren = {
   indexRoute: indexRoute,
   agentsRoute: agentsRoute,
@@ -362,8 +573,16 @@ const rootRouteChildren: RootRouteChildren = {
   settingsRoute: settingsRoute,
   workflowsRoute: workflowsRoute,
   bookingDotpublicRoute: bookingDotpublicRoute,
+  bookingDotbranchesRoute: bookingDotbranchesRoute,
+  bookingDotclientsRoute: bookingDotclientsRouteWithChildren,
   bookingDotdemoHostRoute: bookingDotdemoHostRoute,
+  bookingDotgroupsRoute: bookingDotgroupsRoute,
+  bookingDotpaymentsRoute: bookingDotpaymentsRoute,
+  bookingDotrequestsRoute: bookingDotrequestsRoute,
   bookingDotscheduleRoute: bookingDotscheduleRoute,
+  bookingDotsettingsRoute: bookingDotsettingsRoute,
+  bookingDottariffsRoute: bookingDottariffsRoute,
+  bookingDotteachersRoute: bookingDotteachersRoute,
   channelsDotchannelIdRoute: channelsDotchannelIdRoute,
   messagesDotnewRoute: messagesDotnewRoute,
   projectsDotprojectIdRoute: projectsDotprojectIdRoute,

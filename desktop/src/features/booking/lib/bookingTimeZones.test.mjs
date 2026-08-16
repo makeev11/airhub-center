@@ -8,9 +8,18 @@ import {
 } from "./bookingTimeZones.ts";
 
 test("booking time zone detection accepts IANA zones and falls back to Moscow", () => {
-  assert.equal(detectBookingTimeZone(() => "Asia/Tokyo"), "Asia/Tokyo");
-  assert.equal(detectBookingTimeZone(() => "Mars/Olympus"), "Europe/Moscow");
-  assert.equal(detectBookingTimeZone(() => undefined), "Europe/Moscow");
+  assert.equal(
+    detectBookingTimeZone(() => "Asia/Tokyo"),
+    "Asia/Tokyo",
+  );
+  assert.equal(
+    detectBookingTimeZone(() => "Mars/Olympus"),
+    "Europe/Moscow",
+  );
+  assert.equal(
+    detectBookingTimeZone(() => undefined),
+    "Europe/Moscow",
+  );
   assert.equal(
     detectBookingTimeZone(() => {
       throw new Error("Intl unavailable");

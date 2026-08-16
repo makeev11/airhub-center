@@ -10,11 +10,7 @@ import type {
 } from "@/features/booking/model/bookingCore";
 import { isEnrollmentActiveOn } from "@/features/booking/model/bookingOperations";
 
-export type PaymentDisplayState =
-  | "overdue"
-  | "expected"
-  | "paid"
-  | "cancelled";
+export type PaymentDisplayState = "overdue" | "expected" | "paid" | "cancelled";
 
 export type PaymentQueueRow = {
   payment: PaymentExpectation;
@@ -72,9 +68,7 @@ export function paymentQueueRows(
   const tariffById = new Map(
     workspace.tariffs.map((tariff) => [tariff.id, tariff]),
   );
-  const groupById = new Map(
-    workspace.groups.map((group) => [group.id, group]),
-  );
+  const groupById = new Map(workspace.groups.map((group) => [group.id, group]));
   return workspace.paymentExpectations
     .flatMap((payment): PaymentQueueRow[] => {
       const family = familyById.get(payment.familyId);
@@ -117,9 +111,7 @@ export function familyEnrollmentRows(
   const childById = new Map(
     workspace.children.map((child) => [child.id, child]),
   );
-  const groupById = new Map(
-    workspace.groups.map((group) => [group.id, group]),
-  );
+  const groupById = new Map(workspace.groups.map((group) => [group.id, group]));
   const tariffById = new Map(
     workspace.tariffs.map((tariff) => [tariff.id, tariff]),
   );

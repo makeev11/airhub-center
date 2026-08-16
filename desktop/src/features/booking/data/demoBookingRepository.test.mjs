@@ -49,8 +49,5 @@ test("a new demo workspace uses the detected time zone without mutating the temp
   const initial = createInitialDemoBookingWorkspace("Asia/Tokyo");
 
   assert.equal(initial.organization.timeZone, "Asia/Tokyo");
-  assert.equal(
-    DEMO_BOOKING_WORKSPACE.organization.timeZone,
-    "Europe/Moscow",
-  );
+  assert.equal(DEMO_BOOKING_WORKSPACE.organization.timeZone, "Europe/Moscow");
 });

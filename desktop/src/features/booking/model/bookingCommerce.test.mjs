@@ -179,9 +179,8 @@ test("weekly slots must belong to the group and fit the tariff", () => {
 
 test("archived tariff cannot create a permanent enrollment", () => {
   const workspace = structuredClone(workspaceWithClient());
-  workspace.tariffs.find(
-    (tariff) => tariff.id === "tariff-weekly-2",
-  ).status = "archived";
+  workspace.tariffs.find((tariff) => tariff.id === "tariff-weekly-2").status =
+    "archived";
 
   assert.throws(
     () =>
@@ -224,9 +223,15 @@ test("changing a tariff never rewrites an existing payment snapshot", () => {
     updatedAt: "2026-08-07T09:00:00.000Z",
   });
 
-  assert.equal(changed.tariffs.find(({ id }) => id === originalTariff.id).priceMinor, 700_000);
+  assert.equal(
+    changed.tariffs.find(({ id }) => id === originalTariff.id).priceMinor,
+    700_000,
+  );
   assert.equal(changed.paymentExpectations[0].amountMinor, 600_000);
-  assert.equal(changed.paymentExpectations[0].tariffNameSnapshot, "2 раза в неделю");
+  assert.equal(
+    changed.paymentExpectations[0].tariffNameSnapshot,
+    "2 раза в неделю",
+  );
 });
 
 test("expected payment can change amount, be paid, unmarked, cancelled and restored", () => {

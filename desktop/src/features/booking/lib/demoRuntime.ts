@@ -1,6 +1,7 @@
-export const isAirhopDemoRuntimeAvailable =
-  import.meta.env.DEV || import.meta.env.MODE === "e2e";
+const runtimeEnvironment = import.meta.env as
+  | { DEV?: boolean; MODE?: string }
+  | undefined;
 
-export function shouldUseAirhopDemo(demo: unknown) {
-  return isAirhopDemoRuntimeAvailable && demo === "airhop";
-}
+export const isAirhopDemoRuntimeAvailable = Boolean(
+  runtimeEnvironment?.DEV || runtimeEnvironment?.MODE === "e2e",
+);
