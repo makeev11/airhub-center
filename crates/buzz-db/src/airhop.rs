@@ -20,6 +20,10 @@ use crate::{Db, DbError, Result};
 pub mod booking;
 /// Atomic public booking command application service.
 pub mod public_booking;
+/// Credential-scoped parent booking management.
+pub mod public_management;
+/// Public catalog and authoritative occurrence projections.
+pub mod public_read;
 /// Authoritative occurrence read-model persistence.
 pub mod schedule;
 

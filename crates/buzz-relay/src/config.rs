@@ -63,6 +63,7 @@ pub struct AirhopPublicBookingConfig {
     index_key: AirhopSecret,
     management_keys: BTreeMap<i16, AirhopSecret>,
     current_management_key_version: i16,
+    read_requests_per_minute: u64,
     ip_requests_per_minute: u64,
     phone_requests_per_hour: u64,
     client_ip_header: Option<axum::http::HeaderName>,
@@ -83,6 +84,10 @@ impl AirhopPublicBookingConfig {
 
     pub(crate) const fn ip_requests_per_minute(&self) -> u64 {
         self.ip_requests_per_minute
+    }
+
+    pub(crate) const fn read_requests_per_minute(&self) -> u64 {
+        self.read_requests_per_minute
     }
 
     pub(crate) const fn phone_requests_per_hour(&self) -> u64 {
@@ -378,6 +383,7 @@ fn airhop_public_booking_config_from_env() -> Result<Option<AirhopPublicBookingC
     const INDEX_KEY_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_INDEX_KEY";
     const MANAGEMENT_KEYS_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_MANAGEMENT_KEYS";
     const CURRENT_VERSION_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_CURRENT_KEY_VERSION";
+    const READ_LIMIT_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_READ_REQUESTS_PER_MINUTE";
     const IP_LIMIT_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_IP_REQUESTS_PER_MINUTE";
     const PHONE_LIMIT_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_PHONE_REQUESTS_PER_HOUR";
     const CLIENT_IP_HEADER_ENV: &str = "BUZZ_AIRHOP_PUBLIC_BOOKING_CLIENT_IP_HEADER";
@@ -385,12 +391,14 @@ fn airhop_public_booking_config_from_env() -> Result<Option<AirhopPublicBookingC
     let index_key = optional_unicode_env(INDEX_KEY_ENV)?;
     let management_keys = optional_unicode_env(MANAGEMENT_KEYS_ENV)?;
     let current_version = optional_unicode_env(CURRENT_VERSION_ENV)?;
+    let read_limit = optional_unicode_env(READ_LIMIT_ENV)?;
     let ip_limit = optional_unicode_env(IP_LIMIT_ENV)?;
     let phone_limit = optional_unicode_env(PHONE_LIMIT_ENV)?;
     let client_ip_header = optional_unicode_env(CLIENT_IP_HEADER_ENV)?;
     if index_key.is_none()
         && management_keys.is_none()
         && current_version.is_none()
+        && read_limit.is_none()
         && ip_limit.is_none()
         && phone_limit.is_none()
         && client_ip_header.is_none()
@@ -468,6 +476,7 @@ fn airhop_public_booking_config_from_env() -> Result<Option<AirhopPublicBookingC
         index_key,
         management_keys: parsed_management_keys,
         current_management_key_version,
+        read_requests_per_minute: positive_u64_from_env(READ_LIMIT_ENV, 120)?,
         ip_requests_per_minute: positive_u64_from_env(IP_LIMIT_ENV, 10)?,
         phone_requests_per_hour: positive_u64_from_env(PHONE_LIMIT_ENV, 5)?,
         client_ip_header,
@@ -1239,6 +1248,7 @@ mod tests {
             "BUZZ_AIRHOP_PUBLIC_BOOKING_INDEX_KEY",
             "BUZZ_AIRHOP_PUBLIC_BOOKING_MANAGEMENT_KEYS",
             "BUZZ_AIRHOP_PUBLIC_BOOKING_CURRENT_KEY_VERSION",
+            "BUZZ_AIRHOP_PUBLIC_BOOKING_READ_REQUESTS_PER_MINUTE",
             "BUZZ_AIRHOP_PUBLIC_BOOKING_IP_REQUESTS_PER_MINUTE",
             "BUZZ_AIRHOP_PUBLIC_BOOKING_PHONE_REQUESTS_PER_HOUR",
             "BUZZ_AIRHOP_PUBLIC_BOOKING_CLIENT_IP_HEADER",
@@ -1260,6 +1270,7 @@ mod tests {
             format!("1:{first_management_key},2:{second_management_key}"),
         );
         std::env::set_var("BUZZ_AIRHOP_PUBLIC_BOOKING_CURRENT_KEY_VERSION", "2");
+        std::env::set_var("BUZZ_AIRHOP_PUBLIC_BOOKING_READ_REQUESTS_PER_MINUTE", "11");
         std::env::set_var("BUZZ_AIRHOP_PUBLIC_BOOKING_IP_REQUESTS_PER_MINUTE", "7");
         std::env::set_var("BUZZ_AIRHOP_PUBLIC_BOOKING_PHONE_REQUESTS_PER_HOUR", "3");
         std::env::set_var(
@@ -1273,6 +1284,7 @@ mod tests {
         assert_eq!(config.current_management_key_version(), 2);
         assert!(config.management_key(1).is_some());
         assert!(config.management_key(2).is_some());
+        assert_eq!(config.read_requests_per_minute(), 11);
         assert_eq!(config.ip_requests_per_minute(), 7);
         assert_eq!(config.phone_requests_per_hour(), 3);
         assert_eq!(

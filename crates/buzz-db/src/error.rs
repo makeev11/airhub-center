@@ -84,6 +84,10 @@ pub enum DbError {
     /// An idempotency key was reused with a different canonical request body.
     #[error("AirHub idempotency key was reused with a different request")]
     AirhopIdempotencyConflict,
+
+    /// A parent management action is invalid for the booking lifecycle or time.
+    #[error("AirHub public booking management transition is not allowed")]
+    AirhopBookingTransition,
 }
 
 /// Convenience alias for `Result<T, DbError>`.

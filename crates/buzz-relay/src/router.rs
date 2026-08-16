@@ -52,8 +52,36 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 
     let airhop_public_router = Router::new()
         .route(
+            "/api/airhop/public/v1/catalog",
+            get(api::airhop_public::get_public_catalog),
+        )
+        .route(
+            "/api/airhop/public/v1/occurrences",
+            get(api::airhop_public::get_public_occurrences),
+        )
+        .route(
             "/api/airhop/public/bookings",
             post(api::airhop_public::create_public_booking),
+        )
+        .route(
+            "/api/airhop/public/v1/bookings",
+            post(api::airhop_public::create_public_booking),
+        )
+        .route(
+            "/api/airhop/public/v1/manage",
+            get(api::airhop_public::get_public_management_card),
+        )
+        .route(
+            "/api/airhop/public/v1/manage/cancel",
+            post(api::airhop_public::cancel_public_booking_by_parent),
+        )
+        .route(
+            "/api/airhop/public/v1/manage/transfer-request",
+            post(api::airhop_public::request_public_booking_transfer),
+        )
+        .route(
+            "/api/airhop/public/v1/manage/contact-channel",
+            post(api::airhop_public::set_public_booking_contact_channel),
         )
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .with_state(state.clone());

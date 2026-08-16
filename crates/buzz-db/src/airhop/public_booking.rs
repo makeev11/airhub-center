@@ -44,7 +44,7 @@ pub enum PreferredContactChannel {
 }
 
 impl PreferredContactChannel {
-    const fn as_db_str(self) -> &'static str {
+    pub(super) const fn as_db_str(self) -> &'static str {
         match self {
             Self::Telegram => "telegram",
             Self::Max => "max",
@@ -826,6 +826,10 @@ const fn public_actor() -> AirhopActor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::airhop::public_management::{
+        PublicManagementAction, PublicManagementCommand, PublicManagementCredential,
+    };
+    use crate::airhop::public_read::PublicBookingOccurrenceFilters;
     use buzz_core::CommunityId;
     use chrono::{Days, NaiveTime};
 
@@ -1103,5 +1107,113 @@ mod tests {
                 "unexpected row count for {column}"
             );
         }
+
+        let catalog = db
+            .get_public_booking_catalog(&tenant)
+            .await
+            .expect("load tenant public catalog");
+        assert_eq!(catalog.organization_id, organization_id);
+        assert_eq!(catalog.branches.len(), 1);
+        assert_eq!(catalog.branches[0].id, branch_id);
+
+        let occurrences = db
+            .find_public_booking_occurrences(
+                &tenant,
+                PublicBookingOccurrenceFilters {
+                    branch_id: Some(branch_id),
+                    group_id: Some(group_id),
+                    purpose: PublicBookingPurpose::Trial,
+                    age: None,
+                },
+            )
+            .await
+            .expect("load authoritative public occurrences");
+        assert_eq!(occurrences.len(), 2);
+        assert!(occurrences
+            .iter()
+            .all(|occurrence| occurrence.occupied == 1));
+        assert!(occurrences.iter().all(|occurrence| !occurrence.available));
+
+        let credential = PublicManagementCredential {
+            key_version: 1,
+            token_digest: [4; 32],
+        };
+        let initial_card = db
+            .get_public_management_card(&tenant, credential)
+            .await
+            .expect("load management card")
+            .expect("known credential");
+        assert_eq!(initial_card.child_name, "Анна");
+        assert!(initial_card.can_cancel);
+
+        let contact_card = db
+            .apply_public_management_action(
+                &tenant,
+                credential,
+                PublicManagementCommand {
+                    idempotency_digest: [12; 32],
+                    request_hash: [13; 32],
+                },
+                PublicManagementAction::SetPreferredContactChannel {
+                    channel: PreferredContactChannel::Phone,
+                },
+            )
+            .await
+            .expect("change contact channel");
+        assert_eq!(
+            contact_card.preferred_contact_channel,
+            PreferredContactChannel::Phone
+        );
+
+        let transfer_command = PublicManagementCommand {
+            idempotency_digest: [14; 32],
+            request_hash: [15; 32],
+        };
+        let transfer_card = db
+            .apply_public_management_action(
+                &tenant,
+                credential,
+                transfer_command,
+                PublicManagementAction::RequestTransfer {
+                    comment: Some("Нужен вечер".to_owned()),
+                },
+            )
+            .await
+            .expect("request transfer");
+        assert_eq!(
+            transfer_card
+                .transfer_request
+                .as_ref()
+                .and_then(|request| request.comment.as_deref()),
+            Some("Нужен вечер")
+        );
+        let replayed_transfer = db
+            .apply_public_management_action(
+                &tenant,
+                credential,
+                transfer_command,
+                PublicManagementAction::RequestTransfer {
+                    comment: Some("Нужен вечер".to_owned()),
+                },
+            )
+            .await
+            .expect("replay transfer");
+        assert_eq!(replayed_transfer, transfer_card);
+
+        let cancelled = db
+            .apply_public_management_action(
+                &tenant,
+                credential,
+                PublicManagementCommand {
+                    idempotency_digest: [16; 32],
+                    request_hash: [17; 32],
+                },
+                PublicManagementAction::CancelByParent,
+            )
+            .await
+            .expect("cancel booking");
+        assert_eq!(cancelled.status, BookingStatus::CancelledByParent);
+        assert!(cancelled.transfer_request.is_none());
+        assert!(!cancelled.can_cancel);
     }
 }

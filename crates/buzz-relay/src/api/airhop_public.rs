@@ -3,9 +3,13 @@
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
-use airhop_core::{BookingStatus, StableLessonReference};
+use airhop_core::{
+    BookingStatus, PublicBookingAppearance, PublicBookingPurpose, StableLessonReference,
+    TrialPolicy,
+};
 use axum::body::{to_bytes, Bytes};
-use axum::extract::{ConnectInfo, Request, State};
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{ConnectInfo, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -30,7 +34,14 @@ type HmacSha256 = Hmac<Sha256>;
 const IDEMPOTENCY_HEADER: &str = "idempotency-key";
 const IP_RATE_NAMESPACE: &str = "airhop_booking_ip";
 const PHONE_RATE_NAMESPACE: &str = "airhop_booking_phone";
+const READ_RATE_NAMESPACE: &str = "airhop_public_read_ip";
 const CONSENT_POLICY_VERSION: &str = "public-booking-v1";
+
+#[derive(Debug, Clone, Copy)]
+enum PublicQuota {
+    Read,
+    Booking,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -111,6 +122,131 @@ struct PublicBookingResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicCatalogResponse {
+    organization: PublicCatalogOrganization,
+    branches: Vec<PublicCatalogBranch>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicCatalogOrganization {
+    id: Uuid,
+    name: String,
+    locale: String,
+    time_zone: String,
+    current_date: NaiveDate,
+    public_booking: PublicCatalogSettings,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicCatalogSettings {
+    purpose: PublicBookingPurpose,
+    appearance: PublicBookingAppearance,
+    consent_policy_version: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct PublicCatalogBranch {
+    id: Uuid,
+    name: String,
+    address: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PublicOccurrenceQuery {
+    #[serde(default)]
+    branch_id: Option<Uuid>,
+    #[serde(default)]
+    group_id: Option<Uuid>,
+    #[serde(default)]
+    age_years: Option<u8>,
+    #[serde(default)]
+    birth_year: Option<i32>,
+    #[serde(default)]
+    birth_month: Option<u32>,
+    #[serde(default = "default_public_purpose")]
+    purpose: PublicBookingPurpose,
+}
+
+#[derive(Debug, Serialize)]
+struct PublicOccurrencesResponse {
+    occurrences: Vec<PublicOccurrenceResponse>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicOccurrenceResponse {
+    lesson_ref: StableLessonReference,
+    group_id: Uuid,
+    group_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    group_description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_age_months: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_age_months: Option<u32>,
+    branch_id: Uuid,
+    branch_name: String,
+    branch_address: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    room_name: Option<String>,
+    teacher_names: Vec<String>,
+    date: NaiveDate,
+    start_time: String,
+    end_time: String,
+    trial_policy: TrialPolicy,
+    capacity: Option<u32>,
+    occupied: u32,
+    remaining: Option<u32>,
+    available: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PublicTransferRequestBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    comment: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyManagementBody {}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PublicContactChannelBody {
+    channel: ContactChannelRequest,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicManagementCardResponse {
+    status: &'static str,
+    child_name: String,
+    masked_phone: String,
+    preferred_contact_channel: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transfer_request: Option<buzz_db::airhop::public_management::PublicTransferRequest>,
+    organization_name: String,
+    branch_name: String,
+    branch_address: String,
+    group_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    room_name: Option<String>,
+    teacher_names: Vec<String>,
+    date: NaiveDate,
+    start_time: String,
+    end_time: String,
+    trial_policy: TrialPolicy,
+    purpose: PublicBookingPurpose,
+    can_cancel: bool,
+    can_request_transfer: bool,
+}
+
+#[derive(Debug, Serialize)]
 struct ErrorEnvelope {
     error: ErrorDetail,
 }
@@ -184,6 +320,225 @@ impl IntoResponse for ApiFailure {
     }
 }
 
+/// Returns public center settings and active branches for the bound tenant.
+pub(crate) async fn get_public_catalog(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+) -> Result<Response, ApiFailure> {
+    let headers = request.headers();
+    let peer_ip = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|value| value.0.ip());
+    let tenant = bind_and_rate_limit(
+        &state,
+        headers,
+        peer_ip,
+        READ_RATE_NAMESPACE,
+        PublicQuota::Read,
+    )
+    .await?;
+    let catalog = state
+        .db
+        .get_public_booking_catalog(&tenant)
+        .await
+        .map_err(map_public_read_error)?;
+    no_store_json(PublicCatalogResponse {
+        organization: PublicCatalogOrganization {
+            id: catalog.organization_id,
+            name: catalog.organization_name,
+            locale: catalog.locale,
+            time_zone: catalog.time_zone,
+            current_date: catalog.current_date,
+            public_booking: PublicCatalogSettings {
+                purpose: catalog.purpose,
+                appearance: catalog.appearance,
+                consent_policy_version: CONSENT_POLICY_VERSION,
+            },
+        },
+        branches: catalog
+            .branches
+            .into_iter()
+            .map(|branch| PublicCatalogBranch {
+                id: branch.id,
+                name: branch.name,
+                address: branch.address,
+            })
+            .collect(),
+    })
+}
+
+/// Returns future server-materialized occurrences with authoritative occupancy.
+pub(crate) async fn get_public_occurrences(
+    State(state): State<Arc<AppState>>,
+    query: Result<Query<PublicOccurrenceQuery>, QueryRejection>,
+    request: Request,
+) -> Result<Response, ApiFailure> {
+    let query = query.map_err(|_| invalid_query())?.0;
+    let filters = public_occurrence_filters(query)?;
+    let headers = request.headers();
+    let peer_ip = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|value| value.0.ip());
+    let tenant = bind_and_rate_limit(
+        &state,
+        headers,
+        peer_ip,
+        READ_RATE_NAMESPACE,
+        PublicQuota::Read,
+    )
+    .await?;
+    let occurrences = state
+        .db
+        .find_public_booking_occurrences(&tenant, filters)
+        .await
+        .map_err(map_public_read_error)?;
+    no_store_json(PublicOccurrencesResponse {
+        occurrences: occurrences
+            .into_iter()
+            .map(|occurrence| PublicOccurrenceResponse {
+                lesson_ref: occurrence.lesson_ref,
+                group_id: occurrence.group_id,
+                group_name: occurrence.group_name,
+                group_description: occurrence.group_description,
+                min_age_months: occurrence.min_age_months,
+                max_age_months: occurrence.max_age_months,
+                branch_id: occurrence.branch_id,
+                branch_name: occurrence.branch_name,
+                branch_address: occurrence.branch_address,
+                room_name: occurrence.room_name,
+                teacher_names: occurrence.teacher_names,
+                date: occurrence.date,
+                start_time: occurrence.start_time.format("%H:%M").to_string(),
+                end_time: occurrence.end_time.format("%H:%M").to_string(),
+                trial_policy: occurrence.trial_policy,
+                capacity: occurrence.capacity,
+                occupied: occurrence.occupied,
+                remaining: occurrence.remaining,
+                available: occurrence.available,
+            })
+            .collect(),
+    })
+}
+
+/// Returns a parent-visible management card for a valid bearer token.
+pub(crate) async fn get_public_management_card(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+) -> Result<Response, ApiFailure> {
+    let headers = request.headers();
+    let peer_ip = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|value| value.0.ip());
+    let tenant = bind_and_rate_limit(
+        &state,
+        headers,
+        peer_ip,
+        READ_RATE_NAMESPACE,
+        PublicQuota::Read,
+    )
+    .await?;
+    let credential = parse_management_credential(&state, headers)?;
+    let card = state
+        .db
+        .get_public_management_card(&tenant, credential)
+        .await
+        .map_err(map_public_management_error)?
+        .ok_or_else(invalid_management_token)?;
+    no_store_json(public_management_card_response(card))
+}
+
+/// Cancels a future active booking using a bearer token and idempotent command.
+pub(crate) async fn cancel_public_booking_by_parent(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+) -> Result<Response, ApiFailure> {
+    let (request, body) = read_management_body(request).await?;
+    let parsed: EmptyManagementBody = serde_json::from_slice(&body).map_err(|_| {
+        ApiFailure::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "The management request is not valid JSON.",
+            false,
+        )
+    })?;
+    let canonical = serde_json::to_vec(&parsed).map_err(|_| internal_failure())?;
+    apply_public_management_http_action(
+        state,
+        request,
+        "cancel",
+        &canonical,
+        buzz_db::airhop::public_management::PublicManagementAction::CancelByParent,
+    )
+    .await
+}
+
+/// Creates one pending transfer request for a future active booking.
+pub(crate) async fn request_public_booking_transfer(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+) -> Result<Response, ApiFailure> {
+    let (request, body) = read_management_body(request).await?;
+    let parsed: PublicTransferRequestBody = serde_json::from_slice(&body).map_err(|_| {
+        ApiFailure::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "The management request is not valid JSON.",
+            false,
+        )
+    })?;
+    let canonical = serde_json::to_vec(&parsed).map_err(|_| internal_failure())?;
+    let comment = parsed
+        .comment
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    apply_public_management_http_action(
+        state,
+        request,
+        "transfer_request",
+        &canonical,
+        buzz_db::airhop::public_management::PublicManagementAction::RequestTransfer { comment },
+    )
+    .await
+}
+
+/// Updates the preferred contact channel for a managed public booking.
+pub(crate) async fn set_public_booking_contact_channel(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+) -> Result<Response, ApiFailure> {
+    let (request, body) = read_management_body(request).await?;
+    let parsed: PublicContactChannelBody = serde_json::from_slice(&body).map_err(|_| {
+        ApiFailure::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "The management request is not valid JSON.",
+            false,
+        )
+    })?;
+    if matches!(parsed.channel, ContactChannelRequest::None) {
+        return Err(ApiFailure::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "contact_channel_invalid",
+            "A contact channel must be selected.",
+            false,
+        ));
+    }
+    let canonical = serde_json::to_vec(&parsed).map_err(|_| internal_failure())?;
+    apply_public_management_http_action(
+        state,
+        request,
+        "contact_channel",
+        &canonical,
+        buzz_db::airhop::public_management::PublicManagementAction::SetPreferredContactChannel {
+            channel: parsed.channel.into(),
+        },
+    )
+    .await
+}
+
 /// Creates one public booking under the host-resolved AirHub tenant.
 pub(crate) async fn create_public_booking(
     State(state): State<Arc<AppState>>,
@@ -194,28 +549,19 @@ pub(crate) async fn create_public_booking(
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|value| value.0.ip());
-    let config = state.config.airhop_public_booking.as_ref().ok_or_else(|| {
-        ApiFailure::new(
-            StatusCode::NOT_FOUND,
-            "not_found",
-            "The requested resource was not found.",
-            false,
-        )
-    })?;
-    let raw_host = headers
-        .get(header::HOST)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-    let tenant = crate::tenant::bind_community(&state.db, raw_host)
-        .await
-        .map_err(|_| {
-            ApiFailure::new(
-                StatusCode::NOT_FOUND,
-                "not_found",
-                "The requested resource was not found.",
-                false,
-            )
-        })?;
+    let tenant = bind_and_rate_limit(
+        &state,
+        &headers,
+        peer_ip,
+        IP_RATE_NAMESPACE,
+        PublicQuota::Booking,
+    )
+    .await?;
+    let config = state
+        .config
+        .airhop_public_booking
+        .as_ref()
+        .ok_or_else(not_found)?;
     let community_id = *tenant.community().as_uuid();
     let client_ip = resolve_client_ip(config.client_ip_header(), &headers, peer_ip)?;
     let ip_digest = tenant_keyed_digest(
@@ -224,16 +570,6 @@ pub(crate) async fn create_public_booking(
         b"airhop.public-booking.ip.v1",
         &[client_ip.to_string().as_bytes()],
     );
-    enforce_rate_limit(
-        &state,
-        &tenant,
-        IP_RATE_NAMESPACE,
-        &ip_digest,
-        60,
-        config.ip_requests_per_minute(),
-    )
-    .await?;
-
     let body: Bytes = to_bytes(request.into_body(), 16 * 1024)
         .await
         .map_err(|_| {
@@ -382,6 +718,301 @@ pub(crate) async fn create_public_booking(
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok(response)
+}
+
+async fn bind_and_rate_limit(
+    state: &AppState,
+    headers: &HeaderMap,
+    peer_ip: Option<IpAddr>,
+    namespace: &str,
+    quota: PublicQuota,
+) -> Result<buzz_core::TenantContext, ApiFailure> {
+    let config = state
+        .config
+        .airhop_public_booking
+        .as_ref()
+        .ok_or_else(not_found)?;
+    let raw_host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let tenant = crate::tenant::bind_community(&state.db, raw_host)
+        .await
+        .map_err(|_| not_found())?;
+    let client_ip = resolve_client_ip(config.client_ip_header(), headers, peer_ip)?;
+    let ip_text = client_ip.to_string();
+    let digest = tenant_keyed_digest(
+        config.index_key(),
+        tenant.community().as_uuid(),
+        b"airhop.public-booking.ip.v1",
+        &[ip_text.as_bytes()],
+    );
+    let limit = match quota {
+        PublicQuota::Read => config.read_requests_per_minute(),
+        PublicQuota::Booking => config.ip_requests_per_minute(),
+    };
+    enforce_rate_limit(state, &tenant, namespace, &digest, 60, limit).await?;
+    Ok(tenant)
+}
+
+async fn read_management_body(request: Request) -> Result<(Request, Bytes), ApiFailure> {
+    let (parts, body) = request.into_parts();
+    let body = to_bytes(body, 16 * 1024).await.map_err(|_| {
+        ApiFailure::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "request_too_large",
+            "The management request is too large.",
+            false,
+        )
+    })?;
+    Ok((Request::from_parts(parts, axum::body::Body::empty()), body))
+}
+
+async fn apply_public_management_http_action(
+    state: Arc<AppState>,
+    request: Request,
+    action_name: &'static str,
+    canonical_body: &[u8],
+    action: buzz_db::airhop::public_management::PublicManagementAction,
+) -> Result<Response, ApiFailure> {
+    use buzz_db::airhop::public_management::PublicManagementCommand;
+
+    let headers = request.headers();
+    let peer_ip = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|value| value.0.ip());
+    let tenant = bind_and_rate_limit(
+        &state,
+        headers,
+        peer_ip,
+        IP_RATE_NAMESPACE,
+        PublicQuota::Booking,
+    )
+    .await?;
+    let credential = parse_management_credential(&state, headers)?;
+    let idempotency_key = parse_idempotency_key(headers)?;
+    let config = state
+        .config
+        .airhop_public_booking
+        .as_ref()
+        .ok_or_else(not_found)?;
+    let community_id = *tenant.community().as_uuid();
+    let idempotency_digest = tenant_keyed_digest(
+        config.index_key(),
+        &community_id,
+        b"airhop.public-booking.management-idempotency.v1",
+        &[action_name.as_bytes(), idempotency_key.as_bytes()],
+    );
+    let request_hash = tenant_keyed_digest(
+        config.index_key(),
+        &community_id,
+        b"airhop.public-booking.management-request.v1",
+        &[
+            action_name.as_bytes(),
+            &credential.token_digest,
+            canonical_body,
+        ],
+    );
+    let card = state
+        .db
+        .apply_public_management_action(
+            &tenant,
+            credential,
+            PublicManagementCommand {
+                idempotency_digest,
+                request_hash,
+            },
+            action,
+        )
+        .await
+        .map_err(map_public_management_error)?;
+    no_store_json(public_management_card_response(card))
+}
+
+fn parse_management_credential(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<buzz_db::airhop::public_management::PublicManagementCredential, ApiFailure> {
+    use buzz_db::airhop::public_management::PublicManagementCredential;
+
+    let mut values = headers.get_all(header::AUTHORIZATION).iter();
+    let authorization = values
+        .next()
+        .and_then(|value| value.to_str().ok())
+        .filter(|_| values.next().is_none())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .ok_or_else(invalid_management_token)?;
+    let mut token_parts = authorization.split('_');
+    let prefix = token_parts.next();
+    let version = token_parts
+        .next()
+        .and_then(|value| value.parse::<i16>().ok())
+        .filter(|value| *value > 0);
+    let material = token_parts.next();
+    if prefix != Some("ahb")
+        || material.is_none_or(|value| {
+            value.len() != 43
+                || !value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
+        || token_parts.next().is_some()
+    {
+        return Err(invalid_management_token());
+    }
+    let version = version.ok_or_else(invalid_management_token)?;
+    let key = state
+        .config
+        .airhop_public_booking
+        .as_ref()
+        .and_then(|config| config.management_key(version))
+        .ok_or_else(invalid_management_token)?;
+    Ok(PublicManagementCredential {
+        key_version: version,
+        token_digest: keyed_digest(
+            key,
+            b"airhop.public-booking.management-token-digest.v1",
+            &[authorization.as_bytes()],
+        ),
+    })
+}
+
+fn public_management_card_response(
+    card: buzz_db::airhop::public_management::PublicManagementCard,
+) -> PublicManagementCardResponse {
+    PublicManagementCardResponse {
+        status: booking_status_str(card.status),
+        child_name: card.child_name,
+        masked_phone: mask_normalized_phone(&card.phone_normalized),
+        preferred_contact_channel: contact_channel_str(card.preferred_contact_channel),
+        transfer_request: card.transfer_request,
+        organization_name: card.organization_name,
+        branch_name: card.branch_name,
+        branch_address: card.branch_address,
+        group_name: card.group_name,
+        room_name: card.room_name,
+        teacher_names: card.teacher_names,
+        date: card.date,
+        start_time: card.start_time.format("%H:%M").to_string(),
+        end_time: card.end_time.format("%H:%M").to_string(),
+        trial_policy: card.trial_policy,
+        purpose: card.purpose,
+        can_cancel: card.can_cancel,
+        can_request_transfer: card.can_request_transfer,
+    }
+}
+
+fn mask_normalized_phone(value: &str) -> String {
+    let digits = value.strip_prefix('+').unwrap_or(value);
+    if digits.len() < 5 {
+        return "••••".to_owned();
+    }
+    let prefix_length = 2.min(digits.len().saturating_sub(4));
+    let prefix = &digits[..prefix_length];
+    let tail = &digits[digits.len() - 4..];
+    format!("+{prefix} ••• ••• {} {}", &tail[..2], &tail[2..])
+}
+
+const fn contact_channel_str(value: PreferredContactChannel) -> &'static str {
+    match value {
+        PreferredContactChannel::Telegram => "telegram",
+        PreferredContactChannel::Max => "max",
+        PreferredContactChannel::Whatsapp => "whatsapp",
+        PreferredContactChannel::Phone => "phone",
+        PreferredContactChannel::None => "none",
+    }
+}
+
+fn public_occurrence_filters(
+    query: PublicOccurrenceQuery,
+) -> Result<buzz_db::airhop::public_read::PublicBookingOccurrenceFilters, ApiFailure> {
+    use buzz_db::airhop::public_read::{PublicBookingAgeFilter, PublicBookingOccurrenceFilters};
+
+    if query.age_years.is_some() && (query.birth_year.is_some() || query.birth_month.is_some()) {
+        return Err(invalid_query());
+    }
+    let age = match (query.age_years, query.birth_year, query.birth_month) {
+        (Some(years), None, None) if years <= 120 => {
+            Some(PublicBookingAgeFilter::CompletedYears(years))
+        }
+        (None, Some(year), Some(month))
+            if (1900..=9999).contains(&year) && (1..=12).contains(&month) =>
+        {
+            Some(PublicBookingAgeFilter::BirthMonth { year, month })
+        }
+        (None, None, None) => None,
+        _ => return Err(invalid_query()),
+    };
+    Ok(PublicBookingOccurrenceFilters {
+        branch_id: query.branch_id,
+        group_id: query.group_id,
+        purpose: query.purpose,
+        age,
+    })
+}
+
+fn no_store_json<T: Serialize>(value: T) -> Result<Response, ApiFailure> {
+    let mut response = Json(value).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
+}
+
+const fn default_public_purpose() -> PublicBookingPurpose {
+    PublicBookingPurpose::Trial
+}
+
+const fn invalid_query() -> ApiFailure {
+    ApiFailure::new(
+        StatusCode::BAD_REQUEST,
+        "invalid_query",
+        "The occurrence query is invalid.",
+        false,
+    )
+}
+
+const fn not_found() -> ApiFailure {
+    ApiFailure::new(
+        StatusCode::NOT_FOUND,
+        "not_found",
+        "The requested resource was not found.",
+        false,
+    )
+}
+
+fn map_public_read_error(error: buzz_db::DbError) -> ApiFailure {
+    match error {
+        buzz_db::DbError::NotFound(_) => not_found(),
+        buzz_db::DbError::InvalidData(_) => invalid_query(),
+        internal => {
+            tracing::error!(error = %internal, "AirHub public read failed");
+            internal_failure()
+        }
+    }
+}
+
+fn map_public_management_error(error: buzz_db::DbError) -> ApiFailure {
+    match error {
+        buzz_db::DbError::NotFound(_) => invalid_management_token(),
+        buzz_db::DbError::AirhopBookingTransition => ApiFailure::new(
+            StatusCode::CONFLICT,
+            "booking_transition_invalid",
+            "The booking can no longer be changed.",
+            false,
+        ),
+        other => map_booking_error(other),
+    }
+}
+
+const fn invalid_management_token() -> ApiFailure {
+    ApiFailure::new(
+        StatusCode::UNAUTHORIZED,
+        "management_token_invalid",
+        "The booking management link is invalid or unavailable.",
+        false,
+    )
 }
 
 async fn enforce_rate_limit(
@@ -771,6 +1402,14 @@ mod tests {
     }
 
     #[test]
+    fn management_projection_masks_phone_and_cancel_body_rejects_fields() {
+        assert_eq!(mask_normalized_phone("+79991234567"), "+79 ••• ••• 45 67");
+        assert_eq!(mask_normalized_phone("1234"), "••••");
+        assert!(serde_json::from_slice::<EmptyManagementBody>(b"{}").is_ok());
+        assert!(serde_json::from_slice::<EmptyManagementBody>(b"{\"token\":\"leak\"}").is_err());
+    }
+
+    #[test]
     fn database_failures_map_to_stable_public_codes() {
         assert_eq!(
             map_booking_error(buzz_db::DbError::AirhopCapacityFull).code,
@@ -784,5 +1423,51 @@ mod tests {
             map_booking_error(buzz_db::DbError::AirhopIdentityMismatch).code,
             "internal_error"
         );
+    }
+
+    #[test]
+    fn occurrence_query_rejects_ambiguous_or_incomplete_age_inputs() {
+        let valid = public_occurrence_filters(PublicOccurrenceQuery {
+            branch_id: Some(Uuid::from_u128(1)),
+            group_id: None,
+            age_years: Some(6),
+            birth_year: None,
+            birth_month: None,
+            purpose: PublicBookingPurpose::Trial,
+        })
+        .expect("completed age filter");
+        assert!(matches!(
+            valid.age,
+            Some(buzz_db::airhop::public_read::PublicBookingAgeFilter::CompletedYears(6))
+        ));
+
+        for invalid in [
+            PublicOccurrenceQuery {
+                branch_id: None,
+                group_id: None,
+                age_years: Some(6),
+                birth_year: Some(2020),
+                birth_month: Some(8),
+                purpose: PublicBookingPurpose::Trial,
+            },
+            PublicOccurrenceQuery {
+                branch_id: None,
+                group_id: None,
+                age_years: None,
+                birth_year: Some(2020),
+                birth_month: None,
+                purpose: PublicBookingPurpose::Trial,
+            },
+            PublicOccurrenceQuery {
+                branch_id: None,
+                group_id: None,
+                age_years: Some(121),
+                birth_year: None,
+                birth_month: None,
+                purpose: PublicBookingPurpose::Trial,
+            },
+        ] {
+            assert!(public_occurrence_filters(invalid).is_err());
+        }
     }
 }
