@@ -92,6 +92,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(api::airhop_staff::list_booking_requests),
         )
         .route(
+            "/api/airhop/staff/v1/families/{family_id}",
+            get(api::airhop_staff::get_family_detail),
+        )
+        .route(
             "/api/airhop/staff/v1/bookings/{booking_id}/decision",
             post(api::airhop_staff::decide_booking),
         )

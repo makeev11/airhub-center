@@ -20,6 +20,8 @@ use crate::{Db, DbError, Result};
 pub mod booking;
 /// Staff booking decisions, messenger bindings, and delivery leases.
 pub mod booking_decision;
+/// Tenant-scoped staff family detail projection.
+pub mod family_detail;
 /// Atomic public booking command application service.
 pub mod public_booking;
 /// Credential-scoped parent booking management.

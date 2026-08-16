@@ -12,6 +12,7 @@ use buzz_db::airhop::booking_decision::{
     BindMessengerAccountInput, BookingDecision, DecideBookingInput, DeliveryAckState,
     DeliveryCompletion, ParentNotificationRoute,
 };
+use buzz_db::airhop::family_detail::StaffFamilyDetail;
 use buzz_db::airhop::staff_queue::{
     StaffBookingQueueCursor, StaffBookingQueueFilter, StaffBookingQueueRow,
 };
@@ -119,6 +120,22 @@ pub(crate) async fn list_booking_requests(
             "bookingId": cursor.booking_id
         }))
     })))
+}
+
+/// Staff-only authoritative family card with bounded operational history.
+pub(crate) async fn get_family_detail(
+    State(state): State<Arc<AppState>>,
+    Path(family_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<StaffFamilyDetail>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/families/{family_id}");
+    let (tenant, _) = authenticate(&state, &headers, "GET", &path, None, Access::Staff).await?;
+    state
+        .db
+        .get_airhop_staff_family_detail(&tenant, family_id)
+        .await
+        .map(Json)
+        .map_err(map_db_error)
 }
 
 /// Staff-only transition from `pending_confirmation` to confirmed/rejected.
