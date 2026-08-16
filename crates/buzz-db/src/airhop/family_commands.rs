@@ -6,7 +6,7 @@
 //! decision, not ordinary client-card maintenance.
 
 use buzz_core::TenantContext;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Postgres, Row, Transaction};
@@ -19,6 +19,70 @@ use super::{
 use crate::{Db, DbError, Result};
 
 const UPDATE_REPRESENTATIVE_COMMAND_TYPE: &str = "UpdateFamilyRepresentative";
+const UPDATE_FAMILY_COMMAND_TYPE: &str = "UpdateFamily";
+const UPDATE_CHILD_COMMAND_TYPE: &str = "UpdateFamilyChild";
+
+/// Complete replacement of staff-editable family fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateFamilyInput {
+    /// Family to update.
+    pub family_id: Uuid,
+    /// Version observed by the staff client.
+    pub expected_version: i64,
+    /// Staff-facing family label.
+    pub display_name: String,
+    /// Keyed digest of the HTTP idempotency key.
+    pub idempotency_digest: [u8; 32],
+    /// Hash of the canonical HTTP body.
+    pub request_hash: [u8; 32],
+    /// Verified Buzz member attribution.
+    pub actor: AirhopActor,
+}
+
+/// Result of applying or replaying a family update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateFamilyOutcome {
+    /// Updated family.
+    pub family_id: Uuid,
+    /// New or unchanged optimistic version.
+    pub version: i64,
+    /// True when an existing command receipt was replayed.
+    pub replayed: bool,
+}
+
+/// Complete replacement of staff-editable child fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateFamilyChildInput {
+    /// Family owning the child.
+    pub family_id: Uuid,
+    /// Child to update.
+    pub child_id: Uuid,
+    /// Version observed by the staff client.
+    pub expected_version: i64,
+    /// Current child name.
+    pub display_name: String,
+    /// Exact birth date, never a derived age.
+    pub birth_date: NaiveDate,
+    /// Optional internal staff note.
+    pub note: Option<String>,
+    /// Keyed digest of the HTTP idempotency key.
+    pub idempotency_digest: [u8; 32],
+    /// Hash of the canonical HTTP body.
+    pub request_hash: [u8; 32],
+    /// Verified Buzz member attribution.
+    pub actor: AirhopActor,
+}
+
+/// Result of applying or replaying a child update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateFamilyChildOutcome {
+    /// Updated child.
+    pub child_id: Uuid,
+    /// New or unchanged optimistic version.
+    pub version: i64,
+    /// True when an existing command receipt was replayed.
+    pub replayed: bool,
+}
 
 /// Complete replacement of staff-editable representative fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +132,20 @@ struct StoredRepresentativeUpdateResult {
     has_pending_duplicate: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredFamilyUpdateResult {
+    family_id: Uuid,
+    version: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredChildUpdateResult {
+    child_id: Uuid,
+    version: i64,
+}
+
 #[derive(Debug)]
 struct CurrentRepresentative {
     version: i64,
@@ -78,6 +156,255 @@ struct CurrentRepresentative {
 }
 
 impl Db {
+    /// Updates one active family label and records one immutable audit event.
+    pub async fn update_airhop_family(
+        &self,
+        tenant: &TenantContext,
+        input: &UpdateFamilyInput,
+    ) -> Result<UpdateFamilyOutcome> {
+        validate_family_input(input)?;
+        let mut transaction = self.pool.begin().await?;
+        let (organization_id, occurred_at) =
+            resolve_active_organization(&mut transaction, tenant).await?;
+        let command = NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id,
+            command_type: UPDATE_FAMILY_COMMAND_TYPE.to_owned(),
+            idempotency_digest: input.idempotency_digest,
+            request_hash: input.request_hash,
+            actor: input.actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        };
+        let command = match insert_pending_command(&mut transaction, tenant, &command).await? {
+            CommandInsertOutcome::Inserted(command) => command,
+            CommandInsertOutcome::Existing(command) => {
+                return replay_family_update(transaction, command).await;
+            }
+        };
+        let row = sqlx::query(
+            "SELECT version, display_name FROM airhop_families \
+             WHERE community_id = $1 AND organization_id = $2 AND id = $3 \
+               AND status = 'active' \
+             FOR UPDATE",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .bind(input.family_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| DbError::NotFound("active AirHub family".to_owned()))?;
+        let current_version: i64 = row.try_get("version")?;
+        if current_version != input.expected_version {
+            return Err(DbError::AirhopVersionConflict);
+        }
+        let current_name: String = row.try_get("display_name")?;
+        let display_name = input.display_name.trim();
+        let version = if current_name == display_name {
+            current_version
+        } else {
+            let version = sqlx::query_scalar(
+                "UPDATE airhop_families \
+                 SET display_name = $4, version = version + 1, updated_at = $5 \
+                 WHERE community_id = $1 AND organization_id = $2 AND id = $3 \
+                   AND version = $6 \
+                 RETURNING version",
+            )
+            .bind(tenant.community().as_uuid())
+            .bind(organization_id)
+            .bind(input.family_id)
+            .bind(display_name)
+            .bind(occurred_at)
+            .bind(input.expected_version)
+            .fetch_optional(&mut *transaction)
+            .await?
+            .ok_or(DbError::AirhopVersionConflict)?;
+            append_domain_event(
+                &mut transaction,
+                tenant,
+                &NewDomainEvent {
+                    id: Uuid::new_v4(),
+                    organization_id,
+                    stream_type: "family".to_owned(),
+                    stream_id: input.family_id,
+                    stream_version: version,
+                    event_type: "airhop.family.updated.v1".to_owned(),
+                    schema_version: 1,
+                    occurred_at,
+                    actor: input.actor.clone(),
+                    causation_id: command.id,
+                    correlation_id: command.correlation_id,
+                    payload: json!({
+                        "familyId": input.family_id,
+                        "changedFields": ["display_name"]
+                    }),
+                    privacy_class: PrivacyClass::Pii,
+                },
+            )
+            .await?;
+            version
+        };
+        let stored = StoredFamilyUpdateResult {
+            family_id: input.family_id,
+            version,
+        };
+        commit_command(
+            &mut transaction,
+            tenant,
+            organization_id,
+            command.id,
+            &serde_json::to_value(&stored)?,
+        )
+        .await?;
+        transaction.commit().await?;
+        Ok(UpdateFamilyOutcome {
+            family_id: stored.family_id,
+            version: stored.version,
+            replayed: false,
+        })
+    }
+
+    /// Updates one active child and records one immutable sensitive-child event.
+    pub async fn update_airhop_family_child(
+        &self,
+        tenant: &TenantContext,
+        input: &UpdateFamilyChildInput,
+    ) -> Result<UpdateFamilyChildOutcome> {
+        validate_child_input(input)?;
+        let mut transaction = self.pool.begin().await?;
+        let (organization_id, occurred_at) =
+            resolve_active_organization(&mut transaction, tenant).await?;
+        let command = NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id,
+            command_type: UPDATE_CHILD_COMMAND_TYPE.to_owned(),
+            idempotency_digest: input.idempotency_digest,
+            request_hash: input.request_hash,
+            actor: input.actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        };
+        let command = match insert_pending_command(&mut transaction, tenant, &command).await? {
+            CommandInsertOutcome::Inserted(command) => command,
+            CommandInsertOutcome::Existing(command) => {
+                return replay_child_update(transaction, command).await;
+            }
+        };
+        let row = sqlx::query(
+            "SELECT child.version, child.display_name, child.birth_date, child.note, \
+                    (now() AT TIME ZONE organization.time_zone)::date AS current_date \
+             FROM airhop_children child \
+             JOIN airhop_families family \
+               ON family.community_id = child.community_id \
+              AND family.organization_id = child.organization_id \
+              AND family.id = child.family_id \
+             JOIN airhop_organizations organization \
+               ON organization.community_id = child.community_id \
+              AND organization.id = child.organization_id \
+             WHERE child.community_id = $1 AND child.organization_id = $2 \
+               AND child.family_id = $3 AND child.id = $4 \
+               AND child.status = 'active' AND family.status = 'active' \
+             FOR UPDATE OF child",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .bind(input.family_id)
+        .bind(input.child_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| DbError::NotFound("active AirHub family child".to_owned()))?;
+        let current_version: i64 = row.try_get("version")?;
+        if current_version != input.expected_version {
+            return Err(DbError::AirhopVersionConflict);
+        }
+        let current_date: NaiveDate = row.try_get("current_date")?;
+        if input.birth_date > current_date {
+            return Err(DbError::InvalidData(
+                "AirHub child birth date cannot be in the future".to_owned(),
+            ));
+        }
+        let display_name = input.display_name.trim();
+        let note = normalized_note(input.note.as_deref());
+        let current_name: String = row.try_get("display_name")?;
+        let current_birth_date: NaiveDate = row.try_get("birth_date")?;
+        let current_note: Option<String> = row.try_get("note")?;
+        let mut changed_fields = Vec::with_capacity(3);
+        if current_name != display_name {
+            changed_fields.push("display_name");
+        }
+        if current_birth_date != input.birth_date {
+            changed_fields.push("birth_date");
+        }
+        if current_note.as_deref() != note.as_deref() {
+            changed_fields.push("note");
+        }
+        let version = if changed_fields.is_empty() {
+            current_version
+        } else {
+            let version = sqlx::query_scalar(
+                "UPDATE airhop_children \
+                 SET display_name = $5, birth_date = $6, note = $7, \
+                     version = version + 1, updated_at = $8 \
+                 WHERE community_id = $1 AND organization_id = $2 \
+                   AND family_id = $3 AND id = $4 AND version = $9 \
+                 RETURNING version",
+            )
+            .bind(tenant.community().as_uuid())
+            .bind(organization_id)
+            .bind(input.family_id)
+            .bind(input.child_id)
+            .bind(display_name)
+            .bind(input.birth_date)
+            .bind(&note)
+            .bind(occurred_at)
+            .bind(input.expected_version)
+            .fetch_optional(&mut *transaction)
+            .await?
+            .ok_or(DbError::AirhopVersionConflict)?;
+            append_domain_event(
+                &mut transaction,
+                tenant,
+                &NewDomainEvent {
+                    id: Uuid::new_v4(),
+                    organization_id,
+                    stream_type: "child".to_owned(),
+                    stream_id: input.child_id,
+                    stream_version: version,
+                    event_type: "airhop.child.updated.v1".to_owned(),
+                    schema_version: 1,
+                    occurred_at,
+                    actor: input.actor.clone(),
+                    causation_id: command.id,
+                    correlation_id: command.correlation_id,
+                    payload: json!({
+                        "familyId": input.family_id,
+                        "childId": input.child_id,
+                        "changedFields": changed_fields
+                    }),
+                    privacy_class: PrivacyClass::SensitiveChild,
+                },
+            )
+            .await?;
+            version
+        };
+        let stored = StoredChildUpdateResult {
+            child_id: input.child_id,
+            version,
+        };
+        commit_command(
+            &mut transaction,
+            tenant,
+            organization_id,
+            command.id,
+            &serde_json::to_value(&stored)?,
+        )
+        .await?;
+        transaction.commit().await?;
+        Ok(UpdateFamilyChildOutcome {
+            child_id: stored.child_id,
+            version: stored.version,
+            replayed: false,
+        })
+    }
+
     /// Updates one active representative and records one immutable audit event.
     pub async fn update_airhop_family_representative(
         &self,
@@ -340,6 +667,93 @@ async fn replay_update(
     }
 }
 
+async fn replay_family_update(
+    transaction: Transaction<'_, Postgres>,
+    command: super::AirhopCommand,
+) -> Result<UpdateFamilyOutcome> {
+    match command.status {
+        CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
+        CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
+        CommandStatus::Committed => {
+            let stored: StoredFamilyUpdateResult =
+                serde_json::from_value(command.result.ok_or_else(|| {
+                    DbError::InvalidData("committed AirHub command has no result".to_owned())
+                })?)?;
+            transaction.commit().await?;
+            Ok(UpdateFamilyOutcome {
+                family_id: stored.family_id,
+                version: stored.version,
+                replayed: true,
+            })
+        }
+    }
+}
+
+async fn replay_child_update(
+    transaction: Transaction<'_, Postgres>,
+    command: super::AirhopCommand,
+) -> Result<UpdateFamilyChildOutcome> {
+    match command.status {
+        CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
+        CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
+        CommandStatus::Committed => {
+            let stored: StoredChildUpdateResult =
+                serde_json::from_value(command.result.ok_or_else(|| {
+                    DbError::InvalidData("committed AirHub command has no result".to_owned())
+                })?)?;
+            transaction.commit().await?;
+            Ok(UpdateFamilyChildOutcome {
+                child_id: stored.child_id,
+                version: stored.version,
+                replayed: true,
+            })
+        }
+    }
+}
+
+fn validate_family_input(input: &UpdateFamilyInput) -> Result<()> {
+    input.actor.validate()?;
+    let display_name = input.display_name.trim();
+    if input.family_id.is_nil()
+        || input.expected_version < 1
+        || input.actor.kind != ActorKind::Staff
+        || display_name.is_empty()
+        || display_name.chars().count() > 200
+    {
+        return Err(DbError::InvalidData(
+            "AirHub family update is invalid".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_child_input(input: &UpdateFamilyChildInput) -> Result<()> {
+    input.actor.validate()?;
+    let display_name = input.display_name.trim();
+    if input.family_id.is_nil()
+        || input.child_id.is_nil()
+        || input.expected_version < 1
+        || input.actor.kind != ActorKind::Staff
+        || display_name.is_empty()
+        || display_name.chars().count() > 160
+        || input
+            .note
+            .as_ref()
+            .is_some_and(|note| note.trim().chars().count() > 4_000)
+    {
+        return Err(DbError::InvalidData(
+            "AirHub child update is invalid".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn normalized_note(note: Option<&str>) -> Option<String> {
+    note.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 fn validate_input(input: &UpdateFamilyRepresentativeInput) -> Result<()> {
     input.actor.validate()?;
     let display_name = input.display_name.trim();
@@ -418,6 +832,48 @@ mod tests {
                 ..input().actor
             },
             ..input()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn family_and_child_updates_are_bounded_and_staff_only() {
+        let actor = input().actor;
+        let family = UpdateFamilyInput {
+            family_id: Uuid::new_v4(),
+            expected_version: 1,
+            display_name: "Семья Ивановых".to_owned(),
+            idempotency_digest: [1; 32],
+            request_hash: [2; 32],
+            actor: actor.clone(),
+        };
+        assert!(validate_family_input(&family).is_ok());
+        assert!(validate_family_input(&UpdateFamilyInput {
+            display_name: " ".to_owned(),
+            ..family.clone()
+        })
+        .is_err());
+
+        let child = UpdateFamilyChildInput {
+            family_id: family.family_id,
+            child_id: Uuid::new_v4(),
+            expected_version: 1,
+            display_name: "Анна".to_owned(),
+            birth_date: NaiveDate::from_ymd_opt(2019, 5, 20).expect("valid date"),
+            note: Some(" Аллергия ".to_owned()),
+            idempotency_digest: [3; 32],
+            request_hash: [4; 32],
+            actor,
+        };
+        assert!(validate_child_input(&child).is_ok());
+        assert_eq!(
+            normalized_note(child.note.as_deref()),
+            Some("Аллергия".to_owned())
+        );
+        assert_eq!(normalized_note(Some("  ")), None);
+        assert!(validate_child_input(&UpdateFamilyChildInput {
+            note: Some("x".repeat(4_001)),
+            ..child
         })
         .is_err());
     }

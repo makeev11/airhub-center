@@ -97,7 +97,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/airhop/staff/v1/families/{family_id}",
-            get(api::airhop_staff::get_family_detail),
+            get(api::airhop_staff::get_family_detail).put(api::airhop_staff::update_family),
+        )
+        .route(
+            "/api/airhop/staff/v1/families/{family_id}/children/{child_id}",
+            put(api::airhop_staff::update_family_child),
         )
         .route(
             "/api/airhop/staff/v1/families/{family_id}/representatives/{representative_id}",

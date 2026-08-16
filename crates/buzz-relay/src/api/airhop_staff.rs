@@ -12,7 +12,9 @@ use buzz_db::airhop::booking_decision::{
     BindMessengerAccountInput, BookingDecision, DecideBookingInput, DeliveryAckState,
     DeliveryCompletion, ParentNotificationRoute,
 };
-use buzz_db::airhop::family_commands::UpdateFamilyRepresentativeInput;
+use buzz_db::airhop::family_commands::{
+    UpdateFamilyChildInput, UpdateFamilyInput, UpdateFamilyRepresentativeInput,
+};
 use buzz_db::airhop::family_detail::StaffFamilyDetail;
 use buzz_db::airhop::family_directory::{
     StaffFamilyDirectoryCursor, StaffFamilyDirectoryFilter, StaffFamilyDirectoryPage,
@@ -60,6 +62,23 @@ pub(crate) struct UpdateFamilyRepresentativeBody {
     display_name: String,
     phone: String,
     preferred_contact_channel: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct UpdateFamilyBody {
+    expected_version: i64,
+    display_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct UpdateFamilyChildBody {
+    expected_version: i64,
+    display_name: String,
+    birth_date: chrono::NaiveDate,
+    #[serde(default)]
+    note: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -192,6 +211,91 @@ pub(crate) async fn get_family_detail(
         .await
         .map(Json)
         .map_err(map_db_error)
+}
+
+/// Staff-only family-label replacement with optimistic concurrency and audit.
+pub(crate) async fn update_family(
+    State(state): State<Arc<AppState>>,
+    Path(family_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/families/{family_id}");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: UpdateFamilyBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let command_key = command_key(&state);
+    let outcome = state
+        .db
+        .update_airhop_family(
+            &tenant,
+            &UpdateFamilyInput {
+                family_id,
+                expected_version: request.expected_version,
+                display_name: request.display_name.trim().to_owned(),
+                idempotency_digest: scoped_digest(
+                    &command_key,
+                    b"airhop.staff.family-update.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: Sha256::digest(&body).into(),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "familyId": outcome.family_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed
+    })))
+}
+
+/// Staff-only child replacement with optimistic concurrency and audit.
+pub(crate) async fn update_family_child(
+    State(state): State<Arc<AppState>>,
+    Path((family_id, child_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/families/{family_id}/children/{child_id}");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: UpdateFamilyChildBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let command_key = command_key(&state);
+    let outcome = state
+        .db
+        .update_airhop_family_child(
+            &tenant,
+            &UpdateFamilyChildInput {
+                family_id,
+                child_id,
+                expected_version: request.expected_version,
+                display_name: request.display_name.trim().to_owned(),
+                birth_date: request.birth_date,
+                note: request.note,
+                idempotency_digest: scoped_digest(
+                    &command_key,
+                    b"airhop.staff.child-update.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: Sha256::digest(&body).into(),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "childId": outcome.child_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed
+    })))
 }
 
 /// Staff-only representative replacement with optimistic concurrency and audit.
@@ -702,6 +806,15 @@ fn command_key(state: &AppState) -> [u8; 32] {
     hasher.update(root);
     hasher.update(b"airhop-command-key-v1");
     hasher.finalize().into()
+}
+
+fn staff_actor(pubkey: nostr::PublicKey) -> AirhopActor {
+    AirhopActor {
+        kind: ActorKind::Staff,
+        pubkey: Some(pubkey.to_bytes()),
+        on_behalf_of_pubkey: None,
+        agent_pubkey: None,
+    }
 }
 
 fn scoped_digest(
