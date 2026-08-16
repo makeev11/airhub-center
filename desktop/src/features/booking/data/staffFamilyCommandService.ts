@@ -21,6 +21,16 @@ const representativeUpdateOutcomeSchema = z.object({
   hasPendingDuplicate: z.boolean(),
   replayed: z.boolean(),
 });
+const familyUpdateOutcomeSchema = z.object({
+  familyId: uuidSchema,
+  version: z.number().int().positive(),
+  replayed: z.boolean(),
+});
+const childUpdateOutcomeSchema = z.object({
+  childId: uuidSchema,
+  version: z.number().int().positive(),
+  replayed: z.boolean(),
+});
 
 export type StaffRepresentativeContactChannel = z.infer<
   typeof contactChannelSchema
@@ -28,6 +38,27 @@ export type StaffRepresentativeContactChannel = z.infer<
 export type StaffRepresentativeUpdateOutcome = z.infer<
   typeof representativeUpdateOutcomeSchema
 >;
+export type StaffFamilyUpdateOutcome = z.infer<
+  typeof familyUpdateOutcomeSchema
+>;
+export type StaffChildUpdateOutcome = z.infer<typeof childUpdateOutcomeSchema>;
+
+export type UpdateStaffFamilyInput = {
+  familyId: string;
+  expectedVersion: number;
+  displayName: string;
+  idempotencyKey?: string;
+};
+
+export type UpdateStaffFamilyChildInput = {
+  familyId: string;
+  childId: string;
+  expectedVersion: number;
+  displayName: string;
+  birthDate: string;
+  note: string | null;
+  idempotencyKey?: string;
+};
 
 export type UpdateStaffFamilyRepresentativeInput = {
   familyId: string;
@@ -40,6 +71,12 @@ export type UpdateStaffFamilyRepresentativeInput = {
 };
 
 export interface StaffFamilyCommandService {
+  updateFamily(
+    input: UpdateStaffFamilyInput,
+  ): Promise<StaffFamilyUpdateOutcome>;
+  updateChild(
+    input: UpdateStaffFamilyChildInput,
+  ): Promise<StaffChildUpdateOutcome>;
   updateRepresentative(
     input: UpdateStaffFamilyRepresentativeInput,
   ): Promise<StaffRepresentativeUpdateOutcome>;
@@ -127,6 +164,59 @@ export class HttpStaffFamilyCommandService
       options.idempotencyKeyFactory ?? (() => crypto.randomUUID());
   }
 
+  async updateFamily(
+    input: UpdateStaffFamilyInput,
+  ): Promise<StaffFamilyUpdateOutcome> {
+    const familyId = uuidSchema.safeParse(input.familyId);
+    const displayName = input.displayName.trim();
+    if (
+      !familyId.success ||
+      !validVersion(input.expectedVersion) ||
+      !displayName ||
+      displayName.length > 200
+    ) {
+      throw invalidUpdate("family");
+    }
+    return this.put(
+      `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}`,
+      { expectedVersion: input.expectedVersion, displayName },
+      familyUpdateOutcomeSchema,
+      input.idempotencyKey,
+    );
+  }
+
+  async updateChild(
+    input: UpdateStaffFamilyChildInput,
+  ): Promise<StaffChildUpdateOutcome> {
+    const familyId = uuidSchema.safeParse(input.familyId);
+    const childId = uuidSchema.safeParse(input.childId);
+    const birthDate = z.string().date().safeParse(input.birthDate);
+    const displayName = input.displayName.trim();
+    const note = input.note?.trim() || null;
+    if (
+      !familyId.success ||
+      !childId.success ||
+      !birthDate.success ||
+      !validVersion(input.expectedVersion) ||
+      !displayName ||
+      displayName.length > 160 ||
+      (note?.length ?? 0) > 4_000
+    ) {
+      throw invalidUpdate("child");
+    }
+    return this.put(
+      `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/children/${encodeURIComponent(childId.data)}`,
+      {
+        expectedVersion: input.expectedVersion,
+        displayName,
+        birthDate: birthDate.data,
+        note,
+      },
+      childUpdateOutcomeSchema,
+      input.idempotencyKey,
+    );
+  }
+
   async updateRepresentative(
     input: UpdateStaffFamilyRepresentativeInput,
   ): Promise<StaffRepresentativeUpdateOutcome> {
@@ -139,8 +229,7 @@ export class HttpStaffFamilyCommandService
       !familyId.success ||
       !representativeId.success ||
       !channel.success ||
-      !Number.isInteger(input.expectedVersion) ||
-      input.expectedVersion < 1 ||
+      !validVersion(input.expectedVersion) ||
       !input.displayName.trim() ||
       input.displayName.trim().length > 160 ||
       !input.phone.trim() ||
@@ -151,14 +240,28 @@ export class HttpStaffFamilyCommandService
         "Invalid AirHub representative update.",
       );
     }
+    return this.put(
+      `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/representatives/${encodeURIComponent(representativeId.data)}`,
+      {
+        expectedVersion: input.expectedVersion,
+        displayName: input.displayName.trim(),
+        phone: input.phone.trim(),
+        preferredContactChannel: channel.data,
+      },
+      representativeUpdateOutcomeSchema,
+      input.idempotencyKey,
+    );
+  }
+
+  private async put<T>(
+    path: string,
+    requestBody: unknown,
+    schema: z.ZodType<T>,
+    idempotencyKey?: string,
+  ): Promise<T> {
     const baseUrl = (await this.relayHttpUrl()).replace(/\/+$/, "");
-    const url = `${baseUrl}/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/representatives/${encodeURIComponent(representativeId.data)}`;
-    const body = JSON.stringify({
-      expectedVersion: input.expectedVersion,
-      displayName: input.displayName.trim(),
-      phone: input.phone.trim(),
-      preferredContactChannel: channel.data,
-    });
+    const url = `${baseUrl}${path}`;
+    const body = JSON.stringify(requestBody);
     const authorization = await nip98PutAuthorization(
       url,
       body,
@@ -171,7 +274,7 @@ export class HttpStaffFamilyCommandService
         Accept: "application/json",
         Authorization: authorization,
         "Content-Type": "application/json",
-        "Idempotency-Key": input.idempotencyKey ?? this.idempotencyKeyFactory(),
+        "Idempotency-Key": idempotencyKey ?? this.idempotencyKeyFactory(),
       },
       body,
       credentials: "omit",
@@ -189,7 +292,7 @@ export class HttpStaffFamilyCommandService
           : `HTTP ${response.status}`;
       throw new StaffFamilyCommandApiError(response.status, message);
     }
-    const parsed = representativeUpdateOutcomeSchema.safeParse(payload);
+    const parsed = schema.safeParse(payload);
     if (!parsed.success) {
       throw new StaffFamilyCommandApiError(
         502,
@@ -198,6 +301,17 @@ export class HttpStaffFamilyCommandService
     }
     return parsed.data;
   }
+}
+
+function validVersion(value: number): boolean {
+  return Number.isInteger(value) && value > 0;
+}
+
+function invalidUpdate(entity: string): StaffFamilyCommandApiError {
+  return new StaffFamilyCommandApiError(
+    400,
+    `Invalid AirHub ${entity} update.`,
+  );
 }
 
 export function createHttpStaffFamilyCommandService(): StaffFamilyCommandService {
