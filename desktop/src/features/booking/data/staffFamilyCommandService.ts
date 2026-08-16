@@ -55,6 +55,13 @@ const childStatusOutcomeSchema = z.object({
   hasPendingDuplicate: z.boolean(),
   replayed: z.boolean(),
 });
+const primaryRepresentativeOutcomeSchema = z.object({
+  familyId: uuidSchema,
+  representativeId: uuidSchema,
+  previousRepresentativeId: uuidSchema,
+  version: z.number().int().positive(),
+  replayed: z.boolean(),
+});
 
 export type StaffRepresentativeContactChannel = z.infer<
   typeof contactChannelSchema
@@ -74,6 +81,16 @@ export type StaffRepresentativeStatusOutcome = z.infer<
   typeof representativeStatusOutcomeSchema
 >;
 export type StaffChildStatusOutcome = z.infer<typeof childStatusOutcomeSchema>;
+export type StaffPrimaryRepresentativeOutcome = z.infer<
+  typeof primaryRepresentativeOutcomeSchema
+>;
+
+export type SetStaffFamilyPrimaryRepresentativeInput = {
+  familyId: string;
+  representativeId: string;
+  expectedVersion: number;
+  idempotencyKey?: string;
+};
 
 export type SetStaffFamilyRepresentativeStatusInput = {
   familyId: string;
@@ -145,6 +162,9 @@ export interface StaffFamilyCommandService {
   setRepresentativeStatus(
     input: SetStaffFamilyRepresentativeStatusInput,
   ): Promise<StaffRepresentativeStatusOutcome>;
+  setPrimaryRepresentative(
+    input: SetStaffFamilyPrimaryRepresentativeInput,
+  ): Promise<StaffPrimaryRepresentativeOutcome>;
   updateFamily(
     input: UpdateStaffFamilyInput,
   ): Promise<StaffFamilyUpdateOutcome>;
@@ -346,6 +366,33 @@ export class HttpStaffFamilyCommandService
       `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/representatives/${encodeURIComponent(representativeId.data)}/status`,
       { expectedVersion: input.expectedVersion, status: input.status },
       representativeStatusOutcomeSchema,
+      input.idempotencyKey,
+    );
+  }
+
+  async setPrimaryRepresentative(
+    input: SetStaffFamilyPrimaryRepresentativeInput,
+  ): Promise<StaffPrimaryRepresentativeOutcome> {
+    const familyId = uuidSchema.safeParse(input.familyId);
+    const representativeId = uuidSchema.safeParse(input.representativeId);
+    if (
+      !familyId.success ||
+      !representativeId.success ||
+      !validVersion(input.expectedVersion)
+    ) {
+      throw new StaffFamilyCommandApiError(
+        400,
+        "Invalid AirHub primary representative command.",
+      );
+    }
+    return this.request(
+      "PUT",
+      `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/primary-representative`,
+      {
+        expectedVersion: input.expectedVersion,
+        representativeId: representativeId.data,
+      },
+      primaryRepresentativeOutcomeSchema,
       input.idempotencyKey,
     );
   }

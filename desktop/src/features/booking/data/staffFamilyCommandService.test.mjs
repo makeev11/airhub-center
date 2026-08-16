@@ -344,3 +344,48 @@ test("child lifecycle preserves commitment conflict details", async () => {
         "Family member has active enrollment or future bookings",
   );
 });
+
+test("primary representative reassignment signs the family edge resource", async () => {
+  let requested;
+  let signedInput;
+  const service = new HttpStaffFamilyCommandService({
+    relayHttpUrl: async () => "https://center.example/",
+    signEvent: async (input) => {
+      signedInput = input;
+      return signedEvent(input);
+    },
+    fetch: async (url, init) => {
+      requested = { url, init };
+      return new Response(
+        JSON.stringify({
+          familyId: FAMILY_ID,
+          representativeId: REPRESENTATIVE_ID,
+          previousRepresentativeId: "550e8400-e29b-41d4-a716-446655440004",
+          version: 6,
+          replayed: false,
+        }),
+      );
+    },
+  });
+  await service.setPrimaryRepresentative({
+    familyId: FAMILY_ID,
+    representativeId: REPRESENTATIVE_ID,
+    expectedVersion: 5,
+    idempotencyKey: "primary-representative-1",
+  });
+  const expectedUrl = `https://center.example/api/airhop/staff/v1/families/${FAMILY_ID}/primary-representative`;
+  assert.equal(requested.url, expectedUrl);
+  assert.equal(requested.init.method, "PUT");
+  assert.deepEqual(JSON.parse(requested.init.body), {
+    expectedVersion: 5,
+    representativeId: REPRESENTATIVE_ID,
+  });
+  assert.equal(
+    requested.init.headers["Idempotency-Key"],
+    "primary-representative-1",
+  );
+  assert.deepEqual(signedInput.tags.slice(0, 2), [
+    ["u", expectedUrl],
+    ["method", "PUT"],
+  ]);
+});
