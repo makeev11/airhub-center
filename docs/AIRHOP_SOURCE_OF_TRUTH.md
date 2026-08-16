@@ -214,7 +214,8 @@ Buzz остаётся рабочим пространством команды. 
 Фактический статус реализации на 2026-08-16:
 
 - Booking Core, staff decision API, messenger binding, lease/ack, повторы и fallback реализованы в AirHub Center.
-- NIP-98 desktop-клиент staff decision реализован, но production-переключение очереди «Заявки» намеренно не включено поверх localStorage: сначала нужен серверный staff read model. Development/E2E workspace пока остаётся demo-репозиторием.
+- Серверный staff read model очереди и NIP-98 GET API реализованы: он читает только `source.workflow = request` в tenant-контексте, возвращает минимальную текущую карточку семьи/представителя/ребёнка/занятия, поддерживает фильтр статуса, `attentionOnly`, лимит до 100 и составную keyset-пагинацию. `applicant_snapshot`, consent evidence, management credential, internal comment и provider identity в ответ не входят.
+- Typed desktop-клиенты чтения staff-очереди и решения по заявке реализованы. Production-переключение экрана с development/E2E workspace на серверный provider остаётся отдельным integration-срезом: server rows нельзя подмешивать в localStorage как вторую копию источника истины.
 - Приватный `airhop-parent-notifier` с Telegram, WhatsApp Cloud API и durable receipt journal реализован в репозитории AirHub HQ; наличие исходника не означает, что provider credentials уже настроены или worker развёрнут.
 
 Правила доступности v1:

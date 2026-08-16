@@ -28,6 +28,8 @@ pub mod public_management;
 pub mod public_read;
 /// Authoritative occurrence read-model persistence.
 pub mod schedule;
+/// Tenant-scoped staff booking queue projection.
+pub mod staff_queue;
 
 /// Lifecycle of an AirHub organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

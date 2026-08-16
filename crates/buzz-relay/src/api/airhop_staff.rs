@@ -2,15 +2,21 @@
 
 use std::sync::Arc;
 
+use airhop_core::BookingStatus;
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{Path, Query, RawQuery, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::Json;
 use buzz_db::airhop::booking_decision::{
     BindMessengerAccountInput, BookingDecision, DecideBookingInput, DeliveryAckState,
     DeliveryCompletion, ParentNotificationRoute,
 };
+use buzz_db::airhop::staff_queue::{
+    StaffBookingQueueCursor, StaffBookingQueueFilter, StaffBookingQueueRow,
+};
 use buzz_db::airhop::{ActorKind, AirhopActor};
+use chrono::{DateTime, Utc};
 use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -66,6 +72,55 @@ pub(crate) enum CompleteNotificationBody {
     },
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct BookingRequestsQuery {
+    #[serde(default)]
+    status: Option<BookingStatus>,
+    #[serde(default)]
+    attention_only: bool,
+    #[serde(default = "default_queue_limit")]
+    limit: u16,
+    #[serde(default)]
+    cursor_priority: Option<i16>,
+    #[serde(default)]
+    cursor_updated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    cursor_booking_id: Option<Uuid>,
+}
+
+/// Authoritative, tenant-scoped request-workflow queue for AirHub staff.
+pub(crate) async fn list_booking_requests(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    RawQuery(raw_query): RawQuery,
+    query: Result<Query<BookingRequestsQuery>, QueryRejection>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = match raw_query.as_deref() {
+        Some(query) if !query.is_empty() => {
+            format!("/api/airhop/staff/v1/booking-requests?{query}")
+        }
+        _ => "/api/airhop/staff/v1/booking-requests".to_owned(),
+    };
+    let (tenant, _) = authenticate(&state, &headers, "GET", &path, None, Access::Staff).await?;
+    let Query(query) = query
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid AirHub staff queue query"))?;
+    let filter = booking_queue_filter(query)?;
+    let page = state
+        .db
+        .list_airhop_staff_booking_queue(&tenant, filter)
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "items": page.items.iter().map(booking_queue_row_json).collect::<Vec<_>>(),
+        "nextCursor": page.next_cursor.map(|cursor| json!({
+            "priority": cursor.priority,
+            "updatedAt": cursor.updated_at,
+            "bookingId": cursor.booking_id
+        }))
+    })))
+}
+
 /// Staff-only transition from `pending_confirmation` to confirmed/rejected.
 pub(crate) async fn decide_booking(
     State(state): State<Arc<AppState>>,
@@ -74,7 +129,8 @@ pub(crate) async fn decide_booking(
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let path = format!("/api/airhop/staff/v1/bookings/{booking_id}/decision");
-    let (tenant, pubkey) = authenticate(&state, &headers, &path, &body, Access::Staff).await?;
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "POST", &path, Some(&body), Access::Staff).await?;
     let request: DecideBookingBody = parse_body(&body)?;
     let idempotency_key = require_idempotency_key(&headers)?;
     let command_key = command_key(&state);
@@ -129,7 +185,15 @@ pub(crate) async fn bind_messenger_account(
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let path = "/api/airhop/integrations/v1/messenger-bindings";
-    let (tenant, pubkey) = authenticate(&state, &headers, path, &body, Access::Integration).await?;
+    let (tenant, pubkey) = authenticate(
+        &state,
+        &headers,
+        "POST",
+        path,
+        Some(&body),
+        Access::Integration,
+    )
+    .await?;
     let request: BindMessengerAccountBody = parse_body(&body)?;
     let idempotency_key = require_idempotency_key(&headers)?;
     let key = command_key(&state);
@@ -184,7 +248,15 @@ pub(crate) async fn claim_parent_notifications(
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let path = "/api/airhop/integrations/v1/parent-notifications/claim";
-    let (tenant, pubkey) = authenticate(&state, &headers, path, &body, Access::Integration).await?;
+    let (tenant, pubkey) = authenticate(
+        &state,
+        &headers,
+        "POST",
+        path,
+        Some(&body),
+        Access::Integration,
+    )
+    .await?;
     let request: ClaimNotificationsBody = parse_body(&body)?;
     let jobs = state
         .db
@@ -227,8 +299,15 @@ pub(crate) async fn complete_parent_notification(
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let path = format!("/api/airhop/integrations/v1/parent-notifications/{outbox_id}/complete");
-    let (tenant, pubkey) =
-        authenticate(&state, &headers, &path, &body, Access::Integration).await?;
+    let (tenant, pubkey) = authenticate(
+        &state,
+        &headers,
+        "POST",
+        &path,
+        Some(&body),
+        Access::Integration,
+    )
+    .await?;
     let request: CompleteNotificationBody = parse_body(&body)?;
     let (lease_token, completion) = match request {
         CompleteNotificationBody::Delivered {
@@ -280,8 +359,9 @@ enum Access {
 async fn authenticate(
     state: &Arc<AppState>,
     headers: &HeaderMap,
+    method: &str,
     path: &str,
-    body: &[u8],
+    body: Option<&[u8]>,
     access: Access,
 ) -> Result<(buzz_core::TenantContext, nostr::PublicKey), (StatusCode, Json<Value>)> {
     let raw_host = headers
@@ -298,7 +378,7 @@ async fn authenticate(
         })?;
     let url = bridge::nip98_expected_url(&state.config.relay_url, &tenant, path);
     let (pubkey, event_id) =
-        bridge::verify_bridge_auth_with_options(headers, "POST", &url, Some(body), true, true)?;
+        bridge::verify_bridge_auth_with_options(headers, method, &url, body, true, body.is_some())?;
     bridge::check_nip98_replay(state, &tenant, event_id).await?;
     bridge::enforce_http_admission(state, &tenant, &pubkey).await?;
     let member = state
@@ -319,6 +399,94 @@ async fn authenticate(
         ));
     }
     Ok((tenant, pubkey))
+}
+
+fn booking_queue_filter(
+    query: BookingRequestsQuery,
+) -> Result<StaffBookingQueueFilter, (StatusCode, Json<Value>)> {
+    if !(1..=100).contains(&query.limit) {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "AirHub staff queue limit must be between 1 and 100",
+        ));
+    }
+    let cursor = match (
+        query.cursor_priority,
+        query.cursor_updated_at,
+        query.cursor_booking_id,
+    ) {
+        (None, None, None) => None,
+        (Some(priority), Some(updated_at), Some(booking_id)) if (0..=3).contains(&priority) => {
+            Some(StaffBookingQueueCursor {
+                priority,
+                updated_at,
+                booking_id,
+            })
+        }
+        _ => {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "AirHub staff queue cursor must contain priority, updatedAt and bookingId",
+            ))
+        }
+    };
+    Ok(StaffBookingQueueFilter {
+        status: query.status,
+        attention_only: query.attention_only,
+        limit: query.limit,
+        cursor,
+    })
+}
+
+fn booking_queue_row_json(row: &StaffBookingQueueRow) -> Value {
+    json!({
+        "booking": {
+            "id": row.booking_id,
+            "status": row.status,
+            "visitKind": row.visit_kind,
+            "transferRequest": row.transfer_request,
+            "lessonRef": {
+                "recurrenceRuleId": row.recurrence_rule_id,
+                "originalDate": row.original_date
+            },
+            "version": row.version,
+            "createdAt": row.created_at,
+            "updatedAt": row.updated_at
+        },
+        "family": {
+            "id": row.family_id,
+            "displayName": row.family_name
+        },
+        "representative": {
+            "id": row.representative_id,
+            "displayName": row.representative_name,
+            "phoneNormalized": row.phone_normalized,
+            "phoneDisplay": row.phone_display,
+            "preferredContactChannel": row.preferred_contact_channel
+        },
+        "child": {
+            "id": row.child_id,
+            "displayName": row.child_name,
+            "birthDate": row.child_birth_date
+        },
+        "occurrence": {
+            "id": row.occurrence_id,
+            "date": row.lesson_date,
+            "startTime": row.start_time.format("%H:%M").to_string(),
+            "endTime": row.end_time.format("%H:%M").to_string(),
+            "status": row.occurrence_status
+        },
+        "group": {
+            "id": row.group_id,
+            "name": row.group_name
+        },
+        "branch": {
+            "id": row.branch_id,
+            "name": row.branch_name
+        },
+        "attentionReasons": row.attention_reasons,
+        "requiresAttention": !row.attention_reasons.is_empty()
+    })
 }
 
 fn parse_body<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, (StatusCode, Json<Value>)> {
@@ -398,6 +566,10 @@ const fn default_claim_limit() -> u16 {
     10
 }
 
+const fn default_queue_limit() -> u16 {
+    50
+}
+
 const fn default_lease_seconds() -> i64 {
     60
 }
@@ -434,5 +606,36 @@ mod tests {
         }))
         .is_ok());
         assert!(serde_json::from_value::<CompleteNotificationBody>(json!({})).is_err());
+    }
+
+    #[test]
+    fn queue_cursor_is_all_or_nothing_and_bounded() {
+        let valid = BookingRequestsQuery {
+            status: Some(BookingStatus::PendingConfirmation),
+            attention_only: true,
+            limit: 25,
+            cursor_priority: Some(0),
+            cursor_updated_at: Some(Utc::now()),
+            cursor_booking_id: Some(Uuid::new_v4()),
+        };
+        assert!(booking_queue_filter(valid).is_ok());
+        let half = BookingRequestsQuery {
+            status: None,
+            attention_only: false,
+            limit: 50,
+            cursor_priority: Some(0),
+            cursor_updated_at: None,
+            cursor_booking_id: None,
+        };
+        assert!(booking_queue_filter(half).is_err());
+        let too_large = BookingRequestsQuery {
+            status: None,
+            attention_only: false,
+            limit: 101,
+            cursor_priority: None,
+            cursor_updated_at: None,
+            cursor_booking_id: None,
+        };
+        assert!(booking_queue_filter(too_large).is_err());
     }
 }
