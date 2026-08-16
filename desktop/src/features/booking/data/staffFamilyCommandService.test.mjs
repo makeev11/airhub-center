@@ -189,3 +189,89 @@ test("child update normalizes an empty note and signs its child resource", async
     ["method", "PUT"],
   ]);
 });
+
+test("representative creation signs its POST collection resource", async () => {
+  let requested;
+  let signedInput;
+  const service = new HttpStaffFamilyCommandService({
+    relayHttpUrl: async () => "https://center.example/",
+    signEvent: async (input) => {
+      signedInput = input;
+      return signedEvent(input);
+    },
+    fetch: async (url, init) => {
+      requested = { url, init };
+      return new Response(
+        JSON.stringify({
+          representativeId: REPRESENTATIVE_ID,
+          hasPendingDuplicate: true,
+          replayed: false,
+        }),
+      );
+    },
+  });
+  await service.addRepresentative({
+    familyId: FAMILY_ID,
+    displayName: "  Иван Иванов  ",
+    phone: "  +7 999 111-22-33  ",
+    preferredContactChannel: "phone",
+    idempotencyKey: "representative-create-1",
+  });
+  const expectedUrl = `https://center.example/api/airhop/staff/v1/families/${FAMILY_ID}/representatives`;
+  assert.equal(requested.url, expectedUrl);
+  assert.equal(requested.init.method, "POST");
+  assert.deepEqual(JSON.parse(requested.init.body), {
+    displayName: "Иван Иванов",
+    phone: "+7 999 111-22-33",
+    preferredContactChannel: "phone",
+  });
+  assert.equal(
+    requested.init.headers["Idempotency-Key"],
+    "representative-create-1",
+  );
+  assert.deepEqual(signedInput.tags.slice(0, 2), [
+    ["u", expectedUrl],
+    ["method", "POST"],
+  ]);
+});
+
+test("child creation normalizes its note and signs its POST collection resource", async () => {
+  let requested;
+  let signedInput;
+  const service = new HttpStaffFamilyCommandService({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (input) => {
+      signedInput = input;
+      return signedEvent(input);
+    },
+    fetch: async (url, init) => {
+      requested = { url, init };
+      return new Response(
+        JSON.stringify({
+          childId: CHILD_ID,
+          hasPendingDuplicate: false,
+          replayed: false,
+        }),
+      );
+    },
+  });
+  await service.addChild({
+    familyId: FAMILY_ID,
+    displayName: "  Пётр  ",
+    birthDate: "2020-03-02",
+    note: "  Нужна адаптация  ",
+    idempotencyKey: "child-create-1",
+  });
+  const expectedUrl = `https://center.example/api/airhop/staff/v1/families/${FAMILY_ID}/children`;
+  assert.equal(requested.url, expectedUrl);
+  assert.equal(requested.init.method, "POST");
+  assert.deepEqual(JSON.parse(requested.init.body), {
+    displayName: "Пётр",
+    birthDate: "2020-03-02",
+    note: "Нужна адаптация",
+  });
+  assert.deepEqual(signedInput.tags.slice(0, 2), [
+    ["u", expectedUrl],
+    ["method", "POST"],
+  ]);
+});

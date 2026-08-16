@@ -31,6 +31,16 @@ const childUpdateOutcomeSchema = z.object({
   version: z.number().int().positive(),
   replayed: z.boolean(),
 });
+const representativeCreateOutcomeSchema = z.object({
+  representativeId: uuidSchema,
+  hasPendingDuplicate: z.boolean(),
+  replayed: z.boolean(),
+});
+const childCreateOutcomeSchema = z.object({
+  childId: uuidSchema,
+  hasPendingDuplicate: z.boolean(),
+  replayed: z.boolean(),
+});
 
 export type StaffRepresentativeContactChannel = z.infer<
   typeof contactChannelSchema
@@ -42,6 +52,26 @@ export type StaffFamilyUpdateOutcome = z.infer<
   typeof familyUpdateOutcomeSchema
 >;
 export type StaffChildUpdateOutcome = z.infer<typeof childUpdateOutcomeSchema>;
+export type StaffRepresentativeCreateOutcome = z.infer<
+  typeof representativeCreateOutcomeSchema
+>;
+export type StaffChildCreateOutcome = z.infer<typeof childCreateOutcomeSchema>;
+
+export type AddStaffFamilyRepresentativeInput = {
+  familyId: string;
+  displayName: string;
+  phone: string;
+  preferredContactChannel: StaffRepresentativeContactChannel;
+  idempotencyKey?: string;
+};
+
+export type AddStaffFamilyChildInput = {
+  familyId: string;
+  displayName: string;
+  birthDate: string;
+  note: string | null;
+  idempotencyKey?: string;
+};
 
 export type UpdateStaffFamilyInput = {
   familyId: string;
@@ -71,6 +101,10 @@ export type UpdateStaffFamilyRepresentativeInput = {
 };
 
 export interface StaffFamilyCommandService {
+  addChild(input: AddStaffFamilyChildInput): Promise<StaffChildCreateOutcome>;
+  addRepresentative(
+    input: AddStaffFamilyRepresentativeInput,
+  ): Promise<StaffRepresentativeCreateOutcome>;
   updateFamily(
     input: UpdateStaffFamilyInput,
   ): Promise<StaffFamilyUpdateOutcome>;
@@ -127,7 +161,8 @@ function base64Utf8(value: string): string {
   return btoa(binary);
 }
 
-async function nip98PutAuthorization(
+async function nip98Authorization(
+  method: "POST" | "PUT",
   url: string,
   body: string,
   nonce: string,
@@ -138,7 +173,7 @@ async function nip98PutAuthorization(
     content: "",
     tags: [
       ["u", url],
-      ["method", "PUT"],
+      ["method", method],
       ["payload", await sha256Hex(body)],
       ["nonce", nonce],
     ],
@@ -164,6 +199,67 @@ export class HttpStaffFamilyCommandService
       options.idempotencyKeyFactory ?? (() => crypto.randomUUID());
   }
 
+  async addChild(
+    input: AddStaffFamilyChildInput,
+  ): Promise<StaffChildCreateOutcome> {
+    const familyId = uuidSchema.safeParse(input.familyId);
+    const birthDate = z.string().date().safeParse(input.birthDate);
+    const displayName = input.displayName.trim();
+    const note = input.note?.trim() || null;
+    if (
+      !familyId.success ||
+      !birthDate.success ||
+      !displayName ||
+      displayName.length > 160 ||
+      (note?.length ?? 0) > 4_000
+    ) {
+      throw new StaffFamilyCommandApiError(
+        400,
+        "Invalid AirHub child creation.",
+      );
+    }
+    return this.request(
+      "POST",
+      `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/children`,
+      { displayName, birthDate: birthDate.data, note },
+      childCreateOutcomeSchema,
+      input.idempotencyKey,
+    );
+  }
+
+  async addRepresentative(
+    input: AddStaffFamilyRepresentativeInput,
+  ): Promise<StaffRepresentativeCreateOutcome> {
+    const familyId = uuidSchema.safeParse(input.familyId);
+    const channel = contactChannelSchema.safeParse(
+      input.preferredContactChannel,
+    );
+    if (
+      !familyId.success ||
+      !channel.success ||
+      !input.displayName.trim() ||
+      input.displayName.trim().length > 160 ||
+      !input.phone.trim() ||
+      input.phone.trim().length > 80
+    ) {
+      throw new StaffFamilyCommandApiError(
+        400,
+        "Invalid AirHub representative creation.",
+      );
+    }
+    return this.request(
+      "POST",
+      `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/representatives`,
+      {
+        displayName: input.displayName.trim(),
+        phone: input.phone.trim(),
+        preferredContactChannel: channel.data,
+      },
+      representativeCreateOutcomeSchema,
+      input.idempotencyKey,
+    );
+  }
+
   async updateFamily(
     input: UpdateStaffFamilyInput,
   ): Promise<StaffFamilyUpdateOutcome> {
@@ -177,7 +273,8 @@ export class HttpStaffFamilyCommandService
     ) {
       throw invalidUpdate("family");
     }
-    return this.put(
+    return this.request(
+      "PUT",
       `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}`,
       { expectedVersion: input.expectedVersion, displayName },
       familyUpdateOutcomeSchema,
@@ -204,7 +301,8 @@ export class HttpStaffFamilyCommandService
     ) {
       throw invalidUpdate("child");
     }
-    return this.put(
+    return this.request(
+      "PUT",
       `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/children/${encodeURIComponent(childId.data)}`,
       {
         expectedVersion: input.expectedVersion,
@@ -240,7 +338,8 @@ export class HttpStaffFamilyCommandService
         "Invalid AirHub representative update.",
       );
     }
-    return this.put(
+    return this.request(
+      "PUT",
       `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/representatives/${encodeURIComponent(representativeId.data)}`,
       {
         expectedVersion: input.expectedVersion,
@@ -253,7 +352,8 @@ export class HttpStaffFamilyCommandService
     );
   }
 
-  private async put<T>(
+  private async request<T>(
+    method: "POST" | "PUT",
     path: string,
     requestBody: unknown,
     schema: z.ZodType<T>,
@@ -262,14 +362,15 @@ export class HttpStaffFamilyCommandService
     const baseUrl = (await this.relayHttpUrl()).replace(/\/+$/, "");
     const url = `${baseUrl}${path}`;
     const body = JSON.stringify(requestBody);
-    const authorization = await nip98PutAuthorization(
+    const authorization = await nip98Authorization(
+      method,
       url,
       body,
       crypto.randomUUID(),
       this.signEvent,
     );
     const response = await this.fetchImplementation(url, {
-      method: "PUT",
+      method,
       headers: {
         Accept: "application/json",
         Authorization: authorization,
