@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod airhop_public;
+pub mod airhop_staff;
 pub mod bridge;
 pub mod events;
 pub mod git;

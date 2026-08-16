@@ -86,6 +86,26 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .with_state(state.clone());
 
+    let airhop_staff_router = Router::new()
+        .route(
+            "/api/airhop/staff/v1/bookings/{booking_id}/decision",
+            post(api::airhop_staff::decide_booking),
+        )
+        .route(
+            "/api/airhop/integrations/v1/messenger-bindings",
+            post(api::airhop_staff::bind_messenger_account),
+        )
+        .route(
+            "/api/airhop/integrations/v1/parent-notifications/claim",
+            post(api::airhop_staff::claim_parent_notifications),
+        )
+        .route(
+            "/api/airhop/integrations/v1/parent-notifications/{outbox_id}/complete",
+            post(api::airhop_staff::complete_parent_notification),
+        )
+        .layer(RequestBodyLimitLayer::new(16 * 1024))
+        .with_state(state.clone());
+
     let admin_enabled = state.config.admin.is_some();
     let admin_web_dir = state
         .config
@@ -173,7 +193,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .merge(media_router)
         .merge(git_router)
         .merge(git_policy_router)
-        .merge(airhop_public_router);
+        .merge(airhop_public_router)
+        .merge(airhop_staff_router);
     if let Some(admin_router) = admin_router {
         merged = merged.merge(admin_router);
     }

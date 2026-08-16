@@ -826,6 +826,10 @@ const fn public_actor() -> AirhopActor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::airhop::booking_decision::{
+        BindMessengerAccountInput, BookingDecision, DecideBookingInput, DeliveryAckState,
+        DeliveryCompletion, ParentNotificationRoute,
+    };
     use crate::airhop::public_management::{
         PublicManagementAction, PublicManagementCommand, PublicManagementCredential,
     };
@@ -1146,6 +1150,178 @@ mod tests {
         assert_eq!(initial_card.child_name, "Анна");
         assert!(initial_card.can_cancel);
 
+        let connector_pubkey = [21_u8; 32];
+        let staff_pubkey = [22_u8; 32];
+        let binding = db
+            .bind_airhop_booking_messenger_account(
+                &tenant,
+                &BindMessengerAccountInput {
+                    booking_id: created.booking.id,
+                    channel: "telegram".to_owned(),
+                    external_user_id: "telegram-user-42".to_owned(),
+                    external_user_digest: [18; 32],
+                    display_handle: Some("@maria".to_owned()),
+                    idempotency_digest: [19; 32],
+                    request_hash: [20; 32],
+                    actor: AirhopActor {
+                        kind: ActorKind::Bot,
+                        pubkey: Some(connector_pubkey),
+                        on_behalf_of_pubkey: None,
+                        agent_pubkey: Some(connector_pubkey),
+                    },
+                },
+            )
+            .await
+            .expect("bind verified Telegram account");
+        assert_eq!(binding.channel, "telegram");
+
+        let confirm_input = DecideBookingInput {
+            booking_id: created.booking.id,
+            decision: BookingDecision::Confirm,
+            idempotency_digest: [23; 32],
+            request_hash: [24; 32],
+            actor: AirhopActor {
+                kind: ActorKind::Staff,
+                pubkey: Some(staff_pubkey),
+                on_behalf_of_pubkey: None,
+                agent_pubkey: None,
+            },
+        };
+        let confirmed = db
+            .decide_airhop_booking(&tenant, &confirm_input)
+            .await
+            .expect("confirm booking");
+        assert_eq!(confirmed.status, BookingStatus::Confirmed);
+        assert_eq!(
+            confirmed.notification_route,
+            ParentNotificationRoute::Messenger {
+                channel: "telegram".to_owned()
+            }
+        );
+        let replayed_confirmation = db
+            .decide_airhop_booking(&tenant, &confirm_input)
+            .await
+            .expect("replay confirmation");
+        assert!(replayed_confirmation.replayed);
+
+        let jobs = db
+            .claim_airhop_parent_notifications(&tenant, connector_pubkey, 10, 60)
+            .await
+            .expect("claim parent notification");
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].external_user_id, "telegram-user-42");
+        assert_eq!(jobs[0].template_key, "booking_confirmed_v1");
+        let delivered = db
+            .complete_airhop_parent_notification(
+                &tenant,
+                connector_pubkey,
+                jobs[0].outbox_id,
+                jobs[0].lease_token,
+                &DeliveryCompletion::Delivered {
+                    provider_message_id: Some("telegram-message-1".to_owned()),
+                },
+            )
+            .await
+            .expect("ack delivered notification");
+        assert_eq!(delivered, DeliveryAckState::Delivered);
+        assert_eq!(
+            db.complete_airhop_parent_notification(
+                &tenant,
+                connector_pubkey,
+                jobs[0].outbox_id,
+                jobs[0].lease_token,
+                &DeliveryCompletion::Delivered {
+                    provider_message_id: Some("telegram-message-1".to_owned()),
+                },
+            )
+            .await
+            .expect("replay delivery ack"),
+            DeliveryAckState::Delivered
+        );
+
+        let confirmation_event_id: Uuid = sqlx::query(
+            "SELECT id FROM airhop_domain_events \
+             WHERE community_id = $1 AND organization_id = $2 \
+               AND stream_type = 'booking' AND stream_id = $3 \
+               AND event_type = 'airhop.booking.confirmed.v1'",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(created.booking.id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("load confirmation event")
+        .try_get("id")
+        .expect("read confirmation event id");
+        sqlx::query(
+            "INSERT INTO airhop_outbox (\
+                 community_id, organization_id, event_id, destination, redacted_payload\
+             ) VALUES ($1, $2, $3, 'airhop.parent.booking-decision.telegram.retry-test', $4)",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(confirmation_event_id)
+        .bind(json!({
+            "bookingId": created.booking.id,
+            "messengerAccountId": binding.messenger_account_id,
+            "status": "confirmed",
+            "templateKey": "booking_confirmed_v1"
+        }))
+        .execute(&db.pool)
+        .await
+        .expect("insert retry fixture outbox");
+        for attempt in 1..=5 {
+            let retry_jobs = db
+                .claim_airhop_parent_notifications(&tenant, connector_pubkey, 10, 60)
+                .await
+                .expect("claim retry fixture");
+            assert_eq!(retry_jobs.len(), 1);
+            let state = db
+                .complete_airhop_parent_notification(
+                    &tenant,
+                    connector_pubkey,
+                    retry_jobs[0].outbox_id,
+                    retry_jobs[0].lease_token,
+                    &DeliveryCompletion::Failed {
+                        error_code: "provider_unavailable".to_owned(),
+                        retry_after_seconds: 30,
+                    },
+                )
+                .await
+                .expect("record provider failure");
+            let expected = if attempt < 5 {
+                DeliveryAckState::RetryScheduled
+            } else {
+                DeliveryAckState::FailedOverToStaff
+            };
+            assert_eq!(state, expected);
+            if attempt < 5 {
+                sqlx::query(
+                    "UPDATE airhop_outbox SET not_before = now() \
+                     WHERE community_id = $1 AND id = $2",
+                )
+                .bind(community_id)
+                .bind(retry_jobs[0].outbox_id)
+                .execute(&db.pool)
+                .await
+                .expect("advance retry fixture clock");
+            }
+        }
+        let fallback_count: i64 = sqlx::query(
+            "SELECT COUNT(*)::BIGINT AS count FROM airhop_outbox \
+             WHERE community_id = $1 AND organization_id = $2 AND event_id = $3 \
+               AND destination = 'airhop.staff.call-parent'",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(confirmation_event_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("count delivery fallback")
+        .try_get("count")
+        .expect("read fallback count");
+        assert_eq!(fallback_count, 1);
+
         let contact_card = db
             .apply_public_management_action(
                 &tenant,
@@ -1163,6 +1339,30 @@ mod tests {
         assert_eq!(
             contact_card.preferred_contact_channel,
             PreferredContactChannel::Phone
+        );
+
+        let rejected = db
+            .decide_airhop_booking(
+                &tenant,
+                &DecideBookingInput {
+                    booking_id: second_booking.booking.id,
+                    decision: BookingDecision::Reject,
+                    idempotency_digest: [25; 32],
+                    request_hash: [26; 32],
+                    actor: AirhopActor {
+                        kind: ActorKind::Staff,
+                        pubkey: Some(staff_pubkey),
+                        on_behalf_of_pubkey: None,
+                        agent_pubkey: None,
+                    },
+                },
+            )
+            .await
+            .expect("reject second booking");
+        assert_eq!(rejected.status, BookingStatus::Rejected);
+        assert_eq!(
+            rejected.notification_route,
+            ParentNotificationRoute::StaffCall
         );
 
         let transfer_command = PublicManagementCommand {

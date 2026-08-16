@@ -1,0 +1,438 @@
+//! Authenticated AirHub staff decisions and private connector delivery API.
+
+use std::sync::Arc;
+
+use axum::body::Bytes;
+use axum::extract::{Path, State};
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::Json;
+use buzz_db::airhop::booking_decision::{
+    BindMessengerAccountInput, BookingDecision, DecideBookingInput, DeliveryAckState,
+    DeliveryCompletion, ParentNotificationRoute,
+};
+use buzz_db::airhop::{ActorKind, AirhopActor};
+use hmac::digest::KeyInit;
+use hmac::{Hmac, Mac};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
+
+use crate::state::AppState;
+
+use super::{api_error, bridge, internal_error};
+
+type HmacSha256 = Hmac<Sha256>;
+const IDEMPOTENCY_HEADER: &str = "idempotency-key";
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DecideBookingBody {
+    decision: BookingDecision,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct BindMessengerAccountBody {
+    booking_id: Uuid,
+    channel: String,
+    external_user_id: String,
+    #[serde(default)]
+    display_handle: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ClaimNotificationsBody {
+    #[serde(default = "default_claim_limit")]
+    limit: u16,
+    #[serde(default = "default_lease_seconds")]
+    lease_seconds: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum CompleteNotificationBody {
+    Delivered {
+        lease_token: Uuid,
+        #[serde(default)]
+        provider_message_id: Option<String>,
+    },
+    Failed {
+        lease_token: Uuid,
+        error_code: String,
+        #[serde(default = "default_retry_seconds")]
+        retry_after_seconds: i64,
+    },
+}
+
+/// Staff-only transition from `pending_confirmation` to confirmed/rejected.
+pub(crate) async fn decide_booking(
+    State(state): State<Arc<AppState>>,
+    Path(booking_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/bookings/{booking_id}/decision");
+    let (tenant, pubkey) = authenticate(&state, &headers, &path, &body, Access::Staff).await?;
+    let request: DecideBookingBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let command_key = command_key(&state);
+    let outcome = state
+        .db
+        .decide_airhop_booking(
+            &tenant,
+            &DecideBookingInput {
+                booking_id,
+                decision: request.decision,
+                idempotency_digest: scoped_digest(
+                    &command_key,
+                    b"airhop.staff.booking-decision.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: Sha256::digest(&body).into(),
+                actor: AirhopActor {
+                    kind: ActorKind::Staff,
+                    pubkey: Some(pubkey.to_bytes()),
+                    on_behalf_of_pubkey: None,
+                    agent_pubkey: None,
+                },
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    let notification = match outcome.notification_route {
+        ParentNotificationRoute::Messenger { channel } => json!({
+            "kind": "messenger",
+            "channel": channel,
+            "state": "queued"
+        }),
+        ParentNotificationRoute::StaffCall => json!({
+            "kind": "staff_call",
+            "state": "queued"
+        }),
+    };
+    Ok(Json(json!({
+        "bookingId": outcome.booking_id,
+        "status": outcome.status,
+        "notification": notification,
+        "replayed": outcome.replayed
+    })))
+}
+
+/// Trusted HQ connector callback after a parent completes a messenger handoff.
+pub(crate) async fn bind_messenger_account(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/integrations/v1/messenger-bindings";
+    let (tenant, pubkey) = authenticate(&state, &headers, path, &body, Access::Integration).await?;
+    let request: BindMessengerAccountBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let external_user_digest = scoped_digest(
+        &key,
+        b"airhop.messenger.external-user.v1",
+        tenant.community().as_uuid(),
+        request.channel.as_bytes(),
+        request.external_user_id.as_bytes(),
+    )?;
+    let outcome = state
+        .db
+        .bind_airhop_booking_messenger_account(
+            &tenant,
+            &BindMessengerAccountInput {
+                booking_id: request.booking_id,
+                channel: request.channel,
+                external_user_id: request.external_user_id,
+                external_user_digest,
+                display_handle: request.display_handle,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.messenger.binding.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: Sha256::digest(&body).into(),
+                actor: AirhopActor {
+                    kind: ActorKind::Bot,
+                    pubkey: Some(pubkey.to_bytes()),
+                    on_behalf_of_pubkey: None,
+                    agent_pubkey: Some(pubkey.to_bytes()),
+                },
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "representativeId": outcome.representative_id,
+        "messengerAccountId": outcome.messenger_account_id,
+        "channel": outcome.channel,
+        "verified": true,
+        "replayed": outcome.replayed
+    })))
+}
+
+/// Leases delivery jobs to an owner/admin connector.
+pub(crate) async fn claim_parent_notifications(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/integrations/v1/parent-notifications/claim";
+    let (tenant, pubkey) = authenticate(&state, &headers, path, &body, Access::Integration).await?;
+    let request: ClaimNotificationsBody = parse_body(&body)?;
+    let jobs = state
+        .db
+        .claim_airhop_parent_notifications(
+            &tenant,
+            pubkey.to_bytes(),
+            request.limit,
+            request.lease_seconds,
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "jobs": jobs.into_iter().map(|job| json!({
+            "outboxId": job.outbox_id,
+            "leaseToken": job.lease_token,
+            "channel": job.channel,
+            "externalUserId": job.external_user_id,
+            "templateKey": job.template_key,
+            "bookingId": job.booking_id,
+            "status": job.status,
+            "locale": job.locale,
+            "timeZone": job.time_zone,
+            "variables": {
+                "childName": job.child_name,
+                "groupName": job.group_name,
+                "branchName": job.branch_name,
+                "branchAddress": job.branch_address,
+                "lessonDate": job.lesson_date,
+                "startTime": job.start_time.format("%H:%M").to_string()
+            }
+        })).collect::<Vec<_>>()
+    })))
+}
+
+/// Idempotently completes a delivery lease.
+pub(crate) async fn complete_parent_notification(
+    State(state): State<Arc<AppState>>,
+    Path(outbox_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/integrations/v1/parent-notifications/{outbox_id}/complete");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, &path, &body, Access::Integration).await?;
+    let request: CompleteNotificationBody = parse_body(&body)?;
+    let (lease_token, completion) = match request {
+        CompleteNotificationBody::Delivered {
+            lease_token,
+            provider_message_id,
+        } => (
+            lease_token,
+            DeliveryCompletion::Delivered {
+                provider_message_id,
+            },
+        ),
+        CompleteNotificationBody::Failed {
+            lease_token,
+            error_code,
+            retry_after_seconds,
+        } => (
+            lease_token,
+            DeliveryCompletion::Failed {
+                error_code,
+                retry_after_seconds,
+            },
+        ),
+    };
+    let state_result = state
+        .db
+        .complete_airhop_parent_notification(
+            &tenant,
+            pubkey.to_bytes(),
+            outbox_id,
+            lease_token,
+            &completion,
+        )
+        .await
+        .map_err(map_db_error)?;
+    let state_name = match state_result {
+        DeliveryAckState::Delivered => "delivered",
+        DeliveryAckState::RetryScheduled => "retry_scheduled",
+        DeliveryAckState::FailedOverToStaff => "failed_over_to_staff",
+    };
+    Ok(Json(json!({"outboxId": outbox_id, "state": state_name})))
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Access {
+    Staff,
+    Integration,
+}
+
+async fn authenticate(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+    path: &str,
+    body: &[u8],
+    access: Access,
+) -> Result<(buzz_core::TenantContext, nostr::PublicKey), (StatusCode, Json<Value>)> {
+    let raw_host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let tenant = crate::tenant::bind_community(&state.db, raw_host)
+        .await
+        .map_err(|_| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "relay: no community is configured for this host",
+            )
+        })?;
+    let url = bridge::nip98_expected_url(&state.config.relay_url, &tenant, path);
+    let (pubkey, event_id) =
+        bridge::verify_bridge_auth_with_options(headers, "POST", &url, Some(body), true, true)?;
+    bridge::check_nip98_replay(state, &tenant, event_id).await?;
+    bridge::enforce_http_admission(state, &tenant, &pubkey).await?;
+    let member = state
+        .db
+        .get_relay_member(tenant.community(), &pubkey.to_hex())
+        .await
+        .map_err(|error| internal_error(&format!("AirHub member lookup failed: {error}")))?
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::FORBIDDEN,
+                "AirHub workspace membership required",
+            )
+        })?;
+    if matches!(access, Access::Integration) && member.role != "owner" && member.role != "admin" {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            "AirHub integration access requires owner or admin role",
+        ));
+    }
+    Ok((tenant, pubkey))
+}
+
+fn parse_body<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, (StatusCode, Json<Value>)> {
+    serde_json::from_slice(body)
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid AirHub JSON body"))
+}
+
+fn require_idempotency_key(headers: &HeaderMap) -> Result<&str, (StatusCode, Json<Value>)> {
+    headers
+        .get(IDEMPOTENCY_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| (16..=200).contains(&value.len()))
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::BAD_REQUEST,
+                "a 16-200 byte Idempotency-Key header is required",
+            )
+        })
+}
+
+fn command_key(state: &AppState) -> [u8; 32] {
+    let root = crate::invite_token::derive_invite_key(&state.relay_keypair);
+    let mut hasher = Sha256::new();
+    hasher.update(root);
+    hasher.update(b"airhop-command-key-v1");
+    hasher.finalize().into()
+}
+
+fn scoped_digest(
+    key: &[u8; 32],
+    domain: &[u8],
+    community_id: &Uuid,
+    principal: &[u8],
+    value: &[u8],
+) -> Result<[u8; 32], (StatusCode, Json<Value>)> {
+    let mut mac = <HmacSha256 as KeyInit>::new_from_slice(key)
+        .map_err(|_| internal_error("AirHub command key has an invalid length"))?;
+    for component in [domain, community_id.as_bytes(), principal, value] {
+        mac.update(&(component.len() as u64).to_be_bytes());
+        mac.update(component);
+    }
+    Ok(mac.finalize().into_bytes().into())
+}
+
+fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
+    use buzz_db::DbError;
+    match error {
+        DbError::NotFound(_) => api_error(StatusCode::NOT_FOUND, "AirHub resource not found"),
+        DbError::AirhopBookingTransition => api_error(
+            StatusCode::CONFLICT,
+            "AirHub booking is no longer pending confirmation",
+        ),
+        DbError::AirhopIdempotencyConflict => api_error(
+            StatusCode::CONFLICT,
+            "Idempotency-Key was already used for another AirHub request",
+        ),
+        DbError::AirhopCommandInProgress => {
+            api_error(StatusCode::CONFLICT, "AirHub command is still in progress")
+        }
+        DbError::AirhopCommandPreviouslyFailed => {
+            api_error(StatusCode::CONFLICT, "AirHub command previously failed")
+        }
+        DbError::AirhopIdentityMismatch => api_error(
+            StatusCode::CONFLICT,
+            "messenger identity is already bound to another representative",
+        ),
+        DbError::AccessDenied(_) => api_error(StatusCode::FORBIDDEN, "AirHub access denied"),
+        DbError::InvalidData(_) => {
+            api_error(StatusCode::UNPROCESSABLE_ENTITY, "invalid AirHub request")
+        }
+        other => internal_error(&format!("AirHub command failed: {other}")),
+    }
+}
+
+const fn default_claim_limit() -> u16 {
+    10
+}
+
+const fn default_lease_seconds() -> i64 {
+    60
+}
+
+const fn default_retry_seconds() -> i64 {
+    60
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scoped_digests_are_tenant_and_principal_bound() {
+        let key = [7_u8; 32];
+        let community_a = Uuid::new_v4();
+        let community_b = Uuid::new_v4();
+        let first = scoped_digest(&key, b"test", &community_a, &[1; 32], b"same").unwrap();
+        assert_ne!(
+            first,
+            scoped_digest(&key, b"test", &community_b, &[1; 32], b"same").unwrap()
+        );
+        assert_ne!(
+            first,
+            scoped_digest(&key, b"test", &community_a, &[2; 32], b"same").unwrap()
+        );
+    }
+
+    #[test]
+    fn completion_body_requires_an_explicit_outcome() {
+        assert!(serde_json::from_value::<CompleteNotificationBody>(json!({
+            "outcome": "delivered",
+            "leaseToken": Uuid::new_v4()
+        }))
+        .is_ok());
+        assert!(serde_json::from_value::<CompleteNotificationBody>(json!({})).is_err());
+    }
+}
