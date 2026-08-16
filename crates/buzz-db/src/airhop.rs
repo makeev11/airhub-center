@@ -28,6 +28,8 @@ pub mod family_detail;
 pub mod family_directory;
 /// Atomic family creation and explicit family lifecycle commands.
 pub mod family_lifecycle;
+/// Idempotent staff commands for adding family-owned members.
+pub mod family_members;
 /// Atomic public booking command application service.
 pub mod public_booking;
 /// Credential-scoped parent booking management.
