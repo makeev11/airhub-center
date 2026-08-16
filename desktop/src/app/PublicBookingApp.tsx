@@ -4,12 +4,19 @@ import * as React from "react";
 import { router } from "@/app/router";
 import { PublicBookingProvider } from "@/features/booking/data/PublicBookingProvider";
 import { createDemoPublicBookingService } from "@/features/booking/data/demoPublicBookingService";
+import { createHttpPublicBookingService } from "@/features/booking/data/httpPublicBookingService";
 import type { PublicBookingService } from "@/features/booking/data/publicBookingService";
 import { isAirhopDemoRuntimeAvailable } from "@/features/booking/lib/demoRuntime";
 import { getPublicBookingMessages } from "@/features/booking/lib/publicBookingLocale";
 
 function createPublicBookingService(): PublicBookingService | null {
-  return isAirhopDemoRuntimeAvailable ? createDemoPublicBookingService() : null;
+  const runtime = (
+    import.meta.env as { VITE_AIRHOP_PUBLIC_BOOKING_RUNTIME?: string }
+  ).VITE_AIRHOP_PUBLIC_BOOKING_RUNTIME;
+  if (runtime === "server" || !isAirhopDemoRuntimeAvailable) {
+    return createHttpPublicBookingService();
+  }
+  return createDemoPublicBookingService();
 }
 
 export function PublicBookingApp() {
