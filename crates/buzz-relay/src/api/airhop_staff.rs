@@ -20,6 +20,9 @@ use buzz_db::airhop::family_directory::{
     StaffFamilyDirectoryCursor, StaffFamilyDirectoryFilter, StaffFamilyDirectoryPage,
     StaffFamilyDirectoryStatus,
 };
+use buzz_db::airhop::family_lifecycle::{
+    CreateFamilyInput, FamilyLifecycleStatus, SetFamilyStatusInput,
+};
 use buzz_db::airhop::staff_queue::{
     StaffBookingQueueCursor, StaffBookingQueueFilter, StaffBookingQueueRow,
 };
@@ -79,6 +82,27 @@ pub(crate) struct UpdateFamilyChildBody {
     birth_date: chrono::NaiveDate,
     #[serde(default)]
     note: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CreateFamilyBody {
+    display_name: String,
+    representative_name: String,
+    phone: String,
+    #[serde(default = "default_phone_channel")]
+    preferred_contact_channel: String,
+    child_name: String,
+    child_birth_date: chrono::NaiveDate,
+    #[serde(default)]
+    child_note: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SetFamilyStatusBody {
+    expected_version: i64,
+    status: FamilyLifecycleStatus,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -197,6 +221,68 @@ pub(crate) async fn list_families(
         .map_err(map_db_error)
 }
 
+/// Atomically creates a family, primary representative, and first child.
+pub(crate) async fn create_family(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/families";
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "POST", path, Some(&body), Access::Staff).await?;
+    let request: CreateFamilyBody = parse_body(&body)?;
+    let phone_display = request.phone.trim().to_owned();
+    let phone_normalized = super::airhop_public::normalize_airhop_phone(&phone_display)
+        .ok_or_else(|| api_error(StatusCode::UNPROCESSABLE_ENTITY, "invalid phone number"))?;
+    let config = state.config.airhop_public_booking.as_ref().ok_or_else(|| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "AirHub phone identity is not configured",
+        )
+    })?;
+    let phone_match_digest = super::airhop_public::airhop_phone_match_digest(
+        config.index_key(),
+        tenant.community().as_uuid(),
+        &phone_normalized,
+    );
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .create_airhop_family(
+            &tenant,
+            &CreateFamilyInput {
+                display_name: request.display_name,
+                representative_name: request.representative_name,
+                phone_normalized,
+                phone_display,
+                phone_match_digest,
+                preferred_contact_channel: request.preferred_contact_channel,
+                child_name: request.child_name,
+                child_birth_date: request.child_birth_date,
+                child_note: request.child_note,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.family-create.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: Sha256::digest(&body).into(),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "familyId": outcome.family_id,
+        "representativeId": outcome.representative_id,
+        "childId": outcome.child_id,
+        "hasPendingDuplicate": outcome.has_pending_duplicate,
+        "replayed": outcome.replayed
+    })))
+}
+
 /// Staff-only authoritative family card with bounded operational history.
 pub(crate) async fn get_family_detail(
     State(state): State<Arc<AppState>>,
@@ -293,6 +379,48 @@ pub(crate) async fn update_family_child(
         .map_err(map_db_error)?;
     Ok(Json(json!({
         "childId": outcome.child_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed
+    })))
+}
+
+/// Explicitly archives or restores a family without deleting relationships.
+pub(crate) async fn set_family_status(
+    State(state): State<Arc<AppState>>,
+    Path(family_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/families/{family_id}/status");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: SetFamilyStatusBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .set_airhop_family_status(
+            &tenant,
+            &SetFamilyStatusInput {
+                family_id,
+                expected_version: request.expected_version,
+                status: request.status,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.family-status.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: Sha256::digest(&body).into(),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "familyId": outcome.family_id,
+        "status": outcome.status,
         "version": outcome.version,
         "replayed": outcome.replayed
     })))
@@ -873,6 +1001,10 @@ const fn default_claim_limit() -> u16 {
 
 const fn default_queue_limit() -> u16 {
     50
+}
+
+fn default_phone_channel() -> String {
+    "phone".to_owned()
 }
 
 const fn default_family_status() -> StaffFamilyDirectoryStatus {

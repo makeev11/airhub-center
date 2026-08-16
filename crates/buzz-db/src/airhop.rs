@@ -26,6 +26,8 @@ pub mod family_commands;
 pub mod family_detail;
 /// Tenant-scoped staff family directory projection.
 pub mod family_directory;
+/// Atomic family creation and explicit family lifecycle commands.
+pub mod family_lifecycle;
 /// Atomic public booking command application service.
 pub mod public_booking;
 /// Credential-scoped parent booking management.
