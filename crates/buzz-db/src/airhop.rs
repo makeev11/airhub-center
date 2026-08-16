@@ -22,6 +22,8 @@ pub mod booking;
 pub mod booking_decision;
 /// Tenant-scoped staff family detail projection.
 pub mod family_detail;
+/// Tenant-scoped staff family directory projection.
+pub mod family_directory;
 /// Atomic public booking command application service.
 pub mod public_booking;
 /// Credential-scoped parent booking management.

@@ -88,6 +88,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 
     let airhop_staff_router = Router::new()
         .route(
+            "/api/airhop/staff/v1/families",
+            get(api::airhop_staff::list_families),
+        )
+        .route(
             "/api/airhop/staff/v1/booking-requests",
             get(api::airhop_staff::list_booking_requests),
         )

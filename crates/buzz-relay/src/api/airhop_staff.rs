@@ -13,6 +13,10 @@ use buzz_db::airhop::booking_decision::{
     DeliveryCompletion, ParentNotificationRoute,
 };
 use buzz_db::airhop::family_detail::StaffFamilyDetail;
+use buzz_db::airhop::family_directory::{
+    StaffFamilyDirectoryCursor, StaffFamilyDirectoryFilter, StaffFamilyDirectoryPage,
+    StaffFamilyDirectoryStatus,
+};
 use buzz_db::airhop::staff_queue::{
     StaffBookingQueueCursor, StaffBookingQueueFilter, StaffBookingQueueRow,
 };
@@ -90,6 +94,21 @@ pub(crate) struct BookingRequestsQuery {
     cursor_booking_id: Option<Uuid>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FamiliesQuery {
+    #[serde(default = "default_family_status")]
+    status: StaffFamilyDirectoryStatus,
+    #[serde(default)]
+    search: Option<String>,
+    #[serde(default = "default_queue_limit")]
+    limit: u16,
+    #[serde(default)]
+    cursor_sort_name: Option<String>,
+    #[serde(default)]
+    cursor_family_id: Option<Uuid>,
+}
+
 /// Authoritative, tenant-scoped request-workflow queue for AirHub staff.
 pub(crate) async fn list_booking_requests(
     State(state): State<Arc<AppState>>,
@@ -120,6 +139,33 @@ pub(crate) async fn list_booking_requests(
             "bookingId": cursor.booking_id
         }))
     })))
+}
+
+/// Authoritative, tenant-scoped family directory for AirHub staff.
+pub(crate) async fn list_families(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    RawQuery(raw_query): RawQuery,
+    query: Result<Query<FamiliesQuery>, QueryRejection>,
+) -> Result<Json<StaffFamilyDirectoryPage>, (StatusCode, Json<Value>)> {
+    let path = match raw_query.as_deref() {
+        Some(query) if !query.is_empty() => format!("/api/airhop/staff/v1/families?{query}"),
+        _ => "/api/airhop/staff/v1/families".to_owned(),
+    };
+    let (tenant, _) = authenticate(&state, &headers, "GET", &path, None, Access::Staff).await?;
+    let Query(query) = query.map_err(|_| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid AirHub family directory query",
+        )
+    })?;
+    let filter = family_directory_filter(query)?;
+    state
+        .db
+        .list_airhop_staff_families(&tenant, filter)
+        .await
+        .map(Json)
+        .map_err(map_db_error)
 }
 
 /// Staff-only authoritative family card with bounded operational history.
@@ -455,6 +501,53 @@ fn booking_queue_filter(
     })
 }
 
+fn family_directory_filter(
+    query: FamiliesQuery,
+) -> Result<StaffFamilyDirectoryFilter, (StatusCode, Json<Value>)> {
+    if !(1..=100).contains(&query.limit) {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "AirHub family directory limit must be between 1 and 100",
+        ));
+    }
+    let search = query
+        .search
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    if search
+        .as_ref()
+        .is_some_and(|value| value.chars().count() > 100)
+    {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "AirHub family directory search is too long",
+        ));
+    }
+    let cursor = match (query.cursor_sort_name, query.cursor_family_id) {
+        (None, None) => None,
+        (Some(sort_name), Some(family_id))
+            if !sort_name.is_empty() && sort_name.chars().count() <= 200 && !family_id.is_nil() =>
+        {
+            Some(StaffFamilyDirectoryCursor {
+                sort_name,
+                family_id,
+            })
+        }
+        _ => {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "AirHub family directory cursor must contain sortName and familyId",
+            ))
+        }
+    };
+    Ok(StaffFamilyDirectoryFilter {
+        status: query.status,
+        search,
+        limit: query.limit,
+        cursor,
+    })
+}
+
 fn booking_queue_row_json(row: &StaffBookingQueueRow) -> Value {
     json!({
         "booking": {
@@ -587,6 +680,10 @@ const fn default_queue_limit() -> u16 {
     50
 }
 
+const fn default_family_status() -> StaffFamilyDirectoryStatus {
+    StaffFamilyDirectoryStatus::Active
+}
+
 const fn default_lease_seconds() -> i64 {
     60
 }
@@ -654,5 +751,28 @@ mod tests {
             cursor_booking_id: None,
         };
         assert!(booking_queue_filter(too_large).is_err());
+    }
+
+    #[test]
+    fn family_directory_query_is_trimmed_bounded_and_cursor_safe() {
+        let valid = FamiliesQuery {
+            status: StaffFamilyDirectoryStatus::Active,
+            search: Some("  Мария  ".to_owned()),
+            limit: 25,
+            cursor_sort_name: Some("семья марии".to_owned()),
+            cursor_family_id: Some(Uuid::new_v4()),
+        };
+        let filter = family_directory_filter(valid).unwrap();
+        assert_eq!(filter.search.as_deref(), Some("Мария"));
+        assert!(filter.cursor.is_some());
+
+        let half = FamiliesQuery {
+            status: StaffFamilyDirectoryStatus::Archived,
+            search: None,
+            limit: 50,
+            cursor_sort_name: Some("семья".to_owned()),
+            cursor_family_id: None,
+        };
+        assert!(family_directory_filter(half).is_err());
     }
 }
