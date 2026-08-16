@@ -2310,7 +2310,7 @@ function resetMockPersonas(config?: E2eConfig) {
 
   for (const persona of config?.mock?.personas ?? []) {
     mockPersonas.push({
-      id: persona.id ?? crypto.randomUUID(),
+      id: persona.id ?? mockRandomUuid(),
       display_name: persona.displayName,
       avatar_url: persona.avatarUrl ?? null,
       system_prompt: persona.systemPrompt,
@@ -2380,7 +2380,7 @@ function resetMockTeams(config?: E2eConfig) {
 
   for (const team of config?.mock?.teams ?? []) {
     mockTeams.push({
-      id: team.id ?? crypto.randomUUID(),
+      id: team.id ?? mockRandomUuid(),
       name: team.name,
       description: team.description ?? null,
       persona_ids: [...team.personaIds],
@@ -4367,7 +4367,7 @@ function emitMockTypingIndicator(
   createdAt?: number,
 ) {
   const event: RelayEvent = {
-    id: crypto.randomUUID().replace(/-/g, ""),
+    id: mockRandomUuid().replace(/-/g, ""),
     pubkey,
     created_at: createdAt ?? Math.floor(Date.now() / 1000),
     kind: 20002,
@@ -5432,9 +5432,26 @@ function filterMockProjectEvents(filter: MockFilter): RelayEvent[] {
 }
 
 function mockEventId(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return mockRandomUuid().replace(/-/g, "").padEnd(64, "0");
+}
+
+/**
+ * E2E mocks also run from a plain HTTP LAN address, where browsers intentionally
+ * omit Web Crypto. These ids are only local mock identifiers, not credentials.
+ */
+export function mockRandomUuid(): string {
+  const nativeRandomUuid = globalThis.crypto?.randomUUID;
+  if (typeof nativeRandomUuid === "function") {
+    return nativeRandomUuid.call(globalThis.crypto);
+  }
+
+  const bytes = Array.from({ length: 16 }, () =>
+    Math.floor(Math.random() * 256),
+  );
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function createMockEvent(
@@ -5443,7 +5460,7 @@ function createMockEvent(
   tags: string[][],
   pubkey = DEFAULT_MOCK_IDENTITY.pubkey,
   createdAt = Math.floor(Date.now() / 1000),
-  id = crypto.randomUUID().replace(/-/g, ""),
+  id = mockRandomUuid().replace(/-/g, ""),
 ): RelayEvent {
   return {
     id,
@@ -6142,7 +6159,7 @@ async function handleCreateChannel(
 
     const owner = createCurrentMember(config, "owner");
     const channel = createMockChannel({
-      id: crypto.randomUUID(),
+      id: mockRandomUuid(),
       name: args.name,
       channel_type: args.channelType,
       visibility: args.visibility,
@@ -6169,7 +6186,7 @@ async function handleCreateChannel(
     return toRawChannel(channel, config);
   }
 
-  const channelId = crypto.randomUUID();
+  const channelId = mockRandomUuid();
   const tags: string[][] = [
     ["h", channelId],
     ["name", args.name],
@@ -6246,7 +6263,7 @@ async function handleOpenDm(
       createMockMember(pubkey, "member", 0),
     );
     const channel = createMockChannel({
-      id: crypto.randomUUID(),
+      id: mockRandomUuid(),
       name:
         participantPubkeys.length === 2
           ? "DM"
@@ -7791,7 +7808,7 @@ async function handleCreatePersona(args: {
 }): Promise<RawPersona> {
   const now = new Date().toISOString();
   const persona: RawPersona = {
-    id: crypto.randomUUID(),
+    id: mockRandomUuid(),
     display_name: args.input.displayName.trim(),
     avatar_url: args.input.avatarUrl?.trim() || null,
     system_prompt: args.input.systemPrompt.trim(),
@@ -8071,7 +8088,7 @@ async function handleCreateTeam(args: {
   ensureMockPersonaIdsAreActive(args.input.personaIds);
   const now = new Date().toISOString();
   const team: RawTeam = {
-    id: crypto.randomUUID(),
+    id: mockRandomUuid(),
     name: args.input.name.trim(),
     description: args.input.description?.trim() || null,
     persona_ids: [...args.input.personaIds],
@@ -8146,7 +8163,7 @@ async function handleInstallTeamFromDirectory(args: {
 }): Promise<RawTeam> {
   const now = new Date().toISOString();
   const team: RawTeam = {
-    id: crypto.randomUUID(),
+    id: mockRandomUuid(),
     name: "Installed Team",
     description: null,
     persona_ids: [],
@@ -8261,8 +8278,7 @@ async function handleCreateManagedAgent(
   const avatarUrl = args.input.avatarUrl?.trim() || personaAvatarUrl;
   const name = args.input.name.trim();
   const now = new Date().toISOString();
-  const pubkey = crypto
-    .randomUUID()
+  const pubkey = mockRandomUuid()
     .replace(/-/g, "")
     .padEnd(64, "0")
     .slice(0, 64);
@@ -10190,7 +10206,7 @@ export function maybeInstallE2eTauriMocks() {
           memberPubkeys?: string[];
           channelName?: string;
         };
-        const ephemeralChannelId = crypto.randomUUID();
+        const ephemeralChannelId = mockRandomUuid();
         const selfPubkey = identity?.pubkey ?? DEFAULT_MOCK_IDENTITY.pubkey;
         const owner = createCurrentMember(activeConfig, "owner");
         mockHuddle = {
