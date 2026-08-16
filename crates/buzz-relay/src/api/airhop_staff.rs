@@ -12,6 +12,7 @@ use buzz_db::airhop::booking_decision::{
     BindMessengerAccountInput, BookingDecision, DecideBookingInput, DeliveryAckState,
     DeliveryCompletion, ParentNotificationRoute,
 };
+use buzz_db::airhop::family_commands::UpdateFamilyRepresentativeInput;
 use buzz_db::airhop::family_detail::StaffFamilyDetail;
 use buzz_db::airhop::family_directory::{
     StaffFamilyDirectoryCursor, StaffFamilyDirectoryFilter, StaffFamilyDirectoryPage,
@@ -50,6 +51,15 @@ pub(crate) struct BindMessengerAccountBody {
     external_user_id: String,
     #[serde(default)]
     display_handle: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct UpdateFamilyRepresentativeBody {
+    expected_version: i64,
+    display_name: String,
+    phone: String,
+    preferred_contact_channel: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -182,6 +192,74 @@ pub(crate) async fn get_family_detail(
         .await
         .map(Json)
         .map_err(map_db_error)
+}
+
+/// Staff-only representative replacement with optimistic concurrency and audit.
+pub(crate) async fn update_family_representative(
+    State(state): State<Arc<AppState>>,
+    Path((family_id, representative_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path =
+        format!("/api/airhop/staff/v1/families/{family_id}/representatives/{representative_id}");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: UpdateFamilyRepresentativeBody = parse_body(&body)?;
+    let display_name = request.display_name.trim().to_owned();
+    let phone_display = request.phone.trim().to_owned();
+    let phone_normalized = super::airhop_public::normalize_airhop_phone(&phone_display)
+        .ok_or_else(|| api_error(StatusCode::UNPROCESSABLE_ENTITY, "invalid phone number"))?;
+    let public_booking_config = state.config.airhop_public_booking.as_ref().ok_or_else(|| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "AirHub phone identity is not configured",
+        )
+    })?;
+    let phone_match_digest = super::airhop_public::airhop_phone_match_digest(
+        public_booking_config.index_key(),
+        tenant.community().as_uuid(),
+        &phone_normalized,
+    );
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let command_key = command_key(&state);
+    let outcome = state
+        .db
+        .update_airhop_family_representative(
+            &tenant,
+            &UpdateFamilyRepresentativeInput {
+                family_id,
+                representative_id,
+                expected_version: request.expected_version,
+                display_name,
+                phone_normalized,
+                phone_display,
+                phone_match_digest,
+                preferred_contact_channel: request.preferred_contact_channel,
+                idempotency_digest: scoped_digest(
+                    &command_key,
+                    b"airhop.staff.representative-update.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: Sha256::digest(&body).into(),
+                actor: AirhopActor {
+                    kind: ActorKind::Staff,
+                    pubkey: Some(pubkey.to_bytes()),
+                    on_behalf_of_pubkey: None,
+                    agent_pubkey: None,
+                },
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "representativeId": outcome.representative_id,
+        "version": outcome.version,
+        "hasPendingDuplicate": outcome.has_pending_duplicate,
+        "replayed": outcome.replayed
+    })))
 }
 
 /// Staff-only transition from `pending_confirmation` to confirmed/rejected.
@@ -649,6 +727,10 @@ fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
         DbError::AirhopBookingTransition => api_error(
             StatusCode::CONFLICT,
             "AirHub booking is no longer pending confirmation",
+        ),
+        DbError::AirhopVersionConflict => api_error(
+            StatusCode::CONFLICT,
+            "AirHub entity changed; reload before saving",
         ),
         DbError::AirhopIdempotencyConflict => api_error(
             StatusCode::CONFLICT,

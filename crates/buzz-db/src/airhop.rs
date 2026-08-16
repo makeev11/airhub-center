@@ -20,6 +20,8 @@ use crate::{Db, DbError, Result};
 pub mod booking;
 /// Staff booking decisions, messenger bindings, and delivery leases.
 pub mod booking_decision;
+/// Idempotent staff commands for family-owned operational entities.
+pub mod family_commands;
 /// Tenant-scoped staff family detail projection.
 pub mod family_detail;
 /// Tenant-scoped staff family directory projection.

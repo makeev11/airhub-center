@@ -1140,6 +1140,25 @@ fn normalize_public_phone(value: &str) -> Result<String, ApiFailure> {
     Ok(format!("+{digits}"))
 }
 
+/// Shares public-booking phone semantics with authenticated staff commands.
+pub(super) fn normalize_airhop_phone(value: &str) -> Option<String> {
+    normalize_public_phone(value).ok()
+}
+
+/// Produces the same tenant-scoped phone match key used by public booking.
+pub(super) fn airhop_phone_match_digest(
+    index_key: &[u8; 32],
+    community_id: &Uuid,
+    phone_normalized: &str,
+) -> [u8; 32] {
+    tenant_keyed_digest(
+        index_key,
+        community_id,
+        b"airhop.public-booking.phone.v1",
+        &[phone_normalized.as_bytes()],
+    )
+}
+
 const fn invalid_phone() -> ApiFailure {
     ApiFailure::new(
         StatusCode::UNPROCESSABLE_ENTITY,

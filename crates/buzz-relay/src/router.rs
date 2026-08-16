@@ -100,6 +100,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(api::airhop_staff::get_family_detail),
         )
         .route(
+            "/api/airhop/staff/v1/families/{family_id}/representatives/{representative_id}",
+            put(api::airhop_staff::update_family_representative),
+        )
+        .route(
             "/api/airhop/staff/v1/bookings/{booking_id}/decision",
             post(api::airhop_staff::decide_booking),
         )

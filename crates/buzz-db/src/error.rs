@@ -88,6 +88,10 @@ pub enum DbError {
     /// A parent management action is invalid for the booking lifecycle or time.
     #[error("AirHub public booking management transition is not allowed")]
     AirhopBookingTransition,
+
+    /// A staff mutation used a stale optimistic entity version.
+    #[error("AirHub entity version is no longer current")]
+    AirhopVersionConflict,
 }
 
 /// Convenience alias for `Result<T, DbError>`.
