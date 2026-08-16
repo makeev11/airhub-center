@@ -162,6 +162,10 @@ pub async fn reserve_booking(
     let identity = sqlx::query(
         "SELECT child.birth_date \
          FROM airhop_children child \
+         JOIN airhop_families family \
+           ON family.community_id = child.community_id \
+          AND family.organization_id = child.organization_id \
+          AND family.id = child.family_id \
          JOIN airhop_representatives representative \
            ON representative.community_id = child.community_id \
           AND representative.organization_id = child.organization_id \
@@ -178,9 +182,11 @@ pub async fn reserve_booking(
           AND command.id = $7 \
          WHERE child.community_id = $1 AND child.organization_id = $2 \
            AND child.family_id = $3 AND child.id = $5 \
-           AND child.status = 'active' AND representative.status = 'active' \
+           AND family.status = 'active' AND child.status = 'active' \
+           AND representative.status = 'active' \
            AND consent.purpose = 'public_booking' AND consent.status = 'granted' \
-           AND consent.effective_at <= now() AND command.status = 'pending'",
+           AND consent.effective_at <= now() AND command.status = 'pending' \
+         FOR SHARE OF family, child, representative",
     )
     .bind(tenant.community().as_uuid())
     .bind(input.organization_id)

@@ -92,6 +92,14 @@ pub enum DbError {
     /// A staff mutation used a stale optimistic entity version.
     #[error("AirHub entity version is no longer current")]
     AirhopVersionConflict,
+
+    /// The family primary representative cannot be archived in place.
+    #[error("AirHub primary representative must be reassigned before archiving")]
+    AirhopPrimaryRepresentativeRequired,
+
+    /// A family member still has active enrollment or future booking commitments.
+    #[error("AirHub family member has active or future commitments")]
+    AirhopMemberHasActiveCommitments,
 }
 
 /// Convenience alias for `Result<T, DbError>`.
