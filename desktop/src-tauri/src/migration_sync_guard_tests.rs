@@ -6,9 +6,7 @@ use super::*;
 fn recognizes_airhop_dev_identifiers_only() {
     assert!(!is_dev_data_dir_name("ru.airhop.centers"));
     assert!(is_dev_data_dir_name("ru.airhop.centers.dev"));
-    assert!(is_dev_data_dir_name(
-        "ru.airhop.centers.dev.some-worktree"
-    ));
+    assert!(is_dev_data_dir_name("ru.airhop.centers.dev.some-worktree"));
     assert!(!is_dev_data_dir_name("xyz.block.buzz.app.dev"));
 }
 

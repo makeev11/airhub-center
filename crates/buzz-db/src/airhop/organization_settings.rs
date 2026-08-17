@@ -162,6 +162,24 @@ impl Db {
             }
         };
 
+        if changed_fields.iter().any(|field| {
+            matches!(
+                *field,
+                "time_zone"
+                    | "default_trial_policy"
+                    | "track_attendance_by_default"
+                    | "allow_single_visits_by_default"
+            )
+        }) {
+            super::schedule::rematerialize_organization_schedule(
+                &mut transaction,
+                tenant,
+                organization_id,
+                occurred_at,
+            )
+            .await?;
+        }
+
         if !event_type.is_empty() {
             append_domain_event(
                 &mut transaction,

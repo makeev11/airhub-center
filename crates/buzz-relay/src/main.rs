@@ -646,6 +646,36 @@ async fn main() -> anyhow::Result<()> {
     let wf_cron = Arc::clone(&workflow_engine);
     tokio::spawn(async move { wf_cron.run().await });
 
+    // AirHub occurrences are a rebuildable rolling read model. Group and
+    // organization commands refresh synchronously; this sweep advances the
+    // far edge even when staff have not edited a group recently. The database
+    // write is source-version idempotent, so multiple relay pods are safe.
+    {
+        let airhop_state = Arc::clone(&state);
+        let interval_secs = std::env::var("BUZZ_AIRHOP_SCHEDULE_REFRESH_INTERVAL_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(21_600)
+            .max(60);
+        tokio::spawn(async move {
+            info!(interval_secs, "AirHub rolling occurrence refresh started");
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                match airhop_state.db.refresh_airhop_occurrence_horizons().await {
+                    Ok(count) if count > 0 => {
+                        info!(count, "AirHub rolling occurrence horizons refreshed")
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        error!(%error, "AirHub rolling occurrence refresh failed")
+                    }
+                }
+            }
+        });
+    }
+
     // Ephemeral channel reaper — archives channels whose TTL deadline has passed.
     // Runs every 60s, matching the workflow cron loop pattern. The SQL UPDATE
     // uses `archived_at IS NULL` as a guard, so concurrent runs from multiple

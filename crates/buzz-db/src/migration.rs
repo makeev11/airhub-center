@@ -571,7 +571,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 33);
+        assert_eq!(migrations.len(), 34);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -972,6 +972,11 @@ mod tests {
         assert!(airhop_health.contains("challenge_digest"));
         assert!(airhop_health.contains("verification_version"));
         assert!(airhop_health.contains("health challenge identity is immutable"));
+
+        assert_eq!(migrations[33].version, 34);
+        let airhop_occurrence_provenance = migrations[33].sql.as_str();
+        assert!(airhop_occurrence_provenance.contains("source_group_version"));
+        assert!(airhop_occurrence_provenance.contains("source_organization_version"));
     }
 
     #[test]

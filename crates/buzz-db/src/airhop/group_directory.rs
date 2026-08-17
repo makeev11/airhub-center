@@ -491,6 +491,14 @@ impl Db {
             )
             .await?;
         }
+        super::schedule::rematerialize_group_schedule(
+            &mut transaction,
+            tenant,
+            organization_id,
+            group_id,
+            occurred_at,
+        )
+        .await?;
         append_domain_event(
             &mut transaction,
             tenant,
@@ -699,6 +707,14 @@ impl Db {
             occurred_at,
         )
         .await?;
+        super::schedule::rematerialize_group_schedule(
+            &mut transaction,
+            tenant,
+            organization_id,
+            input.group_id,
+            occurred_at,
+        )
+        .await?;
         let event_type = match (current.status, input.group.status) {
             (GroupStatus::Active, GroupStatus::Archived) => "airhop.group.archived.v1",
             (GroupStatus::Archived, GroupStatus::Active) => "airhop.group.restored.v1",
@@ -747,7 +763,8 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     sqlx::query_scalar(
-        "SELECT id FROM airhop_organizations WHERE community_id = $1 AND status = 'active'",
+        "SELECT id FROM airhop_organizations \
+         WHERE community_id = $1 AND status = 'active' FOR SHARE",
     )
     .bind(tenant.community().as_uuid())
     .fetch_optional(executor)
@@ -959,6 +976,9 @@ async fn protect_booked_original_dates(
 ) -> Result<()> {
     let dates: Vec<NaiveDate> = sqlx::query_scalar(
         "SELECT original_date FROM airhop_bookings \
+         WHERE community_id = $1 AND organization_id = $2 AND recurrence_rule_id = $3 \
+         UNION \
+         SELECT original_date FROM airhop_lesson_exceptions \
          WHERE community_id = $1 AND organization_id = $2 AND recurrence_rule_id = $3",
     )
     .bind(tenant.community().as_uuid())
@@ -974,7 +994,7 @@ async fn protect_booked_original_dates(
                 .contains(&Weekday::from(date.weekday()))
     }) {
         return Err(DbError::InvalidData(
-            "AirHub recurrence update would exclude a booked occurrence".to_owned(),
+            "AirHub recurrence update would exclude a booked or overridden occurrence".to_owned(),
         ));
     }
     Ok(())
@@ -1555,7 +1575,7 @@ mod tests {
             .expect("insert community");
         sqlx::query(
             "INSERT INTO airhop_organizations (community_id, id, name, locale, time_zone, \
-                 default_trial_policy) VALUES ($1, $2, 'Group test', 'ru-RU', 'Europe/Moscow', $3)",
+                 default_trial_policy) VALUES ($1, $2, 'Group test', 'ru-RU', 'Europe/Berlin', $3)",
         )
         .bind(community_id)
         .bind(organization_id)
@@ -1588,9 +1608,20 @@ mod tests {
         let mut definition = group();
         definition.branch_id = branch_id;
         definition.room_id = Some(room_id);
+        let current_date: NaiveDate =
+            sqlx::query_scalar("SELECT (now() AT TIME ZONE 'Europe/Berlin')::date")
+                .fetch_one(&db.pool)
+                .await
+                .expect("load organization-local date");
+        let mut schedule_rule = rule();
+        schedule_rule.starts_on = current_date;
+        schedule_rule.ends_on = current_date
+            .checked_add_days(chrono::Days::new(90))
+            .expect("test schedule horizon");
+        schedule_rule.weekdays = vec![Weekday::from(current_date.weekday())];
         let create = CreateGroupInput {
             group: definition.clone(),
-            active_rules: vec![rule()],
+            active_rules: vec![schedule_rule.clone()],
             idempotency_digest: [1; 32],
             request_hash: [2; 32],
             actor: actor(),
@@ -1613,34 +1644,267 @@ mod tests {
             .expect("list recurrence rules");
         assert_eq!(groups.len(), 1);
         assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].weekdays, vec![Weekday::Monday]);
+        assert_eq!(rules[0].weekdays, schedule_rule.weekdays);
 
-        definition.status = GroupStatus::Archived;
-        let mut replacement = rule();
+        let occurrence_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM airhop_lesson_occurrences \
+             WHERE community_id = $1 AND organization_id = $2 AND group_id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(created.group_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("count materialized occurrences");
+        assert!(occurrence_count >= 12);
+        let future_occurrence = sqlx::query(
+            "SELECT id, original_date, starts_at, version \
+             FROM airhop_lesson_occurrences \
+             WHERE community_id = $1 AND organization_id = $2 AND group_id = $3 \
+               AND starts_at > now() \
+             ORDER BY starts_at LIMIT 1",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(created.group_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("load future materialized occurrence");
+        let occurrence_id: Uuid = future_occurrence.try_get("id").expect("occurrence id");
+        let original_date: NaiveDate = future_occurrence
+            .try_get("original_date")
+            .expect("occurrence original date");
+        let starts_at: DateTime<Utc> = future_occurrence
+            .try_get("starts_at")
+            .expect("occurrence start instant");
+        assert_eq!(
+            starts_at.time(),
+            NaiveTime::from_hms_opt(15, 0, 0).expect("valid UTC time")
+        );
+        assert_eq!(
+            future_occurrence
+                .try_get::<i64, _>("version")
+                .expect("occurrence version"),
+            1
+        );
+
+        let exception_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO airhop_lesson_exceptions (\
+                 community_id, organization_id, id, recurrence_rule_id, original_date, kind, \
+                 original_snapshot, effective_payload\
+             ) VALUES ($1, $2, $3, $4, $5, 'cancelled', $6, $7)",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(exception_id)
+        .bind(rules[0].id)
+        .bind(original_date)
+        .bind(json!({
+            "startTime": "17:00",
+            "endTime": "18:00",
+            "branchId": branch_id,
+            "roomId": room_id,
+            "teacherIds": [],
+        }))
+        .bind(json!({
+            "date": original_date,
+            "startTime": "17:00",
+            "endTime": "18:00",
+            "branchId": branch_id,
+            "roomId": room_id,
+            "teacherIds": [],
+            "capacity": 10,
+            "trialPolicy": { "mode": "free" },
+            "allowSingleVisits": false,
+        }))
+        .execute(&db.pool)
+        .await
+        .expect("insert cancellation exception");
+
+        let mut replacement = schedule_rule.clone();
         replacement.id = Some(rules[0].id);
         replacement.end_time = NaiveTime::from_hms_opt(18, 30, 0).expect("valid test time");
-        let put = PutGroupInput {
+        let put_active = PutGroupInput {
             group_id: created.group_id,
             expected_version: 1,
-            group: definition,
-            active_rules: vec![replacement],
+            group: definition.clone(),
+            active_rules: vec![replacement.clone()],
             idempotency_digest: [3; 32],
             request_hash: [4; 32],
+            actor: actor(),
+        };
+        let updated = db
+            .put_airhop_group(&tenant, &put_active)
+            .await
+            .expect("update active group");
+        assert_eq!(updated.version, 2);
+        let cancelled = sqlx::query(
+            "SELECT id, end_time, status, exception_id, source_rule_version, \
+                    source_exception_version, source_group_version \
+             FROM airhop_lesson_occurrences \
+             WHERE community_id = $1 AND organization_id = $2 \
+               AND recurrence_rule_id = $3 AND original_date = $4",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(rules[0].id)
+        .bind(original_date)
+        .fetch_one(&db.pool)
+        .await
+        .expect("reload cancelled occurrence");
+        assert_eq!(
+            cancelled.try_get::<Uuid, _>("id").expect("stable id"),
+            occurrence_id
+        );
+        assert_eq!(
+            cancelled.try_get::<&str, _>("status").expect("status"),
+            "cancelled"
+        );
+        assert_eq!(
+            cancelled
+                .try_get::<Option<Uuid>, _>("exception_id")
+                .expect("exception id"),
+            Some(exception_id)
+        );
+        assert_eq!(
+            cancelled
+                .try_get::<NaiveTime, _>("end_time")
+                .expect("cancelled effective end"),
+            NaiveTime::from_hms_opt(18, 0, 0).expect("valid test time")
+        );
+        assert_eq!(
+            cancelled
+                .try_get::<i64, _>("source_rule_version")
+                .expect("rule version"),
+            2
+        );
+        assert_eq!(
+            cancelled
+                .try_get::<Option<i64>, _>("source_exception_version")
+                .expect("exception version"),
+            Some(1)
+        );
+        assert_eq!(
+            cancelled
+                .try_get::<i64, _>("source_group_version")
+                .expect("group version"),
+            2
+        );
+
+        let another_end_time: NaiveTime = sqlx::query_scalar(
+            "SELECT end_time FROM airhop_lesson_occurrences \
+             WHERE community_id = $1 AND organization_id = $2 AND group_id = $3 \
+               AND original_date <> $4 AND starts_at > now() AND status = 'scheduled' \
+             ORDER BY starts_at LIMIT 1",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(created.group_id)
+        .bind(original_date)
+        .fetch_one(&db.pool)
+        .await
+        .expect("load refreshed scheduled occurrence");
+        assert_eq!(
+            another_end_time,
+            NaiveTime::from_hms_opt(18, 30, 0).expect("valid test time")
+        );
+        let dst_instants = sqlx::query(
+            "SELECT \
+                 MAX(starts_at) FILTER (WHERE effective_date = DATE '2026-10-19') AS summer_start, \
+                 MAX(starts_at) FILTER (WHERE effective_date = DATE '2026-10-26') AS winter_start \
+             FROM airhop_lesson_occurrences \
+             WHERE community_id = $1 AND organization_id = $2 AND group_id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(created.group_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("load occurrences around DST transition");
+        assert_eq!(
+            dst_instants
+                .try_get::<Option<DateTime<Utc>>, _>("summer_start")
+                .expect("summer instant")
+                .expect("summer occurrence")
+                .time(),
+            NaiveTime::from_hms_opt(15, 0, 0).expect("valid UTC time")
+        );
+        assert_eq!(
+            dst_instants
+                .try_get::<Option<DateTime<Utc>>, _>("winter_start")
+                .expect("winter instant")
+                .expect("winter occurrence")
+                .time(),
+            NaiveTime::from_hms_opt(16, 0, 0).expect("valid UTC time")
+        );
+
+        let projection_version_before_refresh: i64 = sqlx::query_scalar(
+            "SELECT version FROM airhop_lesson_occurrences \
+             WHERE community_id = $1 AND organization_id = $2 AND id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(occurrence_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("load projection version before refresh");
+        assert_eq!(
+            db.refresh_airhop_occurrence_horizons()
+                .await
+                .expect("advance rolling horizon"),
+            1
+        );
+        let projection_version_after_refresh: i64 = sqlx::query_scalar(
+            "SELECT version FROM airhop_lesson_occurrences \
+             WHERE community_id = $1 AND organization_id = $2 AND id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(occurrence_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("load projection version after refresh");
+        assert_eq!(
+            projection_version_after_refresh,
+            projection_version_before_refresh
+        );
+
+        definition.status = GroupStatus::Archived;
+        let put = PutGroupInput {
+            group_id: created.group_id,
+            expected_version: 2,
+            group: definition,
+            active_rules: vec![replacement],
+            idempotency_digest: [5; 32],
+            request_hash: [6; 32],
             actor: actor(),
         };
         let updated = db
             .put_airhop_group(&tenant, &put)
             .await
             .expect("update group");
-        assert_eq!(updated.version, 2);
+        assert_eq!(updated.version, 3);
         assert_eq!(
             db.list_airhop_groups(&tenant).await.expect("reload groups")[0].status,
             GroupStatus::Archived
         );
+        let available_future: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM airhop_lesson_occurrences \
+             WHERE community_id = $1 AND organization_id = $2 AND group_id = $3 \
+               AND starts_at > now() AND status <> 'cancelled'",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(created.group_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("count archived future occurrences");
+        assert_eq!(available_future, 0);
 
         let mut stale = put;
-        stale.idempotency_digest = [5; 32];
-        stale.request_hash = [6; 32];
+        stale.idempotency_digest = [7; 32];
+        stale.request_hash = [8; 32];
         assert!(matches!(
             db.put_airhop_group(&tenant, &stale).await,
             Err(DbError::AirhopVersionConflict)
