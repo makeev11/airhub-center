@@ -15,6 +15,7 @@ use axum::Json;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use buzz_db::airhop::center_activation::{CenterEnvironment, ClaimCenterActivationGrantInput};
+use buzz_db::airhop::center_health::VerifyCenterHealthChallengeInput;
 use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -52,6 +53,26 @@ struct ClaimActivationResponse {
     organization_id: Uuid,
     activation_version: i64,
     status: &'static str,
+    replayed: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct VerifyHealthChallengeRequest {
+    installation_id: Uuid,
+    challenge_id: Uuid,
+    challenge: String,
+    release_version: String,
+    config_version: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VerifyHealthChallengeResponse {
+    installation_id: Uuid,
+    verification_version: i64,
+    status: &'static str,
+    verified_at: chrono::DateTime<chrono::Utc>,
     replayed: bool,
 }
 
@@ -188,10 +209,71 @@ pub async fn get_installation_status(
         "releaseVersion": installation.release_version,
         "status": installation.status.as_str(),
         "activationVersion": installation.activation_version,
+        "verificationVersion": installation.verification_version,
+        "configVersion": installation.config_version,
         "activatedAt": installation.activated_at,
         "lastVerifiedAt": installation.last_verified_at,
         "errorCode": installation.sanitized_error_code,
     }))
+    .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
+}
+
+/// Verify a server-issued challenge with the activated installation identity.
+pub async fn verify_health_challenge(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    const PATH: &str = "/api/airhop/activation/v1/health/verify";
+    let tenant = bind_activation_tenant(&state, &headers).await?;
+    let expected_url = bridge::nip98_expected_url(&state.config.relay_url, &tenant, PATH);
+    let (pubkey, event_id) = bridge::verify_bridge_auth_with_options(
+        &headers,
+        "POST",
+        &expected_url,
+        Some(&body),
+        true,
+        true,
+    )?;
+    bridge::check_nip98_replay(&state, &tenant, event_id).await?;
+    bridge::enforce_http_admission(&state, &tenant, &pubkey).await?;
+    let request: VerifyHealthChallengeRequest = serde_json::from_slice(&body)
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid health verification JSON"))?;
+    if request.installation_id.is_nil() || request.challenge_id.is_nil() {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "installationId and challengeId must be non-zero UUIDs",
+        ));
+    }
+    let key = activation_key(&state);
+    let challenge_digest =
+        health_challenge_digest(&key, tenant.community().as_uuid(), &request.challenge)?;
+    let outcome = state
+        .db
+        .verify_airhop_center_health_challenge(
+            &tenant,
+            &VerifyCenterHealthChallengeInput {
+                installation_id: request.installation_id,
+                challenge_id: request.challenge_id,
+                challenge_digest,
+                installation_pubkey: pubkey.to_bytes(),
+                release_version: request.release_version,
+                config_version: request.config_version,
+            },
+        )
+        .await
+        .map_err(map_health_verification_error)?;
+    let mut response = Json(VerifyHealthChallengeResponse {
+        installation_id: outcome.installation_id,
+        verification_version: outcome.verification_version,
+        status: outcome.status.as_str(),
+        verified_at: outcome.verified_at,
+        replayed: outcome.replayed,
+    })
     .into_response();
     response
         .headers_mut()
@@ -205,6 +287,11 @@ pub(crate) fn generate_activation_code() -> String {
         "{ACTIVATION_CODE_PREFIX}{}",
         URL_SAFE_NO_PAD.encode(material)
     )
+}
+
+pub(crate) fn generate_health_challenge() -> String {
+    let material: [u8; ACTIVATION_CODE_BYTES] = rand::random();
+    URL_SAFE_NO_PAD.encode(material)
 }
 
 pub(crate) fn activation_key(state: &AppState) -> [u8; 32] {
@@ -226,6 +313,20 @@ pub(crate) fn activation_code_digest(
         b"airhop.center.activation-code-digest.v1",
         community_id,
         &[code.as_bytes()],
+    )
+}
+
+pub(crate) fn health_challenge_digest(
+    key: &[u8; 32],
+    community_id: &Uuid,
+    challenge: &str,
+) -> Result<[u8; 32], (StatusCode, Json<Value>)> {
+    validate_health_challenge(challenge)?;
+    scoped_digest(
+        key,
+        b"airhop.center.health-challenge-digest.v1",
+        community_id,
+        &[challenge.as_bytes()],
     )
 }
 
@@ -338,10 +439,30 @@ fn validate_activation_code(code: &str) -> Result<(), (StatusCode, Json<Value>)>
     Ok(())
 }
 
+fn validate_health_challenge(challenge: &str) -> Result<(), (StatusCode, Json<Value>)> {
+    let material = URL_SAFE_NO_PAD
+        .decode(challenge)
+        .map_err(|_| invalid_health_challenge())?;
+    if material.len() != ACTIVATION_CODE_BYTES
+        || URL_SAFE_NO_PAD.encode(&material) != challenge
+        || challenge.trim() != challenge
+    {
+        return Err(invalid_health_challenge());
+    }
+    Ok(())
+}
+
 fn invalid_activation_code() -> (StatusCode, Json<Value>) {
     api_error(
         StatusCode::UNAUTHORIZED,
         "activation grant is invalid or unavailable",
+    )
+}
+
+fn invalid_health_challenge() -> (StatusCode, Json<Value>) {
+    api_error(
+        StatusCode::UNAUTHORIZED,
+        "health challenge is invalid or unavailable",
     )
 }
 
@@ -362,6 +483,23 @@ fn map_claim_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
         internal => {
             tracing::error!(error = %internal, "AirHub Center activation claim failed");
             internal_error("activation claim failed")
+        }
+    }
+}
+
+fn map_health_verification_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
+    match error {
+        buzz_db::DbError::AirhopHealthChallengeInvalid => invalid_health_challenge(),
+        buzz_db::DbError::AirhopActivationConflict => api_error(
+            StatusCode::CONFLICT,
+            "installation release or activation state conflicts with this health response",
+        ),
+        buzz_db::DbError::InvalidData(_) => {
+            api_error(StatusCode::BAD_REQUEST, "invalid health verification")
+        }
+        internal => {
+            tracing::error!(error = %internal, "AirHub Center health verification failed");
+            internal_error("health verification failed")
         }
     }
 }
@@ -414,5 +552,34 @@ mod tests {
             .expect("claim fixture is an object")
             .remove("releaseProfile");
         assert!(serde_json::from_value::<ClaimActivationRequest>(missing_profile).is_err());
+    }
+
+    #[test]
+    fn health_challenges_are_canonical_and_tenant_scoped() {
+        let challenge = generate_health_challenge();
+        assert!(validate_health_challenge(&challenge).is_ok());
+        assert_eq!(challenge.len(), 43);
+        assert!(validate_health_challenge(&format!("{challenge}=")).is_err());
+
+        let key = [9; 32];
+        let first = health_challenge_digest(&key, &Uuid::from_u128(1), &challenge);
+        let second = health_challenge_digest(&key, &Uuid::from_u128(2), &challenge);
+        assert_ne!(first.ok(), second.ok());
+    }
+
+    #[test]
+    fn health_verification_contract_requires_complete_closed_binding() {
+        let body = json!({
+            "installationId": Uuid::new_v4(),
+            "challengeId": Uuid::new_v4(),
+            "challenge": generate_health_challenge(),
+            "releaseVersion": "2026.08.17",
+            "configVersion": "config-1"
+        });
+        assert!(serde_json::from_value::<VerifyHealthChallengeRequest>(body.clone()).is_ok());
+
+        let mut with_unknown = body;
+        with_unknown["status"] = Value::String("ready".to_owned());
+        assert!(serde_json::from_value::<VerifyHealthChallengeRequest>(with_unknown).is_err());
     }
 }

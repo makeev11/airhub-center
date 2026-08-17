@@ -1,6 +1,6 @@
 # AirHub Center ↔ HQ: deployment и activation contract
 
-Статус: Center grant/claim contract реализован; HQ connector ещё не реализован
+Статус: Center grant/claim/health contract реализован; HQ connector ещё не реализован
 Дата: 2026-08-17
 
 Документ фиксирует только взаимодействие AirHub Center с будущим AirHub HQ.
@@ -83,6 +83,11 @@ Grant должен быть:
   отозвать непогашенный grant по `host` и `grantId`.
 - `GET /operator/airhop/center-installations?host=…&installationId=…` — получить
   безопасные metadata установки и историю grants без кодов и digests.
+- `POST /operator/airhop/center-installations/health-challenges` — выпустить
+  одноразовый challenge для активированной установки. Требует NIP-98 payload
+  binding; тело содержит `host` и `installationId`. Ответ `201` содержит
+  `challengeId`, 256-битный `challenge` и `expiresAt`. Challenge действует пять
+  минут и хранится в Center только как tenant-keyed digest.
 
 Выпуск разрешён только после создания активной AirHub organization в выбранном
 tenant. Повторный живой grant для той же установки требует сначала отозвать
@@ -95,15 +100,22 @@ tenant. Повторный живой grant для той же установк�
   `installationPubkey`, `environment`, `releaseProfile`, `releaseVersion`.
 - `GET /api/airhop/activation/v1/status?installationId=…` — безопасный status,
   доступный только через NIP-98 подпись уже привязанного installation key.
+- `POST /api/airhop/activation/v1/health/verify` — payload-bound NIP-98 ответ,
+  подписанный installation key. Тело содержит `installationId`, `challengeId`,
+  исходный `challenge`, `releaseVersion` и `configVersion`.
 
 Claim проверяет весь deployment binding и одной транзакцией помечает grant
-использованным, привязывает public key, увеличивает `activationVersion` и пишет
-append-only audit. Тот же idempotency key с тем же телом возвращает сохранённый
-результат; другой claim уже погашенного grant отклоняется.
+использованным, привязывает public key, увеличивает `activationVersion`, переводит
+установку в `provisioning` и пишет append-only audit. Тот же idempotency key с
+тем же телом возвращает сохранённый результат; другой claim уже погашенного
+grant отклоняется.
 
-Следующая отдельная итерация контракта — server-issued challenge и signed health
-response с обновлением `lastVerifiedAt`. Текущий signed status уже доказывает
-владение installation key, но не подменяет будущую HQ health ceremony.
+Health verification проверяет challenge digest, срок, installation key и точную
+release version. Погашение challenge, запись `configVersion`, увеличение
+`verificationVersion`, обновление `lastVerifiedAt`, очистка безопасной ошибки и
+переход в `ready` происходят одной транзакцией. Повтор того же уже погашенного
+challenge с тем же подписантом и версиями возвращает сохранённый результат с
+`replayed: true`; изменённый ответ отклоняется.
 
 ## 6. Требуемые операции будущего HQ connector
 
@@ -112,6 +124,8 @@ response с обновлением `lastVerifiedAt`. Текущий signed statu
 - запросить challenge и проверить подписанный ответ;
 - получить release/config version, последнее успешное health-время и
   санитизированную ошибку.
+
+Требуемые операции Center connector:
 
 - claim одноразового grant вместе с installation public key;
 - вернуть стабильную installation identity и activation version;
@@ -127,6 +141,7 @@ identity. Все обычные операции Center после актива�
 `not_installed → provisioning → ready | degraded | failed → disabled`
 
 - `not_installed` является нормой для профиля `site_telegram`.
+- успешный claim переводит установку только в `provisioning`;
 - `ready` означает успешную последнюю проверку, а не выдуманный continuous
   online status.
 - отзыв grant не деактивирует уже связанную installation identity. Для этого
@@ -142,7 +157,8 @@ identity. Все обычные операции Center после актива�
 2. просроченный, отозванный, чужой и повторно использованный grant отклоняется;
 3. параллельный claim имеет ровно один успешный результат;
 4. успешный claim привязывает public key и пишет audit без секрета;
-5. challenge проходит только с приватным ключом установки;
+5. challenge проходит только с приватным ключом установки, погашается атомарно
+   и переводит `provisioning` в `ready`;
 6. после отключения HQ уже активированный Center продолжает обслуживать свои
    staff/public сценарии;
 7. HQ health/status не раскрывает данные клиентов Center.

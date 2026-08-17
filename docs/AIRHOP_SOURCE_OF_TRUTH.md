@@ -33,11 +33,11 @@ Deployment, installation identity и одноразовые коды Center от
 Текущий HQ пока находится на стадии удаления старого Buzz; его ветка не является
 готовой реализацией этого контракта.
 
-В Center уже реализован первый backend-срез этого контракта: operator API
-выпуска/отзыва одноразовых grants, атомарный bootstrap claim, неизменяемый audit
-и подписанный безопасный status установки. Это не означает готовность HQ:
-connector, deploy worker и health challenge остаются отдельной работой после
-восстановления актуального HQ из iCloud.
+В Center уже реализован backend-контракт активации: operator API выпуска/отзыва
+одноразовых grants, атомарный bootstrap claim, неизменяемый audit, server-issued
+health challenge, подписанная installation key проверка и безопасный status
+установки. Это не означает готовность HQ: connector и deploy worker остаются
+отдельной работой после восстановления актуального HQ из iCloud.
 
 ## 2. Граница текущего этапа
 

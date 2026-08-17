@@ -95,6 +95,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/airhop/activation/v1/status",
             get(api::airhop_activation::get_installation_status),
         )
+        .route(
+            "/api/airhop/activation/v1/health/verify",
+            post(api::airhop_activation::verify_health_challenge),
+        )
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .with_state(state.clone());
 
@@ -220,6 +224,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/operator/airhop/center-installations",
             get(api::operator::get_center_installation_metadata),
+        )
+        .route(
+            "/operator/airhop/center-installations/health-challenges",
+            post(api::operator::issue_center_health_challenge),
         )
         // Relay invites: mint (owner/admin) + claim (membership-gate exempt)
         .route("/api/invites", post(api::invites::mint_invite))

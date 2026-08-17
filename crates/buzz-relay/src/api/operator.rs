@@ -73,6 +73,13 @@ struct RevokeCenterActivationGrantRequest {
     grant_id: Uuid,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct IssueCenterHealthChallengeRequest {
+    host: String,
+    installation_id: Uuid,
+}
+
 /// Query parameters for operator-safe Center installation metadata.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -685,6 +692,8 @@ pub async fn get_center_installation_metadata(
         "installationPubkey": installation.installation_pubkey.map(hex::encode),
         "status": installation.status.as_str(),
         "activationVersion": installation.activation_version,
+        "verificationVersion": installation.verification_version,
+        "configVersion": installation.config_version,
         "activatedAt": installation.activated_at,
         "lastVerifiedAt": installation.last_verified_at,
         "errorCode": installation.sanitized_error_code,
@@ -708,6 +717,57 @@ pub async fn get_center_installation_metadata(
             })
         }).collect::<Vec<_>>(),
     })))
+}
+
+/// Issue a short-lived challenge for an activated Center installation.
+pub async fn issue_center_health_challenge(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    const PATH: &str = "/operator/airhop/center-installations/health-challenges";
+    let operator =
+        authorize_operator_request(&state, &headers, "POST", PATH, None, Some(&body)).await?;
+    let request: IssueCenterHealthChallengeRequest = serde_json::from_slice(&body)
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid health challenge JSON"))?;
+    if request.installation_id.is_nil() {
+        return Err(api_error(StatusCode::BAD_REQUEST, "invalid installationId"));
+    }
+    let tenant = active_operator_tenant(&state, &request.host).await?;
+    let challenge = super::airhop_activation::generate_health_challenge();
+    let key = super::airhop_activation::activation_key(&state);
+    let challenge_digest = super::airhop_activation::health_challenge_digest(
+        &key,
+        tenant.community().as_uuid(),
+        &challenge,
+    )?;
+    let outcome = state
+        .db
+        .issue_airhop_center_health_challenge(
+            &tenant,
+            &buzz_db::airhop::center_health::IssueCenterHealthChallengeInput {
+                installation_id: request.installation_id,
+                challenge_digest,
+                issued_by_pubkey: operator.to_bytes(),
+            },
+        )
+        .await
+        .map_err(map_activation_operator_error)?;
+    let mut response = (
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "challengeId": outcome.challenge_id,
+            "organizationId": outcome.organization_id,
+            "installationId": outcome.installation_id,
+            "challenge": challenge,
+            "expiresAt": outcome.expires_at,
+        })),
+    )
+        .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
 }
 
 async fn active_operator_tenant(
@@ -741,6 +801,9 @@ fn map_activation_operator_error(error: buzz_db::DbError) -> (StatusCode, Json<V
         ),
         buzz_db::DbError::AirhopActivationInvalid => {
             api_error(StatusCode::NOT_FOUND, "activation grant not found")
+        }
+        buzz_db::DbError::AirhopHealthChallengeInvalid => {
+            api_error(StatusCode::NOT_FOUND, "activated installation not found")
         }
         buzz_db::DbError::AirhopActivationConflict => api_error(
             StatusCode::CONFLICT,
@@ -816,6 +879,25 @@ mod tests {
         with_unknown["activationCode"] = Value::String("must-not-be-accepted".to_owned());
         assert!(
             serde_json::from_value::<super::IssueCenterActivationGrantRequest>(with_unknown)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn health_challenge_issue_contract_is_closed() {
+        let body = serde_json::json!({
+            "host": "center.example",
+            "installationId": Uuid::new_v4()
+        });
+        assert!(
+            serde_json::from_value::<super::IssueCenterHealthChallengeRequest>(body.clone())
+                .is_ok()
+        );
+
+        let mut with_unknown = body;
+        with_unknown["ttlSeconds"] = Value::from(3600);
+        assert!(
+            serde_json::from_value::<super::IssueCenterHealthChallengeRequest>(with_unknown)
                 .is_err()
         );
     }

@@ -571,7 +571,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 32);
+        assert_eq!(migrations.len(), 33);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -965,6 +965,13 @@ mod tests {
         assert!(airhop_activation.contains("CREATE TABLE airhop_center_activation_audit"));
         assert!(airhop_activation.contains("code_digest"));
         assert!(airhop_activation.contains("activation audit is append-only"));
+
+        assert_eq!(migrations[32].version, 33);
+        let airhop_health = migrations[32].sql.as_str();
+        assert!(airhop_health.contains("CREATE TABLE airhop_center_health_challenges"));
+        assert!(airhop_health.contains("challenge_digest"));
+        assert!(airhop_health.contains("verification_version"));
+        assert!(airhop_health.contains("health challenge identity is immutable"));
     }
 
     #[test]

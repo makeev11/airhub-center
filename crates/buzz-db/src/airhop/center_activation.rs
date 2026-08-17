@@ -162,9 +162,13 @@ pub struct CenterInstallationMetadata {
     pub status: CenterInstallationStatus,
     /// Monotonic activation generation.
     pub activation_version: i64,
+    /// Monotonic successful signed-health generation.
+    pub verification_version: i64,
+    /// Last verified Center configuration generation/version.
+    pub config_version: Option<String>,
     /// Activation instant.
     pub activated_at: Option<DateTime<Utc>>,
-    /// Last cryptographically verified health instant, when implemented.
+    /// Last cryptographically verified health instant.
     pub last_verified_at: Option<DateTime<Utc>>,
     /// Sanitized machine-readable failure code.
     pub sanitized_error_code: Option<String>,
@@ -558,7 +562,7 @@ impl Db {
 
         let activation_version: i64 = sqlx::query_scalar(
             "UPDATE airhop_center_installations \
-             SET installation_pubkey = $4, status = 'ready', \
+             SET installation_pubkey = $4, status = 'provisioning', \
                  activation_version = activation_version + 1, activated_at = $5, updated_at = $5 \
              WHERE community_id = $1 AND organization_id = $2 AND id = $3 \
              RETURNING activation_version",
@@ -594,7 +598,7 @@ impl Db {
             installation_id: input.installation_id,
             organization_id,
             activation_version,
-            status: CenterInstallationStatus::Ready,
+            status: CenterInstallationStatus::Provisioning,
             replayed: false,
         })
     }
@@ -738,7 +742,7 @@ async fn load_installation_metadata_row(
     let row = sqlx::query(
         "SELECT organization_id, id, environment, release_profile, release_version, \
                 installation_pubkey, status, activation_version, activated_at, \
-                last_verified_at, sanitized_error_code \
+                verification_version, config_version, last_verified_at, sanitized_error_code \
          FROM airhop_center_installations \
          WHERE community_id = $1 AND id = $2 \
          FOR UPDATE",
@@ -758,7 +762,7 @@ async fn load_installation_metadata_row_from_connection(
     let row = sqlx::query(
         "SELECT organization_id, id, environment, release_profile, release_version, \
                 installation_pubkey, status, activation_version, activated_at, \
-                last_verified_at, sanitized_error_code \
+                verification_version, config_version, last_verified_at, sanitized_error_code \
          FROM airhop_center_installations \
          WHERE community_id = $1 AND id = $2",
     )
@@ -790,6 +794,8 @@ fn parse_installation_metadata_row(
         installation_pubkey,
         status: CenterInstallationStatus::from_db(&status)?,
         activation_version: row.try_get("activation_version")?,
+        verification_version: row.try_get("verification_version")?,
+        config_version: row.try_get("config_version")?,
         activated_at: row.try_get("activated_at")?,
         last_verified_at: row.try_get("last_verified_at")?,
         sanitized_error_code: row.try_get("sanitized_error_code")?,

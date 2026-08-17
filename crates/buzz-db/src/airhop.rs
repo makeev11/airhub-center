@@ -22,6 +22,8 @@ pub mod booking;
 pub mod booking_decision;
 /// AirHub Center installation activation grants and identity binding.
 pub mod center_activation;
+/// Signed health challenges for activated AirHub Center installations.
+pub mod center_health;
 /// Idempotent staff commands for family-owned operational entities.
 pub mod family_commands;
 /// Tenant-scoped staff family detail projection.

@@ -112,6 +112,10 @@ pub enum DbError {
     /// An AirHub Center installation or live grant conflicts with the requested operation.
     #[error("AirHub Center activation state conflicts with the requested operation")]
     AirhopActivationConflict,
+
+    /// A Center health challenge is unknown, expired, consumed, or mismatched.
+    #[error("AirHub Center health challenge is invalid or unavailable")]
+    AirhopHealthChallengeInvalid,
 }
 
 /// Convenience alias for `Result<T, DbError>`.
