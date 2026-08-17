@@ -1,7 +1,12 @@
 import * as React from "react";
 import { Building2, CalendarDays, Plus, UsersRound } from "lucide-react";
 
-import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import {
+  BookingWorkspaceProvider,
+  useBookingWorkspace,
+} from "@/features/booking/data/BookingWorkspaceProvider";
+import { createHttpBookingBranchesRepository } from "@/features/booking/data/httpBookingBranchesRepository";
+import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import {
   effectiveGroupAttendanceTracking,
   effectiveGroupTrialPolicy,
@@ -36,7 +41,13 @@ import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { PageHeader } from "@/shared/ui/PageHeader";
 
-function GroupsContent({ createRequest }: { createRequest: number }) {
+function GroupsContent({
+  createRequest,
+  enrollmentEnabled,
+}: {
+  createRequest: number;
+  enrollmentEnabled: boolean;
+}) {
   const booking = useBookingWorkspace();
   const workspace = booking.workspace as NonNullable<typeof booking.workspace>;
   const messages = getBookingAdminMessages(workspace.organization.locale);
@@ -241,7 +252,9 @@ function GroupsContent({ createRequest }: { createRequest: number }) {
                     </div>
                   ) : null}
                   <div className="mt-auto flex flex-wrap gap-2 border-t border-border/70 pt-4">
-                    {group.status === "active" && templates > 0 ? (
+                    {enrollmentEnabled &&
+                    group.status === "active" &&
+                    templates > 0 ? (
                       <Button
                         data-testid={`airhop-enroll-group-${group.id}`}
                         onClick={() => setEnrollmentGroupId(group.id)}
@@ -297,14 +310,16 @@ function GroupsContent({ createRequest }: { createRequest: number }) {
         }
         open={formOpen}
       />
-      <EnrollmentDialog
-        initialGroupId={enrollmentGroupId ?? undefined}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen) setEnrollmentGroupId(null);
-        }}
-        onSaved={() => setFeedbackMessage(messages.enrollmentCreated)}
-        open={enrollmentGroupId !== null}
-      />
+      {enrollmentEnabled ? (
+        <EnrollmentDialog
+          initialGroupId={enrollmentGroupId ?? undefined}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setEnrollmentGroupId(null);
+          }}
+          onSaved={() => setFeedbackMessage(messages.enrollmentCreated)}
+          open={enrollmentGroupId !== null}
+        />
+      ) : null}
 
       <AlertDialog
         onOpenChange={(open) => {
@@ -347,7 +362,11 @@ function GroupsContent({ createRequest }: { createRequest: number }) {
   );
 }
 
-export function GroupsScreen() {
+function GroupsScreenContent({
+  enrollmentEnabled,
+}: {
+  enrollmentEnabled: boolean;
+}) {
   const booking = useBookingWorkspace();
   const messages = getBookingAdminMessages(
     booking.workspace?.organization.locale ?? "ru-RU",
@@ -373,9 +392,34 @@ export function GroupsScreen() {
       </header>
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <BookingWorkspaceGate>
-          {() => <GroupsContent createRequest={createRequested} />}
+          {() => (
+            <GroupsContent
+              createRequest={createRequested}
+              enrollmentEnabled={enrollmentEnabled}
+            />
+          )}
         </BookingWorkspaceGate>
       </div>
     </div>
+  );
+}
+
+function ServerGroupsScreen() {
+  const [repository] = React.useState(() =>
+    createHttpBookingBranchesRepository(),
+  );
+  return (
+    <BookingWorkspaceProvider repository={repository}>
+      <GroupsScreenContent enrollmentEnabled={false} />
+    </BookingWorkspaceProvider>
+  );
+}
+
+/** Uses PostgreSQL in Tauri while retaining demo enrollment flows in previews. */
+export function GroupsScreen() {
+  return currentAirhopStaffDataRuntime() === "server" ? (
+    <ServerGroupsScreen />
+  ) : (
+    <GroupsScreenContent enrollmentEnabled />
   );
 }

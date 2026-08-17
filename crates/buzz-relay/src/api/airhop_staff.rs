@@ -35,6 +35,10 @@ use buzz_db::airhop::family_member_lifecycle::{
 };
 use buzz_db::airhop::family_members::{AddFamilyChildInput, AddFamilyRepresentativeInput};
 use buzz_db::airhop::family_primary_representative::SetFamilyPrimaryRepresentativeInput;
+use buzz_db::airhop::group_directory::{
+    AirhopGroup, AirhopRecurrenceRule, CreateGroupInput, GroupDefinition, GroupStatus,
+    PutGroupInput, RecurrenceRuleInput,
+};
 use buzz_db::airhop::organization_settings::PutOrganizationSettingsInput;
 use buzz_db::airhop::room_directory::{AirhopRoom, CreateRoomInput, PutRoomInput, RoomStatus};
 use buzz_db::airhop::staff_queue::{
@@ -212,6 +216,73 @@ pub(crate) struct PutRoomBody {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct GroupDefinitionBody {
+    branch_id: Uuid,
+    #[serde(default)]
+    room_id: Option<Uuid>,
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    teacher_ids: Vec<Uuid>,
+    #[serde(default)]
+    min_age_months: Option<i32>,
+    #[serde(default)]
+    max_age_months: Option<i32>,
+    #[serde(default)]
+    capacity: Option<i32>,
+    #[serde(default)]
+    trial_policy_override: Option<TrialPolicy>,
+    #[serde(default)]
+    track_attendance_override: Option<bool>,
+    #[serde(default)]
+    allow_single_visits_override: Option<bool>,
+    status: GroupStatus,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecurrenceRuleBody {
+    #[serde(default)]
+    id: Option<Uuid>,
+    starts_on: chrono::NaiveDate,
+    ends_on: chrono::NaiveDate,
+    weekdays: Vec<Weekday>,
+    start_time: String,
+    end_time: String,
+    #[serde(default)]
+    branch_id_override: Option<Uuid>,
+    #[serde(default)]
+    room_override_set: bool,
+    #[serde(default)]
+    room_id_override: Option<Uuid>,
+    #[serde(default)]
+    teacher_ids_override: Option<Vec<Uuid>>,
+    #[serde(default)]
+    capacity_override_set: bool,
+    #[serde(default)]
+    capacity_override: Option<i32>,
+    #[serde(default)]
+    trial_policy_override: Option<TrialPolicy>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CreateGroupBody {
+    group: GroupDefinitionBody,
+    active_rules: Vec<RecurrenceRuleBody>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PutGroupBody {
+    expected_version: i64,
+    group: GroupDefinitionBody,
+    active_rules: Vec<RecurrenceRuleBody>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ClaimNotificationsBody {
     #[serde(default = "default_claim_limit")]
     limit: u16,
@@ -381,6 +452,16 @@ pub(crate) async fn list_branches(
         .list_airhop_rooms(&tenant)
         .await
         .map_err(map_db_error)?;
+    let groups = state
+        .db
+        .list_airhop_groups(&tenant)
+        .await
+        .map_err(map_db_error)?;
+    let recurrence_rules = state
+        .db
+        .list_airhop_recurrence_rules(&tenant)
+        .await
+        .map_err(map_db_error)?;
     Ok(Json(json!({
         "organization": organization_json(
             organization.id,
@@ -392,6 +473,8 @@ pub(crate) async fn list_branches(
         "organizationVersion": organization.version,
         "items": branches.iter().map(branch_json).collect::<Vec<_>>(),
         "rooms": rooms.iter().map(room_json).collect::<Vec<_>>(),
+        "groups": groups.iter().map(group_json).collect::<Vec<_>>(),
+        "recurrenceRules": recurrence_rules.iter().map(recurrence_rule_json).collect::<Vec<_>>(),
     })))
 }
 
@@ -561,6 +644,91 @@ pub(crate) async fn put_room(
         .map_err(map_db_error)?;
     Ok(Json(json!({
         "roomId": outcome.room_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Idempotently creates a group and all of its initial recurrence rules.
+pub(crate) async fn create_group(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/groups";
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "POST", path, Some(&body), Access::Staff).await?;
+    let request: CreateGroupBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let group = group_definition(request.group);
+    let active_rules = recurrence_rule_inputs(request.active_rules)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .create_airhop_group(
+            &tenant,
+            &CreateGroupInput {
+                group,
+                active_rules,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.group-create.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("POST", path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "groupId": outcome.group_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Replaces, archives, or restores a group and atomically replaces its active rules.
+pub(crate) async fn put_group(
+    State(state): State<Arc<AppState>>,
+    Path(group_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/groups/{group_id}");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: PutGroupBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let group = group_definition(request.group);
+    let active_rules = recurrence_rule_inputs(request.active_rules)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .put_airhop_group(
+            &tenant,
+            &PutGroupInput {
+                group_id,
+                expected_version: request.expected_version,
+                group,
+                active_rules,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.group-put.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("PUT", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "groupId": outcome.group_id,
         "version": outcome.version,
         "replayed": outcome.replayed,
     })))
@@ -1577,6 +1745,64 @@ fn branch_working_periods(
         .collect()
 }
 
+fn group_definition(body: GroupDefinitionBody) -> GroupDefinition {
+    GroupDefinition {
+        branch_id: body.branch_id,
+        room_id: body.room_id,
+        name: body.name.trim().to_owned(),
+        description: body
+            .description
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty()),
+        teacher_ids: body.teacher_ids,
+        min_age_months: body.min_age_months,
+        max_age_months: body.max_age_months,
+        capacity: body.capacity,
+        trial_policy_override: body.trial_policy_override,
+        track_attendance_override: body.track_attendance_override,
+        allow_single_visits_override: body.allow_single_visits_override,
+        status: body.status,
+    }
+}
+
+fn recurrence_rule_inputs(
+    bodies: Vec<RecurrenceRuleBody>,
+) -> Result<Vec<RecurrenceRuleInput>, (StatusCode, Json<Value>)> {
+    bodies
+        .into_iter()
+        .map(|body| {
+            let start_time =
+                NaiveTime::parse_from_str(&body.start_time, "%H:%M").map_err(|_| {
+                    api_error(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "invalid AirHub recurrence time",
+                    )
+                })?;
+            let end_time = NaiveTime::parse_from_str(&body.end_time, "%H:%M").map_err(|_| {
+                api_error(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "invalid AirHub recurrence time",
+                )
+            })?;
+            Ok(RecurrenceRuleInput {
+                id: body.id,
+                starts_on: body.starts_on,
+                ends_on: body.ends_on,
+                weekdays: body.weekdays,
+                start_time,
+                end_time,
+                branch_id_override: body.branch_id_override,
+                room_override_set: body.room_override_set,
+                room_id_override: body.room_id_override,
+                teacher_ids_override: body.teacher_ids_override,
+                capacity_override_set: body.capacity_override_set,
+                capacity_override: body.capacity_override,
+                trial_policy_override: body.trial_policy_override,
+            })
+        })
+        .collect()
+}
+
 fn branch_json(branch: &AirhopBranch) -> Value {
     let working_hours = branch
         .working_hours
@@ -1623,6 +1849,90 @@ fn room_json(room: &AirhopRoom) -> Value {
         "createdAt": room.created_at,
         "updatedAt": room.updated_at,
     })
+}
+
+fn group_json(group: &AirhopGroup) -> Value {
+    let mut value = json!({
+        "id": group.id,
+        "organizationId": group.organization_id,
+        "branchId": group.branch_id,
+        "name": group.name,
+        "teacherIds": group.teacher_ids,
+        "status": group.status,
+        "version": group.version,
+        "createdAt": group.created_at,
+        "updatedAt": group.updated_at,
+    });
+    let Value::Object(object) = &mut value else {
+        return Value::Null;
+    };
+    if let Some(description) = &group.description {
+        object.insert("description".to_owned(), json!(description));
+    }
+    if let Some(room_id) = group.room_id {
+        object.insert("roomId".to_owned(), json!(room_id));
+    }
+    if let Some(min_age_months) = group.min_age_months {
+        object.insert("minAgeMonths".to_owned(), json!(min_age_months));
+    }
+    if let Some(max_age_months) = group.max_age_months {
+        object.insert("maxAgeMonths".to_owned(), json!(max_age_months));
+    }
+    if let Some(capacity) = group.capacity {
+        object.insert("capacity".to_owned(), json!(capacity));
+    }
+    if let Some(policy) = &group.trial_policy_override {
+        object.insert("trialPolicyOverride".to_owned(), json!(policy));
+    }
+    if let Some(track_attendance) = group.track_attendance_override {
+        object.insert(
+            "trackAttendanceOverride".to_owned(),
+            json!(track_attendance),
+        );
+    }
+    if let Some(allow_single_visits) = group.allow_single_visits_override {
+        object.insert(
+            "allowSingleVisitsOverride".to_owned(),
+            json!(allow_single_visits),
+        );
+    }
+    value
+}
+
+fn recurrence_rule_json(rule: &AirhopRecurrenceRule) -> Value {
+    let mut value = json!({
+        "id": rule.id,
+        "organizationId": rule.organization_id,
+        "groupId": rule.group_id,
+        "startsOn": rule.starts_on,
+        "endsOn": rule.ends_on,
+        "weekdays": rule.weekdays,
+        "startTime": rule.start_time.format("%H:%M").to_string(),
+        "endTime": rule.end_time.format("%H:%M").to_string(),
+        "status": rule.status,
+        "version": rule.version,
+        "createdAt": rule.created_at,
+        "updatedAt": rule.updated_at,
+    });
+    let Value::Object(object) = &mut value else {
+        return Value::Null;
+    };
+    if let Some(branch_id) = rule.branch_id_override {
+        object.insert("branchIdOverride".to_owned(), json!(branch_id));
+    }
+    if rule.room_override_set {
+        object.insert("roomIdOverride".to_owned(), json!(rule.room_id_override));
+    }
+    if let Some(teacher_ids) = &rule.teacher_ids_override {
+        object.insert("teacherIdsOverride".to_owned(), json!(teacher_ids));
+    }
+    if rule.capacity_override_set {
+        object.insert("capacityOverride".to_owned(), json!(rule.capacity_override));
+    }
+    if let Some(policy) = &rule.trial_policy_override {
+        object.insert("trialPolicyOverride".to_owned(), json!(policy));
+    }
+    value
 }
 
 const fn weekday_name(weekday: Weekday) -> &'static str {
@@ -1916,6 +2226,49 @@ mod tests {
         .expect("valid room body");
         assert_eq!(body.expected_version, 2);
         assert_eq!(body.status, RoomStatus::Archived);
+    }
+
+    #[test]
+    fn group_body_contract_keeps_group_and_rules_atomic() {
+        let branch_id = Uuid::new_v4();
+        let body: CreateGroupBody = serde_json::from_value(json!({
+            "group": {
+                "branchId": branch_id,
+                "roomId": null,
+                "name": "Воздушные полотна 7–9",
+                "description": null,
+                "teacherIds": [],
+                "minAgeMonths": 84,
+                "maxAgeMonths": 119,
+                "capacity": 10,
+                "trialPolicyOverride": null,
+                "trackAttendanceOverride": null,
+                "allowSingleVisitsOverride": null,
+                "status": "active"
+            },
+            "activeRules": [{
+                "startsOn": "2026-08-17",
+                "endsOn": "2026-11-17",
+                "weekdays": ["monday"],
+                "startTime": "17:00",
+                "endTime": "18:00",
+                "branchIdOverride": null,
+                "roomOverrideSet": false,
+                "roomIdOverride": null,
+                "capacityOverrideSet": false,
+                "capacityOverride": null,
+                "trialPolicyOverride": null
+            }]
+        }))
+        .expect("valid group body");
+        let rules = recurrence_rule_inputs(body.active_rules).expect("valid recurrence rules");
+        assert_eq!(body.group.branch_id, branch_id);
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].weekdays, vec![Weekday::Monday]);
+        assert_eq!(
+            rules[0].start_time,
+            NaiveTime::from_hms_opt(17, 0, 0).expect("valid test time")
+        );
     }
 
     #[test]

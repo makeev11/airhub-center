@@ -6,14 +6,18 @@ import {
 } from "@/features/booking/data/bookingRepository";
 import {
   branchSchema,
+  groupSchema,
   organizationSchema,
   parseBookingWorkspace,
+  recurrenceRuleSchema,
   roomSchema,
   type BookingBranch,
+  type BookingGroup,
   type BookingOrganization,
   type BookingRoom,
   type BookingWorkspace,
   type BookingWorkspaceDraft,
+  type RecurrenceRule,
 } from "@/features/booking/model/bookingCore";
 import { getRelayHttpUrl, signRelayEvent } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
@@ -21,6 +25,7 @@ import type { RelayEvent } from "@/shared/api/types";
 const NIP98_KIND = 27235;
 const REQUEST_TIMEOUT_MS = 15_000;
 const BRANCHES_PATH = "/api/airhop/staff/v1/branches";
+const GROUPS_PATH = "/api/airhop/staff/v1/groups";
 
 const serverBranchSchema = branchSchema
   .omit({ defaultBuzzChannelId: true })
@@ -36,11 +41,30 @@ const serverRoomSchema = roomSchema.extend({
   branchId: z.string().uuid(),
   version: z.number().int().positive(),
 });
+const serverGroupSchema = groupSchema.safeExtend({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  branchId: z.string().uuid(),
+  roomId: z.string().uuid().optional(),
+  teacherIds: z.array(z.string().uuid()),
+  version: z.number().int().positive(),
+});
+const serverRecurrenceRuleSchema = recurrenceRuleSchema.safeExtend({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  groupId: z.string().uuid(),
+  branchIdOverride: z.string().uuid().optional(),
+  roomIdOverride: z.string().uuid().nullable().optional(),
+  teacherIdsOverride: z.array(z.string().uuid()).optional(),
+  version: z.number().int().positive(),
+});
 const directoryResponseSchema = z.object({
   organization: organizationSchema,
   organizationVersion: z.number().int().positive(),
   items: z.array(serverBranchSchema),
   rooms: z.array(serverRoomSchema),
+  groups: z.array(serverGroupSchema),
+  recurrenceRules: z.array(serverRecurrenceRuleSchema),
 });
 const mutationResponseSchema = z
   .object({
@@ -51,6 +75,7 @@ const mutationResponseSchema = z
     z.union([
       z.object({ branchId: z.string().uuid() }),
       z.object({ roomId: z.string().uuid() }),
+      z.object({ groupId: z.string().uuid() }),
     ]),
   );
 
@@ -86,6 +111,8 @@ function emptyWorkspace(
   organization: BookingOrganization,
   branches: BookingBranch[],
   rooms: BookingRoom[],
+  groups: BookingGroup[],
+  recurrenceRules: RecurrenceRule[],
   revision: number,
 ): BookingWorkspace {
   return parseBookingWorkspace({
@@ -95,8 +122,8 @@ function emptyWorkspace(
     branches,
     rooms,
     teachers: [],
-    groups: [],
-    recurrenceRules: [],
+    groups,
+    recurrenceRules,
     lessonExceptions: [],
     families: [],
     representatives: [],
@@ -173,6 +200,55 @@ function sameRoom(first: BookingRoom, second: BookingRoom): boolean {
   return JSON.stringify(first) === JSON.stringify(second);
 }
 
+function groupBody(group: BookingGroup) {
+  return {
+    branchId: group.branchId,
+    roomId: group.roomId ?? null,
+    name: group.name,
+    description: group.description ?? null,
+    teacherIds: group.teacherIds,
+    minAgeMonths: group.minAgeMonths ?? null,
+    maxAgeMonths: group.maxAgeMonths ?? null,
+    capacity: group.capacity ?? null,
+    trialPolicyOverride: group.trialPolicyOverride ?? null,
+    trackAttendanceOverride: group.trackAttendanceOverride ?? null,
+    allowSingleVisitsOverride: group.allowSingleVisitsOverride ?? null,
+    status: group.status,
+  };
+}
+
+function sameGroup(first: BookingGroup, second: BookingGroup): boolean {
+  return JSON.stringify(first) === JSON.stringify(second);
+}
+
+function sameRule(first: RecurrenceRule, second: RecurrenceRule): boolean {
+  return JSON.stringify(first) === JSON.stringify(second);
+}
+
+function recurrenceRuleBody(
+  rule: RecurrenceRule,
+  currentRuleIds: ReadonlySet<string>,
+) {
+  const serverId = z.string().uuid().safeParse(rule.id);
+  return {
+    ...(serverId.success && currentRuleIds.has(rule.id)
+      ? { id: serverId.data }
+      : {}),
+    startsOn: rule.startsOn,
+    endsOn: rule.endsOn,
+    weekdays: rule.weekdays,
+    startTime: rule.startTime,
+    endTime: rule.endTime,
+    branchIdOverride: rule.branchIdOverride ?? null,
+    roomOverrideSet: rule.roomIdOverride !== undefined,
+    roomIdOverride: rule.roomIdOverride ?? null,
+    teacherIdsOverride: rule.teacherIdsOverride,
+    capacityOverrideSet: rule.capacityOverride !== undefined,
+    capacityOverride: rule.capacityOverride ?? null,
+    trialPolicyOverride: rule.trialPolicyOverride ?? null,
+  };
+}
+
 /** Server-backed branch and room repository used by the Tauri settings surface. */
 export class HttpBookingBranchesRepository implements BookingRepository {
   private readonly relayHttpUrl: () => Promise<string>;
@@ -183,6 +259,7 @@ export class HttpBookingBranchesRepository implements BookingRepository {
   private snapshot: BookingWorkspace | null = null;
   private branchVersions = new Map<string, number>();
   private roomVersions = new Map<string, number>();
+  private groupVersions = new Map<string, number>();
 
   constructor(options: Options = {}) {
     this.relayHttpUrl = options.relayHttpUrl ?? getRelayHttpUrl;
@@ -211,6 +288,10 @@ export class HttpBookingBranchesRepository implements BookingRepository {
     }
     const nextBranches = z.array(branchSchema).parse(draft.branches);
     const nextRooms = z.array(roomSchema).parse(draft.rooms);
+    const nextGroups = z.array(groupSchema).parse(draft.groups);
+    const nextRules = z
+      .array(recurrenceRuleSchema)
+      .parse(draft.recurrenceRules);
     const currentById = new Map(
       current.branches.map((branch) => [branch.id, branch]),
     );
@@ -219,6 +300,16 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       current.rooms.map((room) => [room.id, room]),
     );
     const nextRoomsById = new Map(nextRooms.map((room) => [room.id, room]));
+    const currentGroupsById = new Map(
+      current.groups.map((group) => [group.id, group]),
+    );
+    const nextGroupsById = new Map(
+      nextGroups.map((group) => [group.id, group]),
+    );
+    const currentRulesById = new Map(
+      current.recurrenceRules.map((rule) => [rule.id, rule]),
+    );
+    const nextRulesById = new Map(nextRules.map((rule) => [rule.id, rule]));
     if (current.branches.some((branch) => !nextById.has(branch.id))) {
       throw new BookingBranchesApiError(
         400,
@@ -229,6 +320,18 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       throw new BookingBranchesApiError(
         400,
         "Rooms must be archived instead of removed.",
+      );
+    }
+    if (current.groups.some((group) => !nextGroupsById.has(group.id))) {
+      throw new BookingBranchesApiError(
+        400,
+        "Groups must be archived instead of removed.",
+      );
+    }
+    if (current.recurrenceRules.some((rule) => !nextRulesById.has(rule.id))) {
+      throw new BookingBranchesApiError(
+        400,
+        "Recurrence rules must be archived instead of removed.",
       );
     }
     const createdBranches = nextBranches.filter(
@@ -245,16 +348,37 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       const previous = currentRoomsById.get(room.id);
       return previous !== undefined && !sameRoom(previous, room);
     });
+    const createdGroups = nextGroups.filter(
+      (group) => !currentGroupsById.has(group.id),
+    );
+    const changedGroups = nextGroups.filter((group) => {
+      const previous = currentGroupsById.get(group.id);
+      return previous !== undefined && !sameGroup(previous, group);
+    });
+    const createdRules = nextRules.filter(
+      (rule) => !currentRulesById.has(rule.id),
+    );
+    const changedRules = nextRules.filter((rule) => {
+      const previous = currentRulesById.get(rule.id);
+      return previous !== undefined && !sameRule(previous, rule);
+    });
+    const affectedGroupIds = new Set([
+      ...createdGroups.map((group) => group.id),
+      ...changedGroups.map((group) => group.id),
+      ...createdRules.map((rule) => rule.groupId),
+      ...changedRules.map((rule) => rule.groupId),
+    ]);
     const mutationCount =
       createdBranches.length +
       changedBranches.length +
       createdRooms.length +
-      changedRooms.length;
+      changedRooms.length +
+      affectedGroupIds.size;
     if (mutationCount !== 1) {
       if (mutationCount === 0) return current;
       throw new BookingBranchesApiError(
         400,
-        "Save one AirHub branch or room at a time.",
+        "Save one AirHub branch, room, or group at a time.",
       );
     }
     try {
@@ -304,7 +428,7 @@ export class HttpBookingBranchesRepository implements BookingRepository {
           `${BRANCHES_PATH}/${encodeURIComponent(branchId.data)}/rooms`,
           roomBody(room),
         );
-      } else {
+      } else if (changedRooms.length === 1) {
         const room = changedRooms[0];
         const previous = currentRoomsById.get(room.id);
         const version = this.roomVersions.get(room.id);
@@ -326,6 +450,51 @@ export class HttpBookingBranchesRepository implements BookingRepository {
           `${BRANCHES_PATH}/${encodeURIComponent(branchId.data)}/rooms/${encodeURIComponent(roomId.data)}`,
           roomBody(room, version),
         );
+      } else {
+        const groupId = [...affectedGroupIds][0];
+        const group = nextGroupsById.get(groupId);
+        if (!group) {
+          throw new BookingBranchesApiError(
+            400,
+            "The AirHub group is missing from the replacement workspace.",
+          );
+        }
+        const activeRules = nextRules.filter(
+          (rule) => rule.groupId === groupId && rule.status === "active",
+        );
+        const currentRuleIds = new Set(
+          current.recurrenceRules.map((rule) => rule.id),
+        );
+        const payload = {
+          group: groupBody(group),
+          activeRules: activeRules.map((rule) =>
+            recurrenceRuleBody(rule, currentRuleIds),
+          ),
+        };
+        const existing = currentGroupsById.get(groupId);
+        if (!existing) {
+          if (group.status !== "active") {
+            throw new BookingBranchesApiError(
+              400,
+              "A new AirHub group must be active.",
+            );
+          }
+          await this.mutate("POST", GROUPS_PATH, payload);
+        } else {
+          const groupUuid = z.string().uuid().safeParse(groupId);
+          const version = this.groupVersions.get(groupId);
+          if (!groupUuid.success || version === undefined) {
+            throw new BookingBranchesApiError(
+              400,
+              "The AirHub group identity is not server-owned.",
+            );
+          }
+          await this.mutate(
+            "PUT",
+            `${GROUPS_PATH}/${encodeURIComponent(groupUuid.data)}`,
+            { expectedVersion: version, ...payload },
+          );
+        }
       }
       return await this.fetchDirectory();
     } catch (error) {
@@ -374,6 +543,9 @@ export class HttpBookingBranchesRepository implements BookingRepository {
     this.roomVersions = new Map(
       parsed.data.rooms.map((room) => [room.id, room.version]),
     );
+    this.groupVersions = new Map(
+      parsed.data.groups.map((group) => [group.id, group.version]),
+    );
     const branches = parsed.data.items.map(
       ({ version: _version, defaultBuzzChannelId, ...branch }) =>
         branchSchema.parse({
@@ -384,14 +556,27 @@ export class HttpBookingBranchesRepository implements BookingRepository {
     const rooms = parsed.data.rooms.map(({ version: _version, ...room }) =>
       roomSchema.parse(room),
     );
+    const groups = parsed.data.groups.map(({ version: _version, ...group }) =>
+      groupSchema.parse(group),
+    );
+    const recurrenceRules = parsed.data.recurrenceRules.map(
+      ({ version: _version, ...rule }) => recurrenceRuleSchema.parse(rule),
+    );
     const revision =
       parsed.data.organizationVersion +
       parsed.data.items.reduce((total, branch) => total + branch.version, 0) +
-      parsed.data.rooms.reduce((total, room) => total + room.version, 0);
+      parsed.data.rooms.reduce((total, room) => total + room.version, 0) +
+      parsed.data.groups.reduce((total, group) => total + group.version, 0) +
+      parsed.data.recurrenceRules.reduce(
+        (total, rule) => total + rule.version,
+        0,
+      );
     this.snapshot = emptyWorkspace(
       parsed.data.organization,
       branches,
       rooms,
+      groups,
+      recurrenceRules,
       revision,
     );
     return this.snapshot;

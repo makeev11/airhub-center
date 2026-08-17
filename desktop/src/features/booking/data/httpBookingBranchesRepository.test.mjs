@@ -11,6 +11,8 @@ import {
 const ORGANIZATION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const BRANCH_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ROOM_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const GROUP_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const RULE_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 
 function signedEvent(input) {
   return {
@@ -73,8 +75,54 @@ function room(overrides = {}) {
   };
 }
 
-function directory(items = [], organizationVersion = 3, rooms = []) {
-  return { organization: organization(), organizationVersion, items, rooms };
+function group(overrides = {}) {
+  return {
+    id: GROUP_ID,
+    organizationId: ORGANIZATION_ID,
+    branchId: BRANCH_ID,
+    roomId: ROOM_ID,
+    name: "Воздушные полотна 7–9",
+    teacherIds: [],
+    minAgeMonths: 84,
+    maxAgeMonths: 119,
+    capacity: 10,
+    status: "active",
+    version: 1,
+    ...overrides,
+  };
+}
+
+function rule(overrides = {}) {
+  return {
+    id: RULE_ID,
+    organizationId: ORGANIZATION_ID,
+    groupId: GROUP_ID,
+    startsOn: "2026-08-17",
+    endsOn: "2026-11-17",
+    weekdays: ["monday"],
+    startTime: "17:00",
+    endTime: "18:00",
+    status: "active",
+    version: 1,
+    ...overrides,
+  };
+}
+
+function directory(
+  items = [],
+  organizationVersion = 3,
+  rooms = [],
+  groups = [],
+  recurrenceRules = [],
+) {
+  return {
+    organization: organization(),
+    organizationVersion,
+    items,
+    rooms,
+    groups,
+    recurrenceRules,
+  };
 }
 
 function mutation(version = 1) {
@@ -83,6 +131,10 @@ function mutation(version = 1) {
 
 function roomMutation(version = 1) {
   return { roomId: ROOM_ID, version, replayed: false };
+}
+
+function groupMutation(version = 1) {
+  return { groupId: GROUP_ID, version, replayed: false };
 }
 
 function jsonResponse(body, status = 200) {
@@ -100,6 +152,11 @@ function draftFrom(workspace, branches) {
 function draftWithRooms(workspace, rooms) {
   const { revision: _revision, ...draft } = workspace;
   return { ...draft, rooms };
+}
+
+function draftWithGroups(workspace, groups, recurrenceRules) {
+  const { revision: _revision, ...draft } = workspace;
+  return { ...draft, groups, recurrenceRules };
 }
 
 test("branches repository creates a server-owned branch and reloads it", async () => {
@@ -291,6 +348,109 @@ test("branches repository sends room row version for update and archive", async 
     status: "archived",
   });
   assert.equal(saved.rooms[0].status, "archived");
+});
+
+test("branches repository creates a group and its schedule atomically", async () => {
+  const requests = [];
+  let getCount = 0;
+  const repository = new HttpBookingBranchesRepository({
+    relayHttpUrl: async () => "https://center.example",
+    idempotencyKeyFactory: () => "group-command-1234567890",
+    nonceFactory: () => "nonce",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), init });
+      if (init.method === "GET") {
+        getCount += 1;
+        return jsonResponse(
+          directory(
+            [branch()],
+            3,
+            [room()],
+            getCount === 1 ? [] : [group()],
+            getCount === 1 ? [] : [rule()],
+          ),
+        );
+      }
+      return jsonResponse(groupMutation());
+    },
+  });
+  const current = await repository.load();
+  const temporaryGroup = {
+    ...group(),
+    id: "group-temporary",
+  };
+  delete temporaryGroup.version;
+  const temporaryRule = {
+    ...rule(),
+    id: "rule-temporary",
+    groupId: temporaryGroup.id,
+  };
+  delete temporaryRule.version;
+
+  const saved = await repository.save(
+    draftWithGroups(current, [temporaryGroup], [temporaryRule]),
+    current.revision,
+  );
+
+  assert.equal(saved.groups[0].id, GROUP_ID);
+  assert.equal(saved.recurrenceRules[0].id, RULE_ID);
+  const post = requests[1];
+  assert.equal(post.url, "https://center.example/api/airhop/staff/v1/groups");
+  assert.equal(post.init.method, "POST");
+  const body = JSON.parse(post.init.body);
+  assert.equal(body.group.name, "Воздушные полотна 7–9");
+  assert.equal(body.activeRules.length, 1);
+  assert.equal(body.activeRules[0].id, undefined);
+  assert.deepEqual(body.activeRules[0].weekdays, ["monday"]);
+});
+
+test("branches repository sends one aggregate version for a group schedule update", async () => {
+  const requests = [];
+  let getCount = 0;
+  const repository = new HttpBookingBranchesRepository({
+    relayHttpUrl: async () => "https://center.example",
+    nonceFactory: () => "nonce",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), init });
+      if (init.method === "GET") {
+        getCount += 1;
+        return jsonResponse(
+          directory(
+            [branch()],
+            3,
+            [room()],
+            [group({ version: getCount === 1 ? 4 : 5 })],
+            [
+              rule({
+                version: getCount === 1 ? 2 : 3,
+                endTime: getCount === 1 ? "18:00" : "18:30",
+              }),
+            ],
+          ),
+        );
+      }
+      return jsonResponse(groupMutation(5));
+    },
+  });
+  const current = await repository.load();
+  const updatedRule = { ...current.recurrenceRules[0], endTime: "18:30" };
+
+  await repository.save(
+    draftWithGroups(current, current.groups, [updatedRule]),
+    current.revision,
+  );
+
+  const put = requests[1];
+  assert.equal(
+    put.url,
+    `https://center.example/api/airhop/staff/v1/groups/${GROUP_ID}`,
+  );
+  const body = JSON.parse(put.init.body);
+  assert.equal(body.expectedVersion, 4);
+  assert.equal(body.activeRules[0].id, RULE_ID);
+  assert.equal(body.activeRules[0].endTime, "18:30");
 });
 
 test("branches repository reloads a stale server version as a conflict", async () => {

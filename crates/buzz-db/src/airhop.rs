@@ -40,6 +40,8 @@ pub mod family_member_lifecycle;
 pub mod family_members;
 /// Explicit primary representative reassignment command.
 pub mod family_primary_representative;
+/// Tenant-scoped group directory and atomic recurrence-rule commands.
+pub mod group_directory;
 /// Idempotent organization bootstrap and settings updates.
 pub mod organization_settings;
 /// Atomic public booking command application service.
