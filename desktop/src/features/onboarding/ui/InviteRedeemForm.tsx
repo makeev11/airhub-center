@@ -50,6 +50,8 @@ type InviteRedeemFormProps = {
    * (the form stays invalid until a full invite URL is entered).
    */
   defaultRelayUrl?: string;
+  /** Keep the preconfigured relay implicit so enrollment remains one-field. */
+  hideRelayFieldForBareCode?: boolean;
   error: string | null;
   initialValue?: string;
   isRedeeming: boolean;
@@ -63,6 +65,7 @@ type InviteRedeemFormProps = {
 export function InviteRedeemForm({
   defaultRelayUrl,
   error,
+  hideRelayFieldForBareCode = false,
   initialValue = "",
   isRedeeming,
   onCancel,
@@ -103,7 +106,8 @@ export function InviteRedeemForm({
   );
   const parsedInvite: ParsedInvite | null = normalizedRelayUrl ? null : parsed;
   const isBareCode = parsedInvite !== null && !hasInviteRelay(parsedInvite);
-  const needsRelayField = isBareCode && defaultRelayUrl !== undefined;
+  const needsRelayField =
+    isBareCode && defaultRelayUrl !== undefined && !hideRelayFieldForBareCode;
 
   React.useEffect(() => {
     const relayWsUrl = normalizedRelayUrl

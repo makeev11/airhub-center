@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row as _};
 
 use crate::error::Result;
-use crate::CommunityId;
+use crate::{CommunityId, DbError};
 
 /// A single relay member record.
 #[derive(Debug, Clone)]
@@ -335,7 +335,10 @@ pub async fn update_relay_member_role(
 /// is automatically demoted. Scoped to one community — an owner of community A
 /// is never bootstrapped into community B.
 ///
-/// Runs in a single transaction. Safe to call at every startup — idempotent.
+/// Runs in a single transaction. Safe to call at every startup — idempotent
+/// until an AirHub Center owner-enrollment code has made the roster
+/// authoritative. After that point bootstrap is rejected so a configured
+/// deployment key cannot undo owner recovery.
 ///
 /// **Deployment-root authority exception:** This function is called only by
 /// startup initialization and legacy operator provisioning
@@ -351,6 +354,23 @@ pub async fn bootstrap_owner(
 ) -> Result<()> {
     let pubkey = owner_pubkey.to_ascii_lowercase();
     let mut tx = pool.begin().await?;
+
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 9918))")
+        .bind(community.to_string())
+        .execute(&mut *tx)
+        .await?;
+    let center_owner_is_authoritative: bool = sqlx::query_scalar(
+        "SELECT EXISTS(\
+             SELECT 1 FROM airhop_center_installations \
+             WHERE community_id = $1 AND activation_version > 0\
+         )",
+    )
+    .bind(community.as_uuid())
+    .fetch_one(&mut *tx)
+    .await?;
+    if center_owner_is_authoritative {
+        return Err(DbError::AirhopActivationConflict);
+    }
 
     // 1. Upsert the configured owner for this community.
     sqlx::query(

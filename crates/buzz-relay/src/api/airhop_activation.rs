@@ -1,7 +1,7 @@
-//! AirHub Center bootstrap activation boundary.
+//! AirHub Center owner-enrollment boundary.
 //!
 //! Grant issue/revoke lives on the deployment operator plane. This module owns
-//! the unauthenticated one-time claim and the activated installation's signed,
+//! the signed one-time owner claim and the activated deployment's signed,
 //! customer-data-free status projection, plus shared code/digest primitives.
 
 use std::net::SocketAddr;
@@ -14,7 +14,9 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use buzz_db::airhop::center_activation::{CenterEnvironment, ClaimCenterActivationGrantInput};
+use buzz_db::airhop::center_activation::{
+    ClaimCenterActivationGrantInput, ClaimCenterActivationGrantOutcome,
+};
 use buzz_db::airhop::center_health::VerifyCenterHealthChallengeInput;
 use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
@@ -30,7 +32,7 @@ use super::{api_error, bridge, internal_error};
 type HmacSha256 = Hmac<Sha256>;
 
 pub(crate) const IDEMPOTENCY_HEADER: &str = "idempotency-key";
-const ACTIVATION_CODE_PREFIX: &str = "ahc_1_";
+pub(crate) const ACTIVATION_CODE_PREFIX: &str = "ahc_1_";
 const ACTIVATION_CODE_BYTES: usize = 32;
 const CLAIM_RATE_NAMESPACE: &str = "airhop_center_activation_claim_ip";
 const CLAIM_RATE_LIMIT_PER_MINUTE: u64 = 20;
@@ -38,12 +40,9 @@ const CLAIM_RATE_LIMIT_PER_MINUTE: u64 = 20;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ClaimActivationRequest {
-    installation_id: Uuid,
     activation_code: String,
-    installation_pubkey: String,
-    environment: String,
-    release_profile: String,
-    release_version: String,
+    #[serde(default)]
+    policy_receipt: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -83,68 +82,36 @@ pub struct InstallationStatusQuery {
     installation_id: Uuid,
 }
 
-/// Consume a one-time activation grant and bind the installation's Nostr key.
+/// Signed compatibility alias for the unified owner-enrollment claim.
 pub async fn claim_activation_grant(
     State(state): State<Arc<AppState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
+    const PATH: &str = "/api/airhop/activation/v1/claim";
     let tenant = bind_activation_tenant(&state, &headers).await?;
     enforce_claim_rate_limit(&state, &tenant, peer, &headers).await?;
-    let idempotency_key = require_idempotency_key(&headers)?;
+    let expected_url = bridge::nip98_expected_url(&state.config.relay_url, &tenant, PATH);
+    let (pubkey, event_id) = bridge::verify_bridge_auth_with_options(
+        &headers,
+        "POST",
+        &expected_url,
+        Some(&body),
+        true,
+        true,
+    )?;
+    bridge::check_nip98_replay(&state, &tenant, event_id).await?;
     let request: ClaimActivationRequest = serde_json::from_slice(&body)
         .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid activation claim JSON"))?;
-    if request.installation_id.is_nil() {
-        return Err(api_error(
-            StatusCode::BAD_REQUEST,
-            "installationId must be a non-zero UUID",
-        ));
-    }
-    let environment = CenterEnvironment::parse(request.environment.trim()).ok_or_else(|| {
-        api_error(
-            StatusCode::BAD_REQUEST,
-            "environment must be production, staging, or development",
-        )
-    })?;
-    let installation_pubkey = nostr::PublicKey::from_hex(request.installation_pubkey.trim())
-        .map_err(|_| {
-            api_error(
-                StatusCode::BAD_REQUEST,
-                "installationPubkey must be a 64-character hex Nostr public key",
-            )
-        })?;
-    let key = activation_key(&state);
-    let code_digest =
-        activation_code_digest(&key, tenant.community().as_uuid(), &request.activation_code)?;
-    let claim_idempotency_digest = scoped_digest(
-        &key,
-        b"airhop.center.activation-claim-idempotency.v1",
-        tenant.community().as_uuid(),
-        &[
-            request.installation_id.as_bytes(),
-            installation_pubkey.as_bytes(),
-            idempotency_key.as_bytes(),
-        ],
-    )?;
-    let request_hash: [u8; 32] = Sha256::digest(&body).into();
-    let outcome = state
-        .db
-        .claim_airhop_center_activation_grant(
-            &tenant,
-            &ClaimCenterActivationGrantInput {
-                installation_id: request.installation_id,
-                code_digest,
-                installation_pubkey: installation_pubkey.to_bytes(),
-                environment,
-                release_profile: request.release_profile,
-                release_version: request.release_version,
-                claim_idempotency_digest,
-                claim_request_hash: request_hash,
-            },
-        )
-        .await
-        .map_err(map_claim_error)?;
+    let outcome = claim_owner_enrollment(
+        &state,
+        &tenant,
+        &pubkey,
+        &request.activation_code,
+        request.policy_receipt.as_deref(),
+    )
+    .await?;
     let mut response = (
         if outcome.replayed {
             StatusCode::OK
@@ -164,6 +131,66 @@ pub async fn claim_activation_grant(
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok(response)
+}
+
+/// True when an invite-shaped input belongs to the Center owner-code namespace.
+pub(crate) fn is_owner_enrollment_code(code: &str) -> bool {
+    code.starts_with(ACTIVATION_CODE_PREFIX)
+}
+
+/// Consume one owner code using the NIP-98 signer as the authoritative owner.
+///
+/// Both `/api/invites/claim` and the compatibility activation route call this
+/// function so there is only one authorization and persistence path.
+pub(crate) async fn claim_owner_enrollment(
+    state: &AppState,
+    tenant: &buzz_core::TenantContext,
+    owner: &nostr::PublicKey,
+    code: &str,
+    policy_receipt: Option<&str>,
+) -> Result<ClaimCenterActivationGrantOutcome, (StatusCode, Json<Value>)> {
+    let invite_key = crate::invite_token::derive_invite_key(&state.relay_keypair);
+    if let Some(policy) = &state.config.join_policy {
+        let receipt = policy_receipt
+            .ok_or_else(|| api_error(StatusCode::FORBIDDEN, "join_policy_required"))?;
+        crate::invite_token::verify_policy_acceptance(&invite_key, receipt, code, &policy.version)
+            .map_err(|_| api_error(StatusCode::FORBIDDEN, "join_policy_required"))?;
+    }
+
+    let key = activation_key(state);
+    let code_digest = activation_code_digest(&key, tenant.community().as_uuid(), code)?;
+    let owner_pubkey = owner.to_bytes();
+    let claim_idempotency_digest = scoped_digest(
+        &key,
+        b"airhop.center.owner-claim-idempotency.v1",
+        tenant.community().as_uuid(),
+        &[owner_pubkey.as_slice(), code_digest.as_slice()],
+    )?;
+    let claim_request_hash = scoped_digest(
+        &key,
+        b"airhop.center.owner-claim-request.v1",
+        tenant.community().as_uuid(),
+        &[code_digest.as_slice(), owner_pubkey.as_slice()],
+    )?;
+
+    state
+        .db
+        .claim_airhop_center_activation_grant(
+            tenant,
+            &ClaimCenterActivationGrantInput {
+                code_digest,
+                owner_pubkey,
+                claim_idempotency_digest,
+                claim_request_hash,
+                policy_version: state
+                    .config
+                    .join_policy
+                    .as_ref()
+                    .map(|policy| policy.version.clone()),
+            },
+        )
+        .await
+        .map_err(map_claim_error)
 }
 
 /// Return a safe status projection to the activated installation identity.
@@ -535,23 +562,18 @@ mod tests {
     }
 
     #[test]
-    fn claim_contract_requires_the_complete_deployment_binding() {
+    fn claim_contract_only_accepts_the_single_user_visible_code() {
         let body = json!({
-            "installationId": Uuid::new_v4(),
             "activationCode": generate_activation_code(),
-            "installationPubkey": "11".repeat(32),
-            "environment": "production",
-            "releaseProfile": "site_telegram_center",
-            "releaseVersion": "2026.08.17"
         });
         assert!(serde_json::from_value::<ClaimActivationRequest>(body.clone()).is_ok());
 
-        let mut missing_profile = body;
-        missing_profile
+        let mut with_old_binding = body;
+        with_old_binding
             .as_object_mut()
             .expect("claim fixture is an object")
-            .remove("releaseProfile");
-        assert!(serde_json::from_value::<ClaimActivationRequest>(missing_profile).is_err());
+            .insert("installationId".to_owned(), json!(Uuid::new_v4()));
+        assert!(serde_json::from_value::<ClaimActivationRequest>(with_old_binding).is_err());
     }
 
     #[test]

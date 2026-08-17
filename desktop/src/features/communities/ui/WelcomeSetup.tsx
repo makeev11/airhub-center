@@ -25,6 +25,7 @@ type WelcomeSetupPage = "welcome" | "existing" | "join" | "member" | "owned";
 type WelcomeTransitionMode = "initial" | OnboardingTransitionDirection;
 
 type WelcomeSetupProps = {
+  defaultRelayUrl: string;
   initialPage?: WelcomeSetupPage;
   initialTransitionMode?: WelcomeTransitionMode;
   onBack: () => void;
@@ -34,6 +35,7 @@ const COMMUNITY_OPTION_CARD_CLASS =
   "w-full max-w-[320px] items-center px-6 py-4 text-center text-sm font-normal leading-6 text-foreground [--buzz-card-textured-min-height:88px] transition-[filter] duration-150 ease-out hover:brightness-[0.98] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-foreground/35";
 
 export function WelcomeSetup({
+  defaultRelayUrl,
   initialPage = "welcome",
   initialTransitionMode = "initial",
   onBack,
@@ -249,24 +251,26 @@ export function WelcomeSetup({
                 <h1 className="text-title font-normal">
                   {page === "member"
                     ? "Reconnect to your community"
-                    : "Join a community"}
+                    : "Connect your organization"}
                 </h1>
                 <p className="mt-3 text-sm leading-6 text-foreground/80">
                   {page === "member"
                     ? "Enter the community URL or an invite link. Your role will be restored when you connect."
-                    : "Enter the invite link or community URL you received."}
+                    : "Enter the organization code or invite link you received."}
                 </p>
               </div>
               <div className="flex w-full flex-1 flex-col items-center justify-center gap-16">
                 <InviteRedeemForm
+                  defaultRelayUrl={defaultRelayUrl}
                   error={null}
+                  hideRelayFieldForBareCode
                   isRedeeming={false}
                   onCancel={() =>
                     showPage(page === "member" ? "existing" : "welcome")
                   }
                   onConnect={startConnection}
                   onRedeem={redeemInvite}
-                  placeholder="Invite link or community URL"
+                  placeholder="Organization code or invite link"
                   variant="onboarding-spotlight"
                 />
                 {page === "join" ? (

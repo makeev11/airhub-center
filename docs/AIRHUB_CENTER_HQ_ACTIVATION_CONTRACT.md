@@ -1,79 +1,93 @@
-# AirHub Center ↔ HQ: deployment и activation contract
+# AirHub Center ↔ HQ: deployment и owner enrollment contract
 
-Статус: Center grant/claim/health contract реализован; HQ connector ещё не реализован
+Статус: Center contract реализуется; HQ UI выпуска кода ещё не реализован
 Дата: 2026-08-17
 
 Документ фиксирует только взаимодействие AirHub Center с будущим AirHub HQ.
 Текущая ветка HQ пока находится на стадии удаления старого Buzz и не считается
 готовой реализацией этого контракта.
 
-## 1. Два разных вида кодов
+## 1. Один пользовательский сценарий кода
 
-Нельзя объединять два независимых контура:
+В AirHub Center нет двух последовательных кодов «для установки» и «для
+владельца». После выбора языка пользователь видит одно поле:
 
-1. **HQ admin enrollment code** активирует новое устройство администратора HQ.
-   После одноразового погашения устройство подписывает HQ API своим ключом.
-2. **Center activation grant** активирует конкретную установленную копию AirHub
-   Center для конкретной организации.
+- первый код выпускается для уже созданной организации и её deployment;
+- claim подписывается локальным аккаунтом пользователя;
+- одной транзакцией код связывает Center с организацией и назначает этот аккаунт
+  единственным `owner`;
+- последующий код, выпущенный владельцем для сотрудника, вводится на том же
+  экране и добавляет роль, записанную сервером в приглашении.
 
-Код HQ не даёт доступ к Center, а код Center не создаёт администратора HQ.
+Тип полномочия определяется сервером по самому коду, а не дополнительным
+переключателем или вторым экраном. Код owner enrollment имеет префикс `ahc_1_`,
+обычный код сотрудника — собственный непрозрачный формат; для человека это одна
+операция «вставить код и продолжить» и один signed claim endpoint.
 
 ## 2. Граница ответственности
 
-- HQ хранит карточку `CenterInstallation`, observed/desired state, версию,
-  историю deploy/health и metadata выданных grants.
-- Center хранит собственные операционные данные, installation identity и
-  состояние активации.
+- HQ хранит карточку `CenterInstallation`, версию deployment и metadata выданных
+  owner enrollment codes.
+- Center хранит собственные операционные данные, привязку организации и
+  авторитетный roster владельцев/сотрудников.
 - HQ не копирует расписание, цены, места, клиентов и платежи Center.
 - После активации Center работает при недоступном HQ. HQ не является proxy в
   пользовательском или публичном runtime.
-- Приватный ключ installation identity создаётся и хранится на стороне Center и
-  никогда не передаётся HQ.
+- Приватный ключ аккаунта владельца создаётся и хранится на его устройстве и
+  никогда не передаётся HQ или Center.
 
 ## 3. Deployment flow
 
 ```text
 HQ operator selects site_telegram_center
 → deploy worker installs an exact Center release
-→ Center creates an installation identity and exposes readiness
-→ Center connector verifies installation id, public key and release version
-→ HQ operator explicitly issues a short-lived one-time activation grant
-→ the grant is delivered once through an approved secret channel
-→ Center claims it and atomically binds the installation identity
-→ connector performs a signed challenge/response health check
-→ HQ records Center as ready without becoming its runtime dependency
+→ HQ creates/binds the organization and installation record
+→ HQ operator issues a short-lived one-time owner enrollment code
+→ the owner receives the code through an approved secret channel
+→ after language selection the owner enters the code in Center
+→ Center verifies the signed claim and atomically binds organization + owner
+→ Center is ready for work without HQ as a runtime dependency
 ```
 
-Повтор deploy или claim с тем же idempotency key возвращает сохранённый
-результат. Ошибка Center не меняет успешный статус сайта или Telegram.
+Повтор deploy с тем же idempotency key и повтор claim тем же действующим
+владельцем возвращают сохранённый результат. Ошибка Center не меняет успешный
+статус сайта или Telegram.
 
-## 4. Activation grant
+## 4. Owner enrollment code
 
 Grant должен быть:
 
 - криптографически случайным и достаточной энтропии;
 - короткоживущим;
 - одноразовым;
-- привязанным к `installationId`, организации, environment и разрешённому
-  release/profile;
+- привязанным сервером к `installationId`, организации, environment и
+  разрешённому release/profile, без повторного ввода этих полей владельцем;
 - хранимым HQ и Center только как keyed digest/hash;
 - возвращаемым HQ-клиенту только один раз при выпуске;
 - отзываемым до погашения;
 - не попадающим в URL, Git, screenshots, audit payload и обычные логи.
 
-Погашение выполняется одной транзакцией: проверить digest, срок, binding и
-состояние → отметить grant использованным → привязать installation public key →
-записать audit event. Два параллельных claim не могут оба завершиться успешно.
+Погашение выполняется одной транзакцией: проверить digest, срок и deployment
+binding → отметить код использованным → сделать подписавший аккаунт единственным
+`owner` → привязать организацию к активному deployment → записать audit event.
+Два параллельных claim не могут оба завершиться успешно.
+
+Перевыпуск для той же установки автоматически отзывает старый живой код. Новый
+код разрешено погасить и после первоначальной активации: это явная операция
+восстановления/смены владельца. Предыдущий owner понижается до `member`, поэтому
+утерянный или скомпрометированный ключ не сохраняет административный доступ.
 
 ## 5. Versioned API Center
 
-Текущая реализация использует существующую deployment-global NIP-98 авторизацию
-`RELAY_OPERATOR_PUBKEYS`. Будущий HQ connector становится клиентом этих
-маршрутов; переносить в HQ базу или приватный ключ Center не требуется.
+Выпуск использует существующую deployment-global NIP-98 авторизацию
+`RELAY_OPERATOR_PUBKEYS`. HQ может вызывать operator route напрямую из своей
+операции deploy/выдачи кода; постоянно работающий connector для пользовательского
+входа не требуется.
 
 ### Operator plane
 
-- `POST /operator/airhop/center-activation-grants` — выпустить grant. Требует
+- `POST /operator/airhop/center-activation-grants` — выпустить owner enrollment
+  code. Требует
   `Idempotency-Key` и NIP-98 payload binding. Тело содержит `host`,
   `installationId`, `environment`, `releaseProfile`, `releaseVersion` и
   необязательный `ttlSeconds` (по умолчанию 900, допустимо 60–3600). Ответ `201`
@@ -83,82 +97,70 @@ Grant должен быть:
   отозвать непогашенный grant по `host` и `grantId`.
 - `GET /operator/airhop/center-installations?host=…&installationId=…` — получить
   безопасные metadata установки и историю grants без кодов и digests.
-- `POST /operator/airhop/center-installations/health-challenges` — выпустить
-  одноразовый challenge для активированной установки. Требует NIP-98 payload
-  binding; тело содержит `host` и `installationId`. Ответ `201` содержит
-  `challengeId`, 256-битный `challenge` и `expiresAt`. Challenge действует пять
-  минут и хранится в Center только как tenant-keyed digest.
+- `POST /operator/airhop/center-installations/health-challenges` — необязательная
+  техническая диагностика deployment. Она не выдаётся владельцу, не вводится в
+  приложении и не участвует в допуске пользователя.
 
 Выпуск разрешён только после создания активной AirHub organization в выбранном
-tenant. Повторный живой grant для той же установки требует сначала отозвать
-предыдущий либо дождаться его истечения.
+tenant. Повторный выпуск атомарно отзывает предыдущий живой код для той же
+установки.
 
-### Center bootstrap plane
+### Единый enrollment plane
 
-- `POST /api/airhop/activation/v1/claim` — host-bound и rate-limited claim.
-  Требует `Idempotency-Key`; тело содержит `installationId`, `activationCode`,
-  `installationPubkey`, `environment`, `releaseProfile`, `releaseVersion`.
-- `GET /api/airhop/activation/v1/status?installationId=…` — безопасный status,
-  доступный только через NIP-98 подпись уже привязанного installation key.
-- `POST /api/airhop/activation/v1/health/verify` — payload-bound NIP-98 ответ,
-  подписанный installation key. Тело содержит `installationId`, `challengeId`,
-  исходный `challenge`, `releaseVersion` и `configVersion`.
+- `POST /api/invites/claim` — единый host-bound, rate-limited и payload-bound
+  NIP-98 claim. Тело содержит `code` и необязательный `policy_receipt`.
+- Код `ahc_1_...` вызывает owner enrollment; обычный invite вызывает добавление
+  сотрудника. Клиент не передаёт `installationId`, organization, environment,
+  release profile или желаемую роль: это уже зафиксировано сервером при выпуске.
+- `POST /api/airhop/activation/v1/claim` остаётся совместимым signed alias для
+  автоматизации, но не является вторым пользовательским сценарием.
 
-Claim проверяет весь deployment binding и одной транзакцией помечает grant
-использованным, привязывает public key, увеличивает `activationVersion`, переводит
-установку в `provisioning` и пишет append-only audit. Тот же idempotency key с
-тем же телом возвращает сохранённый результат; другой claim уже погашенного
-grant отклоняется.
+Успешный owner claim сразу переводит установку в `ready`: доступ человека не
+зависит от технической health-проверки. Повтор того же кода тем же действующим
+owner идемпотентен. После погашения нового recovery-кода старый код не может
+вернуть предыдущему владельцу роль owner.
 
-Health verification проверяет challenge digest, срок, installation key и точную
-release version. Погашение challenge, запись `configVersion`, увеличение
-`verificationVersion`, обновление `lastVerifiedAt`, очистка безопасной ошибки и
-переход в `ready` происходят одной транзакцией. Повтор того же уже погашенного
-challenge с тем же подписантом и версиями возвращает сохранённый результат с
-`replayed: true`; изменённый ответ отклоняется.
+Health challenge, status и version telemetry могут остаться операторской
+диагностикой. Они не используют отдельный пользовательский код и не блокируют
+работу уже активированного Center.
 
-## 6. Требуемые операции будущего HQ connector
+## 6. Требуемые операции HQ
 
-- создать и отозвать activation grant;
+- создать, перевыпустить и отозвать owner enrollment code;
 - получить безопасные metadata установки и grants без исходных кодов;
-- запросить challenge и проверить подписанный ответ;
-- получить release/config version, последнее успешное health-время и
+- при необходимости получить release/config version, health-время и
   санитизированную ошибку.
 
-Требуемые операции Center connector:
-
-- claim одноразового grant вместе с installation public key;
-- вернуть стабильную installation identity и activation version;
-- подтвердить владение installation private key через challenge/response;
-- показать безопасный readiness/status без клиентских операционных данных.
-
-HTTP допустим здесь как bootstrap-интерфейс до появления доверенной Nostr
-identity. Все обычные операции Center после активации продолжают использовать
-его tenant-scoped, подписанный и аудируемый контур.
+Center принимает код на существующем onboarding-экране и подписывает claim
+локальным аккаунтом. Все обычные операции после enrollment продолжают
+использовать tenant-scoped, подписанный и аудируемый контур.
 
 ## 7. Состояния HQ-панели Center
 
 `not_installed → provisioning → ready | degraded | failed → disabled`
 
 - `not_installed` является нормой для профиля `site_telegram`.
-- успешный claim переводит установку только в `provisioning`;
-- `ready` означает успешную последнюю проверку, а не выдуманный continuous
-  online status.
-- отзыв grant не деактивирует уже связанную installation identity. Для этого
-  нужна отдельная явная команда disable/rotate с аудитом.
-- ротация identity или повторная установка создаёт новую activation ceremony и
-  не стирает историю предыдущей установки.
+- успешный owner claim переводит установку в `ready` для пользовательской
+  работы;
+- отдельная health-метка означает только результат последней диагностики, а не
+  выдуманный continuous online status.
+- отзыв непогашенного кода не деактивирует уже связанного владельца. Для
+  отключения deployment нужна отдельная явная команда disable с аудитом.
+- перевыпуск кода меняет owner без переустановки и не стирает историю; новый
+  deployment получает новый `installationId`.
 
 ## 8. Приёмка
 
 Сквозной тест должен доказать:
 
 1. grant виден в открытом виде только в ответе на выпуск;
-2. просроченный, отозванный, чужой и повторно использованный grant отклоняется;
+2. просроченный, отозванный и чужой код отклоняется;
 3. параллельный claim имеет ровно один успешный результат;
-4. успешный claim привязывает public key и пишет audit без секрета;
-5. challenge проходит только с приватным ключом установки, погашается атомарно
-   и переводит `provisioning` в `ready`;
-6. после отключения HQ уже активированный Center продолжает обслуживать свои
+4. успешный claim одной транзакцией назначает sole owner, записывает policy
+   evidence и audit без секрета;
+5. перевыпуск отзывает старый живой код, а recovery claim снимает owner с
+   предыдущего ключа;
+6. тот же экран и endpoint принимают последующие приглашения сотрудников;
+7. после отключения HQ уже активированный Center продолжает обслуживать свои
    staff/public сценарии;
-7. HQ health/status не раскрывает данные клиентов Center.
+8. необязательный HQ health/status не раскрывает данные клиентов Center.

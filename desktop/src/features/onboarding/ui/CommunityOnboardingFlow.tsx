@@ -484,12 +484,12 @@ export function CommunityOnboardingFlow({
             <>
               <Users className="mx-auto h-10 w-10" />
               <h1 className="mt-5 text-title font-normal">
-                Joining {transaction.communityName}
+                Connecting to {transaction.communityName}
               </h1>
               <p className="mt-3 text-sm text-foreground/80">
                 {transaction.error ??
                   (transaction.stage === "claiming"
-                    ? "Accepting your invite…"
+                    ? "Verifying your code…"
                     : "Connecting securely…")}
               </p>
               <div className="mt-6 flex justify-center gap-3">

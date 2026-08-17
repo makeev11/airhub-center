@@ -217,7 +217,7 @@ pub struct Config {
 
     /// Optional hex-encoded pubkey of the relay owner.
     /// When set, this pubkey is automatically bootstrapped into `relay_members`
-    /// with the `owner` role on first startup.
+    /// with the `owner` role until an AirHub Center owner code is claimed.
     pub relay_owner_pubkey: Option<String>,
 
     /// Canonical HTTP origin of the deployment-global operator API.

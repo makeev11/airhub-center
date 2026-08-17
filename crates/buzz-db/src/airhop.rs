@@ -20,7 +20,7 @@ use crate::{Db, DbError, Result};
 pub mod booking;
 /// Staff booking decisions, messenger bindings, and delivery leases.
 pub mod booking_decision;
-/// AirHub Center installation activation grants and identity binding.
+/// AirHub Center owner-enrollment codes and deployment binding.
 pub mod center_activation;
 /// Signed health challenges for activated AirHub Center installations.
 pub mod center_health;

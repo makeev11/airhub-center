@@ -1,10 +1,11 @@
-//! Atomic AirHub Center installation activation.
+//! Atomic AirHub Center owner enrollment.
 //!
 //! Cleartext activation codes are generated and returned by the HTTP boundary.
 //! Persistence accepts only a tenant-keyed digest. Every transition locks the
-//! grant/installation rows and appends secret-free activation audit metadata.
+//! grant/installation rows, updates the authoritative member roster, and
+//! appends secret-free activation audit metadata.
 
-use buzz_core::TenantContext;
+use buzz_core::{CommunityId, TenantContext};
 use chrono::{DateTime, Duration, Utc};
 use serde_json::json;
 use sqlx::Row;
@@ -198,25 +199,19 @@ pub struct RevokeCenterActivationGrantOutcome {
     pub replayed: bool,
 }
 
-/// Public bootstrap request after the HTTP boundary validates the code shape.
+/// Signed owner-enrollment request after the HTTP boundary validates the code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaimCenterActivationGrantInput {
-    /// Expected installation identifier.
-    pub installation_id: Uuid,
     /// Tenant-keyed activation-code digest.
     pub code_digest: [u8; 32],
-    /// Installation-owned Nostr public key.
-    pub installation_pubkey: [u8; 32],
-    /// Environment reported by the claiming installation.
-    pub environment: CenterEnvironment,
-    /// Release profile reported by the claiming installation.
-    pub release_profile: String,
-    /// Exact running release version.
-    pub release_version: String,
-    /// Tenant/installation-scoped digest of `Idempotency-Key`.
+    /// Nostr public key that signed the claim and will become sole owner.
+    pub owner_pubkey: [u8; 32],
+    /// Stable tenant/code/owner-scoped replay fingerprint.
     pub claim_idempotency_digest: [u8; 32],
-    /// SHA-256 hash of the canonical request body.
+    /// Stable hash of the canonical signed claim.
     pub claim_request_hash: [u8; 32],
+    /// Accepted join-policy version, when the tenant requires one.
+    pub policy_version: Option<String>,
 }
 
 /// Result of an atomic activation claim.
@@ -235,6 +230,20 @@ pub struct ClaimCenterActivationGrantOutcome {
 }
 
 impl Db {
+    /// Whether a Center owner code has replaced deployment bootstrap authority.
+    pub async fn has_airhop_center_owner_enrollment(&self, community: CommunityId) -> Result<bool> {
+        sqlx::query_scalar(
+            "SELECT EXISTS(\
+                 SELECT 1 FROM airhop_center_installations \
+                 WHERE community_id = $1 AND activation_version > 0\
+             )",
+        )
+        .bind(community.as_uuid())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(DbError::from)
+    }
+
     /// Issue a short-lived activation grant for one exact installation binding.
     pub async fn issue_airhop_center_activation_grant(
         &self,
@@ -300,8 +309,7 @@ impl Db {
         .await?;
 
         let installation = sqlx::query(
-            "SELECT organization_id, environment, release_profile, release_version, \
-                    installation_pubkey, status \
+            "SELECT organization_id, environment, release_profile, release_version, status \
              FROM airhop_center_installations \
              WHERE community_id = $1 AND id = $2 \
              FOR UPDATE",
@@ -316,33 +324,50 @@ impl Db {
         let persisted_environment: String = installation.try_get("environment")?;
         let persisted_profile: String = installation.try_get("release_profile")?;
         let persisted_version: String = installation.try_get("release_version")?;
-        let installation_pubkey: Option<Vec<u8>> = installation.try_get("installation_pubkey")?;
         let installation_status: String = installation.try_get("status")?;
         if persisted_organization_id != organization_id
             || persisted_environment != input.environment.as_str()
             || persisted_profile != input.release_profile.trim()
             || persisted_version != input.release_version.trim()
-            || installation_pubkey.is_some()
-            || installation_status != "provisioning"
+            || installation_status == "disabled"
         {
             return Err(DbError::AirhopActivationConflict);
         }
 
-        let has_live_grant: bool = sqlx::query_scalar(
-            "SELECT EXISTS(\
-                 SELECT 1 FROM airhop_center_activation_grants \
-                 WHERE community_id = $1 AND organization_id = $2 AND installation_id = $3 \
-                   AND claimed_at IS NULL AND revoked_at IS NULL AND expires_at > $4\
-             )",
+        // Reissuing is the recovery/owner-rotation path. Revoke every still-live
+        // code in the same transaction so the operator never has to coordinate
+        // a separate revoke call and no two enrollment codes remain usable.
+        let replaced_grants = sqlx::query(
+            "UPDATE airhop_center_activation_grants \
+             SET revoked_at = $4, revoked_by_pubkey = $5 \
+             WHERE community_id = $1 AND organization_id = $2 AND installation_id = $3 \
+               AND claimed_at IS NULL AND revoked_at IS NULL AND expires_at > $4 \
+             RETURNING id",
         )
         .bind(tenant.community().as_uuid())
         .bind(organization_id)
         .bind(input.installation_id)
         .bind(occurred_at)
-        .fetch_one(&mut *transaction)
+        .bind(input.issued_by_pubkey.as_slice())
+        .fetch_all(&mut *transaction)
         .await?;
-        if has_live_grant {
-            return Err(DbError::AirhopActivationConflict);
+        for replaced_grant in replaced_grants {
+            let replaced_grant_id: Uuid = replaced_grant.try_get("id")?;
+            append_activation_audit(
+                &mut transaction,
+                tenant,
+                &ActivationAuditInput {
+                    organization_id,
+                    installation_id: input.installation_id,
+                    grant_id: Some(replaced_grant_id),
+                    event_type: "airhop.center.activation-grant-revoked.v1",
+                    actor_kind: "operator",
+                    actor_pubkey: &input.issued_by_pubkey,
+                    occurred_at,
+                    payload: json!({ "reason": "reissued" }),
+                },
+            )
+            .await?;
         }
 
         let grant_id = Uuid::new_v4();
@@ -469,7 +494,7 @@ impl Db {
         })
     }
 
-    /// Atomically consume a grant and bind its installation public key.
+    /// Atomically consume a code, activate the deployment, and assign sole owner.
     pub async fn claim_airhop_center_activation_grant(
         &self,
         tenant: &TenantContext,
@@ -477,18 +502,25 @@ impl Db {
     ) -> Result<ClaimCenterActivationGrantOutcome> {
         validate_claim_input(input)?;
         let mut transaction = self.pool.begin().await?;
+
+        // Serializes owner changes even when no owner row exists yet. The code
+        // row lock alone is insufficient if two different recovery codes race.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 9918))")
+            .bind(tenant.community().to_string())
+            .execute(&mut *transaction)
+            .await?;
+
         let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
             .fetch_one(&mut *transaction)
             .await?;
         let grant = sqlx::query(
-            "SELECT id, organization_id, expires_at, claimed_at, claimed_by_pubkey, \
+            "SELECT id, organization_id, installation_id, expires_at, claimed_at, claimed_by_pubkey, \
                     claim_idempotency_digest, claim_request_hash, revoked_at \
              FROM airhop_center_activation_grants \
-             WHERE community_id = $1 AND installation_id = $2 AND code_digest = $3 \
+             WHERE community_id = $1 AND code_digest = $2 \
              FOR UPDATE",
         )
         .bind(tenant.community().as_uuid())
-        .bind(input.installation_id)
         .bind(input.code_digest.as_slice())
         .fetch_optional(&mut *transaction)
         .await?
@@ -496,6 +528,7 @@ impl Db {
 
         let grant_id: Uuid = grant.try_get("id")?;
         let organization_id: Uuid = grant.try_get("organization_id")?;
+        let installation_id: Uuid = grant.try_get("installation_id")?;
         let expires_at: DateTime<Utc> = grant.try_get("expires_at")?;
         let claimed_at: Option<DateTime<Utc>> = grant.try_get("claimed_at")?;
         let claimed_by_pubkey: Option<Vec<u8>> = grant.try_get("claimed_by_pubkey")?;
@@ -505,21 +538,38 @@ impl Db {
         let revoked_at: Option<DateTime<Utc>> = grant.try_get("revoked_at")?;
 
         if claimed_at.is_some() {
-            let same_request = claimed_by_pubkey.as_deref()
-                == Some(input.installation_pubkey.as_slice())
+            let same_request = claimed_by_pubkey.as_deref() == Some(input.owner_pubkey.as_slice())
                 && claim_idempotency_digest.as_deref()
                     == Some(input.claim_idempotency_digest.as_slice())
                 && claim_request_hash.as_deref() == Some(input.claim_request_hash.as_slice());
             if !same_request {
                 return Err(DbError::AirhopActivationInvalid);
             }
+            let owner_hex = hex::encode(input.owner_pubkey);
+            let still_owner: bool = sqlx::query_scalar(
+                "SELECT EXISTS(\
+                     SELECT 1 FROM relay_members \
+                     WHERE community_id = $1 AND pubkey = $2 AND role = 'owner'\
+                 )",
+            )
+            .bind(tenant.community().as_uuid())
+            .bind(&owner_hex)
+            .fetch_one(&mut *transaction)
+            .await?;
             let installation =
-                load_installation_metadata_row(&mut transaction, tenant, input.installation_id)
+                load_installation_metadata_row(&mut transaction, tenant, installation_id)
                     .await?
                     .ok_or(DbError::AirhopActivationInvalid)?;
+            if !still_owner
+                || installation.installation_pubkey.as_ref() != Some(&input.owner_pubkey)
+            {
+                // A later recovery code transferred ownership. Replaying an old
+                // consumed code must never transfer it back.
+                return Err(DbError::AirhopActivationInvalid);
+            }
             transaction.commit().await?;
             return Ok(ClaimCenterActivationGrantOutcome {
-                installation_id: input.installation_id,
+                installation_id,
                 organization_id,
                 activation_version: installation.activation_version,
                 status: installation.status,
@@ -531,17 +581,50 @@ impl Db {
         }
 
         let installation =
-            load_installation_metadata_row(&mut transaction, tenant, input.installation_id)
+            load_installation_metadata_row(&mut transaction, tenant, installation_id)
                 .await?
                 .ok_or(DbError::AirhopActivationInvalid)?;
         if installation.organization_id != organization_id
-            || installation.environment != input.environment.as_str()
-            || installation.release_profile != input.release_profile.trim()
-            || installation.release_version != input.release_version.trim()
-            || installation.installation_pubkey.is_some()
-            || installation.status != CenterInstallationStatus::Provisioning
+            || installation.status == CenterInstallationStatus::Disabled
         {
             return Err(DbError::AirhopActivationConflict);
+        }
+
+        let owner_hex = hex::encode(input.owner_pubkey);
+        sqlx::query(
+            "INSERT INTO relay_members (community_id, pubkey, role, added_by) \
+             VALUES ($1, $2, 'owner', 'airhop-owner-code') \
+             ON CONFLICT (community_id, pubkey) DO UPDATE \
+             SET role = 'owner', added_by = 'airhop-owner-code', updated_at = $3",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(&owner_hex)
+        .bind(occurred_at)
+        .execute(&mut *transaction)
+        .await?;
+
+        // Recovery removes administrative authority from the old key instead
+        // of silently retaining it as admin.
+        sqlx::query(
+            "UPDATE relay_members SET role = 'member', updated_at = $3 \
+             WHERE community_id = $1 AND role = 'owner' AND pubkey <> $2",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(&owner_hex)
+        .bind(occurred_at)
+        .execute(&mut *transaction)
+        .await?;
+
+        if let Some(policy_version) = input.policy_version.as_deref() {
+            sqlx::query(
+                "INSERT INTO join_policy_acceptances (community_id, pubkey, policy_version) \
+                 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            )
+            .bind(tenant.community().as_uuid())
+            .bind(&owner_hex)
+            .bind(policy_version)
+            .execute(&mut *transaction)
+            .await?;
         }
 
         sqlx::query(
@@ -554,7 +637,7 @@ impl Db {
         .bind(organization_id)
         .bind(grant_id)
         .bind(occurred_at)
-        .bind(input.installation_pubkey.as_slice())
+        .bind(input.owner_pubkey.as_slice())
         .bind(input.claim_idempotency_digest.as_slice())
         .bind(input.claim_request_hash.as_slice())
         .execute(&mut *transaction)
@@ -562,15 +645,15 @@ impl Db {
 
         let activation_version: i64 = sqlx::query_scalar(
             "UPDATE airhop_center_installations \
-             SET installation_pubkey = $4, status = 'provisioning', \
+             SET installation_pubkey = $4, status = 'ready', sanitized_error_code = NULL, \
                  activation_version = activation_version + 1, activated_at = $5, updated_at = $5 \
              WHERE community_id = $1 AND organization_id = $2 AND id = $3 \
              RETURNING activation_version",
         )
         .bind(tenant.community().as_uuid())
         .bind(organization_id)
-        .bind(input.installation_id)
-        .bind(input.installation_pubkey.as_slice())
+        .bind(installation_id)
+        .bind(input.owner_pubkey.as_slice())
         .bind(occurred_at)
         .fetch_one(&mut *transaction)
         .await?;
@@ -580,25 +663,25 @@ impl Db {
             tenant,
             &ActivationAuditInput {
                 organization_id,
-                installation_id: input.installation_id,
+                installation_id,
                 grant_id: Some(grant_id),
                 event_type: "airhop.center.installation-activated.v1",
                 actor_kind: "installation",
-                actor_pubkey: &input.installation_pubkey,
+                actor_pubkey: &input.owner_pubkey,
                 occurred_at,
                 payload: json!({
                     "activationVersion": activation_version,
-                    "releaseVersion": input.release_version.trim(),
+                    "ownerRole": "owner",
                 }),
             },
         )
         .await?;
         transaction.commit().await?;
         Ok(ClaimCenterActivationGrantOutcome {
-            installation_id: input.installation_id,
+            installation_id,
             organization_id,
             activation_version,
-            status: CenterInstallationStatus::Provisioning,
+            status: CenterInstallationStatus::Ready,
             replayed: false,
         })
     }
@@ -818,12 +901,14 @@ fn validate_issue_input(input: &IssueCenterActivationGrantInput) -> Result<()> {
 }
 
 fn validate_claim_input(input: &ClaimCenterActivationGrantInput) -> Result<()> {
-    if input.installation_id.is_nil()
-        || !(1..=80).contains(&input.release_profile.trim().len())
-        || !(1..=120).contains(&input.release_version.trim().len())
+    if input.owner_pubkey == [0; 32]
+        || input
+            .policy_version
+            .as_deref()
+            .is_some_and(|version| version.len() != 64)
     {
         return Err(DbError::InvalidData(
-            "invalid AirHub Center activation claim input".to_owned(),
+            "invalid AirHub Center owner enrollment input".to_owned(),
         ));
     }
     Ok(())
@@ -865,5 +950,146 @@ mod tests {
             Some(CenterEnvironment::Production)
         );
         assert_eq!(CenterEnvironment::parse("prod"), None);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a dedicated migrated Postgres database"]
+    async fn owner_code_is_atomic_reissuable_and_restart_safe() {
+        let database_url = std::env::var("BUZZ_TEST_DATABASE_URL")
+            .expect("BUZZ_TEST_DATABASE_URL must point to a dedicated migrated database");
+        let db = Db::new(&crate::DbConfig {
+            database_url,
+            max_connections: 5,
+            min_connections: 0,
+            ..crate::DbConfig::default()
+        })
+        .await
+        .expect("connect test database");
+        db.migrate().await.expect("migrate test database");
+
+        let community_id = Uuid::new_v4();
+        let organization_id = Uuid::new_v4();
+        let installation_id = Uuid::new_v4();
+        let host = format!("owner-enrollment-{}.test", community_id.simple());
+        let tenant = TenantContext::resolved(CommunityId::from_uuid(community_id), host.clone());
+        sqlx::query("INSERT INTO communities (id, host) VALUES ($1, $2)")
+            .bind(community_id)
+            .bind(&host)
+            .execute(&db.pool)
+            .await
+            .expect("insert community");
+        sqlx::query(
+            "INSERT INTO airhop_organizations (\
+                 community_id, id, name, locale, time_zone, default_trial_policy\
+             ) VALUES ($1, $2, 'Owner enrollment test', 'ru-RU', 'Europe/Moscow', $3)",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(json!({ "mode": "free" }))
+        .execute(&db.pool)
+        .await
+        .expect("insert organization");
+
+        let bootstrap_owner = "09".repeat(32);
+        db.bootstrap_owner(tenant.community(), &bootstrap_owner)
+            .await
+            .expect("bootstrap deployment owner");
+
+        let issue =
+            |code_digest: [u8; 32], issue_digest: [u8; 32]| IssueCenterActivationGrantInput {
+                installation_id,
+                environment: CenterEnvironment::Production,
+                release_profile: "site_telegram_center".to_owned(),
+                release_version: "2026.08.17".to_owned(),
+                ttl_seconds: 900,
+                code_digest,
+                issue_idempotency_digest: issue_digest,
+                issue_request_hash: issue_digest,
+                issued_by_pubkey: [8; 32],
+            };
+        db.issue_airhop_center_activation_grant(&tenant, &issue([1; 32], [11; 32]))
+            .await
+            .expect("issue initial code");
+        db.issue_airhop_center_activation_grant(&tenant, &issue([2; 32], [12; 32]))
+            .await
+            .expect("reissue revokes initial code");
+
+        let claim = |code_digest: [u8; 32], owner_pubkey: [u8; 32], nonce: u8| {
+            ClaimCenterActivationGrantInput {
+                code_digest,
+                owner_pubkey,
+                claim_idempotency_digest: [nonce; 32],
+                claim_request_hash: [nonce.wrapping_add(1); 32],
+                policy_version: Some("a".repeat(64)),
+            }
+        };
+        assert!(matches!(
+            db.claim_airhop_center_activation_grant(&tenant, &claim([1; 32], [3; 32], 21))
+                .await,
+            Err(DbError::AirhopActivationInvalid)
+        ));
+
+        let first_claim = claim([2; 32], [3; 32], 22);
+        let first_outcome = db
+            .claim_airhop_center_activation_grant(&tenant, &first_claim)
+            .await
+            .expect("claim owner code");
+        assert_eq!(first_outcome.status, CenterInstallationStatus::Ready);
+        assert!(!first_outcome.replayed);
+        assert_eq!(
+            db.get_relay_member(tenant.community(), &hex::encode([3; 32]))
+                .await
+                .expect("read first owner")
+                .expect("first owner exists")
+                .role,
+            "owner"
+        );
+        assert_eq!(
+            db.get_relay_member(tenant.community(), &bootstrap_owner)
+                .await
+                .expect("read bootstrap owner")
+                .expect("bootstrap owner remains a member")
+                .role,
+            "member"
+        );
+        assert!(
+            db.claim_airhop_center_activation_grant(&tenant, &first_claim)
+                .await
+                .expect("same owner claim is idempotent")
+                .replayed
+        );
+
+        db.issue_airhop_center_activation_grant(&tenant, &issue([4; 32], [14; 32]))
+            .await
+            .expect("issue recovery code");
+        db.claim_airhop_center_activation_grant(&tenant, &claim([4; 32], [5; 32], 24))
+            .await
+            .expect("claim recovery code");
+        assert_eq!(
+            db.get_relay_member(tenant.community(), &hex::encode([3; 32]))
+                .await
+                .expect("read previous owner")
+                .expect("previous owner remains a member")
+                .role,
+            "member"
+        );
+        assert_eq!(
+            db.get_relay_member(tenant.community(), &hex::encode([5; 32]))
+                .await
+                .expect("read recovery owner")
+                .expect("recovery owner exists")
+                .role,
+            "owner"
+        );
+        assert!(matches!(
+            db.claim_airhop_center_activation_grant(&tenant, &first_claim)
+                .await,
+            Err(DbError::AirhopActivationInvalid)
+        ));
+        assert!(matches!(
+            db.bootstrap_owner(tenant.community(), &bootstrap_owner)
+                .await,
+            Err(DbError::AirhopActivationConflict)
+        ));
     }
 }

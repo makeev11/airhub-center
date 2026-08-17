@@ -33,7 +33,7 @@ use buzz_core::invite::{
 use crate::invite_token;
 use crate::state::AppState;
 
-use super::{api_error, bridge, internal_error};
+use super::{airhop_activation, api_error, bridge, internal_error};
 
 /// Fixed-window size for the per-pubkey claim rate limiter.
 pub(crate) const CLAIM_RATE_WINDOW: Duration = Duration::from_secs(60);
@@ -341,9 +341,10 @@ pub async fn mint_invite(
 /// Claim an invite code — `POST /api/invites/claim`, NIP-98 signed by the
 /// *joining* pubkey. Exempt from the relay-membership gate by design.
 ///
-/// Routing is by exact prefix: `v2.` codes go to the database-backed
-/// redemption path; every other code goes to the v1 HMAC verifier. A `v2.`
-/// code is never fallen back to v1 verification.
+/// Routing is by exact prefix: `ahc_1_` performs first-owner enrollment,
+/// `v2.` goes to the database-backed staff invitation path, and every other
+/// code goes to the v1 HMAC verifier. Prefixed codes never fall back to a
+/// different verifier.
 pub async fn claim_invite(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -363,6 +364,44 @@ pub async fn claim_invite(
 
     let claimer_hex = pubkey.to_hex();
     let key = invite_token::derive_invite_key(&state.relay_keypair);
+
+    // --- AirHub Center first-owner/recovery path ---
+    //
+    // The user still enters one code on the normal join screen. The code
+    // namespace selects the server-side authority: this path binds the
+    // already-provisioned organization and makes the NIP-98 signer sole owner.
+    if airhop_activation::is_owner_enrollment_code(&request.code) {
+        let outcome = airhop_activation::claim_owner_enrollment(
+            &state,
+            &tenant,
+            &pubkey,
+            &request.code,
+            request.policy_receipt.as_deref(),
+        )
+        .await?;
+
+        tracing::info!(
+            community = %tenant.community(),
+            owner = %claimer_hex,
+            installation_id = %outcome.installation_id,
+            replayed = outcome.replayed,
+            "AirHub Center owner enrolled via organization code"
+        );
+        if !outcome.replayed {
+            if let Err(error) = publish_nip43_membership_list(&tenant, &state).await {
+                tracing::warn!(
+                    "failed to publish NIP-43 membership list after owner enrollment: {error}"
+                );
+            }
+        }
+
+        return Ok(Json(serde_json::json!({
+            "status": if outcome.replayed { "already_member" } else { "joined" },
+            "community_id": tenant.community().to_string(),
+            "host": tenant.host(),
+            "role": "owner",
+        })));
+    }
 
     // --- v2 database-backed path ---
     //

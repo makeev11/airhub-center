@@ -313,23 +313,44 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // NIP-43: ensure the configured relay owner always holds the owner role
-    // within the deployment community.
+    // NIP-43: the configured owner is only bootstrap authority. Once an AirHub
+    // Center owner code has been claimed, the database roster is authoritative;
+    // promoting the environment key again on restart would undo recovery.
     if let (Some(community), Some(owner_pubkey)) =
         (deployment_community, config.relay_owner_pubkey.as_ref())
     {
-        match db.bootstrap_owner(community, owner_pubkey).await {
-            Ok(()) => info!(pubkey = %owner_pubkey, "Relay owner bootstrapped"),
+        let owner_managed_by_center = match db.has_airhop_center_owner_enrollment(community).await {
+            Ok(managed) => managed,
             Err(e) => {
                 if config.require_relay_membership {
-                    // Membership enforcement is on — a missing owner means no one
-                    // can administer the relay. Fail fast rather than silently start
-                    // in a broken state.
-                    error!("Fatal: failed to bootstrap relay owner with membership enforcement enabled: {e}");
+                    error!("Fatal: failed to resolve AirHub Center owner authority: {e}");
                     return Err(anyhow::anyhow!(
-                        "Failed to bootstrap relay owner (required when BUZZ_REQUIRE_RELAY_MEMBERSHIP=true): {e}"
+                        "Failed to resolve AirHub Center owner authority: {e}"
                     ));
-                } else {
+                }
+                error!("Failed to resolve AirHub Center owner authority (non-fatal): {e}");
+                false
+            }
+        };
+
+        if owner_managed_by_center {
+            info!(
+                community = %community,
+                "Skipping configured owner bootstrap; Center owner enrollment is authoritative"
+            );
+        } else {
+            match db.bootstrap_owner(community, owner_pubkey).await {
+                Ok(()) => info!(pubkey = %owner_pubkey, "Relay owner bootstrapped"),
+                Err(e) => {
+                    if config.require_relay_membership {
+                        // Membership enforcement is on — a missing owner means no one
+                        // can administer the relay. Fail fast rather than silently start
+                        // in a broken state.
+                        error!("Fatal: failed to bootstrap relay owner with membership enforcement enabled: {e}");
+                        return Err(anyhow::anyhow!(
+                            "Failed to bootstrap relay owner (required when BUZZ_REQUIRE_RELAY_MEMBERSHIP=true): {e}"
+                        ));
+                    }
                     error!(
                         "Failed to bootstrap relay owner (non-fatal, membership not required): {e}"
                     );

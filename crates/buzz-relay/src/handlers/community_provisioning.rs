@@ -325,6 +325,17 @@ pub async fn provision_community(
         .map_err(|e| format!("failed to create community: {e}"))?;
 
     if let Some(owner_hex) = &initial_owner {
+        if state
+            .db
+            .has_airhop_center_owner_enrollment(record.id)
+            .await
+            .map_err(|e| format!("failed to resolve Center owner authority: {e}"))?
+        {
+            return Err(
+                "owner is managed by AirHub Center enrollment; issue a recovery code instead"
+                    .to_owned(),
+            );
+        }
         state
             .db
             .bootstrap_owner(record.id, owner_hex)
