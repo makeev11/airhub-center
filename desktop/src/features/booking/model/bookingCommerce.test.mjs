@@ -292,6 +292,37 @@ test("expected payment can change amount, be paid, unmarked, cancelled and resto
   assert.equal(restored.paymentExpectations[0].cancelledAt, undefined);
 });
 
+test("expected payment due date can move without changing its tariff snapshot", () => {
+  const enrolled = savedWorkspace(
+    commerce.createConfiguredEnrollmentWithPayment(workspaceWithClient(), {
+      enrollment: configuredEnrollment(),
+      payment: firstPayment(),
+    }),
+  );
+  const moved = commerce.updateExpectedPaymentDueDate(
+    enrolled,
+    firstPayment().id,
+    {
+      dueDate: "2026-08-10",
+      updatedAt: "2026-08-07T11:00:00.000Z",
+    },
+  );
+  assert.equal(moved.paymentExpectations[0].dueDate, "2026-08-10");
+  assert.equal(moved.paymentExpectations[0].amountMinor, 600_000);
+  assert.equal(
+    moved.paymentExpectations[0].tariffNameSnapshot,
+    "2 раза в неделю",
+  );
+  assert.throws(
+    () =>
+      commerce.updateExpectedPaymentDueDate(enrolled, firstPayment().id, {
+        dueDate: firstPayment().dueDate,
+        updatedAt: "2026-08-07T11:00:00.000Z",
+      }),
+    (error) => error?.code === "invalid_payment_transition",
+  );
+});
+
 test("active configured enrollment protects its selected recurrence day", () => {
   const enrolled = savedWorkspace(
     commerce.createConfiguredEnrollmentWithPayment(workspaceWithClient(), {

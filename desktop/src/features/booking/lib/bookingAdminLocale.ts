@@ -1,6 +1,10 @@
 import type { Weekday } from "@/features/booking/model/bookingCore";
+import {
+  type BookingPaymentMessages,
+  ruPaymentMessages,
+} from "@/features/booking/lib/bookingPaymentLocale";
 
-export type BookingAdminMessages = {
+export type BookingAdminMessages = BookingPaymentMessages & {
   productName: string;
   navSchedule: string;
   navRequests: string;
@@ -292,53 +296,6 @@ export type BookingAdminMessages = {
   familyEnrollChild: string;
   enrollmentNeedsAssignment: string;
   enrollmentStarts: (date: string) => string;
-  paymentExpected: string;
-  paymentOverdue: string;
-  paymentPaid: string;
-  paymentCancelled: string;
-  paymentDueSummary: (amount: string, date: string) => string;
-  paymentsTitle: string;
-  paymentsDescription: string;
-  paymentFilterOpen: string;
-  paymentFilterPaid: string;
-  paymentFilterCancelled: string;
-  paymentSearch: string;
-  paymentNoOpenTitle: string;
-  paymentNoOpenDescription: string;
-  paymentNoHistoryTitle: string;
-  paymentNoHistoryDescription: string;
-  paymentFamily: string;
-  paymentTariff: string;
-  paymentGroup: string;
-  paymentDueDate: string;
-  paymentAmount: string;
-  paymentMarkPaid: string;
-  paymentChangeAmount: string;
-  paymentCancel: string;
-  paymentRestore: string;
-  paymentReopen: string;
-  paymentPaidSuccess: string;
-  paymentAmountUpdated: string;
-  paymentCancelledSuccess: string;
-  paymentRestoredSuccess: string;
-  paymentActionFailed: string;
-  paymentPaidTitle: string;
-  paymentPaidDescription: string;
-  paymentAmountTitle: string;
-  paymentAmountDescription: string;
-  paymentCancelTitle: string;
-  paymentCancelDescription: string;
-  paymentRestoreTitle: string;
-  paymentRestoreDescription: string;
-  paymentCancelReason: string;
-  paymentCancelReasonPlaceholder: string;
-  paymentReasonRequired: string;
-  paymentInvalidAmount: string;
-  paymentConfirmPaid: string;
-  paymentConfirmAmount: string;
-  paymentConfirmCancel: string;
-  paymentConfirmRestore: string;
-  paymentActionSummary: (child: string, amount: string, date: string) => string;
   requestsTitle: string;
   requestsDescription: string;
   requestSearch: string;
@@ -800,60 +757,7 @@ const ru: BookingAdminMessages = {
   familyEnrollChild: "Зачислить в группу",
   enrollmentNeedsAssignment: "Нужно назначить тариф и постоянные дни",
   enrollmentStarts: (date) => `Начало: ${date}`,
-  paymentExpected: "Ожидается",
-  paymentOverdue: "Просрочено",
-  paymentPaid: "Оплачено",
-  paymentCancelled: "Отменено",
-  paymentDueSummary: (amount, date) => `К оплате ${amount} · ${date}`,
-  paymentsTitle: "Оплаты",
-  paymentsDescription:
-    "Рабочая очередь ожидаемых оплат и история решений сотрудников.",
-  paymentFilterOpen: "Нужно оплатить",
-  paymentFilterPaid: "Оплачено",
-  paymentFilterCancelled: "Отменено",
-  paymentSearch: "Найти ребёнка, семью, группу или тариф",
-  paymentNoOpenTitle: "Ожидающих оплат нет",
-  paymentNoOpenDescription: "Новые оплаты появятся после зачисления в группу.",
-  paymentNoHistoryTitle: "Здесь пока пусто",
-  paymentNoHistoryDescription: "Оплаты с выбранным статусом появятся здесь.",
-  paymentFamily: "Семья",
-  paymentTariff: "Тариф",
-  paymentGroup: "Группа",
-  paymentDueDate: "Срок оплаты",
-  paymentAmount: "Сумма",
-  paymentMarkPaid: "Отметить оплату",
-  paymentChangeAmount: "Изменить сумму",
-  paymentCancel: "Отменить оплату",
-  paymentRestore: "Восстановить оплату",
-  paymentReopen: "Снять отметку оплаты",
-  paymentPaidSuccess: "Оплата отмечена",
-  paymentAmountUpdated: "Сумма оплаты изменена",
-  paymentCancelledSuccess: "Оплата отменена",
-  paymentRestoredSuccess: "Оплата восстановлена",
-  paymentActionFailed:
-    "Не удалось изменить оплату. Обновите данные и повторите.",
-  paymentPaidTitle: "Подтвердить оплату",
-  paymentPaidDescription:
-    "После подтверждения оплата уйдёт из рабочей очереди в историю.",
-  paymentAmountTitle: "Изменить сумму оплаты",
-  paymentAmountDescription:
-    "Изменение касается только этой оплаты и не меняет стоимость тарифа.",
-  paymentCancelTitle: "Отменить оплату",
-  paymentCancelDescription:
-    "Оплата останется в истории, но больше не будет ожидаться от семьи.",
-  paymentRestoreTitle: "Восстановить оплату",
-  paymentRestoreDescription:
-    "Оплата снова появится в рабочей очереди как ожидаемая или просроченная.",
-  paymentCancelReason: "Внутренняя причина",
-  paymentCancelReasonPlaceholder: "Например, ученик прекратил занятия",
-  paymentReasonRequired: "Укажите внутреннюю причину.",
-  paymentInvalidAmount: "Укажите корректную неотрицательную сумму.",
-  paymentConfirmPaid: "Подтвердить оплату",
-  paymentConfirmAmount: "Сохранить сумму",
-  paymentConfirmCancel: "Отменить оплату",
-  paymentConfirmRestore: "Восстановить",
-  paymentActionSummary: (child, amount, date) =>
-    `${child} · ${amount} · срок ${date}`,
+  ...ruPaymentMessages,
   requestsTitle: "Заявки",
   requestsDescription:
     "Новые записи, запросы на перенос и заявки, которым нужно внимание.",

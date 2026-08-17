@@ -85,6 +85,11 @@ export function previewAirhopAction(
         payment?.currency ?? "RUB",
       )}`,
     );
+  } else if (command.type === "UpdatePaymentDueDate") {
+    lines.push(
+      `${russian ? "Новый срок" : "New due date"}: ${formatters.date(command.dueDate)}`,
+      `${russian ? "Причина" : "Reason"}: ${command.internalReason}`,
+    );
   } else if (command.type === "CreateBookingRequest") {
     lines.push(
       `${russian ? "Занятие" : "Lesson"}: ${command.lessonRef.originalDate}`,

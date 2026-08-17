@@ -9,11 +9,18 @@ import {
 } from "lucide-react";
 
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
+import {
+  createHttpStaffPaymentService,
+  type StaffPaymentMutation,
+  type StaffPaymentQueue,
+  type StaffPaymentService,
+} from "@/features/booking/data/staffPaymentService";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import {
   paymentQueueRows,
+  paymentDisplayState,
   type PaymentDisplayState,
-  type PaymentQueueRow,
 } from "@/features/booking/lib/bookingCommerceReadModels";
 import { organizationLocalDateTime } from "@/features/booking/lib/bookingDateTime";
 import { createBookingFormatters } from "@/features/booking/lib/bookingLocale";
@@ -24,7 +31,13 @@ import {
 import {
   PaymentActionDialog,
   type PaymentActionMode,
+  type PaymentActionRow,
+  type PaymentActionValues,
 } from "@/features/booking/ui/PaymentActionDialog";
+import type {
+  BookingOrganization,
+  PaymentExpectation,
+} from "@/features/booking/model/bookingCore";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -33,7 +46,20 @@ import { Input } from "@/shared/ui/input";
 import { PageHeader } from "@/shared/ui/PageHeader";
 
 type PaymentFilter = "open" | "paid" | "cancelled";
-type PaymentAction = { mode: PaymentActionMode; row: PaymentQueueRow };
+type PaymentRow = {
+  payment: PaymentExpectation;
+  displayState: PaymentDisplayState;
+  family: { id: string; displayName: string };
+  child: { id: string; displayName: string };
+  enrollment: { id: string };
+  group: { id: string; name: string };
+};
+type PaymentAction = { mode: PaymentActionMode; row: PaymentRow };
+type ExecutePaymentAction = (
+  mode: PaymentActionMode,
+  row: PaymentActionRow,
+  values: PaymentActionValues,
+) => Promise<void>;
 
 function paymentStateLabel(
   state: PaymentDisplayState,
@@ -47,16 +73,16 @@ function paymentStateLabel(
 
 function PaymentCard({
   onAction,
+  organization,
   row,
 }: {
-  onAction: (mode: PaymentActionMode, row: PaymentQueueRow) => void;
-  row: PaymentQueueRow;
+  onAction: (mode: PaymentActionMode, row: PaymentRow) => void;
+  organization: BookingOrganization;
+  row: PaymentRow;
 }) {
-  const booking = useBookingWorkspace();
   const navigate = useNavigate();
-  const workspace = booking.workspace as NonNullable<typeof booking.workspace>;
-  const messages = getBookingAdminMessages(workspace.organization.locale);
-  const formatters = createBookingFormatters(workspace.organization.locale);
+  const messages = getBookingAdminMessages(organization.locale);
+  const formatters = createBookingFormatters(organization.locale);
   const isOpen =
     row.displayState === "expected" || row.displayState === "overdue";
 
@@ -149,6 +175,14 @@ function PaymentCard({
               {messages.paymentChangeAmount}
             </Button>
             <Button
+              onClick={() => onAction("due_date", row)}
+              size="sm"
+              variant="outline"
+            >
+              <CalendarClock />
+              {messages.paymentMoveDueDate}
+            </Button>
+            <Button
               onClick={() => onAction("cancel", row)}
               size="sm"
               variant="ghost"
@@ -173,24 +207,23 @@ function PaymentCard({
   );
 }
 
-function PaymentsContent() {
-  const booking = useBookingWorkspace();
-  const workspace = booking.workspace as NonNullable<typeof booking.workspace>;
-  const messages = getBookingAdminMessages(workspace.organization.locale);
-  const currentDate = organizationLocalDateTime(
-    workspace.organization.timeZone,
-    new Date(),
-  ).date;
+function PaymentsContent({
+  executeAction,
+  organization,
+  rows,
+}: {
+  executeAction?: ExecutePaymentAction;
+  organization: BookingOrganization;
+  rows: PaymentRow[];
+}) {
+  const messages = getBookingAdminMessages(organization.locale);
   const [filter, setFilter] = React.useState<PaymentFilter>("open");
   const [query, setQuery] = React.useState("");
   const [action, setAction] = React.useState<PaymentAction | null>(null);
   const [successMessage, setSuccessMessage] = React.useState<string | null>(
     null,
   );
-  const rows = paymentQueueRows(workspace, currentDate);
-  const normalizedQuery = query
-    .trim()
-    .toLocaleLowerCase(workspace.organization.locale);
+  const normalizedQuery = query.trim().toLocaleLowerCase(organization.locale);
   const visibleRows = rows.filter((row) => {
     const matchesFilter =
       filter === "open"
@@ -205,7 +238,7 @@ function PaymentsContent() {
       row.payment.tariffNameSnapshot,
     ]
       .join(" ")
-      .toLocaleLowerCase(workspace.organization.locale)
+      .toLocaleLowerCase(organization.locale)
       .includes(normalizedQuery);
   });
   const counts = {
@@ -225,7 +258,7 @@ function PaymentsContent() {
   return (
     <>
       <div className="space-y-4" data-testid="airhop-payments">
-        <BookingFeedbackBanners />
+        {executeAction ? null : <BookingFeedbackBanners />}
         {successMessage ? (
           <Alert>
             <AlertDescription>{successMessage}</AlertDescription>
@@ -267,6 +300,7 @@ function PaymentsContent() {
                 onAction={(mode, selectedRow) =>
                   setAction({ mode, row: selectedRow })
                 }
+                organization={organization}
                 row={row}
               />
             ))}
@@ -293,6 +327,7 @@ function PaymentsContent() {
       </div>
 
       <PaymentActionDialog
+        locale={organization.locale}
         mode={action?.mode ?? "paid"}
         onOpenChange={(open) => {
           if (!open) setAction(null);
@@ -303,24 +338,29 @@ function PaymentsContent() {
               ? messages.paymentPaidSuccess
               : mode === "amount"
                 ? messages.paymentAmountUpdated
-                : mode === "cancel"
-                  ? messages.paymentCancelledSuccess
-                  : messages.paymentRestoredSuccess,
+                : mode === "due_date"
+                  ? messages.paymentDueDateUpdated
+                  : mode === "cancel"
+                    ? messages.paymentCancelledSuccess
+                    : messages.paymentRestoredSuccess,
           );
         }}
         open={action !== null}
+        onExecute={executeAction}
         row={action?.row ?? null}
       />
     </>
   );
 }
 
-export function PaymentsScreen() {
-  const booking = useBookingWorkspace();
-  const messages = getBookingAdminMessages(
-    booking.workspace?.organization.locale ?? "ru-RU",
-  );
-
+function PaymentsFrame({
+  children,
+  locale,
+}: {
+  children: React.ReactNode;
+  locale: string;
+}) {
+  const messages = getBookingAdminMessages(locale);
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-tl-xl bg-background">
       <header className="shrink-0 border-b border-border/70 px-4 py-4 sm:px-6 sm:py-5">
@@ -329,9 +369,159 @@ export function PaymentsScreen() {
           title={messages.paymentsTitle}
         />
       </header>
-      <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
-        <BookingWorkspaceGate>{() => <PaymentsContent />}</BookingWorkspaceGate>
-      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">{children}</div>
     </div>
+  );
+}
+
+function WorkspacePaymentsContent() {
+  const booking = useBookingWorkspace();
+  const workspace = booking.workspace as NonNullable<typeof booking.workspace>;
+  const currentDate = organizationLocalDateTime(
+    workspace.organization.timeZone,
+    new Date(),
+  ).date;
+  return (
+    <PaymentsContent
+      organization={workspace.organization}
+      rows={paymentQueueRows(workspace, currentDate)}
+    />
+  );
+}
+
+function WorkspacePaymentsScreen() {
+  const booking = useBookingWorkspace();
+  const locale = booking.workspace?.organization.locale ?? "ru-RU";
+
+  return (
+    <PaymentsFrame locale={locale}>
+      <BookingWorkspaceGate>
+        {() => <WorkspacePaymentsContent />}
+      </BookingWorkspaceGate>
+    </PaymentsFrame>
+  );
+}
+
+function paymentMutation(
+  mode: PaymentActionMode,
+  values: PaymentActionValues,
+): StaffPaymentMutation {
+  if (mode === "paid") return { action: "mark_paid" };
+  if (mode === "amount" && values.amountMinor !== undefined) {
+    return { action: "change_amount", amountMinor: values.amountMinor };
+  }
+  if (mode === "due_date" && values.dueDate && values.reason) {
+    return {
+      action: "move_due_date",
+      dueDate: values.dueDate,
+      reason: values.reason,
+    };
+  }
+  if (mode === "cancel" && values.reason) {
+    return { action: "cancel", reason: values.reason };
+  }
+  if (mode === "restore" && values.reason) {
+    return { action: "restore", reason: values.reason };
+  }
+  throw new Error("Incomplete AirHub payment command");
+}
+
+function serverPaymentRows(queue: StaffPaymentQueue): PaymentRow[] {
+  const currentDate = organizationLocalDateTime(
+    queue.organization.timeZone,
+    new Date(),
+  ).date;
+  return queue.items.map((item) => ({
+    ...item,
+    displayState: paymentDisplayState(item.payment, currentDate),
+  }));
+}
+
+function ServerPaymentsScreen() {
+  const booking = useBookingWorkspace();
+  const [service] = React.useState<StaffPaymentService>(() =>
+    createHttpStaffPaymentService(),
+  );
+  const [queue, setQueue] = React.useState<StaffPaymentQueue | null>(null);
+  const [status, setStatus] = React.useState<"loading" | "ready" | "error">(
+    "loading",
+  );
+  const [error, setError] = React.useState<Error | null>(null);
+  const messages = getBookingAdminMessages(
+    queue?.organization.locale ??
+      booking.workspace?.organization.locale ??
+      "ru-RU",
+  );
+  const load = React.useCallback(async () => {
+    setStatus("loading");
+    setError(null);
+    try {
+      setQueue(await service.listPayments());
+      setStatus("ready");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause : new Error(String(cause)));
+      setStatus("error");
+      throw cause;
+    }
+  }, [service]);
+
+  React.useEffect(() => {
+    void load().catch(() => undefined);
+  }, [load]);
+
+  const executeAction = React.useCallback<ExecutePaymentAction>(
+    async (mode, row, values) => {
+      if (!row.payment.version) {
+        throw new Error("AirHub payment version is unavailable");
+      }
+      await service.mutatePayment({
+        paymentId: row.payment.id,
+        expectedVersion: row.payment.version,
+        mutation: paymentMutation(mode, values),
+      });
+      await load();
+    },
+    [load, service],
+  );
+
+  const locale =
+    queue?.organization.locale ??
+    booking.workspace?.organization.locale ??
+    "ru-RU";
+  return (
+    <PaymentsFrame locale={locale}>
+      {status === "loading" && !queue ? (
+        <Card className="space-y-2 p-8 text-center">
+          <h2 className="text-lg font-semibold">{messages.loadingTitle}</h2>
+          <p className="text-sm text-muted-foreground">
+            {messages.loadingDescription}
+          </p>
+        </Card>
+      ) : status === "error" || !queue ? (
+        <Alert variant="destructive">
+          <AlertDescription className="space-y-3">
+            <p>{error?.message ?? messages.loadErrorDescription}</p>
+            <Button onClick={() => void load()} size="sm" variant="outline">
+              {messages.retry}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <PaymentsContent
+          executeAction={executeAction}
+          organization={queue.organization}
+          rows={serverPaymentRows(queue)}
+        />
+      )}
+    </PaymentsFrame>
+  );
+}
+
+/** Uses PostgreSQL payment commands in Tauri and isolated demo state in previews. */
+export function PaymentsScreen() {
+  return currentAirhopStaffDataRuntime() === "server" ? (
+    <ServerPaymentsScreen />
+  ) : (
+    <WorkspacePaymentsScreen />
   );
 }

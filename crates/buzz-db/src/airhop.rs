@@ -48,6 +48,8 @@ pub mod lesson_exception;
 pub mod lesson_participants;
 /// Idempotent organization bootstrap and settings updates.
 pub mod organization_settings;
+/// Tenant-scoped payment work queue and audited staff commands.
+pub mod payment_queue;
 /// Atomic public booking command application service.
 pub mod public_booking;
 /// Credential-scoped parent booking management.

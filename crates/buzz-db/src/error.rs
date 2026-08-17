@@ -93,6 +93,14 @@ pub enum DbError {
     #[error("AirHub entity version is no longer current")]
     AirhopVersionConflict,
 
+    /// A payment command is not valid for the current payment lifecycle.
+    #[error("AirHub payment transition is not allowed")]
+    AirhopPaymentTransition,
+
+    /// A payment due-date change conflicts with another enrollment payment.
+    #[error("AirHub payment conflicts with another expected payment")]
+    AirhopPaymentConflict,
+
     /// Attendance is disabled by the effective lesson policy.
     #[error("AirHub lesson attendance tracking is disabled")]
     AirhopAttendanceDisabled,

@@ -355,6 +355,43 @@ export function updateExpectedPaymentAmount(
   });
 }
 
+export function updateExpectedPaymentDueDate(
+  workspace: BookingWorkspace,
+  paymentId: string,
+  input: { dueDate: string; updatedAt: string },
+): BookingWorkspaceDraft {
+  const payment = requirePayment(workspace, paymentId);
+  if (payment.status !== "expected" || payment.dueDate === input.dueDate) {
+    throw new BookingCommerceError(
+      "invalid_payment_transition",
+      "Only an expected payment can move to a different due date",
+    );
+  }
+  const duplicate = workspace.paymentExpectations.some(
+    (candidate) =>
+      candidate.id !== paymentId &&
+      candidate.enrollmentId === payment.enrollmentId &&
+      candidate.dueDate === input.dueDate,
+  );
+  if (duplicate) {
+    throw new BookingCommerceError(
+      "invalid_payment_transition",
+      "The enrollment already has a payment on this due date",
+    );
+  }
+  const updated = paymentExpectationSchema.parse({
+    ...payment,
+    dueDate: input.dueDate,
+    updatedAt: input.updatedAt,
+  });
+  return checkedDraft(workspace, {
+    ...workspaceDraft(workspace),
+    paymentExpectations: workspace.paymentExpectations.map((candidate) =>
+      candidate.id === paymentId ? updated : candidate,
+    ),
+  });
+}
+
 export function setPaymentStatus(
   workspace: BookingWorkspace,
   paymentId: string,

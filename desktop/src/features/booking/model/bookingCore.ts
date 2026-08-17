@@ -518,6 +518,7 @@ export const paymentExpectationSchema = z
     cancelledAt: z.string().datetime({ offset: true }).optional(),
     cancelledBy: z.string().trim().min(1).max(200).optional(),
     internalReason: z.string().trim().min(1).max(4_000).optional(),
+    version: z.number().int().positive().optional(),
     createdAt: z.string().datetime({ offset: true }),
     updatedAt: z.string().datetime({ offset: true }),
   })

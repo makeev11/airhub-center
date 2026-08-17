@@ -22,6 +22,7 @@ import {
   setPaymentStatus,
   setTariffStatus,
   updateExpectedPaymentAmount,
+  updateExpectedPaymentDueDate,
   updateTariff,
 } from "@/features/booking/model/bookingCommerce";
 import {
@@ -356,7 +357,8 @@ function planCommerceCommand(
         | "UpdateTariff"
         | "SetTariffStatus"
         | "SetPaymentStatus"
-        | "UpdatePaymentAmount";
+        | "UpdatePaymentAmount"
+        | "UpdatePaymentDueDate";
     }
   >,
   actor: AirhopActor,
@@ -411,6 +413,12 @@ function planCommerceCommand(
     entityId = command.paymentId;
     draft = updateExpectedPaymentAmount(workspace, command.paymentId, {
       amountMinor: command.amountMinor,
+      updatedAt: context.now,
+    });
+  } else if (command.type === "UpdatePaymentDueDate") {
+    entityId = command.paymentId;
+    draft = updateExpectedPaymentDueDate(workspace, command.paymentId, {
+      dueDate: command.dueDate,
       updatedAt: context.now,
     });
   } else {
@@ -732,7 +740,8 @@ function planAirhopAction(
     command.type === "UpdateTariff" ||
     command.type === "SetTariffStatus" ||
     command.type === "SetPaymentStatus" ||
-    command.type === "UpdatePaymentAmount"
+    command.type === "UpdatePaymentAmount" ||
+    command.type === "UpdatePaymentDueDate"
   ) {
     return planCommerceCommand(workspace, command, actor, context);
   }

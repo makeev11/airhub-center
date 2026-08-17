@@ -50,6 +50,7 @@ use buzz_db::airhop::lesson_participants::{
     StaffLessonRoster,
 };
 use buzz_db::airhop::organization_settings::PutOrganizationSettingsInput;
+use buzz_db::airhop::payment_queue::{MutatePaymentInput, PaymentChange, StaffPaymentQueueItem};
 use buzz_db::airhop::public_booking::{PreferredContactChannel, PublicBookingApplicant};
 use buzz_db::airhop::room_directory::{AirhopRoom, CreateRoomInput, PutRoomInput, RoomStatus};
 use buzz_db::airhop::staff_queue::{
@@ -440,6 +441,68 @@ pub(crate) struct PutTariffBody {
     status: TariffStatus,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(
+    tag = "action",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub(crate) enum MutatePaymentBody {
+    MarkPaid {
+        expected_version: i64,
+    },
+    Cancel {
+        expected_version: i64,
+        reason: String,
+    },
+    Restore {
+        expected_version: i64,
+        reason: String,
+    },
+    ChangeAmount {
+        expected_version: i64,
+        amount_minor: i64,
+    },
+    MoveDueDate {
+        expected_version: i64,
+        due_date: chrono::NaiveDate,
+        reason: String,
+    },
+}
+
+impl MutatePaymentBody {
+    const fn expected_version(&self) -> i64 {
+        match self {
+            Self::MarkPaid { expected_version }
+            | Self::Cancel {
+                expected_version, ..
+            }
+            | Self::Restore {
+                expected_version, ..
+            }
+            | Self::ChangeAmount {
+                expected_version, ..
+            }
+            | Self::MoveDueDate {
+                expected_version, ..
+            } => *expected_version,
+        }
+    }
+
+    fn into_change(self) -> PaymentChange {
+        match self {
+            Self::MarkPaid { .. } => PaymentChange::MarkPaid,
+            Self::Cancel { reason, .. } => PaymentChange::Cancel { reason },
+            Self::Restore { reason, .. } => PaymentChange::Restore { reason },
+            Self::ChangeAmount { amount_minor, .. } => PaymentChange::ChangeAmount { amount_minor },
+            Self::MoveDueDate {
+                due_date, reason, ..
+            } => PaymentChange::MoveDueDate { due_date, reason },
+        }
+    }
+}
+
 struct ParsedLessonExceptionBody {
     expected_version: i64,
     change: LessonExceptionChange,
@@ -710,6 +773,83 @@ pub(crate) async fn put_tariff(
         .map_err(map_db_error)?;
     Ok(Json(json!({
         "tariffId": outcome.tariff_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Authoritative payment work queue and retained decision history.
+pub(crate) async fn list_payments(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/payments";
+    let (tenant, _) = authenticate(&state, &headers, "GET", path, None, Access::Staff).await?;
+    let organization = state
+        .db
+        .get_airhop_organization(&tenant)
+        .await
+        .map_err(map_db_error)?
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "AirHub organization is not configured",
+            )
+        })?;
+    let items: Vec<StaffPaymentQueueItem> = state
+        .db
+        .list_airhop_staff_payments(&tenant)
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "organization": organization_json(
+            organization.id,
+            &organization.name,
+            &organization.locale,
+            &organization.time_zone,
+            &organization.settings,
+        ),
+        "items": items,
+    })))
+}
+
+/// Idempotently changes one expected payment or its lifecycle.
+pub(crate) async fn mutate_payment(
+    State(state): State<Arc<AppState>>,
+    Path(payment_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/payments/{payment_id}");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: MutatePaymentBody = parse_body(&body)?;
+    let expected_version = request.expected_version();
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .mutate_airhop_payment(
+            &tenant,
+            &MutatePaymentInput {
+                payment_id,
+                expected_version,
+                change: request.into_change(),
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.payment.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("PUT", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "paymentId": outcome.payment_id,
         "version": outcome.version,
         "replayed": outcome.replayed,
     })))
@@ -2787,6 +2927,14 @@ fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
             StatusCode::CONFLICT,
             "AirHub entity changed; reload before saving",
         ),
+        DbError::AirhopPaymentTransition => api_error(
+            StatusCode::CONFLICT,
+            "AirHub payment is no longer available for this action",
+        ),
+        DbError::AirhopPaymentConflict => api_error(
+            StatusCode::CONFLICT,
+            "Another AirHub payment already uses this due date",
+        ),
         DbError::AirhopOccurrenceUnavailable => api_error(
             StatusCode::CONFLICT,
             "AirHub lesson occurrence is no longer available",
@@ -3008,6 +3156,29 @@ mod tests {
         assert_eq!(body.price_minor, 600_000);
         assert_eq!(body.weekly_schedule_limit, 2);
         assert_eq!(body.payment_day_of_month, None);
+    }
+
+    #[test]
+    fn payment_body_contract_is_explicit_and_requires_move_reason() {
+        let body: MutatePaymentBody = serde_json::from_value(json!({
+            "action": "move_due_date",
+            "expectedVersion": 4,
+            "dueDate": "2026-08-25",
+            "reason": "По договорённости с семьёй"
+        }))
+        .expect("valid payment body");
+        assert_eq!(body.expected_version(), 4);
+        assert!(matches!(
+            body.into_change(),
+            PaymentChange::MoveDueDate { due_date, reason }
+                if due_date.to_string() == "2026-08-25" && reason == "По договорённости с семьёй"
+        ));
+        assert!(serde_json::from_value::<MutatePaymentBody>(json!({
+            "action": "move_due_date",
+            "expectedVersion": 4,
+            "dueDate": "2026-08-25"
+        }))
+        .is_err());
     }
 
     #[test]

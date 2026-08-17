@@ -87,6 +87,12 @@ export const airhopActionCommandSchema = z.discriminatedUnion("type", [
     amountMinor: z.number().int().nonnegative().safe(),
   }),
   z.object({
+    type: z.literal("UpdatePaymentDueDate"),
+    paymentId: bookingIdSchema,
+    dueDate: isoDateSchema,
+    internalReason: z.string().trim().min(1).max(4_000),
+  }),
+  z.object({
     type: z.literal("CreateBookingRequest"),
     ...requestFields,
     lessonRef: stableLessonReferenceSchema,
