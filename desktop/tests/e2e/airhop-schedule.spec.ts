@@ -143,6 +143,7 @@ async function answerConfirm(
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-08-04T09:00:00.000Z"));
   await installMockBridge(page);
 });
 

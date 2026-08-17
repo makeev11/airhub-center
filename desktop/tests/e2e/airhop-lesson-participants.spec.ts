@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import { installMockBridge } from "../helpers/bridge";
 
 test.beforeEach(async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-08-04T09:00:00.000Z"));
   await installMockBridge(page);
 });
 
