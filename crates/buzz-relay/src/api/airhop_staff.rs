@@ -2,7 +2,10 @@
 
 use std::sync::Arc;
 
-use airhop_core::BookingStatus;
+use airhop_core::{
+    BookingStatus, ExistingStudentsOnboardingStatus, OrganizationSettings, PublicBookingAppearance,
+    PublicBookingPurpose, TrialPolicy,
+};
 use axum::body::Bytes;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Path, Query, RawQuery, State};
@@ -28,6 +31,7 @@ use buzz_db::airhop::family_member_lifecycle::{
 };
 use buzz_db::airhop::family_members::{AddFamilyChildInput, AddFamilyRepresentativeInput};
 use buzz_db::airhop::family_primary_representative::SetFamilyPrimaryRepresentativeInput;
+use buzz_db::airhop::organization_settings::PutOrganizationSettingsInput;
 use buzz_db::airhop::staff_queue::{
     StaffBookingQueueCursor, StaffBookingQueueFilter, StaffBookingQueueRow,
 };
@@ -144,6 +148,22 @@ pub(crate) struct SetFamilyPrimaryRepresentativeBody {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PutOrganizationSettingsBody {
+    expected_version: i64,
+    name: String,
+    locale: String,
+    time_zone: String,
+    default_trial_policy: TrialPolicy,
+    track_attendance_by_default: bool,
+    allow_single_visits_by_default: bool,
+    existing_students_onboarding_status: ExistingStudentsOnboardingStatus,
+    public_booking_purpose: PublicBookingPurpose,
+    public_booking_appearance: PublicBookingAppearance,
+    payment_day_of_month: u8,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ClaimNotificationsBody {
     #[serde(default = "default_claim_limit")]
     limit: u16,
@@ -197,6 +217,87 @@ pub(crate) struct FamiliesQuery {
     cursor_sort_name: Option<String>,
     #[serde(default)]
     cursor_family_id: Option<Uuid>,
+}
+
+/// Staff-only authoritative organization settings.
+pub(crate) async fn get_organization_settings(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/settings";
+    let (tenant, _) = authenticate(&state, &headers, "GET", path, None, Access::Staff).await?;
+    let organization = state
+        .db
+        .get_airhop_organization(&tenant)
+        .await
+        .map_err(map_db_error)?
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "AirHub organization is not configured",
+            )
+        })?;
+    Ok(Json(organization_settings_payload(
+        organization.id,
+        &organization.name,
+        &organization.locale,
+        &organization.time_zone,
+        &organization.settings,
+        organization.version,
+        false,
+    )))
+}
+
+/// Idempotently bootstraps or replaces authoritative organization settings.
+pub(crate) async fn put_organization_settings(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/settings";
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", path, Some(&body), Access::Staff).await?;
+    let request: PutOrganizationSettingsBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let input = PutOrganizationSettingsInput {
+        expected_version: request.expected_version,
+        name: request.name.trim().to_owned(),
+        locale: request.locale.trim().to_owned(),
+        time_zone: request.time_zone.trim().to_owned(),
+        settings: OrganizationSettings {
+            default_trial_policy: request.default_trial_policy,
+            track_attendance_by_default: request.track_attendance_by_default,
+            allow_single_visits_by_default: request.allow_single_visits_by_default,
+            existing_students_onboarding_status: request.existing_students_onboarding_status,
+            public_booking_purpose: request.public_booking_purpose,
+            public_booking_appearance: request.public_booking_appearance,
+            payment_day_of_month: request.payment_day_of_month,
+        },
+        idempotency_digest: scoped_digest(
+            &key,
+            b"airhop.staff.organization-settings.idempotency.v1",
+            tenant.community().as_uuid(),
+            &pubkey.to_bytes(),
+            idempotency_key.as_bytes(),
+        )?,
+        request_hash: Sha256::digest(&body).into(),
+        actor: staff_actor(pubkey),
+    };
+    let outcome = state
+        .db
+        .put_airhop_organization_settings(&tenant, &input)
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(organization_settings_payload(
+        outcome.organization_id,
+        &input.name,
+        &input.locale,
+        &input.time_zone,
+        &input.settings,
+        outcome.version,
+        outcome.replayed,
+    )))
 }
 
 /// Authoritative, tenant-scoped request-workflow queue for AirHub staff.
@@ -1179,6 +1280,38 @@ fn booking_queue_row_json(row: &StaffBookingQueueRow) -> Value {
     })
 }
 
+fn organization_settings_payload(
+    organization_id: Uuid,
+    name: &str,
+    locale: &str,
+    time_zone: &str,
+    settings: &OrganizationSettings,
+    version: i64,
+    replayed: bool,
+) -> Value {
+    json!({
+        "organization": {
+            "id": organization_id,
+            "name": name,
+            "locale": locale,
+            "timeZone": time_zone,
+            "defaultTrialPolicy": settings.default_trial_policy,
+            "trackAttendanceByDefault": settings.track_attendance_by_default,
+            "allowSingleVisitsByDefault": settings.allow_single_visits_by_default,
+            "existingStudentsOnboarding": {
+                "status": settings.existing_students_onboarding_status,
+            },
+            "publicBooking": {
+                "purpose": settings.public_booking_purpose,
+                "appearance": settings.public_booking_appearance,
+            },
+            "paymentDayOfMonth": settings.payment_day_of_month,
+        },
+        "version": version,
+        "replayed": replayed,
+    })
+}
+
 fn parse_body<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, (StatusCode, Json<Value>)> {
     serde_json::from_slice(body)
         .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid AirHub JSON body"))
@@ -1329,6 +1462,39 @@ mod tests {
         }))
         .is_ok());
         assert!(serde_json::from_value::<CompleteNotificationBody>(json!({})).is_err());
+    }
+
+    #[test]
+    fn organization_settings_payload_matches_the_desktop_contract() {
+        let settings = OrganizationSettings {
+            default_trial_policy: TrialPolicy::Free,
+            track_attendance_by_default: true,
+            allow_single_visits_by_default: false,
+            existing_students_onboarding_status: ExistingStudentsOnboardingStatus::NotStarted,
+            public_booking_purpose: PublicBookingPurpose::Trial,
+            public_booking_appearance: PublicBookingAppearance::Automatic,
+            payment_day_of_month: 5,
+        };
+        let organization_id = Uuid::new_v4();
+        let payload = organization_settings_payload(
+            organization_id,
+            "Каляка Маляка",
+            "ru-RU",
+            "Europe/Moscow",
+            &settings,
+            3,
+            false,
+        );
+        assert_eq!(payload["organization"]["id"], json!(organization_id));
+        assert_eq!(
+            payload["organization"]["defaultTrialPolicy"]["mode"],
+            "free"
+        );
+        assert_eq!(
+            payload["organization"]["existingStudentsOnboarding"]["status"],
+            "not_started"
+        );
+        assert_eq!(payload["version"], 3);
     }
 
     #[test]

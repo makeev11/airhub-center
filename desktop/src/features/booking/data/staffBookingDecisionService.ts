@@ -24,9 +24,7 @@ const decisionOutcomeSchema = z.object({
 });
 
 export type StaffBookingDecision = "confirm" | "reject";
-export type StaffBookingDecisionOutcome = z.infer<
-  typeof decisionOutcomeSchema
->;
+export type StaffBookingDecisionOutcome = z.infer<typeof decisionOutcomeSchema>;
 
 export interface StaffBookingDecisionService {
   decideBooking(input: {
@@ -126,8 +124,7 @@ export class HttpStaffBookingDecisionService
     const baseUrl = (await this.relayHttpUrl()).replace(/\/+$/, "");
     const url = `${baseUrl}/api/airhop/staff/v1/bookings/${encodeURIComponent(input.bookingId)}/decision`;
     const body = JSON.stringify({ decision: input.decision });
-    const idempotencyKey =
-      input.idempotencyKey ?? this.idempotencyKeyFactory();
+    const idempotencyKey = input.idempotencyKey ?? this.idempotencyKeyFactory();
     const authorization = await nip98PostAuthorization(
       url,
       body,

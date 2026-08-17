@@ -88,6 +88,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 
     let airhop_staff_router = Router::new()
         .route(
+            "/api/airhop/staff/v1/settings",
+            get(api::airhop_staff::get_organization_settings)
+                .put(api::airhop_staff::put_organization_settings),
+        )
+        .route(
             "/api/airhop/staff/v1/families",
             get(api::airhop_staff::list_families).post(api::airhop_staff::create_family),
         )

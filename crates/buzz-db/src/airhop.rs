@@ -34,6 +34,8 @@ pub mod family_member_lifecycle;
 pub mod family_members;
 /// Explicit primary representative reassignment command.
 pub mod family_primary_representative;
+/// Idempotent organization bootstrap and settings updates.
+pub mod organization_settings;
 /// Atomic public booking command application service.
 pub mod public_booking;
 /// Credential-scoped parent booking management.

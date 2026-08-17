@@ -1,7 +1,12 @@
 import * as React from "react";
 import { CheckCircle2, Moon, Sun, SunMoon } from "lucide-react";
 
-import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import {
+  BookingWorkspaceProvider,
+  useBookingWorkspace,
+} from "@/features/booking/data/BookingWorkspaceProvider";
+import { createHttpBookingSettingsRepository } from "@/features/booking/data/httpBookingSettingsRepository";
+import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import {
   currencyMinorUnitExponent,
   majorMoneyInput,
@@ -469,7 +474,10 @@ function SettingsFormContent({
         </Card>
       ) : null}
       <div className="flex justify-end">
-        <Button disabled={booking.isSaving || !dirty} type="submit">
+        <Button
+          disabled={booking.isSaving || (!dirty && workspace.revision !== 0)}
+          type="submit"
+        >
           {booking.isSaving ? messages.saving : messages.save}
         </Button>
       </div>
@@ -477,11 +485,11 @@ function SettingsFormContent({
   );
 }
 
-export function BookingSettingsScreen({
-  section,
-}: {
+type BookingSettingsScreenProps = {
   section: "organization" | "public-booking";
-}) {
+};
+
+function BookingSettingsScreenContent({ section }: BookingSettingsScreenProps) {
   const booking = useBookingWorkspace();
   const messages = getBookingAdminMessages(
     booking.workspace?.organization.locale ?? "ru-RU",
@@ -511,5 +519,24 @@ export function BookingSettingsScreen({
         </div>
       </div>
     </div>
+  );
+}
+
+function ServerBookingSettingsScreen(props: BookingSettingsScreenProps) {
+  const [repository] = React.useState(() =>
+    createHttpBookingSettingsRepository(),
+  );
+  return (
+    <BookingWorkspaceProvider repository={repository}>
+      <BookingSettingsScreenContent {...props} />
+    </BookingWorkspaceProvider>
+  );
+}
+
+export function BookingSettingsScreen(props: BookingSettingsScreenProps) {
+  return currentAirhopStaffDataRuntime() === "server" ? (
+    <ServerBookingSettingsScreen {...props} />
+  ) : (
+    <BookingSettingsScreenContent {...props} />
   );
 }
