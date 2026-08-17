@@ -5,12 +5,13 @@ import {
   type BookingRepository,
 } from "@/features/booking/data/bookingRepository";
 import {
-  bookingIdSchema,
   branchSchema,
   organizationSchema,
   parseBookingWorkspace,
+  roomSchema,
   type BookingBranch,
   type BookingOrganization,
+  type BookingRoom,
   type BookingWorkspace,
   type BookingWorkspaceDraft,
 } from "@/features/booking/model/bookingCore";
@@ -24,19 +25,34 @@ const BRANCHES_PATH = "/api/airhop/staff/v1/branches";
 const serverBranchSchema = branchSchema
   .omit({ defaultBuzzChannelId: true })
   .extend({
-    defaultBuzzChannelId: bookingIdSchema.nullable().optional(),
+    id: z.string().uuid(),
+    organizationId: z.string().uuid(),
+    defaultBuzzChannelId: z.string().uuid().nullable().optional(),
     version: z.number().int().positive(),
   });
+const serverRoomSchema = roomSchema.extend({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  branchId: z.string().uuid(),
+  version: z.number().int().positive(),
+});
 const directoryResponseSchema = z.object({
   organization: organizationSchema,
   organizationVersion: z.number().int().positive(),
   items: z.array(serverBranchSchema),
+  rooms: z.array(serverRoomSchema),
 });
-const mutationResponseSchema = z.object({
-  branchId: z.string().uuid(),
-  version: z.number().int().positive(),
-  replayed: z.boolean(),
-});
+const mutationResponseSchema = z
+  .object({
+    version: z.number().int().positive(),
+    replayed: z.boolean(),
+  })
+  .and(
+    z.union([
+      z.object({ branchId: z.string().uuid() }),
+      z.object({ roomId: z.string().uuid() }),
+    ]),
+  );
 
 type EventSigner = (input: {
   kind: number;
@@ -69,6 +85,7 @@ export class BookingBranchesApiError extends Error {
 function emptyWorkspace(
   organization: BookingOrganization,
   branches: BookingBranch[],
+  rooms: BookingRoom[],
   revision: number,
 ): BookingWorkspace {
   return parseBookingWorkspace({
@@ -76,7 +93,7 @@ function emptyWorkspace(
     revision,
     organization,
     branches,
-    rooms: [],
+    rooms,
     teachers: [],
     groups: [],
     recurrenceRules: [],
@@ -144,7 +161,19 @@ function sameBranch(first: BookingBranch, second: BookingBranch): boolean {
   return JSON.stringify(first) === JSON.stringify(second);
 }
 
-/** Server-backed repository used only by the branches surface in Tauri. */
+function roomBody(room: BookingRoom, expectedVersion?: number) {
+  return {
+    ...(expectedVersion === undefined ? {} : { expectedVersion }),
+    name: room.name,
+    ...(expectedVersion === undefined ? {} : { status: room.status }),
+  };
+}
+
+function sameRoom(first: BookingRoom, second: BookingRoom): boolean {
+  return JSON.stringify(first) === JSON.stringify(second);
+}
+
+/** Server-backed branch and room repository used by the Tauri settings surface. */
 export class HttpBookingBranchesRepository implements BookingRepository {
   private readonly relayHttpUrl: () => Promise<string>;
   private readonly signEvent: EventSigner;
@@ -153,6 +182,7 @@ export class HttpBookingBranchesRepository implements BookingRepository {
   private readonly nonceFactory: () => string;
   private snapshot: BookingWorkspace | null = null;
   private branchVersions = new Map<string, number>();
+  private roomVersions = new Map<string, number>();
 
   constructor(options: Options = {}) {
     this.relayHttpUrl = options.relayHttpUrl ?? getRelayHttpUrl;
@@ -180,41 +210,68 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       );
     }
     const nextBranches = z.array(branchSchema).parse(draft.branches);
+    const nextRooms = z.array(roomSchema).parse(draft.rooms);
     const currentById = new Map(
       current.branches.map((branch) => [branch.id, branch]),
     );
     const nextById = new Map(nextBranches.map((branch) => [branch.id, branch]));
+    const currentRoomsById = new Map(
+      current.rooms.map((room) => [room.id, room]),
+    );
+    const nextRoomsById = new Map(nextRooms.map((room) => [room.id, room]));
     if (current.branches.some((branch) => !nextById.has(branch.id))) {
       throw new BookingBranchesApiError(
         400,
         "Branches must be archived instead of removed.",
       );
     }
-    const created = nextBranches.filter(
+    if (current.rooms.some((room) => !nextRoomsById.has(room.id))) {
+      throw new BookingBranchesApiError(
+        400,
+        "Rooms must be archived instead of removed.",
+      );
+    }
+    const createdBranches = nextBranches.filter(
       (branch) => !currentById.has(branch.id),
     );
-    const changed = nextBranches.filter((branch) => {
+    const changedBranches = nextBranches.filter((branch) => {
       const previous = currentById.get(branch.id);
       return previous !== undefined && !sameBranch(previous, branch);
     });
-    if (created.length + changed.length !== 1) {
-      if (created.length + changed.length === 0) return current;
+    const createdRooms = nextRooms.filter(
+      (room) => !currentRoomsById.has(room.id),
+    );
+    const changedRooms = nextRooms.filter((room) => {
+      const previous = currentRoomsById.get(room.id);
+      return previous !== undefined && !sameRoom(previous, room);
+    });
+    const mutationCount =
+      createdBranches.length +
+      changedBranches.length +
+      createdRooms.length +
+      changedRooms.length;
+    if (mutationCount !== 1) {
+      if (mutationCount === 0) return current;
       throw new BookingBranchesApiError(
         400,
-        "Save one AirHub branch at a time.",
+        "Save one AirHub branch or room at a time.",
       );
     }
     try {
-      if (created.length === 1) {
-        if (created[0].status !== "active") {
+      if (createdBranches.length === 1) {
+        if (createdBranches[0].status !== "active") {
           throw new BookingBranchesApiError(
             400,
             "A new AirHub branch must be active.",
           );
         }
-        await this.mutate("POST", BRANCHES_PATH, branchBody(created[0]));
-      } else {
-        const branch = changed[0];
+        await this.mutate(
+          "POST",
+          BRANCHES_PATH,
+          branchBody(createdBranches[0]),
+        );
+      } else if (changedBranches.length === 1) {
+        const branch = changedBranches[0];
         const version = this.branchVersions.get(branch.id);
         const branchId = z.string().uuid().safeParse(branch.id);
         if (!branchId.success || version === undefined) {
@@ -227,6 +284,47 @@ export class HttpBookingBranchesRepository implements BookingRepository {
           "PUT",
           `${BRANCHES_PATH}/${encodeURIComponent(branchId.data)}`,
           branchBody(branch, version),
+        );
+      } else if (createdRooms.length === 1) {
+        const room = createdRooms[0];
+        const branch = currentById.get(room.branchId);
+        const branchId = z.string().uuid().safeParse(room.branchId);
+        if (
+          room.status !== "active" ||
+          branch?.status !== "active" ||
+          !branchId.success
+        ) {
+          throw new BookingBranchesApiError(
+            400,
+            "A new AirHub room requires an active server-owned branch.",
+          );
+        }
+        await this.mutate(
+          "POST",
+          `${BRANCHES_PATH}/${encodeURIComponent(branchId.data)}/rooms`,
+          roomBody(room),
+        );
+      } else {
+        const room = changedRooms[0];
+        const previous = currentRoomsById.get(room.id);
+        const version = this.roomVersions.get(room.id);
+        const branchId = z.string().uuid().safeParse(room.branchId);
+        const roomId = z.string().uuid().safeParse(room.id);
+        if (
+          previous?.branchId !== room.branchId ||
+          !branchId.success ||
+          !roomId.success ||
+          version === undefined
+        ) {
+          throw new BookingBranchesApiError(
+            400,
+            "The AirHub room identity or branch is not server-owned.",
+          );
+        }
+        await this.mutate(
+          "PUT",
+          `${BRANCHES_PATH}/${encodeURIComponent(branchId.data)}/rooms/${encodeURIComponent(roomId.data)}`,
+          roomBody(room, version),
         );
       }
       return await this.fetchDirectory();
@@ -273,6 +371,9 @@ export class HttpBookingBranchesRepository implements BookingRepository {
     this.branchVersions = new Map(
       parsed.data.items.map((branch) => [branch.id, branch.version]),
     );
+    this.roomVersions = new Map(
+      parsed.data.rooms.map((room) => [room.id, room.version]),
+    );
     const branches = parsed.data.items.map(
       ({ version: _version, defaultBuzzChannelId, ...branch }) =>
         branchSchema.parse({
@@ -280,12 +381,17 @@ export class HttpBookingBranchesRepository implements BookingRepository {
           ...(defaultBuzzChannelId ? { defaultBuzzChannelId } : {}),
         }),
     );
+    const rooms = parsed.data.rooms.map(({ version: _version, ...room }) =>
+      roomSchema.parse(room),
+    );
     const revision =
       parsed.data.organizationVersion +
-      parsed.data.items.reduce((total, branch) => total + branch.version, 0);
+      parsed.data.items.reduce((total, branch) => total + branch.version, 0) +
+      parsed.data.rooms.reduce((total, room) => total + room.version, 0);
     this.snapshot = emptyWorkspace(
       parsed.data.organization,
       branches,
+      rooms,
       revision,
     );
     return this.snapshot;

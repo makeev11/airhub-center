@@ -10,6 +10,7 @@ import {
 
 const ORGANIZATION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const BRANCH_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const ROOM_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 function signedEvent(input) {
   return {
@@ -60,12 +61,28 @@ function branch(overrides = {}) {
   };
 }
 
-function directory(items = [], organizationVersion = 3) {
-  return { organization: organization(), organizationVersion, items };
+function room(overrides = {}) {
+  return {
+    id: ROOM_ID,
+    organizationId: ORGANIZATION_ID,
+    branchId: BRANCH_ID,
+    name: "Большой зал",
+    status: "active",
+    version: 1,
+    ...overrides,
+  };
+}
+
+function directory(items = [], organizationVersion = 3, rooms = []) {
+  return { organization: organization(), organizationVersion, items, rooms };
 }
 
 function mutation(version = 1) {
   return { branchId: BRANCH_ID, version, replayed: false };
+}
+
+function roomMutation(version = 1) {
+  return { roomId: ROOM_ID, version, replayed: false };
 }
 
 function jsonResponse(body, status = 200) {
@@ -78,6 +95,11 @@ function jsonResponse(body, status = 200) {
 function draftFrom(workspace, branches) {
   const { revision: _revision, ...draft } = workspace;
   return { ...draft, branches };
+}
+
+function draftWithRooms(workspace, rooms) {
+  const { revision: _revision, ...draft } = workspace;
+  return { ...draft, rooms };
 }
 
 test("branches repository creates a server-owned branch and reloads it", async () => {
@@ -180,6 +202,95 @@ test("branches repository sends row version for update and archive", async () =>
   assert.equal(JSON.parse(put.init.body).expectedVersion, 2);
   assert.equal(JSON.parse(put.init.body).status, "archived");
   assert.equal(saved.branches[0].status, "archived");
+});
+
+test("branches repository creates a server-owned room and reloads it", async () => {
+  const requests = [];
+  let getCount = 0;
+  const repository = new HttpBookingBranchesRepository({
+    relayHttpUrl: async () => "https://center.example",
+    idempotencyKeyFactory: () => "room-command-1234567890",
+    nonceFactory: () => "nonce",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), init });
+      if (init.method === "GET") {
+        getCount += 1;
+        return jsonResponse(
+          directory([branch()], 3, getCount === 1 ? [] : [room()]),
+        );
+      }
+      return jsonResponse(roomMutation());
+    },
+  });
+  const current = await repository.load();
+  const temporary = {
+    ...room(),
+    id: "room-temporary",
+  };
+  delete temporary.version;
+
+  const saved = await repository.save(
+    draftWithRooms(current, [temporary]),
+    current.revision,
+  );
+
+  assert.equal(saved.rooms[0].id, ROOM_ID);
+  assert.equal(saved.revision, 5);
+  const post = requests[1];
+  assert.equal(
+    post.url,
+    `https://center.example/api/airhop/staff/v1/branches/${BRANCH_ID}/rooms`,
+  );
+  assert.equal(post.init.method, "POST");
+  assert.equal(post.init.headers["Idempotency-Key"], "room-command-1234567890");
+  assert.deepEqual(JSON.parse(post.init.body), { name: "Большой зал" });
+});
+
+test("branches repository sends room row version for update and archive", async () => {
+  const requests = [];
+  let getCount = 0;
+  const repository = new HttpBookingBranchesRepository({
+    relayHttpUrl: async () => "https://center.example",
+    nonceFactory: () => "nonce",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), init });
+      if (init.method === "GET") {
+        getCount += 1;
+        return jsonResponse(
+          directory([branch()], 3, [
+            room(
+              getCount === 1
+                ? { version: 2 }
+                : { version: 3, status: "archived" },
+            ),
+          ]),
+        );
+      }
+      return jsonResponse(roomMutation(3));
+    },
+  });
+  const current = await repository.load();
+  const archived = { ...current.rooms[0], status: "archived" };
+
+  const saved = await repository.save(
+    draftWithRooms(current, [archived]),
+    current.revision,
+  );
+
+  const put = requests[1];
+  assert.equal(
+    put.url,
+    `https://center.example/api/airhop/staff/v1/branches/${BRANCH_ID}/rooms/${ROOM_ID}`,
+  );
+  assert.equal(put.init.method, "PUT");
+  assert.deepEqual(JSON.parse(put.init.body), {
+    expectedVersion: 2,
+    name: "Большой зал",
+    status: "archived",
+  });
+  assert.equal(saved.rooms[0].status, "archived");
 });
 
 test("branches repository reloads a stale server version as a conflict", async () => {

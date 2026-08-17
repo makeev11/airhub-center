@@ -117,6 +117,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             put(api::airhop_staff::put_branch),
         )
         .route(
+            "/api/airhop/staff/v1/branches/{branch_id}/rooms",
+            post(api::airhop_staff::create_room),
+        )
+        .route(
+            "/api/airhop/staff/v1/branches/{branch_id}/rooms/{room_id}",
+            put(api::airhop_staff::put_room),
+        )
+        .route(
             "/api/airhop/staff/v1/families",
             get(api::airhop_staff::list_families).post(api::airhop_staff::create_family),
         )

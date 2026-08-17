@@ -48,6 +48,8 @@ pub mod public_booking;
 pub mod public_management;
 /// Public catalog and authoritative occurrence projections.
 pub mod public_read;
+/// Tenant-scoped room directory and audited staff commands.
+pub mod room_directory;
 /// Authoritative occurrence read-model persistence.
 pub mod schedule;
 /// Tenant-scoped staff booking queue projection.

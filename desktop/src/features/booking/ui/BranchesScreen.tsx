@@ -39,13 +39,7 @@ import { Card } from "@/shared/ui/card";
 import { PageHeader } from "@/shared/ui/PageHeader";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 
-function BranchesContent({
-  createRequest,
-  roomsEnabled,
-}: {
-  createRequest: number;
-  roomsEnabled: boolean;
-}) {
+function BranchesContent({ createRequest }: { createRequest: number }) {
   const booking = useBookingWorkspace();
   const workspace = booking.workspace as NonNullable<typeof booking.workspace>;
   const messages = getBookingAdminMessages(workspace.organization.locale);
@@ -220,16 +214,14 @@ function BranchesContent({
                     ) : null}
                   </div>
                   <div className="mt-auto flex flex-wrap gap-2 border-t border-border/70 pt-4">
-                    {roomsEnabled ? (
-                      <Button
-                        data-testid={`airhop-manage-rooms-${branch.id}`}
-                        onClick={() => setRoomsBranch(branch)}
-                        size="sm"
-                        variant="outline"
-                      >
-                        {messages.manageRooms}
-                      </Button>
-                    ) : null}
+                    <Button
+                      data-testid={`airhop-manage-rooms-${branch.id}`}
+                      onClick={() => setRoomsBranch(branch)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {messages.manageRooms}
+                    </Button>
                     {branch.status === "active" ? (
                       <Button
                         data-testid={`airhop-copy-booking-link-${branch.id}`}
@@ -291,15 +283,13 @@ function BranchesContent({
         open={formOpen}
       />
 
-      {roomsEnabled ? (
-        <RoomsDialog
-          branch={roomsBranch}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setRoomsBranch(null);
-          }}
-          open={roomsBranch !== null}
-        />
-      ) : null}
+      <RoomsDialog
+        branch={roomsBranch}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setRoomsBranch(null);
+        }}
+        open={roomsBranch !== null}
+      />
 
       <AlertDialog
         onOpenChange={(open) => {
@@ -345,11 +335,7 @@ function BranchesContent({
   );
 }
 
-function BranchesScreenContent({
-  roomsEnabled = true,
-}: {
-  roomsEnabled?: boolean;
-}) {
+function BranchesScreenContent() {
   const booking = useBookingWorkspace();
   const messages = getBookingAdminMessages(
     booking.workspace?.organization.locale ?? "ru-RU",
@@ -375,12 +361,7 @@ function BranchesScreenContent({
       </header>
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <BookingWorkspaceGate>
-          {() => (
-            <BranchesContent
-              createRequest={createRequested}
-              roomsEnabled={roomsEnabled}
-            />
-          )}
+          {() => <BranchesContent createRequest={createRequested} />}
         </BookingWorkspaceGate>
       </div>
     </div>
@@ -393,7 +374,7 @@ function ServerBranchesScreen() {
   );
   return (
     <BookingWorkspaceProvider repository={repository}>
-      <BranchesScreenContent roomsEnabled={false} />
+      <BranchesScreenContent />
     </BookingWorkspaceProvider>
   );
 }

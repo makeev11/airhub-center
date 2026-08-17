@@ -36,6 +36,7 @@ use buzz_db::airhop::family_member_lifecycle::{
 use buzz_db::airhop::family_members::{AddFamilyChildInput, AddFamilyRepresentativeInput};
 use buzz_db::airhop::family_primary_representative::SetFamilyPrimaryRepresentativeInput;
 use buzz_db::airhop::organization_settings::PutOrganizationSettingsInput;
+use buzz_db::airhop::room_directory::{AirhopRoom, CreateRoomInput, PutRoomInput, RoomStatus};
 use buzz_db::airhop::staff_queue::{
     StaffBookingQueueCursor, StaffBookingQueueFilter, StaffBookingQueueRow,
 };
@@ -193,6 +194,20 @@ pub(crate) struct PutBranchBody {
     #[serde(default)]
     default_buzz_channel_id: Option<Uuid>,
     status: BranchStatus,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CreateRoomBody {
+    name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PutRoomBody {
+    expected_version: i64,
+    name: String,
+    status: RoomStatus,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -361,6 +376,11 @@ pub(crate) async fn list_branches(
         .list_airhop_branches(&tenant)
         .await
         .map_err(map_db_error)?;
+    let rooms = state
+        .db
+        .list_airhop_rooms(&tenant)
+        .await
+        .map_err(map_db_error)?;
     Ok(Json(json!({
         "organization": organization_json(
             organization.id,
@@ -371,6 +391,7 @@ pub(crate) async fn list_branches(
         ),
         "organizationVersion": organization.version,
         "items": branches.iter().map(branch_json).collect::<Vec<_>>(),
+        "rooms": rooms.iter().map(room_json).collect::<Vec<_>>(),
     })))
 }
 
@@ -457,6 +478,89 @@ pub(crate) async fn put_branch(
         .map_err(map_db_error)?;
     Ok(Json(json!({
         "branchId": outcome.branch_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Idempotently creates one room inside an active branch.
+pub(crate) async fn create_room(
+    State(state): State<Arc<AppState>>,
+    Path(branch_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/branches/{branch_id}/rooms");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "POST", &path, Some(&body), Access::Staff).await?;
+    let request: CreateRoomBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .create_airhop_room(
+            &tenant,
+            &CreateRoomInput {
+                branch_id,
+                name: request.name.trim().to_owned(),
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.room-create.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("POST", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "roomId": outcome.room_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Replaces, archives, or restores one room without moving it between branches.
+pub(crate) async fn put_room(
+    State(state): State<Arc<AppState>>,
+    Path((branch_id, room_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/branches/{branch_id}/rooms/{room_id}");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: PutRoomBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .put_airhop_room(
+            &tenant,
+            &PutRoomInput {
+                branch_id,
+                room_id,
+                expected_version: request.expected_version,
+                name: request.name.trim().to_owned(),
+                status: request.status,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.room-put.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("PUT", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "roomId": outcome.room_id,
         "version": outcome.version,
         "replayed": outcome.replayed,
     })))
@@ -1508,6 +1612,19 @@ fn branch_json(branch: &AirhopBranch) -> Value {
     })
 }
 
+fn room_json(room: &AirhopRoom) -> Value {
+    json!({
+        "id": room.id,
+        "organizationId": room.organization_id,
+        "branchId": room.branch_id,
+        "name": room.name,
+        "status": room.status,
+        "version": room.version,
+        "createdAt": room.created_at,
+        "updatedAt": room.updated_at,
+    })
+}
+
 const fn weekday_name(weekday: Weekday) -> &'static str {
     match weekday {
         Weekday::Monday => "monday",
@@ -1787,6 +1904,18 @@ mod tests {
             command_request_hash("PUT", "/branches/first", body),
             command_request_hash("PUT", "/branches/second", body)
         );
+    }
+
+    #[test]
+    fn room_body_contract_uses_camel_case_and_explicit_status() {
+        let body: PutRoomBody = serde_json::from_value(json!({
+            "expectedVersion": 2,
+            "name": "Большой зал",
+            "status": "archived"
+        }))
+        .expect("valid room body");
+        assert_eq!(body.expected_version, 2);
+        assert_eq!(body.status, RoomStatus::Archived);
     }
 
     #[test]
