@@ -571,7 +571,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 34);
+        assert_eq!(migrations.len(), 35);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -977,6 +977,12 @@ mod tests {
         let airhop_occurrence_provenance = migrations[33].sql.as_str();
         assert!(airhop_occurrence_provenance.contains("source_group_version"));
         assert!(airhop_occurrence_provenance.contains("source_organization_version"));
+
+        assert_eq!(migrations[34].version, 35);
+        let airhop_attendance = migrations[34].sql.as_str();
+        assert!(airhop_attendance.contains("CREATE TABLE airhop_lesson_attendance"));
+        assert!(airhop_attendance.contains("marked_by_pubkey"));
+        assert!(airhop_attendance.contains("status IN ('present', 'absent')"));
     }
 
     #[test]

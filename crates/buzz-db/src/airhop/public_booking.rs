@@ -146,15 +146,15 @@ struct OrganizationClock {
 }
 
 #[derive(Debug)]
-struct NormalizedApplicant {
-    parent_name: String,
-    phone_normalized: String,
-    phone_display: String,
-    child_name: String,
+pub(super) struct NormalizedApplicant {
+    pub(super) parent_name: String,
+    pub(super) phone_normalized: String,
+    pub(super) phone_display: String,
+    pub(super) child_name: String,
     normalized_child_name: String,
-    child_birth_date: NaiveDate,
-    preferred_contact_channel: PreferredContactChannel,
-    consent_policy_version: String,
+    pub(super) child_birth_date: NaiveDate,
+    pub(super) preferred_contact_channel: PreferredContactChannel,
+    pub(super) consent_policy_version: String,
 }
 
 #[derive(Debug)]
@@ -165,11 +165,17 @@ struct RepresentativeCandidate {
 }
 
 #[derive(Debug)]
-struct ResolvedIdentity {
-    family_id: Uuid,
-    representative_id: Uuid,
-    child_id: Uuid,
-    consent_id: Uuid,
+pub(super) struct ResolvedIdentity {
+    pub(super) family_id: Uuid,
+    pub(super) representative_id: Uuid,
+    pub(super) child_id: Uuid,
+    pub(super) consent_id: Uuid,
+}
+
+pub(super) struct IdentityConsent<'a> {
+    pub(super) phone_match_digest: &'a [u8; 32],
+    pub(super) channel: &'a str,
+    pub(super) evidence: &'a Value,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -234,7 +240,11 @@ impl Db {
             tenant,
             organization.id,
             &applicant,
-            input,
+            IdentityConsent {
+                phone_match_digest: &input.phone_match_digest,
+                channel: "web",
+                evidence: &input.consent_evidence,
+            },
             organization.current_instant,
         )
         .await?;
@@ -429,7 +439,7 @@ fn validate_envelope(input: &CreatePublicBookingInput) -> Result<()> {
     Ok(())
 }
 
-fn normalize_applicant(
+pub(super) fn normalize_applicant(
     input: &PublicBookingApplicant,
     organization_date: NaiveDate,
 ) -> Result<NormalizedApplicant> {
@@ -517,7 +527,7 @@ async fn validate_attribution_branch(
     Ok(())
 }
 
-async fn acquire_identity_lock(
+pub(super) async fn acquire_identity_lock(
     transaction: &mut Transaction<'_, Postgres>,
     tenant: &TenantContext,
     organization_id: Uuid,
@@ -536,12 +546,12 @@ async fn acquire_identity_lock(
     Ok(())
 }
 
-async fn resolve_identity(
+pub(super) async fn resolve_identity(
     transaction: &mut Transaction<'_, Postgres>,
     tenant: &TenantContext,
     organization_id: Uuid,
     applicant: &NormalizedApplicant,
-    input: &CreatePublicBookingInput,
+    consent: IdentityConsent<'_>,
     occurred_at: DateTime<Utc>,
 ) -> Result<ResolvedIdentity> {
     let representative_rows = sqlx::query(
@@ -560,7 +570,7 @@ async fn resolve_identity(
     )
     .bind(tenant.community().as_uuid())
     .bind(organization_id)
-    .bind(input.phone_match_digest.as_slice())
+    .bind(consent.phone_match_digest.as_slice())
     .bind(&applicant.phone_normalized)
     .fetch_all(&mut **transaction)
     .await?;
@@ -607,7 +617,7 @@ async fn resolve_identity(
             .bind(&applicant.parent_name)
             .bind(&applicant.phone_normalized)
             .bind(&applicant.phone_display)
-            .bind(input.phone_match_digest.as_slice())
+            .bind(consent.phone_match_digest.as_slice())
             .bind(applicant.preferred_contact_channel.as_db_str())
             .execute(&mut **transaction)
             .await?;
@@ -637,15 +647,16 @@ async fn resolve_identity(
         "INSERT INTO airhop_consents ( \
              community_id, organization_id, id, representative_id, purpose, channel, \
              policy_version, status, effective_at, evidence \
-         ) VALUES ($1, $2, $3, $4, 'public_booking', 'web', $5, 'granted', $6, $7)",
+         ) VALUES ($1, $2, $3, $4, 'public_booking', $5, $6, 'granted', $7, $8)",
     )
     .bind(tenant.community().as_uuid())
     .bind(organization_id)
     .bind(consent_id)
     .bind(representative_id)
+    .bind(consent.channel)
     .bind(&applicant.consent_policy_version)
     .bind(occurred_at)
-    .bind(&input.consent_evidence)
+    .bind(consent.evidence)
     .execute(&mut **transaction)
     .await?;
     Ok(ResolvedIdentity {
@@ -773,7 +784,10 @@ async fn insert_duplicate_candidate(
     Ok(())
 }
 
-fn applicant_snapshot(applicant: &NormalizedApplicant, accepted_at: DateTime<Utc>) -> Value {
+pub(super) fn applicant_snapshot(
+    applicant: &NormalizedApplicant,
+    accepted_at: DateTime<Utc>,
+) -> Value {
     json!({
         "parentName": applicant.parent_name,
         "phoneNormalized": applicant.phone_normalized,

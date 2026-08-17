@@ -93,6 +93,14 @@ pub enum DbError {
     #[error("AirHub entity version is no longer current")]
     AirhopVersionConflict,
 
+    /// Attendance is disabled by the effective lesson policy.
+    #[error("AirHub lesson attendance tracking is disabled")]
+    AirhopAttendanceDisabled,
+
+    /// Attendance was requested for a child outside the authoritative roster.
+    #[error("child is not an expected AirHub lesson participant")]
+    AirhopLessonParticipantMissing,
+
     /// The family primary representative cannot be archived in place.
     #[error("AirHub primary representative must be reassigned before archiving")]
     AirhopPrimaryRepresentativeRequired,

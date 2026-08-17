@@ -19,6 +19,12 @@ import {
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
 import { BookingWorkspaceProvider } from "@/features/booking/data/BookingWorkspaceProvider";
 import { createHttpBookingBranchesRepository } from "@/features/booking/data/httpBookingBranchesRepository";
+import {
+  createHttpStaffLessonService,
+  type StaffLessonAttendanceStatus,
+  type StaffLessonRoster,
+  type StaffLessonService,
+} from "@/features/booking/data/staffLessonService";
 import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import {
@@ -45,6 +51,8 @@ import { BookingSelect } from "@/features/booking/ui/BookingSelect";
 import { LessonEditDialog } from "@/features/booking/ui/LessonEditDialog";
 import { LessonParticipantDialog } from "@/features/booking/ui/LessonParticipantDialog";
 import { LessonRoster } from "@/features/booking/ui/LessonRoster";
+import { ServerLessonParticipantDialog } from "@/features/booking/ui/ServerLessonParticipantDialog";
+import { ServerLessonRoster } from "@/features/booking/ui/ServerLessonRoster";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -199,6 +207,11 @@ function LessonDetails({
   timeZone,
   workspace,
   participantActionsEnabled,
+  serverRoster,
+  serverRosterError,
+  serverRosterLoading,
+  serverRosterSaving,
+  onSetServerAttendance,
 }: {
   formatters: BookingFormatters;
   lesson: ScheduleLesson | null;
@@ -216,9 +229,22 @@ function LessonDetails({
   timeZone: string;
   workspace: BookingWorkspace;
   participantActionsEnabled: boolean;
+  serverRoster: StaffLessonRoster | null | undefined;
+  serverRosterError: Error | null;
+  serverRosterLoading: boolean;
+  serverRosterSaving: boolean;
+  onSetServerAttendance: (
+    childId: string,
+    expectedVersion: number,
+    status: StaffLessonAttendanceStatus | null,
+  ) => void;
 }) {
   if (!lesson) return null;
-  const places = availability(lesson, messages);
+  const occupied =
+    serverRoster === undefined
+      ? lesson.booked
+      : (serverRoster?.items.length ?? lesson.booked);
+  const places = availability({ ...lesson, booked: occupied }, messages);
 
   return (
     <Dialog onOpenChange={onOpenChange} open>
@@ -284,7 +310,7 @@ function LessonDetails({
             <p className="text-muted-foreground">
               {lesson.capacity === undefined
                 ? messages.unlimitedCapacity
-                : messages.occupiedPlaces(lesson.booked, lesson.capacity)}
+                : messages.occupiedPlaces(occupied, lesson.capacity)}
             </p>
           </div>
           <div className="space-y-1">
@@ -294,7 +320,16 @@ function LessonDetails({
             </p>
           </div>
         </div>
-        {participantActionsEnabled ? (
+        {participantActionsEnabled && serverRoster !== undefined ? (
+          <ServerLessonRoster
+            error={serverRosterError}
+            isLoading={serverRosterLoading}
+            isSaving={serverRosterSaving}
+            locale={workspace.organization.locale}
+            onSetAttendance={onSetServerAttendance}
+            roster={serverRoster}
+          />
+        ) : participantActionsEnabled ? (
           <LessonRoster
             isSaving={isSaving}
             lessonRef={{
@@ -361,9 +396,11 @@ function LessonDetails({
 
 function ScheduleWorkspaceScreen({
   participantActionsEnabled,
+  serverLessonService,
   workspace,
 }: {
   participantActionsEnabled: boolean;
+  serverLessonService?: StaffLessonService;
   workspace: BookingWorkspace;
 }) {
   const booking = useBookingWorkspace();
@@ -384,6 +421,13 @@ function ScheduleWorkspaceScreen({
   const [successMessage, setSuccessMessage] = React.useState<string | null>(
     null,
   );
+  const [serverRoster, setServerRoster] =
+    React.useState<StaffLessonRoster | null>(null);
+  const [serverRosterError, setServerRosterError] =
+    React.useState<Error | null>(null);
+  const [serverRosterLoading, setServerRosterLoading] = React.useState(false);
+  const [serverRosterSaving, setServerRosterSaving] = React.useState(false);
+  const serverRosterRequestRef = React.useRef(0);
   const [referenceDate, setReferenceDate] = React.useState(() =>
     getIsoDateInTimeZone(workspace.organization.timeZone),
   );
@@ -439,6 +483,57 @@ function ScheduleWorkspaceScreen({
   );
   const resolvedSelectedLesson = currentLesson(selectedLesson);
   const resolvedParticipantLesson = currentLesson(participantLesson);
+  const selectedLessonKey = resolvedSelectedLesson
+    ? `${resolvedSelectedLesson.recurrenceRuleId}:${resolvedSelectedLesson.originalDate}`
+    : null;
+  const selectedLessonKeyRef = React.useRef(selectedLessonKey);
+  selectedLessonKeyRef.current = selectedLessonKey;
+  const loadServerRoster = React.useCallback(
+    async (lesson: ScheduleLesson | null) => {
+      const request = ++serverRosterRequestRef.current;
+      if (!serverLessonService || !lesson) {
+        setServerRoster(null);
+        setServerRosterError(null);
+        setServerRosterLoading(false);
+        return;
+      }
+      const lessonKey = `${lesson.recurrenceRuleId}:${lesson.originalDate}`;
+      setServerRosterLoading(true);
+      setServerRosterError(null);
+      try {
+        const roster = await serverLessonService.getRoster({
+          recurrenceRuleId: lesson.recurrenceRuleId,
+          originalDate: lesson.originalDate,
+        });
+        if (
+          request !== serverRosterRequestRef.current ||
+          lessonKey !== selectedLessonKeyRef.current
+        )
+          return;
+        setServerRoster(roster);
+      } catch (cause) {
+        if (
+          request !== serverRosterRequestRef.current ||
+          lessonKey !== selectedLessonKeyRef.current
+        )
+          return;
+        setServerRosterError(
+          cause instanceof Error ? cause : new Error(String(cause)),
+        );
+      } finally {
+        if (
+          request === serverRosterRequestRef.current &&
+          lessonKey === selectedLessonKeyRef.current
+        ) {
+          setServerRosterLoading(false);
+        }
+      }
+    },
+    [serverLessonService],
+  );
+  React.useEffect(() => {
+    void loadServerRoster(resolvedSelectedLesson);
+  }, [loadServerRoster, resolvedSelectedLesson]);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-tl-xl bg-background">
@@ -565,7 +660,7 @@ function ScheduleWorkspaceScreen({
 
       <LessonDetails
         formatters={formatters}
-        isSaving={booking.isSaving}
+        isSaving={booking.isSaving || serverRosterSaving}
         lesson={resolvedSelectedLesson}
         messages={messages}
         participantActionsEnabled={participantActionsEnabled}
@@ -603,20 +698,61 @@ function ScheduleWorkspaceScreen({
               ).draft,
           );
         }}
+        onSetServerAttendance={(childId, expectedVersion, status) => {
+          if (!serverLessonService || !resolvedSelectedLesson) return;
+          setServerRosterSaving(true);
+          setServerRosterError(null);
+          void serverLessonService
+            .setAttendance({
+              lessonRef: {
+                recurrenceRuleId: resolvedSelectedLesson.recurrenceRuleId,
+                originalDate: resolvedSelectedLesson.originalDate,
+              },
+              childId,
+              expectedVersion,
+              status,
+            })
+            .then(() => loadServerRoster(resolvedSelectedLesson))
+            .catch((cause) => {
+              setServerRosterError(
+                cause instanceof Error ? cause : new Error(String(cause)),
+              );
+            })
+            .finally(() => setServerRosterSaving(false));
+        }}
+        serverRoster={serverLessonService ? serverRoster : undefined}
+        serverRosterError={serverRosterError}
+        serverRosterLoading={serverRosterLoading}
+        serverRosterSaving={serverRosterSaving}
         timeZone={workspace.organization.timeZone}
         workspace={workspace}
       />
 
-      <LessonParticipantDialog
-        lesson={resolvedParticipantLesson}
-        onOpenChange={(open) => {
-          if (!open) setParticipantLesson(null);
-        }}
-        onSaved={() => {
-          setSuccessMessage(adminMessages.participantAdded);
-        }}
-        open={participantLesson !== null}
-      />
+      {serverLessonService ? (
+        <ServerLessonParticipantDialog
+          lesson={resolvedParticipantLesson}
+          onOpenChange={(open) => {
+            if (!open) setParticipantLesson(null);
+          }}
+          onSaved={() => {
+            setSuccessMessage(adminMessages.participantAdded);
+            void loadServerRoster(resolvedSelectedLesson);
+          }}
+          open={participantLesson !== null}
+          service={serverLessonService}
+        />
+      ) : (
+        <LessonParticipantDialog
+          lesson={resolvedParticipantLesson}
+          onOpenChange={(open) => {
+            if (!open) setParticipantLesson(null);
+          }}
+          onSaved={() => {
+            setSuccessMessage(adminMessages.participantAdded);
+          }}
+          open={participantLesson !== null}
+        />
+      )}
 
       <LessonEditDialog
         lesson={editLesson}
@@ -736,8 +872,10 @@ function ScheduleWorkspaceScreen({
 
 function ScheduleScreenContent({
   participantActionsEnabled,
+  serverLessonService,
 }: {
   participantActionsEnabled: boolean;
+  serverLessonService?: StaffLessonService;
 }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-tl-xl bg-background">
@@ -745,6 +883,7 @@ function ScheduleScreenContent({
         {(workspace) => (
           <ScheduleWorkspaceScreen
             participantActionsEnabled={participantActionsEnabled}
+            serverLessonService={serverLessonService}
             workspace={workspace}
           />
         )}
@@ -757,9 +896,13 @@ function ServerScheduleScreen() {
   const [repository] = React.useState(() =>
     createHttpBookingBranchesRepository(),
   );
+  const [lessonService] = React.useState(() => createHttpStaffLessonService());
   return (
     <BookingWorkspaceProvider repository={repository}>
-      <ScheduleScreenContent participantActionsEnabled={false} />
+      <ScheduleScreenContent
+        participantActionsEnabled
+        serverLessonService={lessonService}
+      />
     </BookingWorkspaceProvider>
   );
 }

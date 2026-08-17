@@ -27,7 +27,7 @@ impl BookingVisitKind {
         }
     }
 
-    fn from_db(value: &str) -> Result<Self> {
+    pub(super) fn from_db(value: &str) -> Result<Self> {
         match value {
             "trial" => Ok(Self::Trial),
             "single" => Ok(Self::Single),

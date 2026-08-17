@@ -5,13 +5,15 @@ use std::sync::Arc;
 
 use airhop_core::{
     BookingStatus, ExistingStudentsOnboardingStatus, NullableOverride, OccurrenceOverride,
-    OrganizationSettings, PublicBookingAppearance, PublicBookingPurpose, TrialPolicy, Weekday,
+    OrganizationSettings, PublicBookingAppearance, PublicBookingPurpose, StableLessonReference,
+    TrialPolicy, Weekday,
 };
 use axum::body::Bytes;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Path, Query, RawQuery, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::Json;
+use buzz_db::airhop::booking::BookingVisitKind;
 use buzz_db::airhop::booking_decision::{
     BindMessengerAccountInput, BookingDecision, DecideBookingInput, DeliveryAckState,
     DeliveryCompletion, ParentNotificationRoute,
@@ -42,7 +44,12 @@ use buzz_db::airhop::group_directory::{
 use buzz_db::airhop::lesson_exception::{
     AirhopLessonException, LessonExceptionChange, PutLessonExceptionInput,
 };
+use buzz_db::airhop::lesson_participants::{
+    AddStaffLessonParticipantInput, LessonAttendanceStatus, SetStaffLessonAttendanceInput,
+    StaffLessonParticipantClient, StaffLessonRoster,
+};
 use buzz_db::airhop::organization_settings::PutOrganizationSettingsInput;
+use buzz_db::airhop::public_booking::{PreferredContactChannel, PublicBookingApplicant};
 use buzz_db::airhop::room_directory::{AirhopRoom, CreateRoomInput, PutRoomInput, RoomStatus};
 use buzz_db::airhop::staff_queue::{
     StaffBookingQueueCursor, StaffBookingQueueFilter, StaffBookingQueueRow,
@@ -333,6 +340,57 @@ pub(crate) enum PutLessonExceptionBody {
     Restore {
         expected_version: i64,
     },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum StaffLessonVisitKindBody {
+    Trial,
+    Single,
+}
+
+impl From<StaffLessonVisitKindBody> for BookingVisitKind {
+    fn from(value: StaffLessonVisitKindBody) -> Self {
+        match value {
+            StaffLessonVisitKindBody::Trial => Self::Trial,
+            StaffLessonVisitKindBody::Single => Self::Single,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(
+    tag = "mode",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub(crate) enum StaffLessonParticipantClientBody {
+    Existing {
+        family_id: Uuid,
+        representative_id: Uuid,
+        child_id: Uuid,
+    },
+    New {
+        parent_name: String,
+        phone: String,
+        child_name: String,
+        child_birth_date: chrono::NaiveDate,
+    },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AddLessonParticipantBody {
+    client: StaffLessonParticipantClientBody,
+    visit_kind: StaffLessonVisitKindBody,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PutLessonAttendanceBody {
+    expected_version: i64,
+    status: Option<LessonAttendanceStatus>,
 }
 
 struct ParsedLessonExceptionBody {
@@ -845,6 +903,187 @@ pub(crate) async fn put_lesson_exception(
         "version": outcome.version,
         "action": outcome.action,
         "cancelledBookingCount": outcome.cancelled_bookings,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Authoritative expected children and attendance for one stable lesson.
+pub(crate) async fn get_lesson_roster(
+    State(state): State<Arc<AppState>>,
+    Path((recurrence_rule_id, original_date)): Path<(Uuid, chrono::NaiveDate)>,
+    headers: HeaderMap,
+) -> Result<Json<StaffLessonRoster>, (StatusCode, Json<Value>)> {
+    let path =
+        format!("/api/airhop/staff/v1/lessons/{recurrence_rule_id}/{original_date}/participants");
+    let (tenant, _) = authenticate(&state, &headers, "GET", &path, None, Access::Staff).await?;
+    let roster = state
+        .db
+        .get_airhop_staff_lesson_roster(
+            &tenant,
+            StableLessonReference {
+                recurrence_rule_id,
+                original_date,
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(roster))
+}
+
+/// Atomically adds or confirms one direct participant for a future lesson.
+pub(crate) async fn add_lesson_participant(
+    State(state): State<Arc<AppState>>,
+    Path((recurrence_rule_id, original_date)): Path<(Uuid, chrono::NaiveDate)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path =
+        format!("/api/airhop/staff/v1/lessons/{recurrence_rule_id}/{original_date}/participants");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "POST", &path, Some(&body), Access::Staff).await?;
+    let request: AddLessonParticipantBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let command_key = command_key(&state);
+    let client = match request.client {
+        StaffLessonParticipantClientBody::Existing {
+            family_id,
+            representative_id,
+            child_id,
+        } => StaffLessonParticipantClient::Existing {
+            family_id,
+            representative_id,
+            child_id,
+        },
+        StaffLessonParticipantClientBody::New {
+            parent_name,
+            phone,
+            child_name,
+            child_birth_date,
+        } => {
+            let phone_normalized = super::airhop_public::normalize_airhop_phone(&phone)
+                .ok_or_else(|| {
+                    api_error(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "invalid AirHub phone number",
+                    )
+                })?;
+            let index_key = state
+                .config
+                .airhop_public_booking
+                .as_ref()
+                .map(|config| config.index_key())
+                .ok_or_else(|| {
+                    api_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "AirHub customer identity matching is not configured",
+                    )
+                })?;
+            StaffLessonParticipantClient::New {
+                phone_match_digest: super::airhop_public::airhop_phone_match_digest(
+                    index_key,
+                    tenant.community().as_uuid(),
+                    &phone_normalized,
+                ),
+                applicant: PublicBookingApplicant {
+                    parent_name,
+                    phone_normalized,
+                    phone_display: phone,
+                    child_name,
+                    child_birth_date,
+                    preferred_contact_channel: PreferredContactChannel::Phone,
+                    consent_policy_version: "staff-entry-v1".to_owned(),
+                },
+            }
+        }
+    };
+    let outcome = state
+        .db
+        .add_airhop_staff_lesson_participant(
+            &tenant,
+            &AddStaffLessonParticipantInput {
+                lesson_ref: StableLessonReference {
+                    recurrence_rule_id,
+                    original_date,
+                },
+                client,
+                visit_kind: request.visit_kind.into(),
+                management_token_digest: scoped_digest(
+                    &command_key,
+                    b"airhop.staff.direct-booking.management.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                management_key_version: 1,
+                idempotency_digest: scoped_digest(
+                    &command_key,
+                    b"airhop.staff.lesson-participant.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("POST", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "familyId": outcome.family_id,
+        "representativeId": outcome.representative_id,
+        "childId": outcome.child_id,
+        "bookingId": outcome.booking_id,
+        "participantStatus": outcome.participant_status,
+        "visitKind": outcome.visit_kind,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Optimistically sets or clears one attendance mark in a lesson roster.
+pub(crate) async fn put_lesson_attendance(
+    State(state): State<Arc<AppState>>,
+    Path((recurrence_rule_id, original_date, child_id)): Path<(Uuid, chrono::NaiveDate, Uuid)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!(
+        "/api/airhop/staff/v1/lessons/{recurrence_rule_id}/{original_date}/participants/{child_id}/attendance"
+    );
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: PutLessonAttendanceBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let command_key = command_key(&state);
+    let outcome = state
+        .db
+        .set_airhop_staff_lesson_attendance(
+            &tenant,
+            &SetStaffLessonAttendanceInput {
+                lesson_ref: StableLessonReference {
+                    recurrence_rule_id,
+                    original_date,
+                },
+                child_id,
+                expected_version: request.expected_version,
+                status: request.status,
+                idempotency_digest: scoped_digest(
+                    &command_key,
+                    b"airhop.staff.lesson-attendance.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("PUT", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "childId": outcome.child_id,
+        "attendanceId": outcome.attendance_id,
+        "status": outcome.status,
+        "version": outcome.version,
         "replayed": outcome.replayed,
     })))
 }
@@ -2291,6 +2530,30 @@ fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
             StatusCode::CONFLICT,
             "AirHub lesson occurrence is no longer available",
         ),
+        DbError::AirhopCapacityFull => api_error(
+            StatusCode::CONFLICT,
+            "AirHub lesson has no available places",
+        ),
+        DbError::AirhopAgeMismatch => api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Child does not match the AirHub lesson age limits",
+        ),
+        DbError::AirhopVisitDisabled => api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Selected AirHub visit kind is disabled",
+        ),
+        DbError::AirhopBookingConflict => api_error(
+            StatusCode::CONFLICT,
+            "Child already has a conflicting AirHub lesson booking",
+        ),
+        DbError::AirhopAttendanceDisabled => api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Attendance tracking is disabled for this AirHub lesson",
+        ),
+        DbError::AirhopLessonParticipantMissing => api_error(
+            StatusCode::CONFLICT,
+            "Child is not expected at this AirHub lesson",
+        ),
         DbError::AirhopPrimaryRepresentativeRequired => api_error(
             StatusCode::CONFLICT,
             "Primary representative must be reassigned before archiving",
@@ -2315,7 +2578,7 @@ fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
         }
         DbError::AirhopIdentityMismatch => api_error(
             StatusCode::CONFLICT,
-            "messenger identity is already bound to another representative",
+            "AirHub family, representative, or child identity is inconsistent",
         ),
         DbError::AccessDenied(_) => api_error(StatusCode::FORBIDDEN, "AirHub access denied"),
         DbError::InvalidData(_) => {

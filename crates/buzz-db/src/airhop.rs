@@ -44,6 +44,8 @@ pub mod family_primary_representative;
 pub mod group_directory;
 /// Tenant-scoped commands for cancelling, overriding, and restoring one lesson.
 pub mod lesson_exception;
+/// Authoritative per-lesson roster, direct participants, and attendance.
+pub mod lesson_participants;
 /// Idempotent organization bootstrap and settings updates.
 pub mod organization_settings;
 /// Atomic public booking command application service.

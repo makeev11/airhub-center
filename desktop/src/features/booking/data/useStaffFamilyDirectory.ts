@@ -24,6 +24,7 @@ type UseStaffFamilyDirectoryOptions = {
   status: StaffFamilyDirectoryStatus;
   search: string;
   service?: StaffFamilyDirectoryService;
+  enabled?: boolean;
 };
 
 function asError(value: unknown): Error {
@@ -49,6 +50,7 @@ export function useStaffFamilyDirectory(
     [options.service],
   );
   const normalizedSearch = options.search.trim();
+  const enabled = options.enabled ?? true;
   const baseQuery = React.useMemo<StaffFamilyDirectoryQuery>(
     () => ({
       status: options.status,
@@ -78,6 +80,13 @@ export function useStaffFamilyDirectory(
 
   const reload = React.useCallback(async (): Promise<void> => {
     const epoch = ++requestEpochRef.current;
+    if (!enabled) {
+      setItems([]);
+      setNextCursor(null);
+      setError(null);
+      setStatus("ready");
+      return;
+    }
     setStatus("loading");
     setError(null);
     setIsLoadingMore(false);
@@ -95,20 +104,20 @@ export function useStaffFamilyDirectory(
       setStatus("error");
       throw cause;
     }
-  }, [baseQuery, service]);
+  }, [baseQuery, enabled, service]);
 
   React.useEffect(() => {
     const timeout = window.setTimeout(
       () => {
         void reload().catch(() => undefined);
       },
-      normalizedSearch ? 250 : 0,
+      enabled && normalizedSearch ? 250 : 0,
     );
     return () => window.clearTimeout(timeout);
-  }, [normalizedSearch, reload]);
+  }, [enabled, normalizedSearch, reload]);
 
   const loadMore = React.useCallback(async (): Promise<void> => {
-    if (!nextCursor || isLoadingMore) return;
+    if (!enabled || !nextCursor || isLoadingMore) return;
     const epoch = ++requestEpochRef.current;
     setIsLoadingMore(true);
     setError(null);
@@ -132,7 +141,7 @@ export function useStaffFamilyDirectory(
         setIsLoadingMore(false);
       }
     }
-  }, [baseQuery, isLoadingMore, nextCursor, service]);
+  }, [baseQuery, enabled, isLoadingMore, nextCursor, service]);
 
   return {
     status,

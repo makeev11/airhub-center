@@ -137,6 +137,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             put(api::airhop_staff::put_lesson_exception),
         )
         .route(
+            "/api/airhop/staff/v1/lessons/{recurrence_rule_id}/{original_date}/participants",
+            get(api::airhop_staff::get_lesson_roster)
+                .post(api::airhop_staff::add_lesson_participant),
+        )
+        .route(
+            "/api/airhop/staff/v1/lessons/{recurrence_rule_id}/{original_date}/participants/{child_id}/attendance",
+            put(api::airhop_staff::put_lesson_attendance),
+        )
+        .route(
             "/api/airhop/staff/v1/families",
             get(api::airhop_staff::list_families).post(api::airhop_staff::create_family),
         )
