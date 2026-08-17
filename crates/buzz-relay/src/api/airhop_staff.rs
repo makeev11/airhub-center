@@ -1,10 +1,11 @@
 //! Authenticated AirHub staff decisions and private connector delivery API.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use airhop_core::{
     BookingStatus, ExistingStudentsOnboardingStatus, OrganizationSettings, PublicBookingAppearance,
-    PublicBookingPurpose, TrialPolicy,
+    PublicBookingPurpose, TrialPolicy, Weekday,
 };
 use axum::body::Bytes;
 use axum::extract::rejection::QueryRejection;
@@ -14,6 +15,9 @@ use axum::response::Json;
 use buzz_db::airhop::booking_decision::{
     BindMessengerAccountInput, BookingDecision, DecideBookingInput, DeliveryAckState,
     DeliveryCompletion, ParentNotificationRoute,
+};
+use buzz_db::airhop::branch_directory::{
+    AirhopBranch, BranchStatus, BranchWorkingPeriod, CreateBranchInput, PutBranchInput,
 };
 use buzz_db::airhop::family_commands::{
     UpdateFamilyChildInput, UpdateFamilyInput, UpdateFamilyRepresentativeInput,
@@ -36,7 +40,7 @@ use buzz_db::airhop::staff_queue::{
     StaffBookingQueueCursor, StaffBookingQueueFilter, StaffBookingQueueRow,
 };
 use buzz_db::airhop::{ActorKind, AirhopActor};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveTime, Utc};
 use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -164,6 +168,35 @@ pub(crate) struct PutOrganizationSettingsBody {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct BranchWorkingPeriodBody {
+    start_time: String,
+    end_time: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CreateBranchBody {
+    name: String,
+    address: String,
+    working_hours: BTreeMap<Weekday, Vec<BranchWorkingPeriodBody>>,
+    #[serde(default)]
+    default_buzz_channel_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PutBranchBody {
+    expected_version: i64,
+    name: String,
+    address: String,
+    working_hours: BTreeMap<Weekday, Vec<BranchWorkingPeriodBody>>,
+    #[serde(default)]
+    default_buzz_channel_id: Option<Uuid>,
+    status: BranchStatus,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ClaimNotificationsBody {
     #[serde(default = "default_claim_limit")]
     limit: u16,
@@ -172,7 +205,12 @@ pub(crate) struct ClaimNotificationsBody {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "outcome",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub(crate) enum CompleteNotificationBody {
     Delivered {
         lease_token: Uuid,
@@ -298,6 +336,130 @@ pub(crate) async fn put_organization_settings(
         outcome.version,
         outcome.replayed,
     )))
+}
+
+/// Authoritative active and archived branch directory for AirHub staff.
+pub(crate) async fn list_branches(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/branches";
+    let (tenant, _) = authenticate(&state, &headers, "GET", path, None, Access::Staff).await?;
+    let organization = state
+        .db
+        .get_airhop_organization(&tenant)
+        .await
+        .map_err(map_db_error)?
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "AirHub organization is not configured",
+            )
+        })?;
+    let branches = state
+        .db
+        .list_airhop_branches(&tenant)
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "organization": organization_json(
+            organization.id,
+            &organization.name,
+            &organization.locale,
+            &organization.time_zone,
+            &organization.settings,
+        ),
+        "organizationVersion": organization.version,
+        "items": branches.iter().map(branch_json).collect::<Vec<_>>(),
+    })))
+}
+
+/// Idempotently creates one tenant-scoped branch and its working hours.
+pub(crate) async fn create_branch(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/branches";
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "POST", path, Some(&body), Access::Staff).await?;
+    let request: CreateBranchBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let periods = branch_working_periods(request.working_hours)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .create_airhop_branch(
+            &tenant,
+            &CreateBranchInput {
+                name: request.name.trim().to_owned(),
+                address: request.address.trim().to_owned(),
+                working_periods: periods,
+                default_buzz_channel_id: request.default_buzz_channel_id,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.branch-create.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("POST", path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "branchId": outcome.branch_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Replaces, archives, or restores one branch with optimistic concurrency.
+pub(crate) async fn put_branch(
+    State(state): State<Arc<AppState>>,
+    Path(branch_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/branches/{branch_id}");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: PutBranchBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let periods = branch_working_periods(request.working_hours)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .put_airhop_branch(
+            &tenant,
+            &PutBranchInput {
+                branch_id,
+                expected_version: request.expected_version,
+                name: request.name.trim().to_owned(),
+                address: request.address.trim().to_owned(),
+                working_periods: periods,
+                default_buzz_channel_id: request.default_buzz_channel_id,
+                status: request.status,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.branch-put.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("PUT", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "branchId": outcome.branch_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
 }
 
 /// Authoritative, tenant-scoped request-workflow queue for AirHub staff.
@@ -1280,6 +1442,110 @@ fn booking_queue_row_json(row: &StaffBookingQueueRow) -> Value {
     })
 }
 
+fn branch_working_periods(
+    working_hours: BTreeMap<Weekday, Vec<BranchWorkingPeriodBody>>,
+) -> Result<Vec<BranchWorkingPeriod>, (StatusCode, Json<Value>)> {
+    working_hours
+        .into_iter()
+        .flat_map(|(weekday, periods)| {
+            periods.into_iter().map(move |period| {
+                let start_time =
+                    NaiveTime::parse_from_str(&period.start_time, "%H:%M").map_err(|_| {
+                        api_error(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "invalid AirHub branch working time",
+                        )
+                    })?;
+                let end_time =
+                    NaiveTime::parse_from_str(&period.end_time, "%H:%M").map_err(|_| {
+                        api_error(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "invalid AirHub branch working time",
+                        )
+                    })?;
+                Ok(BranchWorkingPeriod {
+                    weekday,
+                    start_time,
+                    end_time,
+                })
+            })
+        })
+        .collect()
+}
+
+fn branch_json(branch: &AirhopBranch) -> Value {
+    let working_hours = branch
+        .working_hours
+        .iter()
+        .map(|(weekday, periods)| {
+            (
+                weekday_name(*weekday).to_owned(),
+                Value::Array(
+                    periods
+                        .iter()
+                        .map(|period| {
+                            json!({
+                                "startTime": period.start_time.format("%H:%M").to_string(),
+                                "endTime": period.end_time.format("%H:%M").to_string(),
+                            })
+                        })
+                        .collect(),
+                ),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    json!({
+        "id": branch.id,
+        "organizationId": branch.organization_id,
+        "name": branch.name,
+        "address": branch.address,
+        "workingHours": working_hours,
+        "defaultBuzzChannelId": branch.default_buzz_channel_id,
+        "status": branch.status,
+        "version": branch.version,
+        "createdAt": branch.created_at,
+        "updatedAt": branch.updated_at,
+    })
+}
+
+const fn weekday_name(weekday: Weekday) -> &'static str {
+    match weekday {
+        Weekday::Monday => "monday",
+        Weekday::Tuesday => "tuesday",
+        Weekday::Wednesday => "wednesday",
+        Weekday::Thursday => "thursday",
+        Weekday::Friday => "friday",
+        Weekday::Saturday => "saturday",
+        Weekday::Sunday => "sunday",
+    }
+}
+
+fn organization_json(
+    organization_id: Uuid,
+    name: &str,
+    locale: &str,
+    time_zone: &str,
+    settings: &OrganizationSettings,
+) -> Value {
+    json!({
+        "id": organization_id,
+        "name": name,
+        "locale": locale,
+        "timeZone": time_zone,
+        "defaultTrialPolicy": settings.default_trial_policy,
+        "trackAttendanceByDefault": settings.track_attendance_by_default,
+        "allowSingleVisitsByDefault": settings.allow_single_visits_by_default,
+        "existingStudentsOnboarding": {
+            "status": settings.existing_students_onboarding_status,
+        },
+        "publicBooking": {
+            "purpose": settings.public_booking_purpose,
+            "appearance": settings.public_booking_appearance,
+        },
+        "paymentDayOfMonth": settings.payment_day_of_month,
+    })
+}
+
 fn organization_settings_payload(
     organization_id: Uuid,
     name: &str,
@@ -1290,23 +1556,13 @@ fn organization_settings_payload(
     replayed: bool,
 ) -> Value {
     json!({
-        "organization": {
-            "id": organization_id,
-            "name": name,
-            "locale": locale,
-            "timeZone": time_zone,
-            "defaultTrialPolicy": settings.default_trial_policy,
-            "trackAttendanceByDefault": settings.track_attendance_by_default,
-            "allowSingleVisitsByDefault": settings.allow_single_visits_by_default,
-            "existingStudentsOnboarding": {
-                "status": settings.existing_students_onboarding_status,
-            },
-            "publicBooking": {
-                "purpose": settings.public_booking_purpose,
-                "appearance": settings.public_booking_appearance,
-            },
-            "paymentDayOfMonth": settings.payment_day_of_month,
-        },
+        "organization": organization_json(
+            organization_id,
+            name,
+            locale,
+            time_zone,
+            settings,
+        ),
         "version": version,
         "replayed": replayed,
     })
@@ -1336,6 +1592,15 @@ fn command_key(state: &AppState) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(root);
     hasher.update(b"airhop-command-key-v1");
+    hasher.finalize().into()
+}
+
+fn command_request_hash(method: &str, path: &str, body: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    for component in [method.as_bytes(), path.as_bytes(), body] {
+        hasher.update((component.len() as u64).to_be_bytes());
+        hasher.update(component);
+    }
     hasher.finalize().into()
 }
 
@@ -1495,6 +1760,33 @@ mod tests {
             "not_started"
         );
         assert_eq!(payload["version"], 3);
+    }
+
+    #[test]
+    fn branch_body_contract_uses_camel_case_weekly_hours() {
+        let body: CreateBranchBody = serde_json::from_value(json!({
+            "name": "Курская",
+            "address": "Земляной Вал, 1",
+            "workingHours": {
+                "monday": [{"startTime": "09:00", "endTime": "18:00"}],
+                "sunday": []
+            },
+            "defaultBuzzChannelId": null
+        }))
+        .expect("valid branch body");
+        let periods = branch_working_periods(body.working_hours).expect("valid working hours");
+        assert_eq!(periods.len(), 1);
+        assert_eq!(periods[0].weekday, Weekday::Monday);
+        assert_eq!(periods[0].start_time.format("%H:%M").to_string(), "09:00");
+    }
+
+    #[test]
+    fn branch_command_hash_binds_the_resource_path() {
+        let body = br#"{"expectedVersion":1}"#;
+        assert_ne!(
+            command_request_hash("PUT", "/branches/first", body),
+            command_request_hash("PUT", "/branches/second", body)
+        );
     }
 
     #[test]

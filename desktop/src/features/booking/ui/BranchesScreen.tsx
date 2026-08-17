@@ -1,7 +1,12 @@
 import * as React from "react";
 import { Building2, Copy, MapPin, Plus } from "lucide-react";
 
-import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import {
+  BookingWorkspaceProvider,
+  useBookingWorkspace,
+} from "@/features/booking/data/BookingWorkspaceProvider";
+import { createHttpBookingBranchesRepository } from "@/features/booking/data/httpBookingBranchesRepository";
+import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import {
   branchUsage,
   workingHoursCounts,
@@ -34,7 +39,13 @@ import { Card } from "@/shared/ui/card";
 import { PageHeader } from "@/shared/ui/PageHeader";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 
-function BranchesContent({ createRequest }: { createRequest: number }) {
+function BranchesContent({
+  createRequest,
+  roomsEnabled,
+}: {
+  createRequest: number;
+  roomsEnabled: boolean;
+}) {
   const booking = useBookingWorkspace();
   const workspace = booking.workspace as NonNullable<typeof booking.workspace>;
   const messages = getBookingAdminMessages(workspace.organization.locale);
@@ -209,14 +220,16 @@ function BranchesContent({ createRequest }: { createRequest: number }) {
                     ) : null}
                   </div>
                   <div className="mt-auto flex flex-wrap gap-2 border-t border-border/70 pt-4">
-                    <Button
-                      data-testid={`airhop-manage-rooms-${branch.id}`}
-                      onClick={() => setRoomsBranch(branch)}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {messages.manageRooms}
-                    </Button>
+                    {roomsEnabled ? (
+                      <Button
+                        data-testid={`airhop-manage-rooms-${branch.id}`}
+                        onClick={() => setRoomsBranch(branch)}
+                        size="sm"
+                        variant="outline"
+                      >
+                        {messages.manageRooms}
+                      </Button>
+                    ) : null}
                     {branch.status === "active" ? (
                       <Button
                         data-testid={`airhop-copy-booking-link-${branch.id}`}
@@ -278,13 +291,15 @@ function BranchesContent({ createRequest }: { createRequest: number }) {
         open={formOpen}
       />
 
-      <RoomsDialog
-        branch={roomsBranch}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen) setRoomsBranch(null);
-        }}
-        open={roomsBranch !== null}
-      />
+      {roomsEnabled ? (
+        <RoomsDialog
+          branch={roomsBranch}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setRoomsBranch(null);
+          }}
+          open={roomsBranch !== null}
+        />
+      ) : null}
 
       <AlertDialog
         onOpenChange={(open) => {
@@ -330,7 +345,11 @@ function BranchesContent({ createRequest }: { createRequest: number }) {
   );
 }
 
-export function BranchesScreen() {
+function BranchesScreenContent({
+  roomsEnabled = true,
+}: {
+  roomsEnabled?: boolean;
+}) {
   const booking = useBookingWorkspace();
   const messages = getBookingAdminMessages(
     booking.workspace?.organization.locale ?? "ru-RU",
@@ -356,9 +375,34 @@ export function BranchesScreen() {
       </header>
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <BookingWorkspaceGate>
-          {() => <BranchesContent createRequest={createRequested} />}
+          {() => (
+            <BranchesContent
+              createRequest={createRequested}
+              roomsEnabled={roomsEnabled}
+            />
+          )}
         </BookingWorkspaceGate>
       </div>
     </div>
+  );
+}
+
+function ServerBranchesScreen() {
+  const [repository] = React.useState(() =>
+    createHttpBookingBranchesRepository(),
+  );
+  return (
+    <BookingWorkspaceProvider repository={repository}>
+      <BranchesScreenContent roomsEnabled={false} />
+    </BookingWorkspaceProvider>
+  );
+}
+
+/** Uses PostgreSQL in Tauri while retaining the isolated demo repository in previews. */
+export function BranchesScreen() {
+  return currentAirhopStaffDataRuntime() === "server" ? (
+    <ServerBranchesScreen />
+  ) : (
+    <BranchesScreenContent />
   );
 }
