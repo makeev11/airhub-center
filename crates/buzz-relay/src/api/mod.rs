@@ -1,6 +1,7 @@
 //! HTTP API — media, git, NIP-05, and the Nostr HTTP bridge.
 
 pub mod admin;
+pub mod airhop_activation;
 pub mod airhop_public;
 pub mod airhop_staff;
 pub mod bridge;

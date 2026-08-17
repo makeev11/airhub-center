@@ -86,6 +86,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .with_state(state.clone());
 
+    let airhop_activation_router = Router::new()
+        .route(
+            "/api/airhop/activation/v1/claim",
+            post(api::airhop_activation::claim_activation_grant),
+        )
+        .route(
+            "/api/airhop/activation/v1/status",
+            get(api::airhop_activation::get_installation_status),
+        )
+        .layer(RequestBodyLimitLayer::new(16 * 1024))
+        .with_state(state.clone());
+
     let airhop_staff_router = Router::new()
         .route(
             "/api/airhop/staff/v1/settings",
@@ -197,6 +209,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/operator/communities/transfer",
             post(api::operator::transfer_community),
         )
+        .route(
+            "/operator/airhop/center-activation-grants",
+            post(api::operator::issue_center_activation_grant),
+        )
+        .route(
+            "/operator/airhop/center-activation-grants/revoke",
+            post(api::operator::revoke_center_activation_grant),
+        )
+        .route(
+            "/operator/airhop/center-installations",
+            get(api::operator::get_center_installation_metadata),
+        )
         // Relay invites: mint (owner/admin) + claim (membership-gate exempt)
         .route("/api/invites", post(api::invites::mint_invite))
         .route("/api/join-policy", get(api::invites::join_policy))
@@ -242,6 +266,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .merge(media_router)
         .merge(git_router)
         .merge(git_policy_router)
+        .merge(airhop_activation_router)
         .merge(airhop_public_router)
         .merge(airhop_staff_router);
     if let Some(admin_router) = admin_router {

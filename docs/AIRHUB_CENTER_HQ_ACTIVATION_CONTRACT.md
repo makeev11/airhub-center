@@ -1,6 +1,6 @@
 # AirHub Center ↔ HQ: deployment и activation contract
 
-Статус: рабочая граница для реализации Center  
+Статус: Center grant/claim contract реализован; HQ connector ещё не реализован
 Дата: 2026-08-17
 
 Документ фиксирует только взаимодействие AirHub Center с будущим AirHub HQ.
@@ -65,20 +65,53 @@ Grant должен быть:
 состояние → отметить grant использованным → привязать installation public key →
 записать audit event. Два параллельных claim не могут оба завершиться успешно.
 
-## 5. Минимальный versioned API
+## 5. Versioned API Center
 
-Точные payload будут закреплены тестовыми fixtures перед реализацией. Требуемые
-семантические операции:
+Текущая реализация использует существующую deployment-global NIP-98 авторизацию
+`RELAY_OPERATOR_PUBKEYS`. Будущий HQ connector становится клиентом этих
+маршрутов; переносить в HQ базу или приватный ключ Center не требуется.
 
-### HQ / Center connector
+### Operator plane
+
+- `POST /operator/airhop/center-activation-grants` — выпустить grant. Требует
+  `Idempotency-Key` и NIP-98 payload binding. Тело содержит `host`,
+  `installationId`, `environment`, `releaseProfile`, `releaseVersion` и
+  необязательный `ttlSeconds` (по умолчанию 900, допустимо 60–3600). Ответ `201`
+  единственный раз содержит `activationCode`; идемпотентный replay возвращает
+  `200` с теми же metadata без кода.
+- `POST /operator/airhop/center-activation-grants/revoke` — идемпотентно
+  отозвать непогашенный grant по `host` и `grantId`.
+- `GET /operator/airhop/center-installations?host=…&installationId=…` — получить
+  безопасные metadata установки и историю grants без кодов и digests.
+
+Выпуск разрешён только после создания активной AirHub organization в выбранном
+tenant. Повторный живой grant для той же установки требует сначала отозвать
+предыдущий либо дождаться его истечения.
+
+### Center bootstrap plane
+
+- `POST /api/airhop/activation/v1/claim` — host-bound и rate-limited claim.
+  Требует `Idempotency-Key`; тело содержит `installationId`, `activationCode`,
+  `installationPubkey`, `environment`, `releaseProfile`, `releaseVersion`.
+- `GET /api/airhop/activation/v1/status?installationId=…` — безопасный status,
+  доступный только через NIP-98 подпись уже привязанного installation key.
+
+Claim проверяет весь deployment binding и одной транзакцией помечает grant
+использованным, привязывает public key, увеличивает `activationVersion` и пишет
+append-only audit. Тот же idempotency key с тем же телом возвращает сохранённый
+результат; другой claim уже погашенного grant отклоняется.
+
+Следующая отдельная итерация контракта — server-issued challenge и signed health
+response с обновлением `lastVerifiedAt`. Текущий signed status уже доказывает
+владение installation key, но не подменяет будущую HQ health ceremony.
+
+## 6. Требуемые операции будущего HQ connector
 
 - создать и отозвать activation grant;
 - получить безопасные metadata установки и grants без исходных кодов;
 - запросить challenge и проверить подписанный ответ;
 - получить release/config version, последнее успешное health-время и
   санитизированную ошибку.
-
-### Center bootstrap surface
 
 - claim одноразового grant вместе с installation public key;
 - вернуть стабильную installation identity и activation version;
@@ -89,7 +122,7 @@ HTTP допустим здесь как bootstrap-интерфейс до поя
 identity. Все обычные операции Center после активации продолжают использовать
 его tenant-scoped, подписанный и аудируемый контур.
 
-## 6. Состояния HQ-панели Center
+## 7. Состояния HQ-панели Center
 
 `not_installed → provisioning → ready | degraded | failed → disabled`
 
@@ -101,7 +134,7 @@ identity. Все обычные операции Center после актива�
 - ротация identity или повторная установка создаёт новую activation ceremony и
   не стирает историю предыдущей установки.
 
-## 7. Приёмка
+## 8. Приёмка
 
 Сквозной тест должен доказать:
 
@@ -113,4 +146,3 @@ identity. Все обычные операции Center после актива�
 6. после отключения HQ уже активированный Center продолжает обслуживать свои
    staff/public сценарии;
 7. HQ health/status не раскрывает данные клиентов Center.
-

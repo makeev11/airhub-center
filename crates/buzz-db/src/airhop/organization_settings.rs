@@ -9,7 +9,6 @@ use buzz_core::TenantContext;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::Row;
 use uuid::Uuid;
 
 use super::{

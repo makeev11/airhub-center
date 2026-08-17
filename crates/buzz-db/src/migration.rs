@@ -440,20 +440,30 @@ mod tests {
     fn alter_table_constraints(sql: &str, scoped_tables: &BTreeSet<String>) -> Vec<ConstraintLint> {
         split_sql_statements(sql)
             .into_iter()
-            .filter_map(|statement| {
+            .flat_map(|statement| {
                 let normalized = normalize_sql(&statement);
                 if !normalized.starts_with("alter table") {
-                    return None;
+                    return Vec::new();
                 }
 
-                let table = identifier_after_keyword(&statement, "alter table")?;
+                let Some(table) = identifier_after_keyword(&statement, "alter table") else {
+                    return Vec::new();
+                };
                 if !scoped_tables.contains(&table) {
-                    return None;
+                    return Vec::new();
                 }
 
-                let add_pos = normalized.find(" add ")?;
-                let definition = normalized[add_pos + " add ".len()..].trim();
-                constraint_lint_for_definition(&table, definition)
+                let Some(add_pos) = normalized.find(" add ") else {
+                    return Vec::new();
+                };
+                split_top_level_csv(&normalized[add_pos + 1..])
+                    .into_iter()
+                    .filter_map(|action| {
+                        action.trim().strip_prefix("add ").and_then(|definition| {
+                            constraint_lint_for_definition(&table, definition)
+                        })
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect()
     }
@@ -561,7 +571,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 29);
+        assert_eq!(migrations.len(), 32);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -938,6 +948,23 @@ mod tests {
         assert!(airhop_customers.contains("CREATE TABLE airhop_families"));
         assert!(airhop_customers.contains("CREATE TABLE airhop_consents"));
         assert!(airhop_customers.contains("CREATE TABLE airhop_bookings"));
+
+        assert_eq!(migrations[29].version, 30);
+        let airhop_messenger = migrations[29].sql.as_str();
+        assert!(airhop_messenger.contains("ALTER TABLE airhop_messenger_accounts"));
+        assert!(airhop_messenger.contains("CREATE TABLE airhop_outbox_delivery_attempts"));
+
+        assert_eq!(migrations[30].version, 31);
+        let airhop_staff_queue = migrations[30].sql.as_str();
+        assert!(airhop_staff_queue.contains("CREATE INDEX airhop_bookings_staff_queue_idx"));
+
+        assert_eq!(migrations[31].version, 32);
+        let airhop_activation = migrations[31].sql.as_str();
+        assert!(airhop_activation.contains("CREATE TABLE airhop_center_installations"));
+        assert!(airhop_activation.contains("CREATE TABLE airhop_center_activation_grants"));
+        assert!(airhop_activation.contains("CREATE TABLE airhop_center_activation_audit"));
+        assert!(airhop_activation.contains("code_digest"));
+        assert!(airhop_activation.contains("activation audit is append-only"));
     }
 
     #[test]
@@ -1018,6 +1045,10 @@ mod tests {
             CREATE UNIQUE INDEX idx_widgets_slug ON widgets (community_id, slug);
             ALTER TABLE widgets ADD CONSTRAINT widgets_alter_slug_unique UNIQUE (community_id, slug);
             ALTER TABLE widgets ADD CONSTRAINT widgets_alter_parent_fk FOREIGN KEY (community_id, channel_id) REFERENCES channels(community_id, id);
+            ALTER TABLE widgets
+                ADD COLUMN note TEXT,
+                ADD COLUMN optional_parent UUID,
+                ADD CONSTRAINT widgets_multi_add_unique UNIQUE (community_id, id, note);
             CREATE TABLE _operator_global_tables (table_name TEXT PRIMARY KEY, reason TEXT NOT NULL);
             INSERT INTO _operator_global_tables (table_name, reason) VALUES
                 ('_operator_global_tables', 'registry');

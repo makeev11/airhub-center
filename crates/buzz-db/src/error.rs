@@ -104,6 +104,14 @@ pub enum DbError {
     /// The selected representative cannot become the active family primary contact.
     #[error("AirHub representative is unavailable as primary contact")]
     AirhopRepresentativeUnavailable,
+
+    /// An AirHub Center activation code is unknown, expired, revoked, or already consumed.
+    #[error("AirHub Center activation grant is invalid or unavailable")]
+    AirhopActivationInvalid,
+
+    /// An AirHub Center installation or live grant conflicts with the requested operation.
+    #[error("AirHub Center activation state conflicts with the requested operation")]
+    AirhopActivationConflict,
 }
 
 /// Convenience alias for `Result<T, DbError>`.

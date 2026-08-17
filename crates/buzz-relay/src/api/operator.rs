@@ -8,11 +8,13 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Query, RawQuery, State},
-    http::{HeaderMap, StatusCode},
-    response::Json,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Json, Response},
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use buzz_core::{CommunityId, TenantContext};
@@ -50,6 +52,37 @@ struct TransferCommunityResponse {
     status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     previous_owner: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct IssueCenterActivationGrantRequest {
+    host: String,
+    installation_id: Uuid,
+    environment: String,
+    release_profile: String,
+    release_version: String,
+    #[serde(default = "default_activation_ttl_seconds")]
+    ttl_seconds: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RevokeCenterActivationGrantRequest {
+    host: String,
+    grant_id: Uuid,
+}
+
+/// Query parameters for operator-safe Center installation metadata.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CenterInstallationMetadataQuery {
+    host: String,
+    installation_id: Uuid,
+}
+
+const fn default_activation_ttl_seconds() -> i64 {
+    900
 }
 
 const OPERATOR_REPLAY_SCOPE: &str = "operator-management";
@@ -497,6 +530,236 @@ pub async fn community_availability(
     })))
 }
 
+/// Issue a one-time Center activation code for an exact deployment binding.
+pub async fn issue_center_activation_grant(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    const PATH: &str = "/operator/airhop/center-activation-grants";
+    let operator =
+        authorize_operator_request(&state, &headers, "POST", PATH, None, Some(&body)).await?;
+    let idempotency_key = super::airhop_activation::require_idempotency_key(&headers)?;
+    let request: IssueCenterActivationGrantRequest = serde_json::from_slice(&body)
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid activation grant JSON"))?;
+    if request.installation_id.is_nil() {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "installationId must be a non-zero UUID",
+        ));
+    }
+    let environment =
+        buzz_db::airhop::center_activation::CenterEnvironment::parse(request.environment.trim())
+            .ok_or_else(|| {
+                api_error(
+                    StatusCode::BAD_REQUEST,
+                    "environment must be production, staging, or development",
+                )
+            })?;
+    let tenant = active_operator_tenant(&state, &request.host).await?;
+    let key = super::airhop_activation::activation_key(&state);
+    let activation_code = super::airhop_activation::generate_activation_code();
+    let code_digest = super::airhop_activation::activation_code_digest(
+        &key,
+        tenant.community().as_uuid(),
+        &activation_code,
+    )?;
+    let issue_idempotency_digest = super::airhop_activation::scoped_digest(
+        &key,
+        b"airhop.center.activation-issue-idempotency.v1",
+        tenant.community().as_uuid(),
+        &[operator.as_bytes(), idempotency_key.as_bytes()],
+    )?;
+    let request_hash: [u8; 32] = Sha256::digest(&body).into();
+    let outcome = state
+        .db
+        .issue_airhop_center_activation_grant(
+            &tenant,
+            &buzz_db::airhop::center_activation::IssueCenterActivationGrantInput {
+                installation_id: request.installation_id,
+                environment,
+                release_profile: request.release_profile,
+                release_version: request.release_version,
+                ttl_seconds: request.ttl_seconds,
+                code_digest,
+                issue_idempotency_digest,
+                issue_request_hash: request_hash,
+                issued_by_pubkey: operator.to_bytes(),
+            },
+        )
+        .await
+        .map_err(map_activation_operator_error)?;
+    let mut payload = serde_json::json!({
+        "grantId": outcome.grant_id,
+        "organizationId": outcome.organization_id,
+        "installationId": outcome.installation_id,
+        "expiresAt": outcome.expires_at,
+        "replayed": !outcome.inserted,
+    });
+    if outcome.inserted {
+        payload["activationCode"] = Value::String(activation_code);
+    }
+    let mut response = (
+        if outcome.inserted {
+            StatusCode::CREATED
+        } else {
+            StatusCode::OK
+        },
+        Json(payload),
+    )
+        .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
+}
+
+/// Idempotently revoke an unclaimed Center activation grant.
+pub async fn revoke_center_activation_grant(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    const PATH: &str = "/operator/airhop/center-activation-grants/revoke";
+    let operator =
+        authorize_operator_request(&state, &headers, "POST", PATH, None, Some(&body)).await?;
+    let request: RevokeCenterActivationGrantRequest = serde_json::from_slice(&body)
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid activation revoke JSON"))?;
+    if request.grant_id.is_nil() {
+        return Err(api_error(StatusCode::BAD_REQUEST, "invalid grantId"));
+    }
+    let tenant = active_operator_tenant(&state, &request.host).await?;
+    let outcome = state
+        .db
+        .revoke_airhop_center_activation_grant(
+            &tenant,
+            &buzz_db::airhop::center_activation::RevokeCenterActivationGrantInput {
+                grant_id: request.grant_id,
+                revoked_by_pubkey: operator.to_bytes(),
+            },
+        )
+        .await
+        .map_err(map_activation_operator_error)?;
+    Ok(Json(serde_json::json!({
+        "grantId": outcome.grant_id,
+        "installationId": outcome.installation_id,
+        "revokedAt": outcome.revoked_at,
+        "status": "revoked",
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Read Center installation/grant metadata without returning codes or digests.
+pub async fn get_center_installation_metadata(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    RawQuery(raw_query): RawQuery,
+    Query(query): Query<CenterInstallationMetadataQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    authorize_operator_request(
+        &state,
+        &headers,
+        "GET",
+        "/operator/airhop/center-installations",
+        raw_query.as_deref(),
+        None,
+    )
+    .await?;
+    if query.installation_id.is_nil() {
+        return Err(api_error(StatusCode::BAD_REQUEST, "invalid installationId"));
+    }
+    let tenant = active_operator_tenant(&state, &query.host).await?;
+    let installation = state
+        .db
+        .get_airhop_center_installation_metadata(&tenant, query.installation_id)
+        .await
+        .map_err(map_activation_operator_error)?
+        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "installation not found"))?;
+    let now = Utc::now();
+    Ok(Json(serde_json::json!({
+        "installationId": installation.id,
+        "organizationId": installation.organization_id,
+        "environment": installation.environment,
+        "releaseProfile": installation.release_profile,
+        "releaseVersion": installation.release_version,
+        "installationPubkey": installation.installation_pubkey.map(hex::encode),
+        "status": installation.status.as_str(),
+        "activationVersion": installation.activation_version,
+        "activatedAt": installation.activated_at,
+        "lastVerifiedAt": installation.last_verified_at,
+        "errorCode": installation.sanitized_error_code,
+        "grants": installation.grants.into_iter().map(|grant| {
+            let status = if grant.claimed_at.is_some() {
+                "claimed"
+            } else if grant.revoked_at.is_some() {
+                "revoked"
+            } else if grant.expires_at <= now {
+                "expired"
+            } else {
+                "pending"
+            };
+            serde_json::json!({
+                "grantId": grant.id,
+                "status": status,
+                "expiresAt": grant.expires_at,
+                "claimedAt": grant.claimed_at,
+                "revokedAt": grant.revoked_at,
+                "createdAt": grant.created_at,
+            })
+        }).collect::<Vec<_>>(),
+    })))
+}
+
+async fn active_operator_tenant(
+    state: &AppState,
+    host: &str,
+) -> Result<TenantContext, (StatusCode, Json<Value>)> {
+    let normalized_host = normalize_candidate_host(host)
+        .map_err(|message| api_error(StatusCode::BAD_REQUEST, &message))?;
+    let record = state
+        .db
+        .lookup_community_by_host_for_management(&normalized_host)
+        .await
+        .map_err(|error| internal_error(&format!("lookup activation community: {error}")))?
+        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "community not found"))?;
+    let active = state
+        .db
+        .is_community_active(record.id)
+        .await
+        .map_err(|error| internal_error(&format!("check activation community: {error}")))?;
+    if !active {
+        return Err(api_error(StatusCode::CONFLICT, "community is archived"));
+    }
+    Ok(TenantContext::resolved(record.id, record.host))
+}
+
+fn map_activation_operator_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
+    match error {
+        buzz_db::DbError::NotFound(_) => api_error(
+            StatusCode::CONFLICT,
+            "AirHub organization must be configured before Center activation",
+        ),
+        buzz_db::DbError::AirhopActivationInvalid => {
+            api_error(StatusCode::NOT_FOUND, "activation grant not found")
+        }
+        buzz_db::DbError::AirhopActivationConflict => api_error(
+            StatusCode::CONFLICT,
+            "installation or activation grant state conflicts with this request",
+        ),
+        buzz_db::DbError::AirhopIdempotencyConflict => api_error(
+            StatusCode::CONFLICT,
+            "Idempotency-Key was already used for a different activation request",
+        ),
+        buzz_db::DbError::InvalidData(_) => {
+            api_error(StatusCode::BAD_REQUEST, "invalid Center activation request")
+        }
+        internal => {
+            tracing::error!(error = %internal, "Center activation operator operation failed");
+            internal_error("Center activation operator operation failed")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -535,6 +798,27 @@ mod tests {
 
     const TEST_DB_URL: &str = "postgres://buzz:buzz_dev@localhost:5432/buzz"; // sadscan:disable np.postgres.1
     const INGRESS_HOST: &str = "operator-ingress.example";
+
+    #[test]
+    fn activation_issue_contract_is_closed_and_defaults_to_fifteen_minutes() {
+        let body = serde_json::json!({
+            "host": "center.example",
+            "installationId": Uuid::new_v4(),
+            "environment": "production",
+            "releaseProfile": "site_telegram_center",
+            "releaseVersion": "2026.08.17"
+        });
+        let request: super::IssueCenterActivationGrantRequest =
+            serde_json::from_value(body.clone()).expect("valid issue fixture");
+        assert_eq!(request.ttl_seconds, 900);
+
+        let mut with_unknown = body;
+        with_unknown["activationCode"] = Value::String("must-not-be-accepted".to_owned());
+        assert!(
+            serde_json::from_value::<super::IssueCenterActivationGrantRequest>(with_unknown)
+                .is_err()
+        );
+    }
 
     fn nip98_auth_header(keys: &Keys, url: &str, method: &str, body: Option<&[u8]>) -> String {
         let mut tags = vec![

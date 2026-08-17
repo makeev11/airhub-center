@@ -20,6 +20,8 @@ use crate::{Db, DbError, Result};
 pub mod booking;
 /// Staff booking decisions, messenger bindings, and delivery leases.
 pub mod booking_decision;
+/// AirHub Center installation activation grants and identity binding.
+pub mod center_activation;
 /// Idempotent staff commands for family-owned operational entities.
 pub mod family_commands;
 /// Tenant-scoped staff family detail projection.
