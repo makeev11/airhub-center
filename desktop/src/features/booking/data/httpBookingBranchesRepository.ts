@@ -7,6 +7,7 @@ import {
 import {
   branchSchema,
   groupSchema,
+  lessonExceptionSchema,
   organizationSchema,
   parseBookingWorkspace,
   recurrenceRuleSchema,
@@ -17,6 +18,7 @@ import {
   type BookingRoom,
   type BookingWorkspace,
   type BookingWorkspaceDraft,
+  type LessonException,
   type RecurrenceRule,
 } from "@/features/booking/model/bookingCore";
 import { getRelayHttpUrl, signRelayEvent } from "@/shared/api/tauri";
@@ -58,6 +60,16 @@ const serverRecurrenceRuleSchema = recurrenceRuleSchema.safeExtend({
   teacherIdsOverride: z.array(z.string().uuid()).optional(),
   version: z.number().int().positive(),
 });
+const serverLessonExceptionSchema = z.intersection(
+  lessonExceptionSchema,
+  z.object({
+    id: z.string().uuid(),
+    organizationId: z.string().uuid(),
+    recurrenceRuleId: z.string().uuid(),
+    version: z.number().int().positive(),
+    updatedAt: z.string().datetime({ offset: true }),
+  }),
+);
 const directoryResponseSchema = z.object({
   organization: organizationSchema,
   organizationVersion: z.number().int().positive(),
@@ -65,6 +77,7 @@ const directoryResponseSchema = z.object({
   rooms: z.array(serverRoomSchema),
   groups: z.array(serverGroupSchema),
   recurrenceRules: z.array(serverRecurrenceRuleSchema),
+  lessonExceptions: z.array(serverLessonExceptionSchema).default([]),
 });
 const mutationResponseSchema = z
   .object({
@@ -76,6 +89,11 @@ const mutationResponseSchema = z
       z.object({ branchId: z.string().uuid() }),
       z.object({ roomId: z.string().uuid() }),
       z.object({ groupId: z.string().uuid() }),
+      z.object({
+        recurrenceRuleId: z.string().uuid(),
+        originalDate: z.string(),
+        exceptionId: z.string().uuid().nullable(),
+      }),
     ]),
   );
 
@@ -113,6 +131,7 @@ function emptyWorkspace(
   rooms: BookingRoom[],
   groups: BookingGroup[],
   recurrenceRules: RecurrenceRule[],
+  lessonExceptions: LessonException[],
   revision: number,
 ): BookingWorkspace {
   return parseBookingWorkspace({
@@ -124,7 +143,7 @@ function emptyWorkspace(
     teachers: [],
     groups,
     recurrenceRules,
-    lessonExceptions: [],
+    lessonExceptions,
     families: [],
     representatives: [],
     children: [],
@@ -225,6 +244,68 @@ function sameRule(first: RecurrenceRule, second: RecurrenceRule): boolean {
   return JSON.stringify(first) === JSON.stringify(second);
 }
 
+function lessonExceptionKey(
+  exception: Pick<LessonException, "recurrenceRuleId" | "originalDate">,
+): string {
+  return `${exception.recurrenceRuleId}:${exception.originalDate}`;
+}
+
+function sameLessonException(
+  first: LessonException,
+  second: LessonException,
+): boolean {
+  return JSON.stringify(first) === JSON.stringify(second);
+}
+
+function lessonExceptionBody(
+  exception: LessonException,
+  expectedVersion: number,
+) {
+  if (exception.kind === "cancelled") {
+    return {
+      action: "cancel",
+      expectedVersion,
+      ...(exception.reason ? { reason: exception.reason } : {}),
+    };
+  }
+  return {
+    action: "override",
+    expectedVersion,
+    override: {
+      ...(exception.override.date === undefined
+        ? {}
+        : { date: exception.override.date }),
+      ...(exception.override.startTime === undefined
+        ? {}
+        : { startTime: exception.override.startTime }),
+      ...(exception.override.endTime === undefined
+        ? {}
+        : { endTime: exception.override.endTime }),
+      ...(exception.override.branchId === undefined
+        ? {}
+        : { branchId: exception.override.branchId }),
+      roomOverrideSet: Object.hasOwn(exception.override, "roomId"),
+      ...(Object.hasOwn(exception.override, "roomId")
+        ? { roomId: exception.override.roomId ?? null }
+        : {}),
+      ...(exception.override.teacherIds === undefined
+        ? {}
+        : { teacherIds: exception.override.teacherIds }),
+      capacityOverrideSet: Object.hasOwn(exception.override, "capacity"),
+      ...(Object.hasOwn(exception.override, "capacity")
+        ? { capacity: exception.override.capacity ?? null }
+        : {}),
+      ...(exception.override.trialPolicy === undefined
+        ? {}
+        : { trialPolicy: exception.override.trialPolicy }),
+      ...(exception.override.allowSingleVisits === undefined
+        ? {}
+        : { allowSingleVisits: exception.override.allowSingleVisits }),
+    },
+    ...(exception.reason ? { reason: exception.reason } : {}),
+  };
+}
+
 function recurrenceRuleBody(
   rule: RecurrenceRule,
   currentRuleIds: ReadonlySet<string>,
@@ -260,6 +341,7 @@ export class HttpBookingBranchesRepository implements BookingRepository {
   private branchVersions = new Map<string, number>();
   private roomVersions = new Map<string, number>();
   private groupVersions = new Map<string, number>();
+  private lessonExceptionVersions = new Map<string, number>();
 
   constructor(options: Options = {}) {
     this.relayHttpUrl = options.relayHttpUrl ?? getRelayHttpUrl;
@@ -292,6 +374,9 @@ export class HttpBookingBranchesRepository implements BookingRepository {
     const nextRules = z
       .array(recurrenceRuleSchema)
       .parse(draft.recurrenceRules);
+    const nextLessonExceptions = z
+      .array(lessonExceptionSchema)
+      .parse(draft.lessonExceptions);
     const currentById = new Map(
       current.branches.map((branch) => [branch.id, branch]),
     );
@@ -310,6 +395,18 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       current.recurrenceRules.map((rule) => [rule.id, rule]),
     );
     const nextRulesById = new Map(nextRules.map((rule) => [rule.id, rule]));
+    const currentExceptionsByKey = new Map(
+      current.lessonExceptions.map((exception) => [
+        lessonExceptionKey(exception),
+        exception,
+      ]),
+    );
+    const nextExceptionsByKey = new Map(
+      nextLessonExceptions.map((exception) => [
+        lessonExceptionKey(exception),
+        exception,
+      ]),
+    );
     if (current.branches.some((branch) => !nextById.has(branch.id))) {
       throw new BookingBranchesApiError(
         400,
@@ -362,6 +459,20 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       const previous = currentRulesById.get(rule.id);
       return previous !== undefined && !sameRule(previous, rule);
     });
+    const createdExceptions = nextLessonExceptions.filter(
+      (exception) => !currentExceptionsByKey.has(lessonExceptionKey(exception)),
+    );
+    const changedExceptions = nextLessonExceptions.filter((exception) => {
+      const previous = currentExceptionsByKey.get(
+        lessonExceptionKey(exception),
+      );
+      return (
+        previous !== undefined && !sameLessonException(previous, exception)
+      );
+    });
+    const restoredExceptions = current.lessonExceptions.filter(
+      (exception) => !nextExceptionsByKey.has(lessonExceptionKey(exception)),
+    );
     const affectedGroupIds = new Set([
       ...createdGroups.map((group) => group.id),
       ...changedGroups.map((group) => group.id),
@@ -373,16 +484,43 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       changedBranches.length +
       createdRooms.length +
       changedRooms.length +
-      affectedGroupIds.size;
+      affectedGroupIds.size +
+      createdExceptions.length +
+      changedExceptions.length +
+      restoredExceptions.length;
     if (mutationCount !== 1) {
       if (mutationCount === 0) return current;
       throw new BookingBranchesApiError(
         400,
-        "Save one AirHub branch, room, or group at a time.",
+        "Save one AirHub branch, room, group, or lesson at a time.",
       );
     }
     try {
-      if (createdBranches.length === 1) {
+      if (
+        createdExceptions.length === 1 ||
+        changedExceptions.length === 1 ||
+        restoredExceptions.length === 1
+      ) {
+        const exception =
+          createdExceptions[0] ?? changedExceptions[0] ?? restoredExceptions[0];
+        const key = lessonExceptionKey(exception);
+        const ruleId = z.string().uuid().safeParse(exception.recurrenceRuleId);
+        const expectedVersion = this.lessonExceptionVersions.get(key) ?? 0;
+        if (!ruleId.success) {
+          throw new BookingBranchesApiError(
+            400,
+            "The AirHub recurrence rule identity is not server-owned.",
+          );
+        }
+        const path = `/api/airhop/staff/v1/lesson-exceptions/${encodeURIComponent(ruleId.data)}/${encodeURIComponent(exception.originalDate)}`;
+        await this.mutate(
+          "PUT",
+          path,
+          restoredExceptions.length === 1
+            ? { action: "restore", expectedVersion }
+            : lessonExceptionBody(exception, expectedVersion),
+        );
+      } else if (createdBranches.length === 1) {
         if (createdBranches[0].status !== "active") {
           throw new BookingBranchesApiError(
             400,
@@ -546,6 +684,12 @@ export class HttpBookingBranchesRepository implements BookingRepository {
     this.groupVersions = new Map(
       parsed.data.groups.map((group) => [group.id, group.version]),
     );
+    this.lessonExceptionVersions = new Map(
+      parsed.data.lessonExceptions.map((exception) => [
+        lessonExceptionKey(exception),
+        exception.version,
+      ]),
+    );
     const branches = parsed.data.items.map(
       ({ version: _version, defaultBuzzChannelId, ...branch }) =>
         branchSchema.parse({
@@ -562,6 +706,10 @@ export class HttpBookingBranchesRepository implements BookingRepository {
     const recurrenceRules = parsed.data.recurrenceRules.map(
       ({ version: _version, ...rule }) => recurrenceRuleSchema.parse(rule),
     );
+    const lessonExceptions = parsed.data.lessonExceptions.map(
+      ({ version: _version, updatedAt: _updatedAt, ...exception }) =>
+        lessonExceptionSchema.parse(exception),
+    );
     const revision =
       parsed.data.organizationVersion +
       parsed.data.items.reduce((total, branch) => total + branch.version, 0) +
@@ -570,6 +718,10 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       parsed.data.recurrenceRules.reduce(
         (total, rule) => total + rule.version,
         0,
+      ) +
+      parsed.data.lessonExceptions.reduce(
+        (total, exception) => total + exception.version,
+        0,
       );
     this.snapshot = emptyWorkspace(
       parsed.data.organization,
@@ -577,6 +729,7 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       rooms,
       groups,
       recurrenceRules,
+      lessonExceptions,
       revision,
     );
     return this.snapshot;

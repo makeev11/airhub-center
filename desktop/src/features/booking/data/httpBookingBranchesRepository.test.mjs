@@ -13,6 +13,7 @@ const BRANCH_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ROOM_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const GROUP_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const RULE_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const EXCEPTION_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 
 function signedEvent(input) {
   return {
@@ -108,12 +109,34 @@ function rule(overrides = {}) {
   };
 }
 
+function lessonException(overrides = {}) {
+  return {
+    id: EXCEPTION_ID,
+    organizationId: ORGANIZATION_ID,
+    recurrenceRuleId: RULE_ID,
+    originalDate: "2026-08-17",
+    original: {
+      startTime: "17:00",
+      endTime: "18:00",
+      branchId: BRANCH_ID,
+      roomId: ROOM_ID,
+      teacherIds: [],
+    },
+    kind: "override",
+    override: { endTime: "18:30" },
+    version: 1,
+    updatedAt: "2026-08-10T10:00:00Z",
+    ...overrides,
+  };
+}
+
 function directory(
   items = [],
   organizationVersion = 3,
   rooms = [],
   groups = [],
   recurrenceRules = [],
+  lessonExceptions = [],
 ) {
   return {
     organization: organization(),
@@ -122,6 +145,7 @@ function directory(
     rooms,
     groups,
     recurrenceRules,
+    lessonExceptions,
   };
 }
 
@@ -135,6 +159,18 @@ function roomMutation(version = 1) {
 
 function groupMutation(version = 1) {
   return { groupId: GROUP_ID, version, replayed: false };
+}
+
+function lessonMutation(version = 1, exceptionId = EXCEPTION_ID) {
+  return {
+    recurrenceRuleId: RULE_ID,
+    originalDate: "2026-08-17",
+    exceptionId,
+    version,
+    action: exceptionId ? "override" : "restore",
+    cancelledBookingCount: 0,
+    replayed: false,
+  };
 }
 
 function jsonResponse(body, status = 200) {
@@ -157,6 +193,11 @@ function draftWithRooms(workspace, rooms) {
 function draftWithGroups(workspace, groups, recurrenceRules) {
   const { revision: _revision, ...draft } = workspace;
   return { ...draft, groups, recurrenceRules };
+}
+
+function draftWithExceptions(workspace, lessonExceptions) {
+  const { revision: _revision, ...draft } = workspace;
+  return { ...draft, lessonExceptions };
 }
 
 test("branches repository creates a server-owned branch and reloads it", async () => {
@@ -451,6 +492,128 @@ test("branches repository sends one aggregate version for a group schedule updat
   assert.equal(body.expectedVersion, 4);
   assert.equal(body.activeRules[0].id, RULE_ID);
   assert.equal(body.activeRules[0].endTime, "18:30");
+});
+
+test("schedule repository creates one server-owned lesson override", async () => {
+  const requests = [];
+  let getCount = 0;
+  const repository = new HttpBookingBranchesRepository({
+    relayHttpUrl: async () => "https://center.example",
+    idempotencyKeyFactory: () => "lesson-command-1234567890",
+    nonceFactory: () => "nonce",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), init });
+      if (init.method === "GET") {
+        getCount += 1;
+        return jsonResponse(
+          directory(
+            [branch()],
+            3,
+            [room()],
+            [group()],
+            [rule()],
+            getCount === 1 ? [] : [lessonException()],
+          ),
+        );
+      }
+      return jsonResponse(lessonMutation());
+    },
+  });
+  const current = await repository.load();
+  const temporary = {
+    ...lessonException(),
+    id: "exception-temporary",
+  };
+  delete temporary.version;
+  delete temporary.updatedAt;
+
+  const saved = await repository.save(
+    draftWithExceptions(current, [temporary]),
+    current.revision,
+  );
+
+  assert.equal(saved.lessonExceptions[0].id, EXCEPTION_ID);
+  const put = requests[1];
+  assert.equal(
+    put.url,
+    `https://center.example/api/airhop/staff/v1/lesson-exceptions/${RULE_ID}/2026-08-17`,
+  );
+  assert.equal(put.init.method, "PUT");
+  assert.equal(
+    put.init.headers["Idempotency-Key"],
+    "lesson-command-1234567890",
+  );
+  assert.deepEqual(JSON.parse(put.init.body), {
+    action: "override",
+    expectedVersion: 0,
+    override: {
+      endTime: "18:30",
+      roomOverrideSet: false,
+      capacityOverrideSet: false,
+    },
+  });
+});
+
+test("schedule repository cancels and restores with the server exception version", async () => {
+  const requests = [];
+  let state = "override";
+  const repository = new HttpBookingBranchesRepository({
+    relayHttpUrl: async () => "https://center.example",
+    nonceFactory: () => "nonce",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), init });
+      if (init.method === "GET") {
+        const exceptions =
+          state === "restored"
+            ? []
+            : [
+                state === "override"
+                  ? lessonException({ version: 2 })
+                  : lessonException({
+                      kind: "cancelled",
+                      override: undefined,
+                      version: 3,
+                    }),
+              ];
+        return jsonResponse(
+          directory([branch()], 3, [room()], [group()], [rule()], exceptions),
+        );
+      }
+      const action = JSON.parse(init.body).action;
+      state = action === "restore" ? "restored" : "cancelled";
+      return jsonResponse(
+        action === "restore"
+          ? lessonMutation(4, null)
+          : { ...lessonMutation(3), action: "cancel" },
+      );
+    },
+  });
+  const current = await repository.load();
+  const cancelled = {
+    id: EXCEPTION_ID,
+    organizationId: ORGANIZATION_ID,
+    recurrenceRuleId: RULE_ID,
+    originalDate: "2026-08-17",
+    original: current.lessonExceptions[0].original,
+    kind: "cancelled",
+  };
+  const afterCancel = await repository.save(
+    draftWithExceptions(current, [cancelled]),
+    current.revision,
+  );
+  assert.equal(JSON.parse(requests[1].init.body).expectedVersion, 2);
+  assert.equal(JSON.parse(requests[1].init.body).action, "cancel");
+  assert.equal(afterCancel.lessonExceptions[0].kind, "cancelled");
+
+  const afterRestore = await repository.save(
+    draftWithExceptions(afterCancel, []),
+    afterCancel.revision,
+  );
+  assert.equal(JSON.parse(requests[3].init.body).expectedVersion, 3);
+  assert.equal(JSON.parse(requests[3].init.body).action, "restore");
+  assert.equal(afterRestore.lessonExceptions.length, 0);
 });
 
 test("branches repository reloads a stale server version as a conflict", async () => {

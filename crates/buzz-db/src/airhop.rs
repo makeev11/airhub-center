@@ -42,6 +42,8 @@ pub mod family_members;
 pub mod family_primary_representative;
 /// Tenant-scoped group directory and atomic recurrence-rule commands.
 pub mod group_directory;
+/// Tenant-scoped commands for cancelling, overriding, and restoring one lesson.
+pub mod lesson_exception;
 /// Idempotent organization bootstrap and settings updates.
 pub mod organization_settings;
 /// Atomic public booking command application service.

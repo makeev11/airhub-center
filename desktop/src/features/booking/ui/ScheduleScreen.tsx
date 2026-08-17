@@ -17,6 +17,9 @@ import {
   type BookingMessages,
 } from "@/features/booking/lib/bookingLocale";
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import { BookingWorkspaceProvider } from "@/features/booking/data/BookingWorkspaceProvider";
+import { createHttpBookingBranchesRepository } from "@/features/booking/data/httpBookingBranchesRepository";
+import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import {
   getBookingBranches,
@@ -195,6 +198,7 @@ function LessonDetails({
   isSaving,
   timeZone,
   workspace,
+  participantActionsEnabled,
 }: {
   formatters: BookingFormatters;
   lesson: ScheduleLesson | null;
@@ -211,6 +215,7 @@ function LessonDetails({
   isSaving: boolean;
   timeZone: string;
   workspace: BookingWorkspace;
+  participantActionsEnabled: boolean;
 }) {
   if (!lesson) return null;
   const places = availability(lesson, messages);
@@ -289,23 +294,25 @@ function LessonDetails({
             </p>
           </div>
         </div>
-        <LessonRoster
-          isSaving={isSaving}
-          lessonRef={{
-            recurrenceRuleId: lesson.recurrenceRuleId,
-            originalDate: lesson.originalDate,
-          }}
-          onSetAttendance={onSetAttendance}
-          trackAttendance={lesson.trackAttendance}
-          workspace={workspace}
-        />
+        {participantActionsEnabled ? (
+          <LessonRoster
+            isSaving={isSaving}
+            lessonRef={{
+              recurrenceRuleId: lesson.recurrenceRuleId,
+              originalDate: lesson.originalDate,
+            }}
+            onSetAttendance={onSetAttendance}
+            trackAttendance={lesson.trackAttendance}
+            workspace={workspace}
+          />
+        ) : null}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4">
           <div className="flex flex-wrap gap-2">
             <Badge variant={places.variant}>{places.label}</Badge>
             <Badge variant="outline">{timeZone}</Badge>
           </div>
           <div className="flex flex-wrap gap-2">
-            {lesson.status !== "cancelled" ? (
+            {participantActionsEnabled && lesson.status !== "cancelled" ? (
               <Button
                 data-testid="airhop-add-participant"
                 onClick={() => onAddParticipant(lesson)}
@@ -353,8 +360,10 @@ function LessonDetails({
 }
 
 function ScheduleWorkspaceScreen({
+  participantActionsEnabled,
   workspace,
 }: {
+  participantActionsEnabled: boolean;
   workspace: BookingWorkspace;
 }) {
   const booking = useBookingWorkspace();
@@ -559,6 +568,7 @@ function ScheduleWorkspaceScreen({
         isSaving={booking.isSaving}
         lesson={resolvedSelectedLesson}
         messages={messages}
+        participantActionsEnabled={participantActionsEnabled}
         onAddParticipant={setParticipantLesson}
         onCancel={(lesson) => {
           setSelectedLesson(null);
@@ -724,12 +734,41 @@ function ScheduleWorkspaceScreen({
   );
 }
 
-export function ScheduleScreen() {
+function ScheduleScreenContent({
+  participantActionsEnabled,
+}: {
+  participantActionsEnabled: boolean;
+}) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-tl-xl bg-background">
       <BookingWorkspaceGate>
-        {(workspace) => <ScheduleWorkspaceScreen workspace={workspace} />}
+        {(workspace) => (
+          <ScheduleWorkspaceScreen
+            participantActionsEnabled={participantActionsEnabled}
+            workspace={workspace}
+          />
+        )}
       </BookingWorkspaceGate>
     </div>
+  );
+}
+
+function ServerScheduleScreen() {
+  const [repository] = React.useState(() =>
+    createHttpBookingBranchesRepository(),
+  );
+  return (
+    <BookingWorkspaceProvider repository={repository}>
+      <ScheduleScreenContent participantActionsEnabled={false} />
+    </BookingWorkspaceProvider>
+  );
+}
+
+/** Uses PostgreSQL lesson commands in Tauri and isolated demo state in previews. */
+export function ScheduleScreen() {
+  return currentAirhopStaffDataRuntime() === "server" ? (
+    <ServerScheduleScreen />
+  ) : (
+    <ScheduleScreenContent participantActionsEnabled />
   );
 }

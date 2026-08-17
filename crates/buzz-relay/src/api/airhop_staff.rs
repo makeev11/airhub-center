@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use airhop_core::{
-    BookingStatus, ExistingStudentsOnboardingStatus, OrganizationSettings, PublicBookingAppearance,
-    PublicBookingPurpose, TrialPolicy, Weekday,
+    BookingStatus, ExistingStudentsOnboardingStatus, NullableOverride, OccurrenceOverride,
+    OrganizationSettings, PublicBookingAppearance, PublicBookingPurpose, TrialPolicy, Weekday,
 };
 use axum::body::Bytes;
 use axum::extract::rejection::QueryRejection;
@@ -38,6 +38,9 @@ use buzz_db::airhop::family_primary_representative::SetFamilyPrimaryRepresentati
 use buzz_db::airhop::group_directory::{
     AirhopGroup, AirhopRecurrenceRule, CreateGroupInput, GroupDefinition, GroupStatus,
     PutGroupInput, RecurrenceRuleInput,
+};
+use buzz_db::airhop::lesson_exception::{
+    AirhopLessonException, LessonExceptionChange, PutLessonExceptionInput,
 };
 use buzz_db::airhop::organization_settings::PutOrganizationSettingsInput;
 use buzz_db::airhop::room_directory::{AirhopRoom, CreateRoomInput, PutRoomInput, RoomStatus};
@@ -283,6 +286,63 @@ pub(crate) struct PutGroupBody {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct LessonOverrideBody {
+    #[serde(default)]
+    date: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    start_time: Option<String>,
+    #[serde(default)]
+    end_time: Option<String>,
+    #[serde(default)]
+    branch_id: Option<Uuid>,
+    #[serde(default)]
+    room_override_set: bool,
+    #[serde(default)]
+    room_id: Option<Uuid>,
+    #[serde(default)]
+    teacher_ids: Option<Vec<Uuid>>,
+    #[serde(default)]
+    capacity_override_set: bool,
+    #[serde(default)]
+    capacity: Option<u32>,
+    #[serde(default)]
+    trial_policy: Option<TrialPolicy>,
+    #[serde(default)]
+    allow_single_visits: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(
+    tag = "action",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub(crate) enum PutLessonExceptionBody {
+    Cancel {
+        expected_version: i64,
+        #[serde(default)]
+        reason: Option<String>,
+    },
+    Override {
+        expected_version: i64,
+        r#override: LessonOverrideBody,
+        #[serde(default)]
+        reason: Option<String>,
+    },
+    Restore {
+        expected_version: i64,
+    },
+}
+
+struct ParsedLessonExceptionBody {
+    expected_version: i64,
+    change: LessonExceptionChange,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ClaimNotificationsBody {
     #[serde(default = "default_claim_limit")]
     limit: u16,
@@ -462,6 +522,11 @@ pub(crate) async fn list_branches(
         .list_airhop_recurrence_rules(&tenant)
         .await
         .map_err(map_db_error)?;
+    let lesson_exceptions = state
+        .db
+        .list_airhop_lesson_exceptions(&tenant)
+        .await
+        .map_err(map_db_error)?;
     Ok(Json(json!({
         "organization": organization_json(
             organization.id,
@@ -475,6 +540,7 @@ pub(crate) async fn list_branches(
         "rooms": rooms.iter().map(room_json).collect::<Vec<_>>(),
         "groups": groups.iter().map(group_json).collect::<Vec<_>>(),
         "recurrenceRules": recurrence_rules.iter().map(recurrence_rule_json).collect::<Vec<_>>(),
+        "lessonExceptions": lesson_exceptions.iter().map(lesson_exception_json).collect::<Vec<_>>(),
     })))
 }
 
@@ -730,6 +796,55 @@ pub(crate) async fn put_group(
     Ok(Json(json!({
         "groupId": outcome.group_id,
         "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Cancels, overrides, or restores one lesson addressed by its stable series reference.
+pub(crate) async fn put_lesson_exception(
+    State(state): State<Arc<AppState>>,
+    Path((recurrence_rule_id, original_date)): Path<(Uuid, chrono::NaiveDate)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path =
+        format!("/api/airhop/staff/v1/lesson-exceptions/{recurrence_rule_id}/{original_date}");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: PutLessonExceptionBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let parsed = lesson_exception_change(request)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .put_airhop_lesson_exception(
+            &tenant,
+            &PutLessonExceptionInput {
+                recurrence_rule_id,
+                original_date,
+                expected_version: parsed.expected_version,
+                change: parsed.change,
+                reason: parsed.reason,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.lesson-exception-put.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("PUT", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "recurrenceRuleId": outcome.recurrence_rule_id,
+        "originalDate": outcome.original_date,
+        "exceptionId": outcome.exception_id,
+        "version": outcome.version,
+        "action": outcome.action,
+        "cancelledBookingCount": outcome.cancelled_bookings,
         "replayed": outcome.replayed,
     })))
 }
@@ -1803,6 +1918,77 @@ fn recurrence_rule_inputs(
         .collect()
 }
 
+fn lesson_exception_change(
+    body: PutLessonExceptionBody,
+) -> Result<ParsedLessonExceptionBody, (StatusCode, Json<Value>)> {
+    match body {
+        PutLessonExceptionBody::Cancel {
+            expected_version,
+            reason,
+        } => Ok(ParsedLessonExceptionBody {
+            expected_version,
+            change: LessonExceptionChange::Cancel,
+            reason,
+        }),
+        PutLessonExceptionBody::Restore { expected_version } => Ok(ParsedLessonExceptionBody {
+            expected_version,
+            change: LessonExceptionChange::Restore,
+            reason: None,
+        }),
+        PutLessonExceptionBody::Override {
+            expected_version,
+            r#override,
+            reason,
+        } => {
+            let start_time = r#override
+                .start_time
+                .as_deref()
+                .map(parse_lesson_time)
+                .transpose()?;
+            let end_time = r#override
+                .end_time
+                .as_deref()
+                .map(parse_lesson_time)
+                .transpose()?;
+            Ok(ParsedLessonExceptionBody {
+                expected_version,
+                change: LessonExceptionChange::Override(OccurrenceOverride {
+                    date: r#override.date,
+                    start_time,
+                    end_time,
+                    branch_id: r#override.branch_id,
+                    room_id: nullable_override(r#override.room_override_set, r#override.room_id),
+                    teacher_ids: r#override.teacher_ids,
+                    capacity: nullable_override(
+                        r#override.capacity_override_set,
+                        r#override.capacity,
+                    ),
+                    trial_policy: r#override.trial_policy,
+                    allow_single_visits: r#override.allow_single_visits,
+                }),
+                reason,
+            })
+        }
+    }
+}
+
+fn parse_lesson_time(value: &str) -> Result<NaiveTime, (StatusCode, Json<Value>)> {
+    NaiveTime::parse_from_str(value, "%H:%M").map_err(|_| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid AirHub lesson time",
+        )
+    })
+}
+
+fn nullable_override<T>(is_set: bool, value: Option<T>) -> NullableOverride<T> {
+    if !is_set {
+        NullableOverride::Inherit
+    } else {
+        value.map_or(NullableOverride::Clear, NullableOverride::Set)
+    }
+}
+
 fn branch_json(branch: &AirhopBranch) -> Value {
     let working_hours = branch
         .working_hours
@@ -1931,6 +2117,39 @@ fn recurrence_rule_json(rule: &AirhopRecurrenceRule) -> Value {
     }
     if let Some(policy) = &rule.trial_policy_override {
         object.insert("trialPolicyOverride".to_owned(), json!(policy));
+    }
+    value
+}
+
+fn lesson_exception_json(exception: &AirhopLessonException) -> Value {
+    let mut value = json!({
+        "id": exception.id,
+        "organizationId": exception.organization_id,
+        "recurrenceRuleId": exception.recurrence_rule_id,
+        "originalDate": exception.original_date,
+        "original": exception.original_snapshot,
+        "kind": exception.kind,
+        "version": exception.version,
+        "updatedAt": exception.updated_at,
+    });
+    let Value::Object(object) = &mut value else {
+        return Value::Null;
+    };
+    if let Some(reason) = &exception.reason {
+        object.insert("reason".to_owned(), json!(reason));
+    }
+    match exception.kind.as_str() {
+        "override" => {
+            if let Some(payload) = &exception.override_payload {
+                object.insert("override".to_owned(), payload.clone());
+            }
+        }
+        "cancelled" => {
+            if let Some(payload) = &exception.effective_payload {
+                object.insert("effective".to_owned(), payload.clone());
+            }
+        }
+        _ => {}
     }
     value
 }
@@ -2067,6 +2286,10 @@ fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
         DbError::AirhopVersionConflict => api_error(
             StatusCode::CONFLICT,
             "AirHub entity changed; reload before saving",
+        ),
+        DbError::AirhopOccurrenceUnavailable => api_error(
+            StatusCode::CONFLICT,
+            "AirHub lesson occurrence is no longer available",
         ),
         DbError::AirhopPrimaryRepresentativeRequired => api_error(
             StatusCode::CONFLICT,
@@ -2269,6 +2492,37 @@ mod tests {
             rules[0].start_time,
             NaiveTime::from_hms_opt(17, 0, 0).expect("valid test time")
         );
+    }
+
+    #[test]
+    fn lesson_override_body_preserves_nullable_override_semantics() {
+        let body: PutLessonExceptionBody = serde_json::from_value(json!({
+            "action": "override",
+            "expectedVersion": 2,
+            "override": {
+                "date": "2026-08-18",
+                "startTime": "19:00",
+                "endTime": "20:00",
+                "roomOverrideSet": true,
+                "roomId": null,
+                "capacityOverrideSet": true,
+                "capacity": 8
+            },
+            "reason": "Разовое изменение"
+        }))
+        .expect("valid lesson override body");
+        let parsed = lesson_exception_change(body).expect("convert lesson override");
+        assert_eq!(parsed.expected_version, 2);
+        assert_eq!(parsed.reason.as_deref(), Some("Разовое изменение"));
+        let LessonExceptionChange::Override(changes) = parsed.change else {
+            panic!("expected override change");
+        };
+        assert_eq!(
+            changes.start_time,
+            Some(NaiveTime::from_hms_opt(19, 0, 0).expect("valid time"))
+        );
+        assert_eq!(changes.room_id, NullableOverride::Clear);
+        assert_eq!(changes.capacity, NullableOverride::Set(8));
     }
 
     #[test]

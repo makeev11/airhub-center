@@ -1478,9 +1478,14 @@ fn parse_weekday(value: &str) -> Result<Weekday> {
 
 #[cfg(test)]
 mod tests {
+    use airhop_core::{NullableOverride, OccurrenceOverride, StableLessonReference};
     use buzz_core::CommunityId;
 
     use super::*;
+    use crate::airhop::public_booking::{
+        CreatePublicBookingInput, PreferredContactChannel, PublicBookingApplicant,
+        PublicBookingSurface,
+    };
 
     fn actor() -> AirhopActor {
         AirhopActor {
@@ -1688,39 +1693,94 @@ mod tests {
             1
         );
 
-        let exception_id = Uuid::new_v4();
+        let booking = db
+            .create_public_booking(
+                &tenant,
+                &CreatePublicBookingInput {
+                    lesson_ref: StableLessonReference {
+                        recurrence_rule_id: rules[0].id,
+                        original_date,
+                    },
+                    applicant: PublicBookingApplicant {
+                        parent_name: "Мария Иванова".to_owned(),
+                        phone_normalized: "+79991234567".to_owned(),
+                        phone_display: "+7 999 123-45-67".to_owned(),
+                        child_name: "Анна".to_owned(),
+                        child_birth_date: original_date
+                            .checked_sub_months(chrono::Months::new(96))
+                            .expect("child birth date"),
+                        preferred_contact_channel: PreferredContactChannel::Phone,
+                        consent_policy_version: "booking-v1".to_owned(),
+                    },
+                    surface: PublicBookingSurface::Standalone,
+                    attribution_branch_id: Some(branch_id),
+                    idempotency_digest: [17; 32],
+                    phone_match_digest: [18; 32],
+                    request_hash: [19; 32],
+                    management_token_digest: [20; 32],
+                    management_key_version: 1,
+                    consent_evidence: json!({"accepted": true}),
+                },
+            )
+            .await
+            .expect("create booking for cancelled lesson");
         sqlx::query(
-            "INSERT INTO airhop_lesson_exceptions (\
-                 community_id, organization_id, id, recurrence_rule_id, original_date, kind, \
-                 original_snapshot, effective_payload\
-             ) VALUES ($1, $2, $3, $4, $5, 'cancelled', $6, $7)",
+            "UPDATE airhop_bookings SET transfer_request = $3 \
+             WHERE community_id = $1 AND id = $2",
+        )
+        .bind(community_id)
+        .bind(booking.booking.id)
+        .bind(json!({"requestedDate": original_date}))
+        .execute(&db.pool)
+        .await
+        .expect("seed pending transfer request");
+
+        let cancel_input = super::super::lesson_exception::PutLessonExceptionInput {
+            recurrence_rule_id: rules[0].id,
+            original_date,
+            expected_version: 0,
+            change: super::super::lesson_exception::LessonExceptionChange::Cancel,
+            reason: Some("Перенос невозможен".to_owned()),
+            idempotency_digest: [9; 32],
+            request_hash: [10; 32],
+            actor: actor(),
+        };
+        let cancelled_outcome = db
+            .put_airhop_lesson_exception(&tenant, &cancel_input)
+            .await
+            .expect("cancel lesson");
+        let exception_id = cancelled_outcome
+            .exception_id
+            .expect("created cancellation exception");
+        assert_eq!(cancelled_outcome.version, 1);
+        assert_eq!(cancelled_outcome.cancelled_bookings, 1);
+        let cancelled_booking = sqlx::query(
+            "SELECT status, transfer_request, version FROM airhop_bookings \
+             WHERE community_id = $1 AND organization_id = $2 AND id = $3",
         )
         .bind(community_id)
         .bind(organization_id)
-        .bind(exception_id)
-        .bind(rules[0].id)
-        .bind(original_date)
-        .bind(json!({
-            "startTime": "17:00",
-            "endTime": "18:00",
-            "branchId": branch_id,
-            "roomId": room_id,
-            "teacherIds": [],
-        }))
-        .bind(json!({
-            "date": original_date,
-            "startTime": "17:00",
-            "endTime": "18:00",
-            "branchId": branch_id,
-            "roomId": room_id,
-            "teacherIds": [],
-            "capacity": 10,
-            "trialPolicy": { "mode": "free" },
-            "allowSingleVisits": false,
-        }))
-        .execute(&db.pool)
+        .bind(booking.booking.id)
+        .fetch_one(&db.pool)
         .await
-        .expect("insert cancellation exception");
+        .expect("reload booking cancelled with lesson");
+        assert_eq!(
+            cancelled_booking.try_get::<&str, _>("status").unwrap(),
+            "cancelled_by_center"
+        );
+        assert_eq!(
+            cancelled_booking
+                .try_get::<Option<Value>, _>("transfer_request")
+                .unwrap(),
+            None
+        );
+        assert_eq!(cancelled_booking.try_get::<i64, _>("version").unwrap(), 2);
+        assert!(
+            db.put_airhop_lesson_exception(&tenant, &cancel_input)
+                .await
+                .expect("replay lesson cancellation")
+                .replayed
+        );
 
         let mut replacement = schedule_rule.clone();
         replacement.id = Some(rules[0].id);
@@ -1808,6 +1868,178 @@ mod tests {
         assert_eq!(
             another_end_time,
             NaiveTime::from_hms_opt(18, 30, 0).expect("valid test time")
+        );
+
+        let restored = db
+            .put_airhop_lesson_exception(
+                &tenant,
+                &super::super::lesson_exception::PutLessonExceptionInput {
+                    recurrence_rule_id: rules[0].id,
+                    original_date,
+                    expected_version: 1,
+                    change: super::super::lesson_exception::LessonExceptionChange::Restore,
+                    reason: None,
+                    idempotency_digest: [11; 32],
+                    request_hash: [12; 32],
+                    actor: actor(),
+                },
+            )
+            .await
+            .expect("restore lesson to series");
+        assert_eq!(restored.exception_id, None);
+        assert_eq!(restored.version, 2);
+        let restored_booking_status: String = sqlx::query_scalar(
+            "SELECT status FROM airhop_bookings \
+             WHERE community_id = $1 AND organization_id = $2 AND id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(booking.booking.id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("reload booking after lesson restore");
+        assert_eq!(restored_booking_status, "cancelled_by_center");
+        let restored_occurrence = sqlx::query(
+            "SELECT id, end_time, status, exception_id \
+             FROM airhop_lesson_occurrences \
+             WHERE community_id = $1 AND organization_id = $2 \
+               AND recurrence_rule_id = $3 AND original_date = $4",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(rules[0].id)
+        .bind(original_date)
+        .fetch_one(&db.pool)
+        .await
+        .expect("reload restored occurrence");
+        assert_eq!(
+            restored_occurrence
+                .try_get::<Uuid, _>("id")
+                .expect("stable id"),
+            occurrence_id
+        );
+        assert_eq!(
+            restored_occurrence
+                .try_get::<&str, _>("status")
+                .expect("restored status"),
+            "scheduled"
+        );
+        assert_eq!(
+            restored_occurrence
+                .try_get::<NaiveTime, _>("end_time")
+                .expect("restored end time"),
+            NaiveTime::from_hms_opt(18, 30, 0).expect("valid test time")
+        );
+        assert_eq!(
+            restored_occurrence
+                .try_get::<Option<Uuid>, _>("exception_id")
+                .expect("restored exception id"),
+            None
+        );
+
+        let moved_date = original_date
+            .checked_add_days(chrono::Days::new(1))
+            .expect("moved test date");
+        let override_outcome = db
+            .put_airhop_lesson_exception(
+                &tenant,
+                &super::super::lesson_exception::PutLessonExceptionInput {
+                    recurrence_rule_id: rules[0].id,
+                    original_date,
+                    expected_version: 0,
+                    change: super::super::lesson_exception::LessonExceptionChange::Override(
+                        OccurrenceOverride {
+                            date: Some(moved_date),
+                            start_time: Some(
+                                NaiveTime::from_hms_opt(19, 0, 0).expect("valid test time"),
+                            ),
+                            end_time: Some(
+                                NaiveTime::from_hms_opt(20, 0, 0).expect("valid test time"),
+                            ),
+                            room_id: NullableOverride::Clear,
+                            capacity: NullableOverride::Set(8),
+                            ..OccurrenceOverride::default()
+                        },
+                    ),
+                    reason: Some("Разовое изменение".to_owned()),
+                    idempotency_digest: [13; 32],
+                    request_hash: [14; 32],
+                    actor: actor(),
+                },
+            )
+            .await
+            .expect("override lesson");
+        let override_exception_id = override_outcome
+            .exception_id
+            .expect("created override exception");
+        assert_ne!(override_exception_id, exception_id);
+        let moved_occurrence = sqlx::query(
+            "SELECT id, effective_date, start_time, end_time, room_id, capacity, status \
+             FROM airhop_lesson_occurrences \
+             WHERE community_id = $1 AND organization_id = $2 \
+               AND recurrence_rule_id = $3 AND original_date = $4",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(rules[0].id)
+        .bind(original_date)
+        .fetch_one(&db.pool)
+        .await
+        .expect("reload moved occurrence");
+        assert_eq!(
+            moved_occurrence.try_get::<Uuid, _>("id").unwrap(),
+            occurrence_id
+        );
+        assert_eq!(
+            moved_occurrence
+                .try_get::<NaiveDate, _>("effective_date")
+                .unwrap(),
+            moved_date
+        );
+        assert_eq!(
+            moved_occurrence
+                .try_get::<Option<Uuid>, _>("room_id")
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            moved_occurrence
+                .try_get::<Option<i32>, _>("capacity")
+                .unwrap(),
+            Some(8)
+        );
+        assert_eq!(
+            moved_occurrence.try_get::<&str, _>("status").unwrap(),
+            "moved"
+        );
+
+        let cancelled_override = db
+            .put_airhop_lesson_exception(
+                &tenant,
+                &super::super::lesson_exception::PutLessonExceptionInput {
+                    recurrence_rule_id: rules[0].id,
+                    original_date,
+                    expected_version: 1,
+                    change: super::super::lesson_exception::LessonExceptionChange::Cancel,
+                    reason: None,
+                    idempotency_digest: [15; 32],
+                    request_hash: [16; 32],
+                    actor: actor(),
+                },
+            )
+            .await
+            .expect("cancel overridden lesson");
+        assert_eq!(cancelled_override.exception_id, Some(override_exception_id));
+        assert_eq!(cancelled_override.version, 2);
+        let stored_exceptions = db
+            .list_airhop_lesson_exceptions(&tenant)
+            .await
+            .expect("list lesson exceptions");
+        assert_eq!(stored_exceptions.len(), 1);
+        assert_eq!(stored_exceptions[0].kind, "cancelled");
+        assert_eq!(
+            stored_exceptions[0].effective_payload.as_ref().unwrap()["date"],
+            json!(moved_date)
         );
         let dst_instants = sqlx::query(
             "SELECT \
