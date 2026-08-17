@@ -45,6 +45,7 @@ function validRoster() {
         bookingStatus: "confirmed",
         visitKind: "trial",
         enrollmentId: null,
+        activeGroupEnrollmentId: null,
         attendanceId: null,
         attendanceStatus: null,
         attendanceVersion: 0,
@@ -175,6 +176,48 @@ test("attendance command addresses one child and can clear a mark", async () => 
   assert.equal(
     requested.init.headers["Idempotency-Key"],
     "attendance-command-12345",
+  );
+});
+
+test("trial enrollment command carries tariff, start date and explicit weekly slots", async () => {
+  let requested;
+  const service = new HttpStaffLessonService({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requested = { url, init };
+      return new Response(
+        JSON.stringify({
+          childId: IDS.child,
+          enrollmentId: "550e8400-e29b-41d4-a716-446655440007",
+          paymentExpectationId: "550e8400-e29b-41d4-a716-446655440008",
+          enrollmentVersion: 1,
+          paymentVersion: 1,
+          replayed: false,
+        }),
+      );
+    },
+  });
+
+  await service.enrollTrial({
+    lessonRef: LESSON,
+    childId: IDS.child,
+    tariffId: "550e8400-e29b-41d4-a716-446655440009",
+    startDate: "2026-08-21",
+    schedule: [{ recurrenceRuleId: IDS.rule, weekday: "thursday" }],
+    idempotencyKey: "enrollment-command-12345",
+  });
+
+  assert.match(requested.url, new RegExp(`${IDS.child}/enrollment$`));
+  assert.equal(requested.init.method, "POST");
+  assert.deepEqual(JSON.parse(requested.init.body), {
+    tariffId: "550e8400-e29b-41d4-a716-446655440009",
+    startDate: "2026-08-21",
+    schedule: [{ recurrenceRuleId: IDS.rule, weekday: "thursday" }],
+  });
+  assert.equal(
+    requested.init.headers["Idempotency-Key"],
+    "enrollment-command-12345",
   );
 });
 

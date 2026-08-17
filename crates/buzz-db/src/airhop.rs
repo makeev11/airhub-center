@@ -60,6 +60,8 @@ pub mod room_directory;
 pub mod schedule;
 /// Tenant-scoped staff booking queue projection.
 pub mod staff_queue;
+/// Tenant-scoped tariff directory and audited staff commands.
+pub mod tariff_directory;
 
 /// Lifecycle of an AirHub organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

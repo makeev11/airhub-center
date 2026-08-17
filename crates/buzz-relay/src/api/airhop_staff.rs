@@ -45,14 +45,18 @@ use buzz_db::airhop::lesson_exception::{
     AirhopLessonException, LessonExceptionChange, PutLessonExceptionInput,
 };
 use buzz_db::airhop::lesson_participants::{
-    AddStaffLessonParticipantInput, LessonAttendanceStatus, SetStaffLessonAttendanceInput,
-    StaffLessonParticipantClient, StaffLessonRoster,
+    AddStaffLessonParticipantInput, EnrollStaffTrialParticipantInput, EnrollmentScheduleSelection,
+    LessonAttendanceStatus, SetStaffLessonAttendanceInput, StaffLessonParticipantClient,
+    StaffLessonRoster,
 };
 use buzz_db::airhop::organization_settings::PutOrganizationSettingsInput;
 use buzz_db::airhop::public_booking::{PreferredContactChannel, PublicBookingApplicant};
 use buzz_db::airhop::room_directory::{AirhopRoom, CreateRoomInput, PutRoomInput, RoomStatus};
 use buzz_db::airhop::staff_queue::{
     StaffBookingQueueCursor, StaffBookingQueueFilter, StaffBookingQueueRow,
+};
+use buzz_db::airhop::tariff_directory::{
+    AirhopTariff, CreateTariffInput, PutTariffInput, TariffStatus,
 };
 use buzz_db::airhop::{ActorKind, AirhopActor};
 use chrono::{DateTime, NaiveTime, Utc};
@@ -393,6 +397,49 @@ pub(crate) struct PutLessonAttendanceBody {
     status: Option<LessonAttendanceStatus>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct EnrollmentScheduleSelectionBody {
+    recurrence_rule_id: Uuid,
+    weekday: Weekday,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct EnrollTrialParticipantBody {
+    tariff_id: Uuid,
+    start_date: chrono::NaiveDate,
+    schedule: Vec<EnrollmentScheduleSelectionBody>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CreateTariffBody {
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    price_minor: i64,
+    currency: String,
+    weekly_schedule_limit: i16,
+    #[serde(default)]
+    payment_day_of_month: Option<i16>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PutTariffBody {
+    expected_version: i64,
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    price_minor: i64,
+    currency: String,
+    weekly_schedule_limit: i16,
+    #[serde(default)]
+    payment_day_of_month: Option<i16>,
+    status: TariffStatus,
+}
+
 struct ParsedLessonExceptionBody {
     expected_version: i64,
     change: LessonExceptionChange,
@@ -542,6 +589,132 @@ pub(crate) async fn put_organization_settings(
     )))
 }
 
+/// Authoritative active and archived reusable tariff directory.
+pub(crate) async fn list_tariffs(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/tariffs";
+    let (tenant, _) = authenticate(&state, &headers, "GET", path, None, Access::Staff).await?;
+    let organization = state
+        .db
+        .get_airhop_organization(&tenant)
+        .await
+        .map_err(map_db_error)?
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "AirHub organization is not configured",
+            )
+        })?;
+    let tariffs = state
+        .db
+        .list_airhop_tariffs(&tenant)
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "organization": organization_json(
+            organization.id,
+            &organization.name,
+            &organization.locale,
+            &organization.time_zone,
+            &organization.settings,
+        ),
+        "organizationVersion": organization.version,
+        "items": tariffs.iter().map(tariff_json).collect::<Vec<_>>(),
+    })))
+}
+
+/// Idempotently creates one tenant-scoped reusable tariff.
+pub(crate) async fn create_tariff(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/tariffs";
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "POST", path, Some(&body), Access::Staff).await?;
+    let request: CreateTariffBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .create_airhop_tariff(
+            &tenant,
+            &CreateTariffInput {
+                name: request.name.trim().to_owned(),
+                description: trimmed_optional(request.description),
+                price_minor: request.price_minor,
+                currency: request.currency.trim().to_ascii_uppercase(),
+                weekly_schedule_limit: request.weekly_schedule_limit,
+                payment_day_of_month: request.payment_day_of_month,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.tariff.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("POST", path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "tariffId": outcome.tariff_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Optimistically updates, archives, or restores one reusable tariff.
+pub(crate) async fn put_tariff(
+    State(state): State<Arc<AppState>>,
+    Path(tariff_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/tariffs/{tariff_id}");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: PutTariffBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .put_airhop_tariff(
+            &tenant,
+            &PutTariffInput {
+                tariff_id,
+                expected_version: request.expected_version,
+                name: request.name.trim().to_owned(),
+                description: trimmed_optional(request.description),
+                price_minor: request.price_minor,
+                currency: request.currency.trim().to_ascii_uppercase(),
+                weekly_schedule_limit: request.weekly_schedule_limit,
+                payment_day_of_month: request.payment_day_of_month,
+                status: request.status,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.tariff.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("PUT", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "tariffId": outcome.tariff_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
 /// Authoritative active and archived branch directory for AirHub staff.
 pub(crate) async fn list_branches(
     State(state): State<Arc<AppState>>,
@@ -585,6 +758,11 @@ pub(crate) async fn list_branches(
         .list_airhop_lesson_exceptions(&tenant)
         .await
         .map_err(map_db_error)?;
+    let tariffs = state
+        .db
+        .list_airhop_tariffs(&tenant)
+        .await
+        .map_err(map_db_error)?;
     Ok(Json(json!({
         "organization": organization_json(
             organization.id,
@@ -599,6 +777,7 @@ pub(crate) async fn list_branches(
         "groups": groups.iter().map(group_json).collect::<Vec<_>>(),
         "recurrenceRules": recurrence_rules.iter().map(recurrence_rule_json).collect::<Vec<_>>(),
         "lessonExceptions": lesson_exceptions.iter().map(lesson_exception_json).collect::<Vec<_>>(),
+        "tariffs": tariffs.iter().map(tariff_json).collect::<Vec<_>>(),
     })))
 }
 
@@ -1084,6 +1263,64 @@ pub(crate) async fn put_lesson_attendance(
         "attendanceId": outcome.attendance_id,
         "status": outcome.status,
         "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Converts one confirmed trial booking to a permanent configured enrollment.
+pub(crate) async fn enroll_trial_participant(
+    State(state): State<Arc<AppState>>,
+    Path((recurrence_rule_id, original_date, child_id)): Path<(Uuid, chrono::NaiveDate, Uuid)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!(
+        "/api/airhop/staff/v1/lessons/{recurrence_rule_id}/{original_date}/participants/{child_id}/enrollment"
+    );
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "POST", &path, Some(&body), Access::Staff).await?;
+    let request: EnrollTrialParticipantBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .enroll_airhop_staff_trial_participant(
+            &tenant,
+            &EnrollStaffTrialParticipantInput {
+                lesson_ref: StableLessonReference {
+                    recurrence_rule_id,
+                    original_date,
+                },
+                child_id,
+                tariff_id: request.tariff_id,
+                start_date: request.start_date,
+                schedule: request
+                    .schedule
+                    .into_iter()
+                    .map(|selection| EnrollmentScheduleSelection {
+                        recurrence_rule_id: selection.recurrence_rule_id,
+                        weekday: selection.weekday,
+                    })
+                    .collect(),
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.trial-enrollment.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("POST", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "childId": outcome.child_id,
+        "enrollmentId": outcome.enrollment_id,
+        "paymentExpectationId": outcome.payment_expectation_id,
+        "enrollmentVersion": outcome.enrollment_version,
+        "paymentVersion": outcome.payment_version,
         "replayed": outcome.replayed,
     })))
 }
@@ -2263,6 +2500,24 @@ fn branch_json(branch: &AirhopBranch) -> Value {
     })
 }
 
+fn tariff_json(tariff: &AirhopTariff) -> Value {
+    json!({
+        "id": tariff.id,
+        "organizationId": tariff.organization_id,
+        "name": tariff.name,
+        "description": tariff.description,
+        "priceMinor": tariff.price_minor,
+        "currency": tariff.currency,
+        "weeklyScheduleLimit": tariff.weekly_schedule_limit,
+        "paymentDayOfMonth": tariff.payment_day_of_month,
+        "status": tariff.status,
+        "activeEnrollmentCount": tariff.active_enrollment_count,
+        "version": tariff.version,
+        "createdAt": tariff.created_at,
+        "updatedAt": tariff.updated_at,
+    })
+}
+
 fn room_json(room: &AirhopRoom) -> Value {
     json!({
         "id": room.id,
@@ -2514,6 +2769,12 @@ fn scoped_digest(
     Ok(mac.finalize().into_bytes().into())
 }
 
+fn trimmed_optional(value: Option<String>) -> Option<String> {
+    value
+        .map(|item| item.trim().to_owned())
+        .filter(|item| !item.is_empty())
+}
+
 fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
     use buzz_db::DbError;
     match error {
@@ -2553,6 +2814,22 @@ fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
         DbError::AirhopLessonParticipantMissing => api_error(
             StatusCode::CONFLICT,
             "Child is not expected at this AirHub lesson",
+        ),
+        DbError::AirhopTariffUnavailable => api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Selected AirHub tariff is unavailable",
+        ),
+        DbError::AirhopEnrollmentConflict => api_error(
+            StatusCode::CONFLICT,
+            "Child already has an overlapping AirHub enrollment",
+        ),
+        DbError::AirhopEnrollmentScheduleInvalid => api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Selected AirHub enrollment schedule is invalid",
+        ),
+        DbError::AirhopConfirmedTrialRequired => api_error(
+            StatusCode::CONFLICT,
+            "A confirmed AirHub trial booking is required",
         ),
         DbError::AirhopPrimaryRepresentativeRequired => api_error(
             StatusCode::CONFLICT,
@@ -2712,6 +2989,42 @@ mod tests {
         .expect("valid room body");
         assert_eq!(body.expected_version, 2);
         assert_eq!(body.status, RoomStatus::Archived);
+    }
+
+    #[test]
+    fn tariff_body_contract_keeps_minor_money_and_schedule_limit_explicit() {
+        let body: PutTariffBody = serde_json::from_value(json!({
+            "expectedVersion": 3,
+            "name": "Два раза в неделю",
+            "description": "Восемь занятий в месяц",
+            "priceMinor": 600000,
+            "currency": "RUB",
+            "weeklyScheduleLimit": 2,
+            "paymentDayOfMonth": null,
+            "status": "active"
+        }))
+        .expect("valid tariff body");
+        assert_eq!(body.expected_version, 3);
+        assert_eq!(body.price_minor, 600_000);
+        assert_eq!(body.weekly_schedule_limit, 2);
+        assert_eq!(body.payment_day_of_month, None);
+    }
+
+    #[test]
+    fn trial_enrollment_body_requires_explicit_weekly_slots() {
+        let rule_id = Uuid::new_v4();
+        let body: EnrollTrialParticipantBody = serde_json::from_value(json!({
+            "tariffId": Uuid::new_v4(),
+            "startDate": "2026-08-18",
+            "schedule": [{
+                "recurrenceRuleId": rule_id,
+                "weekday": "tuesday"
+            }]
+        }))
+        .expect("valid trial enrollment body");
+        assert_eq!(body.schedule.len(), 1);
+        assert_eq!(body.schedule[0].recurrence_rule_id, rule_id);
+        assert_eq!(body.schedule[0].weekday, Weekday::Tuesday);
     }
 
     #[test]

@@ -1,7 +1,12 @@
 import * as React from "react";
 import { Banknote, Plus } from "lucide-react";
 
-import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import {
+  BookingWorkspaceProvider,
+  useBookingWorkspace,
+} from "@/features/booking/data/BookingWorkspaceProvider";
+import { createHttpBookingTariffsRepository } from "@/features/booking/data/httpBookingTariffsRepository";
+import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import { createBookingFormatters } from "@/features/booking/lib/bookingLocale";
 import type { BookingTariff } from "@/features/booking/model/bookingCore";
@@ -143,6 +148,8 @@ function TariffsContent({ createRequest }: { createRequest: number }) {
     );
 
   const enrollmentCount = (tariffId: string) =>
+    workspace.tariffs.find((tariff) => tariff.id === tariffId)
+      ?.activeEnrollmentCount ??
     workspace.enrollments.filter(
       (enrollment) =>
         enrollment.assignmentState === "configured" &&
@@ -289,7 +296,7 @@ function TariffsContent({ createRequest }: { createRequest: number }) {
   );
 }
 
-export function TariffsScreen() {
+function TariffsScreenContent() {
   const booking = useBookingWorkspace();
   const messages = getBookingAdminMessages(
     booking.workspace?.organization.locale ?? "ru-RU",
@@ -321,5 +328,25 @@ export function TariffsScreen() {
         </BookingWorkspaceGate>
       </div>
     </div>
+  );
+}
+
+function ServerTariffsScreen() {
+  const [repository] = React.useState(() =>
+    createHttpBookingTariffsRepository(),
+  );
+  return (
+    <BookingWorkspaceProvider repository={repository}>
+      <TariffsScreenContent />
+    </BookingWorkspaceProvider>
+  );
+}
+
+/** Uses PostgreSQL tariff commands in Tauri and isolated demo state in previews. */
+export function TariffsScreen() {
+  return currentAirhopStaffDataRuntime() === "server" ? (
+    <ServerTariffsScreen />
+  ) : (
+    <TariffsScreenContent />
   );
 }

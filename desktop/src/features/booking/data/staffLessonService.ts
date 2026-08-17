@@ -24,6 +24,7 @@ const rosterEntrySchema = z.object({
   bookingStatus: z.enum(["pending_confirmation", "confirmed"]).nullable(),
   visitKind: z.enum(["trial", "single"]).nullable(),
   enrollmentId: uuidSchema.nullable(),
+  activeGroupEnrollmentId: uuidSchema.nullable(),
   attendanceId: uuidSchema.nullable(),
   attendanceStatus: attendanceStatusSchema.nullable(),
   attendanceVersion: z.number().int().nonnegative(),
@@ -53,6 +54,23 @@ const attendanceOutcomeSchema = z.object({
   version: z.number().int().nonnegative(),
   replayed: z.boolean(),
 });
+const weekdaySchema = z.enum([
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+]);
+const enrollmentOutcomeSchema = z.object({
+  childId: uuidSchema,
+  enrollmentId: uuidSchema,
+  paymentExpectationId: uuidSchema,
+  enrollmentVersion: z.number().int().positive(),
+  paymentVersion: z.number().int().positive(),
+  replayed: z.boolean(),
+});
 
 export type StaffLessonReference = z.infer<typeof lessonRefSchema>;
 export type StaffLessonAttendanceStatus = z.infer<
@@ -66,6 +84,13 @@ export type StaffLessonParticipantOutcome = z.infer<
 export type StaffLessonAttendanceOutcome = z.infer<
   typeof attendanceOutcomeSchema
 >;
+export type StaffTrialEnrollmentOutcome = z.infer<
+  typeof enrollmentOutcomeSchema
+>;
+export type StaffEnrollmentScheduleSelection = {
+  recurrenceRuleId: string;
+  weekday: z.infer<typeof weekdaySchema>;
+};
 
 export type StaffLessonParticipantClient =
   | {
@@ -97,6 +122,14 @@ export interface StaffLessonService {
     status: StaffLessonAttendanceStatus | null;
     idempotencyKey?: string;
   }): Promise<StaffLessonAttendanceOutcome>;
+  enrollTrial(input: {
+    lessonRef: StaffLessonReference;
+    childId: string;
+    tariffId: string;
+    startDate: string;
+    schedule: StaffEnrollmentScheduleSelection[];
+    idempotencyKey?: string;
+  }): Promise<StaffTrialEnrollmentOutcome>;
 }
 
 type EventSigner = (input: {
@@ -235,6 +268,56 @@ export class HttpStaffLessonService implements StaffLessonService {
       `${lessonPath(input.lessonRef)}/${encodeURIComponent(childId.data)}/attendance`,
       { expectedVersion: input.expectedVersion, status: input.status },
       attendanceOutcomeSchema,
+      input.idempotencyKey,
+    );
+  }
+
+  async enrollTrial(input: {
+    lessonRef: StaffLessonReference;
+    childId: string;
+    tariffId: string;
+    startDate: string;
+    schedule: StaffEnrollmentScheduleSelection[];
+    idempotencyKey?: string;
+  }): Promise<StaffTrialEnrollmentOutcome> {
+    const childId = uuidSchema.safeParse(input.childId);
+    const tariffId = uuidSchema.safeParse(input.tariffId);
+    const startDate = z.string().date().safeParse(input.startDate);
+    const schedule = z
+      .array(
+        z.object({
+          recurrenceRuleId: uuidSchema,
+          weekday: weekdaySchema,
+        }),
+      )
+      .min(1)
+      .max(7)
+      .safeParse(input.schedule);
+    if (
+      !childId.success ||
+      !tariffId.success ||
+      !startDate.success ||
+      !schedule.success
+    ) {
+      throw new StaffLessonApiError(400, "Invalid AirHub enrollment command.");
+    }
+    const unique = new Set(
+      schedule.data.map(
+        (selection) => `${selection.recurrenceRuleId}:${selection.weekday}`,
+      ),
+    );
+    if (unique.size !== schedule.data.length) {
+      throw new StaffLessonApiError(400, "Invalid AirHub enrollment command.");
+    }
+    return this.request(
+      "POST",
+      `${lessonPath(input.lessonRef)}/${encodeURIComponent(childId.data)}/enrollment`,
+      {
+        tariffId: tariffId.data,
+        startDate: startDate.data,
+        schedule: schedule.data,
+      },
+      enrollmentOutcomeSchema,
       input.idempotencyKey,
     );
   }

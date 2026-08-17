@@ -1,6 +1,8 @@
 //! Authoritative roster, direct participants, and attendance for one lesson.
 
-use airhop_core::{BookingStatus, StableLessonReference, Weekday};
+use std::collections::HashSet;
+
+use airhop_core::{AgeLimits, BookingStatus, StableLessonReference, Weekday};
 use buzz_core::TenantContext;
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -21,6 +23,7 @@ use crate::{Db, DbError, Result};
 
 const ADD_PARTICIPANT_COMMAND_TYPE: &str = "AddLessonParticipant";
 const SET_ATTENDANCE_COMMAND_TYPE: &str = "SetLessonAttendance";
+const ENROLL_TRIAL_COMMAND_TYPE: &str = "EnrollTrialParticipant";
 
 /// Explicit attendance value stored for one expected child.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,6 +78,8 @@ pub struct StaffLessonRosterEntry {
     pub visit_kind: Option<String>,
     /// Active permanent enrollment covering this occurrence.
     pub enrollment_id: Option<Uuid>,
+    /// Active or future permanent enrollment in this group, even when it does not cover this visit.
+    pub active_group_enrollment_id: Option<Uuid>,
     /// Current attendance projection id.
     pub attendance_id: Option<Uuid>,
     /// Explicit attendance mark.
@@ -192,6 +197,54 @@ pub struct SetStaffLessonAttendanceOutcome {
     pub replayed: bool,
 }
 
+/// One selected recurrence rule and weekday for a permanent enrollment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct EnrollmentScheduleSelection {
+    /// Active recurrence rule owned by the source lesson group.
+    pub recurrence_rule_id: Uuid,
+    /// One weekday explicitly present on that recurrence rule.
+    pub weekday: Weekday,
+}
+
+/// Atomic command converting one confirmed trial participant to a permanent student.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnrollStaffTrialParticipantInput {
+    /// Source trial lesson retained as booking history.
+    pub lesson_ref: StableLessonReference,
+    /// Child from the source trial booking.
+    pub child_id: Uuid,
+    /// Active reusable tariff selected by staff.
+    pub tariff_id: Uuid,
+    /// Inclusive enrollment start date.
+    pub start_date: NaiveDate,
+    /// Explicit permanent weekly slots in the source lesson group.
+    pub schedule: Vec<EnrollmentScheduleSelection>,
+    /// Keyed digest of the HTTP idempotency key.
+    pub idempotency_digest: [u8; 32],
+    /// Canonical method/path/body request hash.
+    pub request_hash: [u8; 32],
+    /// Verified staff attribution.
+    pub actor: AirhopActor,
+}
+
+/// Deterministic permanent enrollment result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnrollStaffTrialParticipantOutcome {
+    /// Converted child.
+    pub child_id: Uuid,
+    /// New configured enrollment.
+    pub enrollment_id: Uuid,
+    /// First expected payment created in the same transaction.
+    pub payment_expectation_id: Uuid,
+    /// Initial enrollment version.
+    pub enrollment_version: i64,
+    /// Initial payment version.
+    pub payment_version: i64,
+    /// True when a committed command receipt was replayed.
+    pub replayed: bool,
+}
+
 #[derive(Debug)]
 struct LessonOccurrence {
     group_id: Uuid,
@@ -221,6 +274,16 @@ struct StoredAttendanceResult {
     version: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredEnrollmentResult {
+    child_id: Uuid,
+    enrollment_id: Uuid,
+    payment_expectation_id: Uuid,
+    enrollment_version: i64,
+    payment_version: i64,
+}
+
 #[derive(Debug)]
 struct ResolvedStaffIdentity {
     family_id: Uuid,
@@ -235,6 +298,22 @@ struct ExistingBooking {
     id: Uuid,
     status: String,
     visit_kind: BookingVisitKind,
+}
+
+#[derive(Debug)]
+struct TrialEnrollmentSource {
+    family_id: Uuid,
+    birth_date: NaiveDate,
+    min_age_months: Option<i32>,
+    max_age_months: Option<i32>,
+}
+
+#[derive(Debug)]
+struct EnrollmentTariffSnapshot {
+    name: String,
+    price_minor: i64,
+    currency: String,
+    weekly_schedule_limit: i16,
 }
 
 impl Db {
@@ -275,6 +354,7 @@ impl Db {
                     child.id AS child_id, child.display_name AS child_name, \
                     booking.id AS booking_id, booking.status AS booking_status, \
                     booking.visit_kind, enrollment.id AS enrollment_id, \
+                    active_enrollment.id AS active_group_enrollment_id, \
                     attendance.id AS attendance_id, attendance.status AS attendance_status, \
                     COALESCE(attendance.version, 0) AS attendance_version, \
                     attendance.marked_at AS attendance_marked_at \
@@ -311,6 +391,19 @@ impl Db {
                    )) \
                  ORDER BY row.updated_at DESC, row.id LIMIT 1 \
              ) enrollment ON TRUE \
+             LEFT JOIN LATERAL ( \
+                 SELECT row.id \
+                 FROM airhop_enrollments row \
+                 JOIN airhop_organizations organization \
+                   ON organization.community_id = row.community_id \
+                  AND organization.id = row.organization_id \
+                 WHERE row.community_id = $1 AND row.organization_id = $2 \
+                   AND row.child_id = child.id AND row.group_id = $5 \
+                   AND row.status = 'active' \
+                   AND (row.end_date IS NULL OR row.end_date >= \
+                        (now() AT TIME ZONE organization.time_zone)::date) \
+                 ORDER BY row.start_date DESC, row.updated_at DESC, row.id LIMIT 1 \
+             ) active_enrollment ON TRUE \
              JOIN airhop_representatives representative \
                ON representative.community_id = family.community_id \
               AND representative.organization_id = family.organization_id \
@@ -545,6 +638,232 @@ impl Db {
             booking_id: stored.booking_id,
             participant_status,
             visit_kind,
+            replayed: false,
+        })
+    }
+
+    /// Converts one confirmed trial to a configured enrollment and first payment atomically.
+    pub async fn enroll_airhop_staff_trial_participant(
+        &self,
+        tenant: &TenantContext,
+        input: &EnrollStaffTrialParticipantInput,
+    ) -> Result<EnrollStaffTrialParticipantOutcome> {
+        validate_trial_enrollment(input)?;
+        let mut transaction = self.pool.begin().await?;
+        let (organization_id, _, occurred_at) =
+            active_organization_clock(&mut transaction, tenant).await?;
+        let command = match insert_pending_command(
+            &mut transaction,
+            tenant,
+            &NewAirhopCommand {
+                id: Uuid::new_v4(),
+                organization_id,
+                command_type: ENROLL_TRIAL_COMMAND_TYPE.to_owned(),
+                idempotency_digest: input.idempotency_digest,
+                request_hash: input.request_hash,
+                actor: input.actor.clone(),
+                correlation_id: Uuid::new_v4(),
+            },
+        )
+        .await?
+        {
+            CommandInsertOutcome::Inserted(command) => command,
+            CommandInsertOutcome::Existing(command) => {
+                return replay_enrollment(transaction, command).await;
+            }
+        };
+        let occurrence = load_occurrence(
+            &mut *transaction,
+            tenant,
+            organization_id,
+            input.lesson_ref,
+            true,
+        )
+        .await?;
+        let source = load_trial_enrollment_source(
+            &mut transaction,
+            tenant,
+            organization_id,
+            input,
+            occurrence.group_id,
+        )
+        .await?;
+        validate_enrollment_age(&source, input.start_date)?;
+        let tariff = load_active_enrollment_tariff(
+            &mut transaction,
+            tenant,
+            organization_id,
+            input.tariff_id,
+        )
+        .await?;
+        if input.schedule.len() > usize::try_from(tariff.weekly_schedule_limit).unwrap_or(0) {
+            return Err(DbError::AirhopEnrollmentScheduleInvalid);
+        }
+        validate_enrollment_schedule(
+            &mut transaction,
+            tenant,
+            organization_id,
+            occurrence.group_id,
+            input.start_date,
+            &input.schedule,
+        )
+        .await?;
+        let overlap: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM airhop_enrollments \
+             WHERE community_id = $1 AND organization_id = $2 \
+               AND child_id = $3 AND group_id = $4 AND status = 'active' \
+               AND (end_date IS NULL OR end_date >= $5) \
+             ORDER BY start_date, id LIMIT 1 FOR UPDATE",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .bind(input.child_id)
+        .bind(occurrence.group_id)
+        .bind(input.start_date)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        if overlap.is_some() {
+            return Err(DbError::AirhopEnrollmentConflict);
+        }
+
+        let enrollment_id = Uuid::new_v4();
+        let payment_expectation_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO airhop_enrollments ( \
+                 community_id, organization_id, id, family_id, child_id, group_id, tariff_id, \
+                 start_date, status, assignment_state, source, created_by, created_at, updated_at \
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', 'configured', \
+                       'staff_ui', 'airhop-center-staff', $9, $9)",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .bind(enrollment_id)
+        .bind(source.family_id)
+        .bind(input.child_id)
+        .bind(occurrence.group_id)
+        .bind(input.tariff_id)
+        .bind(input.start_date)
+        .bind(occurred_at)
+        .execute(&mut *transaction)
+        .await?;
+        for selection in &input.schedule {
+            sqlx::query(
+                "INSERT INTO airhop_enrollment_schedule ( \
+                     community_id, organization_id, enrollment_id, group_id, \
+                     recurrence_rule_id, weekday \
+                 ) VALUES ($1, $2, $3, $4, $5, $6)",
+            )
+            .bind(tenant.community().as_uuid())
+            .bind(organization_id)
+            .bind(enrollment_id)
+            .bind(occurrence.group_id)
+            .bind(selection.recurrence_rule_id)
+            .bind(weekday_str(selection.weekday))
+            .execute(&mut *transaction)
+            .await?;
+        }
+        sqlx::query(
+            "INSERT INTO airhop_payment_expectations ( \
+                 community_id, organization_id, id, family_id, child_id, enrollment_id, \
+                 tariff_id, tariff_name_snapshot, amount_minor, currency, due_date, \
+                 status, created_at, updated_at \
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, \
+                       'expected', $12, $12)",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .bind(payment_expectation_id)
+        .bind(source.family_id)
+        .bind(input.child_id)
+        .bind(enrollment_id)
+        .bind(input.tariff_id)
+        .bind(&tariff.name)
+        .bind(tariff.price_minor)
+        .bind(&tariff.currency)
+        .bind(input.start_date)
+        .bind(occurred_at)
+        .execute(&mut *transaction)
+        .await?;
+
+        append_domain_event(
+            &mut transaction,
+            tenant,
+            &NewDomainEvent {
+                id: Uuid::new_v4(),
+                organization_id,
+                stream_type: "enrollment".to_owned(),
+                stream_id: enrollment_id,
+                stream_version: 1,
+                event_type: "airhop.enrollment.created_from_trial.v1".to_owned(),
+                schema_version: 1,
+                occurred_at,
+                actor: input.actor.clone(),
+                causation_id: command.id,
+                correlation_id: command.correlation_id,
+                payload: json!({
+                    "enrollmentId": enrollment_id,
+                    "sourceLesson": input.lesson_ref,
+                    "childId": input.child_id,
+                    "groupId": occurrence.group_id,
+                    "tariffId": input.tariff_id,
+                    "startDate": input.start_date,
+                    "schedule": input.schedule,
+                    "paymentExpectationId": payment_expectation_id,
+                }),
+                privacy_class: PrivacyClass::SensitiveChild,
+            },
+        )
+        .await?;
+        append_domain_event(
+            &mut transaction,
+            tenant,
+            &NewDomainEvent {
+                id: Uuid::new_v4(),
+                organization_id,
+                stream_type: "payment_expectation".to_owned(),
+                stream_id: payment_expectation_id,
+                stream_version: 1,
+                event_type: "airhop.payment.expected.v1".to_owned(),
+                schema_version: 1,
+                occurred_at,
+                actor: input.actor.clone(),
+                causation_id: command.id,
+                correlation_id: command.correlation_id,
+                payload: json!({
+                    "paymentExpectationId": payment_expectation_id,
+                    "enrollmentId": enrollment_id,
+                    "tariffId": input.tariff_id,
+                    "amountMinor": tariff.price_minor,
+                    "currency": tariff.currency,
+                    "dueDate": input.start_date,
+                    "status": "expected",
+                }),
+                privacy_class: PrivacyClass::SensitiveChild,
+            },
+        )
+        .await?;
+        let stored = StoredEnrollmentResult {
+            child_id: input.child_id,
+            enrollment_id,
+            payment_expectation_id,
+            enrollment_version: 1,
+            payment_version: 1,
+        };
+        commit_command(
+            &mut transaction,
+            tenant,
+            organization_id,
+            command.id,
+            &serde_json::to_value(&stored)?,
+        )
+        .await?;
+        transaction.commit().await?;
+        Ok(EnrollStaffTrialParticipantOutcome {
+            child_id: stored.child_id,
+            enrollment_id: stored.enrollment_id,
+            payment_expectation_id: stored.payment_expectation_id,
+            enrollment_version: stored.enrollment_version,
+            payment_version: stored.payment_version,
             replayed: false,
         })
     }
@@ -802,6 +1121,7 @@ fn parse_roster_entry(row: sqlx::postgres::PgRow) -> Result<StaffLessonRosterEnt
         booking_status: row.try_get("booking_status")?,
         visit_kind: row.try_get("visit_kind")?,
         enrollment_id: row.try_get("enrollment_id")?,
+        active_group_enrollment_id: row.try_get("active_group_enrollment_id")?,
         attendance_id: row.try_get("attendance_id")?,
         attendance_status: status,
         attendance_version: row.try_get("attendance_version")?,
@@ -938,6 +1258,124 @@ async fn insert_staff_consent(
     .execute(&mut **transaction)
     .await?;
     Ok(consent_id)
+}
+
+async fn load_trial_enrollment_source(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    input: &EnrollStaffTrialParticipantInput,
+    group_id: Uuid,
+) -> Result<TrialEnrollmentSource> {
+    let row = sqlx::query(
+        "SELECT booking.family_id, child.birth_date, \
+                group_row.min_age_months, group_row.max_age_months \
+         FROM airhop_bookings booking \
+         JOIN airhop_children child \
+           ON child.community_id = booking.community_id \
+          AND child.organization_id = booking.organization_id \
+          AND child.family_id = booking.family_id AND child.id = booking.child_id \
+         JOIN airhop_families family \
+           ON family.community_id = child.community_id \
+          AND family.organization_id = child.organization_id AND family.id = child.family_id \
+         JOIN airhop_groups group_row \
+           ON group_row.community_id = booking.community_id \
+          AND group_row.organization_id = booking.organization_id AND group_row.id = $6 \
+         WHERE booking.community_id = $1 AND booking.organization_id = $2 \
+           AND booking.recurrence_rule_id = $3 AND booking.original_date = $4 \
+           AND booking.child_id = $5 AND booking.status = 'confirmed' \
+           AND booking.visit_kind = 'trial' AND family.status = 'active' \
+           AND child.status = 'active' AND group_row.status = 'active' \
+         FOR UPDATE OF booking, family, child, group_row",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(input.lesson_ref.recurrence_rule_id)
+    .bind(input.lesson_ref.original_date)
+    .bind(input.child_id)
+    .bind(group_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(DbError::AirhopConfirmedTrialRequired)?;
+    Ok(TrialEnrollmentSource {
+        family_id: row.try_get("family_id")?,
+        birth_date: row.try_get("birth_date")?,
+        min_age_months: row.try_get("min_age_months")?,
+        max_age_months: row.try_get("max_age_months")?,
+    })
+}
+
+fn validate_enrollment_age(source: &TrialEnrollmentSource, start_date: NaiveDate) -> Result<()> {
+    let minimum_age = optional_months(source.min_age_months)?;
+    let maximum_age = optional_months(source.max_age_months)?;
+    let age_limits = AgeLimits::new(minimum_age, maximum_age)
+        .map_err(|error| DbError::InvalidData(error.to_string()))?;
+    if age_limits.contains_birth_date(source.birth_date, start_date) {
+        Ok(())
+    } else {
+        Err(DbError::AirhopAgeMismatch)
+    }
+}
+
+async fn load_active_enrollment_tariff(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    tariff_id: Uuid,
+) -> Result<EnrollmentTariffSnapshot> {
+    let row = sqlx::query(
+        "SELECT name, price_minor, currency, weekly_schedule_limit \
+         FROM airhop_tariffs \
+         WHERE community_id = $1 AND organization_id = $2 AND id = $3 \
+           AND status = 'active' FOR SHARE",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(tariff_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(DbError::AirhopTariffUnavailable)?;
+    Ok(EnrollmentTariffSnapshot {
+        name: row.try_get("name")?,
+        price_minor: row.try_get("price_minor")?,
+        currency: row.try_get::<String, _>("currency")?.trim().to_owned(),
+        weekly_schedule_limit: row.try_get("weekly_schedule_limit")?,
+    })
+}
+
+async fn validate_enrollment_schedule(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    group_id: Uuid,
+    start_date: NaiveDate,
+    schedule: &[EnrollmentScheduleSelection],
+) -> Result<()> {
+    for selection in schedule {
+        let valid: bool = sqlx::query_scalar(
+            "SELECT EXISTS ( \
+                 SELECT 1 FROM airhop_recurrence_rules rule \
+                 JOIN airhop_recurrence_weekdays weekday \
+                   ON weekday.community_id = rule.community_id \
+                  AND weekday.organization_id = rule.organization_id \
+                  AND weekday.recurrence_rule_id = rule.id \
+                 WHERE rule.community_id = $1 AND rule.organization_id = $2 \
+                   AND rule.group_id = $3 AND rule.id = $4 AND rule.status = 'active' \
+                   AND rule.ends_on >= $5 AND weekday.weekday = $6)",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .bind(group_id)
+        .bind(selection.recurrence_rule_id)
+        .bind(start_date)
+        .bind(weekday_str(selection.weekday))
+        .fetch_one(&mut **transaction)
+        .await?;
+        if !valid {
+            return Err(DbError::AirhopEnrollmentScheduleInvalid);
+        }
+    }
+    Ok(())
 }
 
 async fn load_existing_booking(
@@ -1170,6 +1608,31 @@ async fn replay_attendance(
     }
 }
 
+async fn replay_enrollment(
+    transaction: Transaction<'_, Postgres>,
+    command: AirhopCommand,
+) -> Result<EnrollStaffTrialParticipantOutcome> {
+    match command.status {
+        CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
+        CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
+        CommandStatus::Committed => {
+            let stored: StoredEnrollmentResult =
+                serde_json::from_value(command.result.ok_or_else(|| {
+                    DbError::InvalidData("committed AirHub command has no result".to_owned())
+                })?)?;
+            transaction.commit().await?;
+            Ok(EnrollStaffTrialParticipantOutcome {
+                child_id: stored.child_id,
+                enrollment_id: stored.enrollment_id,
+                payment_expectation_id: stored.payment_expectation_id,
+                enrollment_version: stored.enrollment_version,
+                payment_version: stored.payment_version,
+                replayed: true,
+            })
+        }
+    }
+}
+
 fn validate_add_participant(input: &AddStaffLessonParticipantInput) -> Result<()> {
     input.actor.validate()?;
     if input.lesson_ref.recurrence_rule_id.is_nil() || input.management_key_version <= 0 {
@@ -1200,6 +1663,32 @@ fn validate_attendance(input: &SetStaffLessonAttendanceInput) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+fn validate_trial_enrollment(input: &EnrollStaffTrialParticipantInput) -> Result<()> {
+    input.actor.validate()?;
+    let unique = input.schedule.iter().copied().collect::<HashSet<_>>();
+    if input.lesson_ref.recurrence_rule_id.is_nil()
+        || input.child_id.is_nil()
+        || input.tariff_id.is_nil()
+        || input.schedule.is_empty()
+        || input.schedule.len() > 7
+        || unique.len() != input.schedule.len()
+        || input
+            .schedule
+            .iter()
+            .any(|selection| selection.recurrence_rule_id.is_nil())
+    {
+        return Err(DbError::AirhopEnrollmentScheduleInvalid);
+    }
+    Ok(())
+}
+
+fn optional_months(value: Option<i32>) -> Result<Option<u32>> {
+    value
+        .map(u32::try_from)
+        .transpose()
+        .map_err(|_| DbError::InvalidData("AirHub age limit is invalid".to_owned()))
 }
 
 const fn weekday_str(value: Weekday) -> &'static str {
@@ -1246,5 +1735,46 @@ mod tests {
             consent_policy_version: "staff-entry-v1".to_owned(),
         };
         assert_eq!(applicant.preferred_contact_channel.as_db_str(), "phone");
+    }
+
+    #[test]
+    fn enrollment_requires_unique_non_empty_weekly_slots() {
+        let selection = EnrollmentScheduleSelection {
+            recurrence_rule_id: Uuid::new_v4(),
+            weekday: Weekday::Monday,
+        };
+        let base = EnrollStaffTrialParticipantInput {
+            lesson_ref: StableLessonReference {
+                recurrence_rule_id: Uuid::new_v4(),
+                original_date: NaiveDate::from_ymd_opt(2026, 8, 17).unwrap(),
+            },
+            child_id: Uuid::new_v4(),
+            tariff_id: Uuid::new_v4(),
+            start_date: NaiveDate::from_ymd_opt(2026, 8, 17).unwrap(),
+            schedule: vec![selection],
+            idempotency_digest: [1; 32],
+            request_hash: [2; 32],
+            actor: AirhopActor {
+                kind: super::super::ActorKind::Staff,
+                pubkey: Some([3; 32]),
+                on_behalf_of_pubkey: None,
+                agent_pubkey: None,
+            },
+        };
+        assert!(validate_trial_enrollment(&base).is_ok());
+        assert!(
+            validate_trial_enrollment(&EnrollStaffTrialParticipantInput {
+                schedule: vec![],
+                ..base.clone()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_trial_enrollment(&EnrollStaffTrialParticipantInput {
+                schedule: vec![selection, selection],
+                ..base
+            })
+            .is_err()
+        );
     }
 }

@@ -109,6 +109,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                 .put(api::airhop_staff::put_organization_settings),
         )
         .route(
+            "/api/airhop/staff/v1/tariffs",
+            get(api::airhop_staff::list_tariffs).post(api::airhop_staff::create_tariff),
+        )
+        .route(
+            "/api/airhop/staff/v1/tariffs/{tariff_id}",
+            put(api::airhop_staff::put_tariff),
+        )
+        .route(
             "/api/airhop/staff/v1/branches",
             get(api::airhop_staff::list_branches).post(api::airhop_staff::create_branch),
         )
@@ -144,6 +152,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/airhop/staff/v1/lessons/{recurrence_rule_id}/{original_date}/participants/{child_id}/attendance",
             put(api::airhop_staff::put_lesson_attendance),
+        )
+        .route(
+            "/api/airhop/staff/v1/lessons/{recurrence_rule_id}/{original_date}/participants/{child_id}/enrollment",
+            post(api::airhop_staff::enroll_trial_participant),
         )
         .route(
             "/api/airhop/staff/v1/families",

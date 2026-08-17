@@ -443,6 +443,7 @@ export const tariffSchema = z.object({
     }),
   weeklyScheduleLimit: z.number().int().min(1).max(7),
   paymentDayOfMonth: z.number().int().min(1).max(28).optional(),
+  activeEnrollmentCount: z.number().int().nonnegative().optional(),
   status: z.enum(["active", "archived"]),
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),

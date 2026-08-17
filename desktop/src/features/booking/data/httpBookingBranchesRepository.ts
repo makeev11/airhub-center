@@ -12,10 +12,12 @@ import {
   parseBookingWorkspace,
   recurrenceRuleSchema,
   roomSchema,
+  tariffSchema,
   type BookingBranch,
   type BookingGroup,
   type BookingOrganization,
   type BookingRoom,
+  type BookingTariff,
   type BookingWorkspace,
   type BookingWorkspaceDraft,
   type LessonException,
@@ -70,6 +72,16 @@ const serverLessonExceptionSchema = z.intersection(
     updatedAt: z.string().datetime({ offset: true }),
   }),
 );
+const serverTariffSchema = tariffSchema
+  .omit({ description: true, paymentDayOfMonth: true })
+  .extend({
+    id: z.string().uuid(),
+    organizationId: z.string().uuid(),
+    description: z.string().max(4_000).nullable().optional(),
+    paymentDayOfMonth: z.number().int().min(1).max(28).nullable().optional(),
+    activeEnrollmentCount: z.number().int().nonnegative(),
+    version: z.number().int().positive(),
+  });
 const directoryResponseSchema = z.object({
   organization: organizationSchema,
   organizationVersion: z.number().int().positive(),
@@ -78,6 +90,7 @@ const directoryResponseSchema = z.object({
   groups: z.array(serverGroupSchema),
   recurrenceRules: z.array(serverRecurrenceRuleSchema),
   lessonExceptions: z.array(serverLessonExceptionSchema).default([]),
+  tariffs: z.array(serverTariffSchema).default([]),
 });
 const mutationResponseSchema = z
   .object({
@@ -132,6 +145,7 @@ function emptyWorkspace(
   groups: BookingGroup[],
   recurrenceRules: RecurrenceRule[],
   lessonExceptions: LessonException[],
+  tariffs: BookingTariff[],
   revision: number,
 ): BookingWorkspace {
   return parseBookingWorkspace({
@@ -149,7 +163,7 @@ function emptyWorkspace(
     children: [],
     duplicateCandidates: [],
     bookings: [],
-    tariffs: [],
+    tariffs,
     enrollments: [],
     paymentExpectations: [],
     intakeRequests: [],
@@ -710,6 +724,14 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       ({ version: _version, updatedAt: _updatedAt, ...exception }) =>
         lessonExceptionSchema.parse(exception),
     );
+    const tariffs = parsed.data.tariffs.map(
+      ({ version: _version, description, paymentDayOfMonth, ...tariff }) =>
+        tariffSchema.parse({
+          ...tariff,
+          ...(description ? { description } : {}),
+          ...(paymentDayOfMonth ? { paymentDayOfMonth } : {}),
+        }),
+    );
     const revision =
       parsed.data.organizationVersion +
       parsed.data.items.reduce((total, branch) => total + branch.version, 0) +
@@ -722,7 +744,8 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       parsed.data.lessonExceptions.reduce(
         (total, exception) => total + exception.version,
         0,
-      );
+      ) +
+      parsed.data.tariffs.reduce((total, tariff) => total + tariff.version, 0);
     this.snapshot = emptyWorkspace(
       parsed.data.organization,
       branches,
@@ -730,6 +753,7 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       groups,
       recurrenceRules,
       lessonExceptions,
+      tariffs,
       revision,
     );
     return this.snapshot;

@@ -23,6 +23,7 @@ import {
   createHttpStaffLessonService,
   type StaffLessonAttendanceStatus,
   type StaffLessonRoster,
+  type StaffLessonRosterEntry,
   type StaffLessonService,
 } from "@/features/booking/data/staffLessonService";
 import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
@@ -53,6 +54,7 @@ import { LessonParticipantDialog } from "@/features/booking/ui/LessonParticipant
 import { LessonRoster } from "@/features/booking/ui/LessonRoster";
 import { ServerLessonParticipantDialog } from "@/features/booking/ui/ServerLessonParticipantDialog";
 import { ServerLessonRoster } from "@/features/booking/ui/ServerLessonRoster";
+import { ServerEnrollmentDialog } from "@/features/booking/ui/ServerEnrollmentDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -212,6 +214,7 @@ function LessonDetails({
   serverRosterLoading,
   serverRosterSaving,
   onSetServerAttendance,
+  onEnrollServerTrial,
 }: {
   formatters: BookingFormatters;
   lesson: ScheduleLesson | null;
@@ -238,6 +241,7 @@ function LessonDetails({
     expectedVersion: number,
     status: StaffLessonAttendanceStatus | null,
   ) => void;
+  onEnrollServerTrial: (entry: StaffLessonRosterEntry) => void;
 }) {
   if (!lesson) return null;
   const occupied =
@@ -326,6 +330,7 @@ function LessonDetails({
             isLoading={serverRosterLoading}
             isSaving={serverRosterSaving}
             locale={workspace.organization.locale}
+            onEnrollTrial={onEnrollServerTrial}
             onSetAttendance={onSetServerAttendance}
             roster={serverRoster}
           />
@@ -427,6 +432,8 @@ function ScheduleWorkspaceScreen({
     React.useState<Error | null>(null);
   const [serverRosterLoading, setServerRosterLoading] = React.useState(false);
   const [serverRosterSaving, setServerRosterSaving] = React.useState(false);
+  const [serverEnrollmentTarget, setServerEnrollmentTarget] =
+    React.useState<StaffLessonRosterEntry | null>(null);
   const serverRosterRequestRef = React.useRef(0);
   const [referenceDate, setReferenceDate] = React.useState(() =>
     getIsoDateInTimeZone(workspace.organization.timeZone),
@@ -720,6 +727,7 @@ function ScheduleWorkspaceScreen({
             })
             .finally(() => setServerRosterSaving(false));
         }}
+        onEnrollServerTrial={setServerEnrollmentTarget}
         serverRoster={serverLessonService ? serverRoster : undefined}
         serverRosterError={serverRosterError}
         serverRosterLoading={serverRosterLoading}
@@ -753,6 +761,37 @@ function ScheduleWorkspaceScreen({
           open={participantLesson !== null}
         />
       )}
+
+      {serverLessonService ? (
+        <ServerEnrollmentDialog
+          entry={serverEnrollmentTarget}
+          groupId={
+            resolvedSelectedLesson
+              ? (workspace.recurrenceRules.find(
+                  (rule) => rule.id === resolvedSelectedLesson.recurrenceRuleId,
+                )?.groupId ?? null)
+              : null
+          }
+          lessonRef={
+            resolvedSelectedLesson
+              ? {
+                  recurrenceRuleId: resolvedSelectedLesson.recurrenceRuleId,
+                  originalDate: resolvedSelectedLesson.originalDate,
+                }
+              : null
+          }
+          onOpenChange={(open) => {
+            if (!open) setServerEnrollmentTarget(null);
+          }}
+          onSaved={() => {
+            setSuccessMessage(adminMessages.enrollmentCreated);
+            void loadServerRoster(resolvedSelectedLesson);
+          }}
+          open={serverEnrollmentTarget !== null}
+          service={serverLessonService}
+          workspace={workspace}
+        />
+      ) : null}
 
       <LessonEditDialog
         lesson={editLesson}

@@ -4,6 +4,7 @@ import { UserRound } from "lucide-react";
 import type {
   StaffLessonAttendanceStatus,
   StaffLessonRoster,
+  StaffLessonRosterEntry,
 } from "@/features/booking/data/staffLessonService";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
@@ -15,6 +16,7 @@ export function ServerLessonRoster({
   isLoading,
   isSaving,
   locale,
+  onEnrollTrial,
   onSetAttendance,
   roster,
 }: {
@@ -22,6 +24,7 @@ export function ServerLessonRoster({
   isLoading: boolean;
   isSaving: boolean;
   locale: string;
+  onEnrollTrial: (entry: StaffLessonRosterEntry) => void;
   onSetAttendance: (
     childId: string,
     expectedVersion: number,
@@ -79,14 +82,16 @@ export function ServerLessonRoster({
               <div className="flex flex-wrap items-center gap-2">
                 <Badge
                   variant={
-                    entry.enrollmentId || entry.bookingStatus === "confirmed"
+                    entry.activeGroupEnrollmentId ||
+                    entry.enrollmentId ||
+                    entry.bookingStatus === "confirmed"
                       ? "success"
                       : "secondary"
                   }
                 >
                   {entry.bookingStatus === "pending_confirmation"
                     ? messages.lessonRosterPending
-                    : entry.enrollmentId
+                    : entry.activeGroupEnrollmentId || entry.enrollmentId
                       ? messages.lessonRosterPermanent
                       : entry.visitKind === "single"
                         ? messages.lessonRosterSingle
@@ -139,6 +144,19 @@ export function ServerLessonRoster({
                       {messages.participantAttendanceAbsent}
                     </Button>
                   </div>
+                ) : null}
+                {entry.bookingStatus === "confirmed" &&
+                entry.visitKind === "trial" &&
+                !entry.activeGroupEnrollmentId ? (
+                  <Button
+                    data-testid={`airhop-enroll-trial-${entry.childId}`}
+                    disabled={isSaving}
+                    onClick={() => onEnrollTrial(entry)}
+                    size="sm"
+                    type="button"
+                  >
+                    {messages.familyEnrollChild}
+                  </Button>
                 ) : null}
                 <Button
                   onClick={() =>

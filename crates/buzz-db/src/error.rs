@@ -101,6 +101,22 @@ pub enum DbError {
     #[error("child is not an expected AirHub lesson participant")]
     AirhopLessonParticipantMissing,
 
+    /// The selected tariff is archived, missing, or otherwise unavailable.
+    #[error("AirHub tariff is unavailable for enrollment")]
+    AirhopTariffUnavailable,
+
+    /// A permanent enrollment overlaps another active enrollment in the group.
+    #[error("child already has an overlapping AirHub enrollment")]
+    AirhopEnrollmentConflict,
+
+    /// The permanent weekly schedule does not belong to the selected active group.
+    #[error("AirHub enrollment schedule is invalid")]
+    AirhopEnrollmentScheduleInvalid,
+
+    /// Trial conversion requires one confirmed trial booking at the source lesson.
+    #[error("confirmed AirHub trial booking is required for enrollment")]
+    AirhopConfirmedTrialRequired,
+
     /// The family primary representative cannot be archived in place.
     #[error("AirHub primary representative must be reassigned before archiving")]
     AirhopPrimaryRepresentativeRequired,
