@@ -217,6 +217,9 @@ export class HttpBookingSettingsRepository implements BookingRepository {
       publicBookingPurpose: organization.publicBooking.purpose,
       publicBookingAppearance: organization.publicBooking.appearance,
       paymentDayOfMonth: organization.paymentDayOfMonth,
+      ...(organization.paymentsBuzzChannelId
+        ? { paymentsBuzzChannelId: organization.paymentsBuzzChannelId }
+        : {}),
     });
     const authorization = await nip98Authorization(
       "PUT",

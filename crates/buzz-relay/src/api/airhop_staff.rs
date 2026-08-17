@@ -177,6 +177,8 @@ pub(crate) struct PutOrganizationSettingsBody {
     name: String,
     locale: String,
     time_zone: String,
+    #[serde(default)]
+    payments_buzz_channel_id: Option<Uuid>,
     default_trial_policy: TrialPolicy,
     track_attendance_by_default: bool,
     allow_single_visits_by_default: bool,
@@ -590,11 +592,14 @@ pub(crate) async fn get_organization_settings(
             )
         })?;
     Ok(Json(organization_settings_payload(
-        organization.id,
-        &organization.name,
-        &organization.locale,
-        &organization.time_zone,
-        &organization.settings,
+        organization_json(
+            organization.id,
+            &organization.name,
+            &organization.locale,
+            &organization.time_zone,
+            organization.payments_buzz_channel_id,
+            &organization.settings,
+        ),
         organization.version,
         false,
     )))
@@ -617,6 +622,7 @@ pub(crate) async fn put_organization_settings(
         name: request.name.trim().to_owned(),
         locale: request.locale.trim().to_owned(),
         time_zone: request.time_zone.trim().to_owned(),
+        payments_buzz_channel_id: request.payments_buzz_channel_id,
         settings: OrganizationSettings {
             default_trial_policy: request.default_trial_policy,
             track_attendance_by_default: request.track_attendance_by_default,
@@ -642,11 +648,14 @@ pub(crate) async fn put_organization_settings(
         .await
         .map_err(map_db_error)?;
     Ok(Json(organization_settings_payload(
-        outcome.organization_id,
-        &input.name,
-        &input.locale,
-        &input.time_zone,
-        &input.settings,
+        organization_json(
+            outcome.organization_id,
+            &input.name,
+            &input.locale,
+            &input.time_zone,
+            input.payments_buzz_channel_id,
+            &input.settings,
+        ),
         outcome.version,
         outcome.replayed,
     )))
@@ -681,6 +690,7 @@ pub(crate) async fn list_tariffs(
             &organization.name,
             &organization.locale,
             &organization.time_zone,
+            organization.payments_buzz_channel_id,
             &organization.settings,
         ),
         "organizationVersion": organization.version,
@@ -807,6 +817,7 @@ pub(crate) async fn list_payments(
             &organization.name,
             &organization.locale,
             &organization.time_zone,
+            organization.payments_buzz_channel_id,
             &organization.settings,
         ),
         "items": items,
@@ -909,6 +920,7 @@ pub(crate) async fn list_branches(
             &organization.name,
             &organization.locale,
             &organization.time_zone,
+            organization.payments_buzz_channel_id,
             &organization.settings,
         ),
         "organizationVersion": organization.version,
@@ -2805,9 +2817,10 @@ fn organization_json(
     name: &str,
     locale: &str,
     time_zone: &str,
+    payments_buzz_channel_id: Option<Uuid>,
     settings: &OrganizationSettings,
 ) -> Value {
-    json!({
+    let mut value = json!({
         "id": organization_id,
         "name": name,
         "locale": locale,
@@ -2823,26 +2836,16 @@ fn organization_json(
             "appearance": settings.public_booking_appearance,
         },
         "paymentDayOfMonth": settings.payment_day_of_month,
-    })
+    });
+    if let Some(channel_id) = payments_buzz_channel_id {
+        value["paymentsBuzzChannelId"] = json!(channel_id);
+    }
+    value
 }
 
-fn organization_settings_payload(
-    organization_id: Uuid,
-    name: &str,
-    locale: &str,
-    time_zone: &str,
-    settings: &OrganizationSettings,
-    version: i64,
-    replayed: bool,
-) -> Value {
+fn organization_settings_payload(organization: Value, version: i64, replayed: bool) -> Value {
     json!({
-        "organization": organization_json(
-            organization_id,
-            name,
-            locale,
-            time_zone,
-            settings,
-        ),
+        "organization": organization,
         "version": version,
         "replayed": replayed,
     })
@@ -2930,10 +2933,6 @@ fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
         DbError::AirhopPaymentTransition => api_error(
             StatusCode::CONFLICT,
             "AirHub payment is no longer available for this action",
-        ),
-        DbError::AirhopPaymentConflict => api_error(
-            StatusCode::CONFLICT,
-            "Another AirHub payment already uses this due date",
         ),
         DbError::AirhopOccurrenceUnavailable => api_error(
             StatusCode::CONFLICT,
@@ -3079,16 +3078,24 @@ mod tests {
             payment_day_of_month: 5,
         };
         let organization_id = Uuid::new_v4();
+        let payments_channel_id = Uuid::new_v4();
         let payload = organization_settings_payload(
-            organization_id,
-            "Каляка Маляка",
-            "ru-RU",
-            "Europe/Moscow",
-            &settings,
+            organization_json(
+                organization_id,
+                "Каляка Маляка",
+                "ru-RU",
+                "Europe/Moscow",
+                Some(payments_channel_id),
+                &settings,
+            ),
             3,
             false,
         );
         assert_eq!(payload["organization"]["id"], json!(organization_id));
+        assert_eq!(
+            payload["organization"]["paymentsBuzzChannelId"],
+            json!(payments_channel_id)
+        );
         assert_eq!(
             payload["organization"]["defaultTrialPolicy"]["mode"],
             "free"

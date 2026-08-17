@@ -4,6 +4,9 @@
 
 mod admission;
 
+/// AirHub recurring payments and overdue-summary publication.
+pub mod airhop_payments;
+
 /// REST API route handlers.
 pub mod api;
 /// WebSocket audio relay for huddle voice channels.

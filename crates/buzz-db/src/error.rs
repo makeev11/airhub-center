@@ -97,10 +97,6 @@ pub enum DbError {
     #[error("AirHub payment transition is not allowed")]
     AirhopPaymentTransition,
 
-    /// A payment due-date change conflicts with another enrollment payment.
-    #[error("AirHub payment conflicts with another expected payment")]
-    AirhopPaymentConflict,
-
     /// Attendance is disabled by the effective lesson policy.
     #[error("AirHub lesson attendance tracking is disabled")]
     AirhopAttendanceDisabled,

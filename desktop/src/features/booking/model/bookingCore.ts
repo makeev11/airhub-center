@@ -120,6 +120,7 @@ export const organizationSchema = z.object({
   existingStudentsOnboarding: existingStudentsOnboardingSchema,
   publicBooking: publicBookingSettingsSchema,
   paymentDayOfMonth: z.number().int().min(1).max(28),
+  paymentsBuzzChannelId: bookingIdSchema.optional(),
 });
 
 export const branchSchema = z.object({

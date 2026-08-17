@@ -676,6 +676,40 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // AirHub payment automation snapshots the current tariff only when the
+    // next calendar month enters the rolling horizon. Changed overdue queues
+    // are then delivered through one retry-stable Buzz thread per month.
+    {
+        let airhop_state = Arc::clone(&state);
+        let interval_secs = std::env::var("BUZZ_AIRHOP_PAYMENT_REFRESH_INTERVAL_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(21_600)
+            .max(60);
+        tokio::spawn(async move {
+            info!(interval_secs, "AirHub payment automation started");
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                match airhop_state.db.refresh_airhop_payment_horizons().await {
+                    Ok(count) if count > 0 => info!(count, "AirHub future payments created"),
+                    Ok(_) => {}
+                    Err(error) => error!(%error, "AirHub payment horizon refresh failed"),
+                }
+                match buzz_relay::airhop_payments::publish_pending_overdue_summaries(&airhop_state)
+                    .await
+                {
+                    Ok(count) if count > 0 => {
+                        info!(count, "AirHub overdue Buzz summaries published")
+                    }
+                    Ok(_) => {}
+                    Err(error) => error!(%error, "AirHub overdue Buzz summary cycle failed"),
+                }
+            }
+        });
+    }
+
     // Ephemeral channel reaper — archives channels whose TTL deadline has passed.
     // Runs every 60s, matching the workflow cron loop pattern. The SQL UPDATE
     // uses `archived_at IS NULL` as a guard, so concurrent runs from multiple

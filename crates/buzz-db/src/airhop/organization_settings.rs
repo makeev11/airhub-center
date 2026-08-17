@@ -32,6 +32,8 @@ pub struct PutOrganizationSettingsInput {
     pub locale: String,
     /// IANA time-zone name.
     pub time_zone: String,
+    /// Shared Buzz channel used for payments and overdue summaries.
+    pub payments_buzz_channel_id: Option<Uuid>,
     /// Operational defaults and public-booking presentation.
     pub settings: OrganizationSettings,
     /// Keyed digest of the HTTP idempotency key.
@@ -85,6 +87,7 @@ impl Db {
         let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
             .fetch_one(&mut *transaction)
             .await?;
+        validate_payments_channel(&mut transaction, tenant, input.payments_buzz_channel_id).await?;
 
         if current.is_none() {
             if input.expected_version != 0 {
@@ -125,6 +128,7 @@ impl Db {
                     "name",
                     "locale",
                     "time_zone",
+                    "payments_buzz_channel_id",
                     "default_trial_policy",
                     "track_attendance_by_default",
                     "allow_single_visits_by_default",
@@ -180,6 +184,20 @@ impl Db {
             .await?;
         }
 
+        if changed_fields.contains(&"payments_buzz_channel_id") {
+            // A reserved delivery belongs to the channel that was configured
+            // when it was created. Reset the monthly state on a destination
+            // change so a stale pending summary cannot leak into the old stream.
+            sqlx::query(
+                "DELETE FROM airhop_payment_buzz_summary_state \
+                 WHERE community_id = $1 AND organization_id = $2",
+            )
+            .bind(tenant.community().as_uuid())
+            .bind(organization_id)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
         if !event_type.is_empty() {
             append_domain_event(
                 &mut transaction,
@@ -232,7 +250,7 @@ async fn load_locked_organization(
     tenant: &TenantContext,
 ) -> Result<Option<AirhopOrganization>> {
     let row = sqlx::query(
-        "SELECT id, name, locale, time_zone, default_trial_policy, \
+        "SELECT id, name, locale, time_zone, payments_buzz_channel_id, default_trial_policy, \
                 track_attendance_by_default, allow_single_visits_by_default, \
                 existing_students_onboarding_status, public_booking_purpose, \
                 public_booking_appearance, payment_day_of_month, status, version, \
@@ -256,17 +274,18 @@ async fn insert_organization(
 ) -> Result<()> {
     sqlx::query(
         "INSERT INTO airhop_organizations (\
-             community_id, id, name, locale, time_zone, default_trial_policy, \
+             community_id, id, name, locale, time_zone, payments_buzz_channel_id, default_trial_policy, \
              track_attendance_by_default, allow_single_visits_by_default, \
              existing_students_onboarding_status, public_booking_purpose, \
              public_booking_appearance, payment_day_of_month, created_at, updated_at\
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)",
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)",
     )
     .bind(tenant.community().as_uuid())
     .bind(organization_id)
     .bind(input.name.trim())
     .bind(input.locale.trim())
     .bind(input.time_zone.trim())
+    .bind(input.payments_buzz_channel_id)
     .bind(serde_json::to_value(&input.settings.default_trial_policy)?)
     .bind(input.settings.track_attendance_by_default)
     .bind(input.settings.allow_single_visits_by_default)
@@ -293,12 +312,12 @@ async fn update_organization(
 ) -> Result<i64> {
     sqlx::query_scalar(
         "UPDATE airhop_organizations \
-         SET name = $3, locale = $4, time_zone = $5, default_trial_policy = $6, \
-             track_attendance_by_default = $7, allow_single_visits_by_default = $8, \
-             existing_students_onboarding_status = $9, public_booking_purpose = $10, \
-             public_booking_appearance = $11, payment_day_of_month = $12, \
-             version = version + 1, updated_at = $13 \
-         WHERE community_id = $1 AND id = $2 AND version = $14 AND status = 'active' \
+         SET name = $3, locale = $4, time_zone = $5, default_trial_policy = $7, \
+             payments_buzz_channel_id = $6, track_attendance_by_default = $8, \
+             allow_single_visits_by_default = $9, existing_students_onboarding_status = $10, \
+             public_booking_purpose = $11, public_booking_appearance = $12, \
+             payment_day_of_month = $13, version = version + 1, updated_at = $14 \
+         WHERE community_id = $1 AND id = $2 AND version = $15 AND status = 'active' \
          RETURNING version",
     )
     .bind(tenant.community().as_uuid())
@@ -306,6 +325,7 @@ async fn update_organization(
     .bind(input.name.trim())
     .bind(input.locale.trim())
     .bind(input.time_zone.trim())
+    .bind(input.payments_buzz_channel_id)
     .bind(serde_json::to_value(&input.settings.default_trial_policy)?)
     .bind(input.settings.track_attendance_by_default)
     .bind(input.settings.allow_single_visits_by_default)
@@ -337,6 +357,9 @@ fn changed_fields(
     }
     if current.time_zone != input.time_zone.trim() {
         fields.push("time_zone");
+    }
+    if current.payments_buzz_channel_id != input.payments_buzz_channel_id {
+        fields.push("payments_buzz_channel_id");
     }
     if current.settings.default_trial_policy != input.settings.default_trial_policy {
         fields.push("default_trial_policy");
@@ -409,6 +432,36 @@ fn validate_input(input: &PutOrganizationSettingsInput) -> Result<()> {
         .map_err(|error| DbError::InvalidData(error.to_string()))
 }
 
+async fn validate_payments_channel(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tenant: &TenantContext,
+    channel_id: Option<Uuid>,
+) -> Result<()> {
+    let Some(channel_id) = channel_id else {
+        return Ok(());
+    };
+    if channel_id.is_nil() {
+        return Err(DbError::InvalidData(
+            "AirHub payments channel is invalid".to_owned(),
+        ));
+    }
+    let valid: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM channels \
+         WHERE community_id = $1 AND id = $2 AND channel_type = 'stream' \
+           AND archived_at IS NULL AND deleted_at IS NULL)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(channel_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !valid {
+        return Err(DbError::InvalidData(
+            "AirHub payments channel must be an active stream in this community".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use airhop_core::{
@@ -424,6 +477,7 @@ mod tests {
             name: "Каляка Маляка".to_owned(),
             locale: "ru-RU".to_owned(),
             time_zone: "Europe/Moscow".to_owned(),
+            payments_buzz_channel_id: None,
             settings: OrganizationSettings {
                 default_trial_policy: TrialPolicy::Free,
                 track_attendance_by_default: true,

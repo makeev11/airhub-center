@@ -765,10 +765,10 @@ impl Db {
         sqlx::query(
             "INSERT INTO airhop_payment_expectations ( \
                  community_id, organization_id, id, family_id, child_id, enrollment_id, \
-                 tariff_id, tariff_name_snapshot, amount_minor, currency, due_date, \
+                 tariff_id, tariff_name_snapshot, amount_minor, currency, billing_period, due_date, \
                  status, created_at, updated_at \
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, \
-                       'expected', $12, $12)",
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
+                       'expected', $13, $13)",
         )
         .bind(tenant.community().as_uuid())
         .bind(organization_id)
@@ -780,6 +780,9 @@ impl Db {
         .bind(&tariff.name)
         .bind(tariff.price_minor)
         .bind(&tariff.currency)
+        .bind(input.start_date.with_day(1).ok_or_else(|| {
+            DbError::InvalidData("invalid AirHub enrollment billing period".to_owned())
+        })?)
         .bind(input.start_date)
         .bind(occurred_at)
         .execute(&mut *transaction)

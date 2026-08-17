@@ -305,28 +305,6 @@ impl Db {
             return Err(DbError::AirhopVersionConflict);
         }
         validate_transition(&current, &input.change)?;
-        if let PaymentChange::MoveDueDate { due_date, .. } = &input.change {
-            let conflict: bool = sqlx::query_scalar(
-                "SELECT EXISTS( \
-                    SELECT 1 FROM airhop_payment_expectations other \
-                    JOIN airhop_payment_expectations selected \
-                      ON selected.community_id = other.community_id \
-                     AND selected.organization_id = other.organization_id \
-                     AND selected.enrollment_id = other.enrollment_id \
-                    WHERE selected.community_id = $1 AND selected.organization_id = $2 \
-                      AND selected.id = $3 AND other.id <> selected.id AND other.due_date = $4 \
-                )",
-            )
-            .bind(tenant.community().as_uuid())
-            .bind(organization_id)
-            .bind(input.payment_id)
-            .bind(due_date)
-            .fetch_one(&mut *transaction)
-            .await?;
-            if conflict {
-                return Err(DbError::AirhopPaymentConflict);
-            }
-        }
         let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
             .fetch_one(&mut *transaction)
             .await?;
@@ -454,17 +432,10 @@ async fn apply_change(
         .bind(due_date)
         .bind(occurred_at),
     };
-    let result = query.fetch_optional(&mut **transaction).await;
-    match result {
-        Ok(version) => version.ok_or(DbError::AirhopVersionConflict),
-        Err(sqlx::Error::Database(database_error))
-            if matches!(&input.change, PaymentChange::MoveDueDate { .. })
-                && database_error.code().as_deref() == Some("23505") =>
-        {
-            Err(DbError::AirhopPaymentConflict)
-        }
-        Err(error) => Err(error.into()),
-    }
+    query
+        .fetch_optional(&mut **transaction)
+        .await?
+        .ok_or(DbError::AirhopVersionConflict)
 }
 
 fn event_for_change(

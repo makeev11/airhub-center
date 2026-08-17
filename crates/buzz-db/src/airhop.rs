@@ -48,6 +48,8 @@ pub mod lesson_exception;
 pub mod lesson_participants;
 /// Idempotent organization bootstrap and settings updates.
 pub mod organization_settings;
+/// Rolling future payments and durable Buzz overdue-summary delivery state.
+pub mod payment_automation;
 /// Tenant-scoped payment work queue and audited staff commands.
 pub mod payment_queue;
 /// Atomic public booking command application service.
@@ -97,6 +99,8 @@ pub struct AirhopOrganization {
     pub locale: String,
     /// IANA time-zone name.
     pub time_zone: String,
+    /// Shared Buzz channel used for payment work and overdue summaries.
+    pub payments_buzz_channel_id: Option<Uuid>,
     /// Organization-level operational settings.
     pub settings: OrganizationSettings,
     /// Lifecycle status.
@@ -333,7 +337,7 @@ impl Db {
         tenant: &TenantContext,
     ) -> Result<Option<AirhopOrganization>> {
         let row = sqlx::query(
-            "SELECT id, name, locale, time_zone, default_trial_policy, \
+            "SELECT id, name, locale, time_zone, payments_buzz_channel_id, default_trial_policy, \
                     track_attendance_by_default, allow_single_visits_by_default, \
                     existing_students_onboarding_status, public_booking_purpose, \
                     public_booking_appearance, payment_day_of_month, status, version, \
@@ -365,7 +369,7 @@ impl Db {
                  existing_students_onboarding_status, public_booking_purpose, \
                  public_booking_appearance, payment_day_of_month\
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) \
-             RETURNING id, name, locale, time_zone, default_trial_policy, \
+             RETURNING id, name, locale, time_zone, payments_buzz_channel_id, default_trial_policy, \
                  track_attendance_by_default, allow_single_visits_by_default, \
                  existing_students_onboarding_status, public_booking_purpose, \
                  public_booking_appearance, payment_day_of_month, status, version, \
@@ -626,6 +630,7 @@ fn parse_organization_row(row: sqlx::postgres::PgRow) -> Result<AirhopOrganizati
         name: row.try_get("name")?,
         locale: row.try_get("locale")?,
         time_zone: row.try_get("time_zone")?,
+        payments_buzz_channel_id: row.try_get("payments_buzz_channel_id")?,
         settings,
         status: OrganizationStatus::from_db(row.try_get("status")?)?,
         version: row.try_get("version")?,

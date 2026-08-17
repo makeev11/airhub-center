@@ -30,6 +30,7 @@ import {
 import { BookingSelect } from "@/features/booking/ui/BookingSelect";
 import { BookingSettingsNav } from "@/features/booking/ui/BookingSettingsNav";
 import { useBookingUnsavedChangesGuard } from "@/features/booking/ui/useBookingUnsavedChangesGuard";
+import { useChannelsQuery } from "@/features/channels/hooks";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -46,6 +47,7 @@ type SettingsForm = {
   currency: string;
   price: string;
   paymentDay: string;
+  paymentsBuzzChannelId: string;
   attendance: boolean;
   singleVisits: boolean;
   publicBookingPurpose: PublicBookingPurpose;
@@ -72,6 +74,7 @@ function formFromOrganization(
     currency,
     price: majorMoneyInput(paid?.amountMinor ?? 0, currency),
     paymentDay: String(organization.paymentDayOfMonth),
+    paymentsBuzzChannelId: organization.paymentsBuzzChannelId ?? "",
     attendance: organization.trackAttendanceByDefault,
     singleVisits: organization.allowSingleVisitsByDefault,
     publicBookingPurpose: organization.publicBooking.purpose,
@@ -110,6 +113,9 @@ function SettingsFormContent({
   const booking = useBookingWorkspace();
   const workspace = booking.workspace as NonNullable<typeof booking.workspace>;
   const messages = getBookingAdminMessages(workspace.organization.locale);
+  const channelsQuery = useChannelsQuery({
+    enabled: section === "organization",
+  });
   const detectedTimeZone = React.useMemo(() => detectBookingTimeZone(), []);
   const [form, setForm] = React.useState<SettingsForm>(() =>
     formFromOrganization(workspace.organization),
@@ -124,6 +130,13 @@ function SettingsFormContent({
   const timeZoneOptions = React.useMemo(
     () => bookingTimeZoneOptions(form.timeZone),
     [form.timeZone],
+  );
+  const paymentChannels = React.useMemo(
+    () =>
+      (channelsQuery.data ?? []).filter(
+        (channel) => channel.channelType === "stream",
+      ),
+    [channelsQuery.data],
   );
 
   React.useEffect(() => {
@@ -164,6 +177,7 @@ function SettingsFormContent({
       locale: form.locale,
       timeZone: form.timeZone,
       paymentDayOfMonth: paymentDay,
+      paymentsBuzzChannelId: form.paymentsBuzzChannelId || undefined,
       defaultTrialPolicy:
         form.trialMode === "paid"
           ? {
@@ -301,6 +315,30 @@ function SettingsFormContent({
                 type="number"
                 value={form.paymentDay}
               />
+            </Field>
+            <Field
+              hint={messages.paymentsBuzzChannelHint}
+              label={messages.paymentsBuzzChannel}
+            >
+              <BookingSelect
+                aria-label={messages.paymentsBuzzChannel}
+                data-testid="airhop-settings-payments-channel"
+                disabled={channelsQuery.isLoading}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    paymentsBuzzChannelId: event.target.value,
+                  }))
+                }
+                value={form.paymentsBuzzChannelId}
+              >
+                <option value="">{messages.paymentsBuzzChannelNone}</option>
+                {paymentChannels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>
+                    #{channel.name}
+                  </option>
+                ))}
+              </BookingSelect>
             </Field>
             <Field label={messages.trialPolicy}>
               <BookingSelect

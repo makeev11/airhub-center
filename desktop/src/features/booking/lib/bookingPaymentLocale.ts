@@ -1,4 +1,7 @@
 export type BookingPaymentMessages = {
+  paymentsBuzzChannel: string;
+  paymentsBuzzChannelHint: string;
+  paymentsBuzzChannelNone: string;
   paymentExpected: string;
   paymentOverdue: string;
   paymentPaid: string;
@@ -55,6 +58,10 @@ export type BookingPaymentMessages = {
 };
 
 export const ruPaymentMessages: BookingPaymentMessages = {
+  paymentsBuzzChannel: "Канал оплат в Buzz",
+  paymentsBuzzChannelHint:
+    "Физ будет вести в этом канале ежемесячный тред с изменениями просроченных оплат.",
+  paymentsBuzzChannelNone: "Не публиковать сводки",
   paymentExpected: "Ожидается",
   paymentOverdue: "Просрочено",
   paymentPaid: "Оплачено",
