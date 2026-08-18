@@ -195,6 +195,7 @@ test("all Welcome starters use the onboarding runtime preference", async () => {
       },
       [buzzAgent, claude],
       "claude",
+      "welcome-channel",
       RELAY_A,
     );
 
@@ -291,11 +292,21 @@ test("existing Welcome starter needs no update when runtime already matches", ()
 
 test("welcome team starter definitions and role identities are stable", () => {
   assert.equal(WELCOME_TEAM_ID, "builtin-team:welcome");
-  assert.deepEqual(WELCOME_TEAM_STARTERS, [
-    { name: "Fizz", personaId: "builtin:fizz", role: "lead" },
-    { name: "Honey", personaId: "builtin:honey", role: "teammate" },
-    { name: "Bumble", personaId: "builtin:bumble", role: "teammate" },
-  ]);
+  assert.deepEqual(
+    WELCOME_TEAM_STARTERS.map(({ role, personaId }) => ({ role, personaId })),
+    [
+      { role: "fizz", personaId: "builtin:airhop-fizz" },
+      {
+        role: "administrator",
+        personaId: "builtin:airhop-administrator",
+      },
+      { role: "analyst", personaId: "builtin:airhop-analyst" },
+      {
+        role: "content_marketer",
+        personaId: "builtin:airhop-content-marketer",
+      },
+    ],
+  );
 });
 
 test("starter matching ignores user agents with a Welcome persona", () => {
@@ -378,4 +389,52 @@ test("starter matching prefers running, then deployed instances", () => {
     pickWelcomeTeamStarterAgentForRelay([stopped, deployed], fizz, RELAY_A),
     deployed,
   );
+});
+
+test("Welcome starters are isolated Airhop role runtimes in the flat Welcome feed", async () => {
+  const starter = WELCOME_TEAM_STARTERS[0];
+  const runtime = {
+    id: "claude",
+    label: "Claude",
+    avatarUrl: "https://runtime/claude.png",
+    availability: "available",
+    command: "claude-code-acp",
+    binaryPath: "/bin/claude-code-acp",
+    defaultArgs: [],
+    mcpCommand: null,
+    installHint: "",
+    installInstructionsUrl: "",
+    canAutoInstall: false,
+    underlyingCliPath: "/bin/claude",
+  };
+
+  const input = await buildWelcomeStarterCreateInput(
+    starter,
+    {
+      id: starter.personaId,
+      displayName: starter.name,
+      systemPrompt: "Fizz prompt",
+      model: null,
+      provider: null,
+      runtime: null,
+      avatarUrl: null,
+      envVars: {},
+      isBuiltIn: true,
+      isActive: true,
+    },
+    [runtime],
+    "claude",
+    "welcome-channel",
+    RELAY_A,
+  );
+
+  assert.equal(input.respondTo, "owner-only");
+  assert.deepEqual(input.respondToAllowlist, []);
+  assert.equal(input.mcpCommand, "airhop-agent-mcp");
+  assert.deepEqual(input.envVars, {
+    BUZZ_AIRHOP_ROLE: "fizz",
+    BUZZ_AIRHOP_WELCOME_CHANNEL_ID: "welcome-channel",
+    BUZZ_ACP_FLAT_CHANNELS: "welcome-channel",
+    BUZZ_ACP_ROUTE_GATE: "airhop",
+  });
 });

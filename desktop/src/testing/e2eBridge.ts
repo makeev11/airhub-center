@@ -1294,6 +1294,8 @@ declare global {
 
 const DEFAULT_RELAY_HTTP_URL = "http://localhost:3000";
 const DEFAULT_RELAY_WS_URL = "ws://localhost:3000";
+const nativeBrowserFetch = globalThis.fetch.bind(globalThis);
+let mockAirhopWelcomeApiInstalled = false;
 
 // NIP event kinds the mock reaction handlers emit.
 const KIND_REACTION = 7; // NIP-25 reaction
@@ -9795,6 +9797,68 @@ function disconnectMockSocket(id: number) {
   sendWsClose(socket.handler);
 }
 
+function installMockAirhopWelcomeApi() {
+  if (mockAirhopWelcomeApiInstalled) return;
+  mockAirhopWelcomeApiInstalled = true;
+
+  globalThis.fetch = async (input, init) => {
+    const config = getConfig();
+    if (!config || isRelayMode(config)) {
+      return nativeBrowserFetch(input, init);
+    }
+    const rawUrl =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    const url = new URL(rawUrl, window.location.href);
+    const relayOrigin = new URL(getRelayHttpUrl(config)).origin;
+    if (url.origin !== relayOrigin) {
+      return nativeBrowserFetch(input, init);
+    }
+    const method = (
+      init?.method ?? (input instanceof Request ? input.method : "GET")
+    ).toUpperCase();
+
+    if (method === "GET" && url.pathname === "/api/airhop/staff/v1/settings") {
+      return new Response(JSON.stringify({ error: "not configured" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (
+      method === "PUT" &&
+      url.pathname === "/api/airhop/agents/v1/welcome-team"
+    ) {
+      const body =
+        typeof init?.body === "string"
+          ? JSON.parse(init.body)
+          : input instanceof Request
+            ? await input.clone().json()
+            : null;
+      if (typeof body !== "object" || body === null) {
+        return new Response(JSON.stringify({ error: "invalid body" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          ...body,
+          version: 1,
+          updatedAt: new Date().toISOString(),
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+    return nativeBrowserFetch(input, init);
+  };
+}
+
 export function maybeInstallE2eTauriMocks() {
   if (installed) {
     return;
@@ -9804,6 +9868,7 @@ export function maybeInstallE2eTauriMocks() {
   if (!config) {
     return;
   }
+  installMockAirhopWelcomeApi();
 
   mockClosedChannelLiveSubscription = false;
   mockWebsocketUnavailable = false;

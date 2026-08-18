@@ -6,7 +6,9 @@ import {
   managedAgentsQueryKey,
   relayAgentsQueryKey,
 } from "@/features/agents/hooks";
+import { createHttpBookingSettingsRepository } from "@/features/booking/data/httpBookingSettingsRepository";
 import { channelsQueryKey } from "@/features/channels/hooks";
+import { useMyRelayMembershipLookupQuery } from "@/features/community-members/hooks";
 import {
   ensureStarterChannels,
   ensureWelcomeChannel,
@@ -21,6 +23,7 @@ import { ensureWelcomeTeam } from "@/features/onboarding/welcomeGuide";
 import { useProfileQuery } from "@/features/profile/hooks";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { useIdentityQuery } from "@/shared/api/hooks";
+import type { RelayMembershipLookup } from "@/shared/api/relayMembers";
 import type { Channel } from "@/shared/api/types";
 import {
   createChannel,
@@ -37,30 +40,38 @@ export type ChannelInitResult =
   | { ok: true; focusChannelId?: string }
   | { ok: false; reason: string; focusChannelId?: string };
 
+export function welcomeProvisioningEligibility(
+  lookup: RelayMembershipLookup | undefined,
+) {
+  const isOwner =
+    lookup?.snapshotFound === true && lookup.membership?.role === "owner";
+  return {
+    provisionWelcome: isOwner,
+    focusWelcome: isOwner,
+  };
+}
+
 const welcomeSeedPromises = new Map<string, Promise<void>>();
 
 function seedWelcomeExperience(
   queryClient: ReturnType<typeof useQueryClient>,
   channelId: string,
-  pubkey: string | null,
-  communityScope: string | null,
+  pubkey: string,
+  organization: { id: string; locale: string },
+  communityScope: string,
 ) {
-  const key = `${communityScope ?? ""}:${channelId}`;
+  const key = `${communityScope}:${channelId}:${organization.id}`;
   const current = welcomeSeedPromises.get(key);
   if (current) return current;
 
   const promise = (async () => {
-    try {
-      await ensureWelcomeTeam(channelId, communityScope);
-      await ensureWelcomeCanvas(channelId);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey }),
-        queryClient.invalidateQueries({ queryKey: relayAgentsQueryKey }),
-      ]);
-      markWelcomeChannelEnsured(pubkey, communityScope);
-    } catch (error) {
-      console.warn("Failed to seed the private Welcome experience.", error);
-    }
+    await ensureWelcomeTeam(channelId, organization, pubkey, communityScope);
+    await ensureWelcomeCanvas(channelId);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey }),
+      queryClient.invalidateQueries({ queryKey: relayAgentsQueryKey }),
+    ]);
+    markWelcomeChannelEnsured(pubkey, communityScope);
   })().finally(() => welcomeSeedPromises.delete(key));
   welcomeSeedPromises.set(key, promise);
   return promise;
@@ -72,10 +83,12 @@ export async function initializeStarterChannels(
     focus,
     pubkey,
     communityScope,
+    eligibility,
   }: {
     focus: boolean;
     pubkey: string | null;
     communityScope: string | null;
+    eligibility: ReturnType<typeof welcomeProvisioningEligibility>;
   },
 ): Promise<ChannelInitResult> {
   try {
@@ -93,6 +106,38 @@ export async function initializeStarterChannels(
       console.warn("Failed to initialize public starter channels.", error);
     }
 
+    const starterChannelList = starterChannels?.channels ?? [];
+    if (!eligibility.provisionWelcome) {
+      queryClient.setQueryData<Channel[]>(channelsQueryKey, (channels = []) => {
+        const ensuredIds = new Set(
+          starterChannelList.map((channel) => channel.id),
+        );
+        return [
+          ...starterChannelList,
+          ...channels.filter((channel) => !ensuredIds.has(channel.id)),
+        ];
+      });
+      await queryClient.invalidateQueries({ queryKey: channelsQueryKey });
+      if (starterChannelsError) {
+        return {
+          ok: false,
+          reason:
+            starterChannelsError instanceof Error
+              ? starterChannelsError.message
+              : "Failed to set up starter channels",
+        };
+      }
+      return { ok: true };
+    }
+
+    if (!pubkey || !communityScope) {
+      throw new Error("Welcome provisioning requires an owner and community.");
+    }
+    const workspace = await createHttpBookingSettingsRepository().load();
+    const organization = {
+      id: workspace.organization.id,
+      locale: workspace.organization.locale,
+    };
     const welcomeChannel = await ensureWelcomeChannel(
       {
         createChannel,
@@ -106,7 +151,6 @@ export async function initializeStarterChannels(
       },
     );
 
-    const starterChannelList = starterChannels?.channels ?? [];
     queryClient.setQueryData<Channel[]>(channelsQueryKey, (channels = []) => {
       const ensuredIds = new Set(
         starterChannelList.map((channel) => channel.id),
@@ -122,17 +166,18 @@ export async function initializeStarterChannels(
         ...channels.filter((channel) => !ensuredIds.has(channel.id)),
       ];
     });
-    void seedWelcomeExperience(
+
+    await seedWelcomeExperience(
       queryClient,
       welcomeChannel.id,
       pubkey,
+      organization,
       communityScope,
     );
     await queryClient.invalidateQueries({ queryKey: channelsQueryKey });
-    if (focus) {
-      // Refreshing can briefly replace the optimistic cache with an older relay
-      // snapshot. Reinsert the just-ensured channels before announcing focus so
-      // the route can consume the pending private Welcome channel immediately.
+
+    const shouldFocusWelcome = focus && eligibility.focusWelcome;
+    if (shouldFocusWelcome) {
       queryClient.setQueryData<Channel[]>(channelsQueryKey, (channels = []) => {
         const byId = new Map(
           [...channels, ...starterChannelList, welcomeChannel].map(
@@ -144,7 +189,7 @@ export async function initializeStarterChannels(
       rememberPendingWelcomeChannel(welcomeChannel.id);
       notifyWelcomeChannelReady(welcomeChannel.id);
     }
-    const focusChannelId = focus ? welcomeChannel.id : undefined;
+    const focusChannelId = shouldFocusWelcome ? welcomeChannel.id : undefined;
     if (starterChannelsError) {
       return {
         ok: false,
@@ -471,6 +516,7 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
   const queryClient = useQueryClient();
   const { activeCommunity } = useCommunities();
   const identityQuery = useIdentityQuery();
+  const membershipLookupQuery = useMyRelayMembershipLookupQuery();
   const identity = identityQuery.data;
   const currentPubkey = identity?.pubkey ?? null;
   const starterChannelsCommunityScope = activeCommunity?.relayUrl ?? null;
@@ -527,6 +573,15 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
         return Promise.resolve({ ok: true });
       }
 
+      const initializeForMembership = async (shouldFocus: boolean) => {
+        const lookup = (await membershipLookupQuery.refetch()).data;
+        return initializeStarterChannels(queryClient, {
+          focus: shouldFocus,
+          pubkey: currentPubkey,
+          communityScope: starterChannelsCommunityScope,
+          eligibility: welcomeProvisioningEligibility(lookup),
+        });
+      };
       const starterChannelsInitKey = `${starterChannelsCommunityScope}:${currentPubkey}`;
       const currentPromise = starterChannelsInitPromisesRef.current.get(
         starterChannelsInitKey,
@@ -545,11 +600,7 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
           );
           return currentPromise.then((result) => {
             if (!result.ok) return result;
-            return initializeStarterChannels(queryClient, {
-              focus: true,
-              pubkey: currentPubkey,
-              communityScope: starterChannelsCommunityScope,
-            });
+            return initializeForMembership(true);
           });
         }
         return currentPromise;
@@ -558,11 +609,7 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
       if (focus) {
         starterChannelsFocusIntentRef.current.set(starterChannelsInitKey, true);
       }
-      const promise = initializeStarterChannels(queryClient, {
-        focus,
-        pubkey: currentPubkey,
-        communityScope: starterChannelsCommunityScope,
-      }).finally(() => {
+      const promise = initializeForMembership(focus).finally(() => {
         starterChannelsInitPromisesRef.current.delete(starterChannelsInitKey);
         starterChannelsFocusIntentRef.current.delete(starterChannelsInitKey);
       });
@@ -572,7 +619,12 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
       );
       return promise;
     },
-    [currentPubkey, queryClient, starterChannelsCommunityScope],
+    [
+      currentPubkey,
+      membershipLookupQuery.refetch,
+      queryClient,
+      starterChannelsCommunityScope,
+    ],
   );
 
   React.useEffect(() => {

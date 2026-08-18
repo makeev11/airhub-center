@@ -6,7 +6,10 @@ import {
   markCommunityOnboardingComplete,
   useCommunityOnboarding,
 } from "@/features/onboarding/communityOnboarding";
-import { initializeStarterChannels } from "@/features/onboarding/hooks";
+import {
+  initializeStarterChannels,
+  welcomeProvisioningEligibility,
+} from "@/features/onboarding/hooks";
 import { useClaimInvite } from "@/features/onboarding/useClaimInvite";
 import { CommunityChangeOverlay } from "@/features/communities/ui/CommunityChangeOverlay";
 import {
@@ -25,6 +28,7 @@ import { getProfile, updateProfile } from "@/shared/api/tauriProfiles";
 import { getIdentity, importIdentity } from "@/shared/api/tauriIdentity";
 import { listPersonas } from "@/shared/api/tauriPersonas";
 import { relayClient } from "@/shared/api/relayClient";
+import { getMyRelayMembershipLookup } from "@/shared/api/relayMembers";
 import type { AgentPersona } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
@@ -248,10 +252,12 @@ export function CommunityOnboardingFlow({
     update({ stage: "finalizing", error: undefined });
     try {
       const identity = await getIdentity();
+      const membershipLookup = await getMyRelayMembershipLookup();
       const result = await initializeStarterChannels(queryClient, {
         focus: true,
         pubkey: identity.pubkey,
         communityScope: relayUrl,
+        eligibility: welcomeProvisioningEligibility(membershipLookup),
       });
       if (!result.ok) throw new Error(result.reason);
       if (result.focusChannelId) {

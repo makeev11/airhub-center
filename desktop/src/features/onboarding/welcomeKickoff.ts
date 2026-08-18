@@ -11,7 +11,6 @@ import { useCommunities } from "@/features/communities/useCommunities";
 import { welcomeKickoffMarker } from "@/features/onboarding/devFreshOnboarding";
 import { resolveAgentReadiness } from "@/features/onboarding/ui/agentReadiness";
 import {
-  ensureWelcomeTeam,
   pickWelcomeTeamStarterAgentForRelay,
   WELCOME_TEAM_STARTERS,
   type WelcomeTeamStarterDefinition,
@@ -132,7 +131,7 @@ function markerEvent(events: readonly RelayEvent[], marker: string) {
 export function resolveWelcomeAgentSet(
   agents: readonly ManagedAgent[],
 ): WelcomeAgentSet | null {
-  const ordered = WELCOME_TEAM_STARTERS.map((starter) =>
+  const ordered = WELCOME_TEAM_STARTERS.slice(0, 3).map((starter) =>
     pickWelcomeTeamStarterAgentForRelay([...agents], starter),
   );
   if (ordered.some((agent) => !agent)) return null;
@@ -555,6 +554,7 @@ export function useWelcomeKickoff(
     if (
       !channelId ||
       !isActiveWelcome ||
+      !agentSet ||
       configLoading ||
       runtimesQuery.isPending
     ) {
@@ -568,17 +568,7 @@ export function useWelcomeKickoff(
       focusedWelcomeChannelRef.current !== channelId;
     void (async () => {
       try {
-        const welcomeTeam = await ensureWelcomeTeam(
-          channelId,
-          activeCommunity?.relayUrl,
-        );
-        await queryClient.invalidateQueries({
-          queryKey: managedAgentsQueryKey,
-        });
-        const resolvedAgentSet: WelcomeAgentSet = {
-          lead: welcomeTeam[0],
-          teammates: [welcomeTeam[1], welcomeTeam[2]],
-        };
+        const resolvedAgentSet = agentSet;
 
         if (await markerExists(channelId, closerMarker)) {
           return;
@@ -686,7 +676,7 @@ export function useWelcomeKickoff(
       }
     })();
   }, [
-    activeCommunity?.relayUrl,
+    agentSet,
     channelId,
     configLoading,
     isActiveWelcome,

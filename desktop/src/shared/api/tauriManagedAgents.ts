@@ -65,6 +65,17 @@ export async function startManagedAgentRuntime(
   return invokeTauri("start_managed_agent_runtime", { pubkey, relayUrl });
 }
 
+export async function startManagedAgentRuntimesForRelay(
+  agents: readonly ManagedAgent[],
+  relayUrl: string,
+): Promise<ManagedAgentRuntimeStatus[]> {
+  return Promise.all(
+    agents.map((agent) =>
+      startManagedAgentRuntime(agent.pubkey, agent.relayUrl ?? relayUrl),
+    ),
+  );
+}
+
 export async function stopManagedAgentRuntime(
   pubkey: string,
   relayUrl: string,
