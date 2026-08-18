@@ -392,6 +392,49 @@ impl RestClient {
         .await
     }
 
+    async fn bridge_get(&self, path: &str) -> Result<reqwest::Response, RelayError> {
+        let url = format!("{}{}", self.base_url, path);
+        let auth_tag_header = self.auth_tag_json.clone();
+        self.request_with_retry("GET", path, || {
+            let auth = self.nip98_header("GET", &url, None).unwrap_or_default();
+            let mut req = self.http.get(&url).header("Authorization", auth);
+            if let Some(ref tag) = auth_tag_header {
+                req = req.header("x-auth-tag", tag);
+            }
+            req.send()
+        })
+        .await
+    }
+
+    /// GET a JSON Airhop resource with the agent's NIP-98/NIP-OA identity.
+    pub(crate) async fn get_json(&self, path: &str) -> Result<Value, RelayError> {
+        self.bridge_get(path)
+            .await?
+            .json()
+            .await
+            .map_err(|error| RelayError::Http(error.to_string()))
+    }
+
+    /// POST an empty Airhop command and decode its JSON response.
+    pub(crate) async fn post_empty_json(&self, path: &str) -> Result<Value, RelayError> {
+        let url = format!("{}{}", self.base_url, path);
+        let auth_tag_header = self.auth_tag_json.clone();
+        let response = self
+            .request_with_retry("POST", path, || {
+                let auth = self.nip98_header("POST", &url, None).unwrap_or_default();
+                let mut req = self.http.post(&url).header("Authorization", auth);
+                if let Some(ref tag) = auth_tag_header {
+                    req = req.header("x-auth-tag", tag);
+                }
+                req.send()
+            })
+            .await?;
+        response
+            .json()
+            .await
+            .map_err(|error| RelayError::Http(error.to_string()))
+    }
+
     /// Query events via the HTTP bridge: `POST /query` with NIP-98 auth.
     ///
     /// Accepts a slice of `nostr::Filter` (serialized as JSON array).

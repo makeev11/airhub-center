@@ -466,6 +466,18 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_ACP_ALLOWED_RESPOND_TO", value_delimiter = ',')]
     pub allowed_respond_to: Option<Vec<String>>,
 
+    /// Enable the registered Airhop Welcome one-responder gate.
+    #[arg(long, env = "BUZZ_ACP_ROUTE_GATE", default_value = "")]
+    pub airhop_route_gate: String,
+
+    /// Registered flat Welcome channel IDs.
+    #[arg(long, env = "BUZZ_ACP_FLAT_CHANNELS", value_delimiter = ',')]
+    pub flat_channels: Option<Vec<Uuid>>,
+
+    /// Stable Airhop product role for this managed agent.
+    #[arg(long, env = "BUZZ_AIRHOP_ROLE")]
+    pub airhop_role: Option<String>,
+
     /// Team-owned instructions layered after `[System]` and before agent memory.
     #[arg(long, env = "BUZZ_ACP_TEAM_INSTRUCTIONS")]
     pub team_instructions: Option<String>,
@@ -510,6 +522,13 @@ pub struct Config {
     pub turn_liveness_secs: u64,
     pub heartbeat_prompt: Option<String>,
     pub system_prompt: Option<String>,
+
+    /// Whether this runtime must claim Welcome messages before queueing.
+    pub airhop_route_gate: bool,
+    /// Channels that use the flat Airhop Welcome conversation contract.
+    pub flat_channel_ids: HashSet<Uuid>,
+    /// Registered stable product role for this runtime.
+    pub airhop_role: Option<crate::airhop::AirhopRole>,
     /// Team-owned instructions layered separately from the agent system prompt.
     pub team_instructions: Option<String>,
     pub initial_message: Option<String>,
@@ -1060,6 +1079,29 @@ impl Config {
 
         validate_multiple_event_handling(args.multiple_event_handling, args.dedup)?;
 
+        let airhop_route_gate = match args.airhop_route_gate.trim() {
+            "" => false,
+            "airhop" => true,
+            value => {
+                return Err(ConfigError::ConfigFile(format!(
+                    "unsupported BUZZ_ACP_ROUTE_GATE value: {value}"
+                )));
+            }
+        };
+        let flat_channel_ids: HashSet<Uuid> =
+            args.flat_channels.unwrap_or_default().into_iter().collect();
+        let airhop_role = args
+            .airhop_role
+            .as_deref()
+            .map(crate::airhop::AirhopRole::parse_config)
+            .transpose()
+            .map_err(ConfigError::ConfigFile)?;
+        if airhop_route_gate && (flat_channel_ids.is_empty() || airhop_role.is_none()) {
+            return Err(ConfigError::ConfigFile(
+                "Airhop route gate requires BUZZ_ACP_FLAT_CHANNELS and BUZZ_AIRHOP_ROLE".into(),
+            ));
+        }
+
         let config = Config {
             keys,
             relay_url: args.relay_url,
@@ -1073,6 +1115,9 @@ impl Config {
             turn_liveness_secs,
             heartbeat_prompt,
             system_prompt,
+            airhop_route_gate,
+            flat_channel_ids,
+            airhop_role,
             team_instructions: args
                 .team_instructions
                 .as_deref()
@@ -1452,6 +1497,9 @@ mod tests {
             turn_liveness_secs: 10,
             heartbeat_prompt: None,
             system_prompt: None,
+            airhop_route_gate: false,
+            flat_channel_ids: HashSet::new(),
+            airhop_role: None,
             team_instructions: None,
             initial_message: None,
             subscribe_mode: mode,
@@ -2952,5 +3000,39 @@ channels = "ALL"
             "Found secret-bearing env args without hide_env_values=true. \
              Add `hide_env_values = true` to each: {violations:?}"
         );
+    }
+
+    #[test]
+    fn airhop_route_gate_requires_role_and_registered_flat_channel() {
+        let channel_id = Uuid::new_v4();
+        let args = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--airhop-route-gate",
+            "airhop",
+            "--flat-channels",
+            &channel_id.to_string(),
+            "--airhop-role",
+            "administrator",
+        ])
+        .expect("parse Airhop gate args");
+        let config = Config::from_args(args).expect("build Airhop gate config");
+        assert!(config.airhop_route_gate);
+        assert_eq!(
+            config.airhop_role,
+            Some(crate::airhop::AirhopRole::Administrator)
+        );
+        assert_eq!(config.flat_channel_ids, HashSet::from([channel_id]));
+
+        let incomplete = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--airhop-route-gate",
+            "airhop",
+        ])
+        .expect("parse incomplete Airhop gate args");
+        assert!(Config::from_args(incomplete).is_err());
     }
 }

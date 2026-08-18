@@ -4,10 +4,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Json;
-use buzz_db::airhop::welcome_agents::{AirhopWelcomeRole, AirhopWelcomeTeam, PutWelcomeTeamInput};
+use buzz_db::airhop::welcome_agents::{
+    AirhopWelcomeRole, AirhopWelcomeTeam, PutWelcomeTeamInput, WelcomeRouteDecision,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -18,6 +20,7 @@ use super::airhop_auth::authenticate_airhop;
 use super::{api_error, internal_error};
 
 const WELCOME_TEAM_PATH: &str = "/api/airhop/agents/v1/welcome-team";
+const WELCOME_ROUTE_PREFIX: &str = "/api/airhop/agents/v1/routes";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -61,6 +64,34 @@ pub(crate) async fn put_welcome_team(
         .await
         .map_err(map_db_error)?;
     Ok(Json(manifest_json(&manifest)))
+}
+
+/// Atomically resolves one human Welcome message to one registered product
+/// agent. NIP-98 is signed by the calling agent; claimant registration and all
+/// tenant/channel/event fences are enforced by the database transaction.
+pub(crate) async fn claim_welcome_route(
+    State(state): State<Arc<AppState>>,
+    Path(event_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = welcome_route_claim_path(&event_id);
+    let principal = authenticate_airhop(&state, &headers, "POST", &path, None).await?;
+    let event_id = parse_pubkey(&event_id).map_err(|_| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid Airhop Welcome source event id",
+        )
+    })?;
+    let decision = state
+        .db
+        .claim_airhop_welcome_route(&principal.tenant, event_id, principal.pubkey.to_bytes())
+        .await
+        .map_err(map_route_db_error)?;
+    Ok(Json(route_decision_json(&decision)))
+}
+
+fn welcome_route_claim_path(event_id: &str) -> String {
+    format!("{WELCOME_ROUTE_PREFIX}/{event_id}/claim")
 }
 
 /// Reads the safe manifest for the caller's host-resolved community.
@@ -118,6 +149,33 @@ fn manifest_json(manifest: &AirhopWelcomeTeam) -> Value {
     })
 }
 
+fn route_decision_json(decision: &WelcomeRouteDecision) -> Value {
+    json!({
+        "eventId": hex::encode(decision.event_id),
+        "channelId": decision.channel_id,
+        "targetRole": decision.target_role.as_str(),
+        "targetPubkey": hex::encode(decision.target_pubkey),
+        "reason": decision.reason.as_str(),
+        "replayed": decision.replayed,
+    })
+}
+
+fn map_route_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
+    match error {
+        buzz_db::DbError::NotFound(_) => api_error(
+            StatusCode::NOT_FOUND,
+            "Airhop Welcome source event not found",
+        ),
+        buzz_db::DbError::AccessDenied(_) => {
+            api_error(StatusCode::FORBIDDEN, "Airhop Welcome route claim denied")
+        }
+        buzz_db::DbError::InvalidData(message) => {
+            api_error(StatusCode::UNPROCESSABLE_ENTITY, &message)
+        }
+        other => internal_error(&format!("Airhop Welcome route claim failed: {other}")),
+    }
+}
+
 fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
     match error {
         buzz_db::DbError::NotFound(_) => {
@@ -166,5 +224,28 @@ mod tests {
         });
         let parsed: PutWelcomeTeamBody = serde_json::from_value(value).unwrap();
         assert_eq!(parsed.members.len(), 4);
+    }
+
+    #[test]
+    fn welcome_route_claim_path_and_wire_shape_are_stable() {
+        let event_id = "ab".repeat(32);
+        assert_eq!(
+            welcome_route_claim_path(&event_id),
+            format!("/api/airhop/agents/v1/routes/{event_id}/claim")
+        );
+        let decision = WelcomeRouteDecision {
+            event_id: [0xab; 32],
+            channel_id: Uuid::nil(),
+            target_role: AirhopWelcomeRole::Administrator,
+            target_pubkey: [0xcd; 32],
+            reason: buzz_db::airhop::welcome_agents::WelcomeRouteReason::NaturalRole,
+            replayed: true,
+        };
+        let body = route_decision_json(&decision);
+        assert_eq!(body["eventId"], "ab".repeat(32));
+        assert_eq!(body["targetRole"], "administrator");
+        assert_eq!(body["targetPubkey"], "cd".repeat(32));
+        assert_eq!(body["reason"], "natural_role");
+        assert_eq!(body["replayed"], true);
     }
 }

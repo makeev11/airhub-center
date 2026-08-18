@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 mod acp;
+mod airhop;
 mod config;
 mod engram_fetch;
 mod filter;
@@ -1556,6 +1557,15 @@ async fn tokio_main() -> Result<()> {
     let mut queue =
         EventQueue::new(dedup_mode).with_in_flight_deadline(config.max_turn_duration_secs);
 
+    let welcome_route_gate = airhop::WelcomeRouteGate::new(
+        config.airhop_route_gate,
+        config.flat_channel_ids.clone(),
+        config.airhop_role,
+        pubkey_hex.clone(),
+        startup_owner.clone(),
+        relay.rest_client(),
+    );
+
     // Online means the harness can receive work, not merely that its socket is
     // connected. Publishing after channel subscriptions gives desktop callers
     // a durable readiness boundary before they send a startup mention.
@@ -2250,6 +2260,14 @@ async fn tokio_main() -> Result<()> {
                                     continue;
                                 }
                             };
+
+                            match welcome_route_gate.evaluate(&buzz_event).await {
+                                airhop::RouteGate::Accept | airhop::RouteGate::Bypass => {}
+                                airhop::RouteGate::Drop | airhop::RouteGate::DropDuplicate => {
+                                    continue;
+                                }
+                            }
+
                             // Capture author pubkey before queue.push() moves
                             // buzz_event.event (needed for mode gate below).
                             let author_hex = buzz_event.event.pubkey.to_hex();
@@ -5108,6 +5126,9 @@ mod build_mcp_servers_tests {
             turn_liveness_secs: 10,
             heartbeat_prompt: None,
             system_prompt: None,
+            airhop_route_gate: false,
+            flat_channel_ids: HashSet::new(),
+            airhop_role: None,
             team_instructions: None,
             initial_message: None,
             subscribe_mode: config::SubscribeMode::All,
@@ -5330,6 +5351,9 @@ mod error_outcome_emission_tests {
             turn_liveness_secs: 10,
             heartbeat_prompt: None,
             system_prompt: None,
+            airhop_route_gate: false,
+            flat_channel_ids: HashSet::new(),
+            airhop_role: None,
             team_instructions: None,
             initial_message: None,
             subscribe_mode: config::SubscribeMode::All,

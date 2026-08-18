@@ -91,6 +91,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/airhop/agents/v1/welcome-team",
             get(api::airhop_agents::get_welcome_team).put(api::airhop_agents::put_welcome_team),
         )
+        .route(
+            "/api/airhop/agents/v1/routes/{event_id}/claim",
+            post(api::airhop_agents::claim_welcome_route),
+        )
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .with_state(state.clone());
 
