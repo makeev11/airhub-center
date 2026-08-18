@@ -571,7 +571,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 37);
+        assert_eq!(migrations.len(), 38);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -998,6 +998,15 @@ mod tests {
         assert!(airhop_payment_automation.contains("ADD COLUMN billing_period"));
         assert!(airhop_payment_automation.contains("enrollment_period_key"));
         assert!(airhop_payment_automation.contains("pending_digest"));
+
+        assert_eq!(migrations[37].version, 38);
+        let airhop_payment_confirmation = migrations[37].sql.as_str();
+        assert!(airhop_payment_confirmation.contains("ADD COLUMN pending_actions"));
+        assert!(
+            airhop_payment_confirmation.contains("CREATE TABLE airhop_payment_buzz_action_state")
+        );
+        assert!(airhop_payment_confirmation.contains("payment_version"));
+        assert!(airhop_payment_confirmation.contains("event_id"));
     }
 
     #[test]

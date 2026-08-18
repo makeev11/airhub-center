@@ -13,7 +13,7 @@ use buzz_core::kind::{
     event_kind_i32, is_ephemeral, is_parameterized_replaceable, KIND_AUTH, KIND_EVENT_REMINDER,
     KIND_HUDDLE_STARTED, SHARED_GATED_KINDS,
 };
-use buzz_core::{CommunityId, StoredEvent};
+use buzz_core::{CommunityId, StoredEvent, TenantContext};
 
 use crate::error::{DbError, Result};
 
@@ -141,7 +141,25 @@ pub enum ReactionEventInsertOutcome {
         stored_event: Box<StoredEvent>,
         /// Whether the event row itself was newly inserted.
         was_inserted: bool,
+        /// AirHub payment changed by an exact ✅ confirmation, when applicable.
+        airhop_payment: Option<AirhopPaymentReactionConfirmation>,
     },
+}
+
+/// Payment mutation atomically coupled to a kind:7 reaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AirhopPaymentReactionConfirmation {
+    /// Payment selected by the relay-signed preview card.
+    pub payment_id: Uuid,
+    /// New optimistic payment version after confirmation.
+    pub version: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AirhopPaymentTag {
+    organization_id: Uuid,
+    payment_id: Uuid,
+    payment_version: i64,
 }
 
 /// Maximum length for a `d_tag` value (bytes). NIP-33 d-tags are short identifiers;
@@ -1310,18 +1328,20 @@ pub async fn insert_event_with_thread_metadata(
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_reaction_event_with_thread_metadata(
     pool: &PgPool,
-    community_id: CommunityId,
+    tenant: &TenantContext,
     reaction_event: &Event,
     channel_id: Option<Uuid>,
     thread_meta: Option<ThreadMetadataParams<'_>>,
     target_event_id: &[u8],
     actor_pubkey: &[u8],
     emoji: &str,
+    relay_pubkey: &[u8],
 ) -> Result<ReactionEventInsertOutcome> {
     let mut tx = pool.begin().await?;
+    let community_id = tenant.community();
 
     let target_row = sqlx::query(
-        "SELECT created_at FROM events \
+        "SELECT created_at, pubkey, tags, channel_id FROM events \
          WHERE community_id = $1 AND id = $2 AND deleted_at IS NULL \
          ORDER BY created_at DESC LIMIT 1",
     )
@@ -1335,6 +1355,9 @@ pub async fn insert_reaction_event_with_thread_metadata(
         return Ok(ReactionEventInsertOutcome::TargetMissing);
     };
     let target_created_at: DateTime<Utc> = target_row.get("created_at");
+    let target_pubkey: Vec<u8> = target_row.try_get("pubkey")?;
+    let target_tags: serde_json::Value = target_row.try_get("tags")?;
+    let target_channel_id: Option<Uuid> = target_row.try_get("channel_id")?;
 
     // Preserve add_reaction's exact new / re-activate / active-duplicate semantics.
     let reaction_inserted = crate::reaction::add_reaction_tx(
@@ -1362,12 +1385,85 @@ pub async fn insert_reaction_event_with_thread_metadata(
     )
     .await?;
 
+    let airhop_payment = if emoji == "✅" && target_pubkey == relay_pubkey {
+        if let Some(payment) = parse_airhop_payment_tag(&target_tags)? {
+            let payment_channel_id = target_channel_id.ok_or_else(|| {
+                DbError::InvalidData("relay-signed AirHub payment card has no channel".to_owned())
+            })?;
+            if channel_id != Some(payment_channel_id) {
+                return Err(DbError::AirhopPaymentTransition);
+            }
+            let version = crate::airhop::payment_queue::confirm_airhop_payment_from_buzz_reaction(
+                &mut tx,
+                tenant,
+                payment.organization_id,
+                payment.payment_id,
+                payment.payment_version,
+                payment_channel_id,
+                actor_pubkey,
+                reaction_event.id.as_bytes(),
+                target_event_id,
+            )
+            .await?;
+            Some(AirhopPaymentReactionConfirmation {
+                payment_id: payment.payment_id,
+                version,
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     tx.commit().await?;
 
     Ok(ReactionEventInsertOutcome::Inserted {
         stored_event: Box::new(stored_event),
         was_inserted,
+        airhop_payment,
     })
+}
+
+fn parse_airhop_payment_tag(tags: &serde_json::Value) -> Result<Option<AirhopPaymentTag>> {
+    let tags = tags.as_array().ok_or_else(|| {
+        DbError::InvalidData("stored Buzz event tags are not an array".to_owned())
+    })?;
+    let Some(parts) = tags.iter().find_map(|tag| {
+        let parts = tag.as_array()?;
+        (parts.first()?.as_str()? == "airhop-payment").then_some(parts)
+    }) else {
+        return Ok(None);
+    };
+    if parts.len() != 4 {
+        return Err(DbError::InvalidData(
+            "relay-signed AirHub payment tag is malformed".to_owned(),
+        ));
+    }
+    let part = |index: usize| {
+        parts[index].as_str().ok_or_else(|| {
+            DbError::InvalidData("relay-signed AirHub payment tag is malformed".to_owned())
+        })
+    };
+    let organization_id = Uuid::parse_str(part(1)?).map_err(|_| {
+        DbError::InvalidData("relay-signed AirHub organization id is malformed".to_owned())
+    })?;
+    let payment_id = Uuid::parse_str(part(2)?).map_err(|_| {
+        DbError::InvalidData("relay-signed AirHub payment id is malformed".to_owned())
+    })?;
+    let payment_version = part(3)?.parse::<i64>().map_err(|_| {
+        DbError::InvalidData("relay-signed AirHub payment version is malformed".to_owned())
+    })?;
+    if organization_id.is_nil() || payment_id.is_nil() || payment_version <= 0 {
+        return Err(DbError::InvalidData(
+            "relay-signed AirHub payment identity is invalid".to_owned(),
+        ));
+    }
+    Ok(Some(AirhopPaymentTag {
+        organization_id,
+        payment_id,
+        payment_version,
+    }))
 }
 
 /// A due reminder row returned by [`query_due_reminders`].
@@ -1943,11 +2039,41 @@ mod tests {
             .expect("sign reaction event")
     }
 
+    #[test]
+    fn airhop_payment_tag_binds_the_preview_version() {
+        let organization_id = Uuid::from_u128(1);
+        let payment_id = Uuid::from_u128(2);
+        let tags = serde_json::json!([
+            ["h", Uuid::from_u128(3).to_string()],
+            [
+                "airhop-payment",
+                organization_id.to_string(),
+                payment_id.to_string(),
+                "7"
+            ]
+        ]);
+        assert_eq!(
+            parse_airhop_payment_tag(&tags).unwrap(),
+            Some(AirhopPaymentTag {
+                organization_id,
+                payment_id,
+                payment_version: 7,
+            })
+        );
+    }
+
+    #[test]
+    fn malformed_airhop_payment_tag_is_not_treated_as_a_generic_reaction() {
+        let tags = serde_json::json!([["airhop-payment", "not-a-uuid", "missing-version"]]);
+        assert!(parse_airhop_payment_tag(&tags).is_err());
+    }
+
     #[tokio::test]
     #[ignore = "requires Postgres"]
     async fn reaction_single_tx_duplicate_short_circuit_stores_no_event() {
         let pool = setup_pool().await;
         let community = CommunityId::from_uuid(make_test_community(&pool).await);
+        let tenant = TenantContext::resolved(community, "event-test.example");
         let target = make_text_event("reaction target");
         insert_event(&pool, community, &target, None)
             .await
@@ -1961,13 +2087,14 @@ mod tests {
 
         let first_outcome = insert_reaction_event_with_thread_metadata(
             &pool,
-            community,
+            &tenant,
             &first,
             None,
             None,
             target.id.as_bytes(),
             &actor_pubkey,
             "👍",
+            &[0_u8; 32],
         )
         .await
         .expect("first reaction insert");
@@ -1981,13 +2108,14 @@ mod tests {
 
         let duplicate = insert_reaction_event_with_thread_metadata(
             &pool,
-            community,
+            &tenant,
             &second,
             None,
             None,
             target.id.as_bytes(),
             &actor_pubkey,
             "👍",
+            &[0_u8; 32],
         )
         .await
         .expect("duplicate reaction insert");
@@ -2008,6 +2136,7 @@ mod tests {
         let pool = setup_pool().await;
         let community_a = CommunityId::from_uuid(make_test_community(&pool).await);
         let community_b = CommunityId::from_uuid(make_test_community(&pool).await);
+        let tenant_b = TenantContext::resolved(community_b, "event-test-b.example");
         let target = make_text_event("community A target only");
         insert_event(&pool, community_a, &target, None)
             .await
@@ -2019,13 +2148,14 @@ mod tests {
 
         let outcome = insert_reaction_event_with_thread_metadata(
             &pool,
-            community_b,
+            &tenant_b,
             &reaction,
             None,
             None,
             target.id.as_bytes(),
             &actor_pubkey,
             "👍",
+            &[0_u8; 32],
         )
         .await
         .expect("cross-community reaction attempt");
@@ -2059,6 +2189,7 @@ mod tests {
     async fn reaction_single_tx_event_insert_failure_rolls_back_reaction() {
         let pool = setup_pool().await;
         let community = CommunityId::from_uuid(make_test_community(&pool).await);
+        let tenant = TenantContext::resolved(community, "event-test.example");
         let target = make_text_event("rollback target");
         insert_event(&pool, community, &target, None)
             .await
@@ -2078,13 +2209,14 @@ mod tests {
 
         let err = insert_reaction_event_with_thread_metadata(
             &pool,
-            community,
+            &tenant,
             &bad_reaction,
             None,
             None,
             target.id.as_bytes(),
             &actor_pubkey,
             "👍",
+            &[0_u8; 32],
         )
         .await
         .expect_err("ephemeral event insert must fail after reaction upsert attempt");
@@ -2111,6 +2243,7 @@ mod tests {
     async fn reaction_single_tx_reactivates_soft_deleted_reaction() {
         let pool = setup_pool().await;
         let community = CommunityId::from_uuid(make_test_community(&pool).await);
+        let tenant = TenantContext::resolved(community, "event-test.example");
         let target = make_text_event("reactivation target");
         insert_event(&pool, community, &target, None)
             .await
@@ -2127,13 +2260,14 @@ mod tests {
         assert!(matches!(
             insert_reaction_event_with_thread_metadata(
                 &pool,
-                community,
+                &tenant,
                 &first,
                 None,
                 None,
                 target.id.as_bytes(),
                 &actor_pubkey,
                 "👍",
+                &[0_u8; 32],
             )
             .await
             .expect("first reaction insert"),
@@ -2152,13 +2286,14 @@ mod tests {
 
         let outcome = insert_reaction_event_with_thread_metadata(
             &pool,
-            community,
+            &tenant,
             &second,
             None,
             None,
             target.id.as_bytes(),
             &actor_pubkey,
             "👍",
+            &[0_u8; 32],
         )
         .await
         .expect("reactivate reaction");

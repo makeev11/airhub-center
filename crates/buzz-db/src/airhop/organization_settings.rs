@@ -189,6 +189,14 @@ impl Db {
             // when it was created. Reset the monthly state on a destination
             // change so a stale pending summary cannot leak into the old stream.
             sqlx::query(
+                "DELETE FROM airhop_payment_buzz_action_state \
+                 WHERE community_id = $1 AND organization_id = $2",
+            )
+            .bind(tenant.community().as_uuid())
+            .bind(organization_id)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
                 "DELETE FROM airhop_payment_buzz_summary_state \
                  WHERE community_id = $1 AND organization_id = $2",
             )

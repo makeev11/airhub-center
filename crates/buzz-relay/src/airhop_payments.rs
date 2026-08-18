@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use buzz_core::kind::KIND_STREAM_MESSAGE;
 use buzz_core::TenantContext;
-use buzz_db::airhop::payment_automation::PendingOverdueSummary;
+use buzz_db::airhop::payment_automation::{
+    PendingOverdueSummary, PendingPaymentAction, PublishedPaymentAction,
+};
 use chrono::{DateTime, Duration, Utc};
 use nostr::{Event, EventBuilder, Kind, Tag, Timestamp};
 use tracing::{info, warn};
@@ -73,7 +75,7 @@ async fn publish_one(state: &Arc<AppState>, job: &PendingOverdueSummary) -> anyh
     };
 
     let reply = build_reply_event(state, job, &root_event_id)?;
-    let inserted = persist_message(
+    let summary_inserted = persist_message(
         state,
         &tenant,
         job.channel_id,
@@ -83,6 +85,47 @@ async fn publish_one(state: &Arc<AppState>, job: &PendingOverdueSummary) -> anyh
         1,
     )
     .await?;
+    let action_events = job
+        .actions
+        .iter()
+        .map(|action| build_payment_action_event(state, job, action, &root_event_id))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let published_actions = job
+        .actions
+        .iter()
+        .zip(&action_events)
+        .map(|(action, event)| PublishedPaymentAction {
+            payment_id: action.payment_id,
+            payment_version: action.payment_version,
+            event_id: event.id.as_bytes().to_vec(),
+        })
+        .collect::<Vec<_>>();
+    if !published_actions.is_empty()
+        && !state
+            .db
+            .reserve_airhop_payment_action_events(
+                &tenant,
+                job.organization_id,
+                job.pending_id,
+                &published_actions,
+            )
+            .await?
+    {
+        anyhow::bail!("AirHub payment card delivery reservation is no longer current");
+    }
+    let mut action_inserted = false;
+    for event in &action_events {
+        action_inserted |= persist_message(
+            state,
+            &tenant,
+            job.channel_id,
+            event,
+            Some((&root_event_id, root_created_at)),
+            Some((&root_event_id, root_created_at)),
+            1,
+        )
+        .await?;
+    }
     let completed = state
         .db
         .complete_airhop_overdue_summary(
@@ -92,19 +135,46 @@ async fn publish_one(state: &Arc<AppState>, job: &PendingOverdueSummary) -> anyh
             &root_event_id,
             root_created_at,
             reply.id.as_bytes(),
+            &published_actions,
         )
         .await?;
-    if inserted {
+    if summary_inserted || action_inserted {
         emit_live_thread_summary(&tenant, state, job.channel_id, root_event_id.clone());
     }
     info!(
         organization_id = %job.organization_id,
         channel_id = %job.channel_id,
         summary_event_id = %reply.id,
+        payment_cards = published_actions.len(),
         completed,
         "AirHub overdue Buzz summary published"
     );
     Ok(())
+}
+
+fn build_payment_action_event(
+    state: &Arc<AppState>,
+    job: &PendingOverdueSummary,
+    action: &PendingPaymentAction,
+    root_event_id: &[u8],
+) -> anyhow::Result<Event> {
+    let root_hex = hex::encode(root_event_id);
+    let tags = vec![
+        Tag::parse(["h", &job.channel_id.to_string()])?,
+        Tag::parse(["e", &root_hex, "", "root"])?,
+        Tag::parse(["e", &root_hex, "", "reply"])?,
+        Tag::parse([
+            "airhop-payment",
+            &job.organization_id.to_string(),
+            &action.payment_id.to_string(),
+            &action.payment_version.to_string(),
+        ])?,
+    ];
+    EventBuilder::new(Kind::from(KIND_STREAM_MESSAGE as u16), &action.content)
+        .tags(tags)
+        .custom_created_at(nostr_timestamp(job.created_at)?)
+        .sign_with_keys(&state.relay_keypair)
+        .map_err(Into::into)
 }
 
 fn build_root_event(
@@ -219,6 +289,11 @@ mod tests {
             period_start: NaiveDate::from_ymd_opt(2026, 8, 1).unwrap(),
             root_content: "Overdue payments".to_owned(),
             content: "One changed snapshot".to_owned(),
+            actions: vec![PendingPaymentAction {
+                payment_id: Uuid::from_u128(4),
+                payment_version: 2,
+                content: "React ✅ to confirm".to_owned(),
+            }],
             created_at: DateTime::from_timestamp(1_800_000_000, 0).unwrap(),
             root_event_id: None,
             root_event_created_at: None,
@@ -241,5 +316,41 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(build().id, build().id);
+    }
+
+    #[test]
+    fn payment_card_binds_organization_payment_and_version() {
+        let state_keys = nostr::Keys::generate();
+        let job = job();
+        let root_id = [9_u8; 32];
+        let root_hex = hex::encode(root_id);
+        let tags = vec![
+            Tag::parse(["h", &job.channel_id.to_string()]).unwrap(),
+            Tag::parse(["e", &root_hex, "", "root"]).unwrap(),
+            Tag::parse(["e", &root_hex, "", "reply"]).unwrap(),
+            Tag::parse([
+                "airhop-payment",
+                &job.organization_id.to_string(),
+                &job.actions[0].payment_id.to_string(),
+                &job.actions[0].payment_version.to_string(),
+            ])
+            .unwrap(),
+        ];
+        let event = EventBuilder::new(
+            Kind::from(KIND_STREAM_MESSAGE as u16),
+            &job.actions[0].content,
+        )
+        .tags(tags)
+        .custom_created_at(nostr_timestamp(job.created_at).unwrap())
+        .sign_with_keys(&state_keys)
+        .unwrap();
+        assert!(event.tags.iter().any(|tag| {
+            let parts = tag.as_slice();
+            parts.len() == 4
+                && parts[0] == "airhop-payment"
+                && parts[1] == job.organization_id.to_string()
+                && parts[2] == job.actions[0].payment_id.to_string()
+                && parts[3] == "2"
+        }));
     }
 }

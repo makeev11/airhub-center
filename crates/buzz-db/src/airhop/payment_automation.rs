@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use buzz_core::{CommunityId, TenantContext};
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
@@ -38,12 +39,37 @@ pub struct PendingOverdueSummary {
     pub root_content: String,
     /// Stable reply containing the changed snapshot.
     pub content: String,
+    /// Retry-stable payment cards that still need publication in this thread.
+    pub actions: Vec<PendingPaymentAction>,
     /// Persisted event timestamp used for retry-stable signing.
     pub created_at: DateTime<Utc>,
     /// Existing thread root event, when the month already has one.
     pub root_event_id: Option<Vec<u8>>,
     /// Existing thread root timestamp.
     pub root_event_created_at: Option<DateTime<Utc>>,
+}
+
+/// One payment-specific Buzz card awaiting retry-stable publication.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPaymentAction {
+    /// Payment selected by the card.
+    pub payment_id: Uuid,
+    /// Optimistic payment version captured by the preview.
+    pub payment_version: i64,
+    /// Human-readable preview confirmed by a ✅ reaction.
+    pub content: String,
+}
+
+/// Durable identity of one payment card successfully stored by the relay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublishedPaymentAction {
+    /// Payment selected by the card.
+    pub payment_id: Uuid,
+    /// Optimistic version embedded in the card.
+    pub payment_version: i64,
+    /// Signed Buzz event ID.
+    pub event_id: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -84,14 +110,18 @@ struct SummaryState {
     pending_root_content: Option<String>,
     pending_content: Option<String>,
     pending_created_at: Option<DateTime<Utc>>,
+    pending_actions: Vec<PendingPaymentAction>,
 }
 
 #[derive(Debug)]
 struct OverdueRow {
+    payment_id: Uuid,
+    payment_version: i64,
     child_name: String,
     family_name: String,
     group_name: String,
     branch_name: String,
+    tariff_name: String,
     amount_minor: i64,
     currency: String,
     due_date: NaiveDate,
@@ -172,7 +202,56 @@ impl Db {
         }
     }
 
+    /// Reserves exact signed card IDs before the relay exposes them to reactions.
+    pub async fn reserve_airhop_payment_action_events(
+        &self,
+        tenant: &TenantContext,
+        organization_id: Uuid,
+        pending_id: Uuid,
+        actions: &[PublishedPaymentAction],
+    ) -> Result<bool> {
+        if pending_id.is_nil() || actions.iter().any(|action| action.event_id.len() != 32) {
+            return Err(DbError::InvalidData(
+                "AirHub payment card event identity is invalid".to_owned(),
+            ));
+        }
+        let mut transaction = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT channel_id, period_start, pending_created_at, pending_actions \
+             FROM airhop_payment_buzz_summary_state \
+             WHERE community_id = $1 AND organization_id = $2 AND pending_id = $3 FOR UPDATE",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .bind(pending_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let Some(row) = row else {
+            transaction.commit().await?;
+            return Ok(false);
+        };
+        let channel_id: Uuid = row.try_get("channel_id")?;
+        let period_start: NaiveDate = row.try_get("period_start")?;
+        let event_created_at: DateTime<Utc> = row.try_get("pending_created_at")?;
+        let expected: Vec<PendingPaymentAction> =
+            serde_json::from_value(row.try_get("pending_actions")?)?;
+        validate_published_actions(&expected, actions)?;
+        upsert_published_actions(
+            &mut transaction,
+            tenant,
+            organization_id,
+            channel_id,
+            period_start,
+            event_created_at,
+            actions,
+        )
+        .await?;
+        transaction.commit().await?;
+        Ok(true)
+    }
+
     /// Marks one retry-stable overdue summary as durably published.
+    #[allow(clippy::too_many_arguments)]
     pub async fn complete_airhop_overdue_summary(
         &self,
         tenant: &TenantContext,
@@ -181,19 +260,47 @@ impl Db {
         root_event_id: &[u8],
         root_event_created_at: DateTime<Utc>,
         summary_event_id: &[u8],
+        published_actions: &[PublishedPaymentAction],
     ) -> Result<bool> {
-        if root_event_id.len() != 32 || summary_event_id.len() != 32 || pending_id.is_nil() {
+        if root_event_id.len() != 32
+            || summary_event_id.len() != 32
+            || pending_id.is_nil()
+            || published_actions
+                .iter()
+                .any(|action| action.event_id.len() != 32)
+        {
             return Err(DbError::InvalidData(
                 "AirHub overdue summary event identity is invalid".to_owned(),
             ));
         }
+        let mut transaction = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT channel_id, period_start, pending_created_at, pending_actions \
+             FROM airhop_payment_buzz_summary_state \
+             WHERE community_id = $1 AND organization_id = $2 AND pending_id = $3 FOR UPDATE",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .bind(pending_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let Some(row) = row else {
+            transaction.commit().await?;
+            return Ok(false);
+        };
+        let channel_id: Uuid = row.try_get("channel_id")?;
+        let period_start: NaiveDate = row.try_get("period_start")?;
+        let action_created_at: DateTime<Utc> = row.try_get("pending_created_at")?;
+        let expected_actions: Vec<PendingPaymentAction> =
+            serde_json::from_value(row.try_get("pending_actions")?)?;
+        validate_published_actions(&expected_actions, published_actions)?;
         let result = sqlx::query(
             "UPDATE airhop_payment_buzz_summary_state \
              SET root_event_id = $4, root_event_created_at = $5, \
                  last_summary_event_id = $6, last_digest = pending_digest, \
                  last_overdue_count = pending_overdue_count, \
                  pending_id = NULL, pending_digest = NULL, pending_root_content = NULL, \
-                 pending_content = NULL, \
+                 pending_content = NULL, pending_actions = '[]'::jsonb, \
                  pending_created_at = NULL, pending_overdue_count = NULL, updated_at = now() \
              WHERE community_id = $1 AND organization_id = $2 AND pending_id = $3",
         )
@@ -203,9 +310,25 @@ impl Db {
         .bind(root_event_id)
         .bind(root_event_created_at)
         .bind(summary_event_id)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await?;
-        Ok(result.rows_affected() == 1)
+        if result.rows_affected() != 1 {
+            return Err(DbError::InvalidData(
+                "reserved AirHub overdue summary disappeared while completing".to_owned(),
+            ));
+        }
+        upsert_published_actions(
+            &mut transaction,
+            tenant,
+            organization_id,
+            channel_id,
+            period_start,
+            action_created_at,
+            published_actions,
+        )
+        .await?;
+        transaction.commit().await?;
+        Ok(true)
     }
 
     async fn materialize_organization_payments(
@@ -333,6 +456,23 @@ impl Db {
             return Ok(None);
         }
         let period_start = first_of_month(target.local_date)?;
+        let published_versions = load_published_action_versions(
+            &mut transaction,
+            target.community_id,
+            target.organization_id,
+            channel_id,
+            period_start,
+        )
+        .await?;
+        let actions = rows
+            .iter()
+            .filter(|row| published_versions.get(&row.payment_id) != Some(&row.payment_version))
+            .map(|row| PendingPaymentAction {
+                payment_id: row.payment_id,
+                payment_version: row.payment_version,
+                content: format_payment_action(&target.locale, row),
+            })
+            .collect::<Vec<_>>();
         let content = format_summary(&target.locale, target.local_date, &rows);
         let digest = summary_digest(&rows);
         let same_scope = state.as_ref().is_some_and(|summary| {
@@ -343,6 +483,7 @@ impl Db {
                 .as_ref()
                 .and_then(|summary| summary.last_digest.as_deref())
                 == Some(digest.as_slice())
+            && actions.is_empty()
         {
             transaction.commit().await?;
             return Ok(None);
@@ -356,8 +497,8 @@ impl Db {
             "INSERT INTO airhop_payment_buzz_summary_state (\
                  community_id, organization_id, channel_id, period_start, \
                  pending_id, pending_digest, pending_root_content, pending_content, pending_created_at, \
-                 pending_overdue_count, updated_at\
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $9) \
+                 pending_overdue_count, pending_actions, updated_at\
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $9) \
              ON CONFLICT (community_id, organization_id) DO UPDATE SET \
                  channel_id = EXCLUDED.channel_id, period_start = EXCLUDED.period_start, \
                  root_event_id = CASE \
@@ -373,6 +514,7 @@ impl Db {
                  pending_content = EXCLUDED.pending_content, \
                  pending_created_at = EXCLUDED.pending_created_at, \
                  pending_overdue_count = EXCLUDED.pending_overdue_count, \
+                 pending_actions = EXCLUDED.pending_actions, \
                  updated_at = EXCLUDED.updated_at",
         )
         .bind(target.community_id)
@@ -385,6 +527,7 @@ impl Db {
         .bind(&content)
         .bind(created_at)
         .bind(overdue_count)
+        .bind(serde_json::to_value(&actions)?)
         .execute(&mut *transaction)
         .await?;
         let (root_event_id, root_event_created_at) = if same_scope {
@@ -404,11 +547,64 @@ impl Db {
             period_start,
             root_content,
             content,
+            actions,
             created_at,
             root_event_id,
             root_event_created_at,
         }))
     }
+}
+
+fn validate_published_actions(
+    expected: &[PendingPaymentAction],
+    published: &[PublishedPaymentAction],
+) -> Result<()> {
+    if expected.len() != published.len()
+        || expected.iter().zip(published).any(|(expected, published)| {
+            expected.payment_id != published.payment_id
+                || expected.payment_version != published.payment_version
+        })
+    {
+        return Err(DbError::InvalidData(
+            "published AirHub payment cards do not match the reserved delivery".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn upsert_published_actions(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    channel_id: Uuid,
+    period_start: NaiveDate,
+    event_created_at: DateTime<Utc>,
+    actions: &[PublishedPaymentAction],
+) -> Result<()> {
+    for action in actions {
+        sqlx::query(
+            "INSERT INTO airhop_payment_buzz_action_state (\
+                 community_id, organization_id, payment_id, channel_id, period_start, \
+                 payment_version, event_id, event_created_at, updated_at\
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now()) \
+             ON CONFLICT (community_id, organization_id, payment_id) DO UPDATE SET \
+                 channel_id = EXCLUDED.channel_id, period_start = EXCLUDED.period_start, \
+                 payment_version = EXCLUDED.payment_version, event_id = EXCLUDED.event_id, \
+                 event_created_at = EXCLUDED.event_created_at, updated_at = EXCLUDED.updated_at",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .bind(action.payment_id)
+        .bind(channel_id)
+        .bind(period_start)
+        .bind(action.payment_version)
+        .bind(&action.event_id)
+        .bind(event_created_at)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    Ok(())
 }
 
 async fn load_organization_targets(db: &Db) -> Result<Vec<OrganizationTarget>> {
@@ -603,11 +799,15 @@ fn summary_digest(rows: &[OverdueRow]) -> Vec<u8> {
     for row in rows {
         let due_date = row.due_date.to_string();
         let amount_minor = row.amount_minor.to_string();
+        let payment_version = row.payment_version.to_string();
         for value in [
+            row.payment_id.as_bytes(),
+            payment_version.as_bytes(),
             row.child_name.as_bytes(),
             row.family_name.as_bytes(),
             row.group_name.as_bytes(),
             row.branch_name.as_bytes(),
+            row.tariff_name.as_bytes(),
             row.currency.as_bytes(),
             due_date.as_bytes(),
             amount_minor.as_bytes(),
@@ -627,7 +827,7 @@ async fn load_summary_state(
     let row = sqlx::query(
         "SELECT channel_id, period_start, root_event_id, root_event_created_at, \
                 last_digest, last_overdue_count, pending_id, pending_root_content, pending_content, \
-                pending_created_at \
+                pending_created_at, pending_actions \
          FROM airhop_payment_buzz_summary_state \
          WHERE community_id = $1 AND organization_id = $2 FOR UPDATE",
     )
@@ -636,6 +836,7 @@ async fn load_summary_state(
     .fetch_optional(&mut **transaction)
     .await?;
     row.map(|row| {
+        let pending_actions = serde_json::from_value(row.try_get("pending_actions")?)?;
         Ok(SummaryState {
             channel_id: row.try_get("channel_id")?,
             period_start: row.try_get("period_start")?,
@@ -647,6 +848,7 @@ async fn load_summary_state(
             pending_root_content: row.try_get("pending_root_content")?,
             pending_content: row.try_get("pending_content")?,
             pending_created_at: row.try_get("pending_created_at")?,
+            pending_actions,
         })
     })
     .transpose()
@@ -680,10 +882,35 @@ fn pending_job_from_state(
         period_start: state.period_start,
         root_content,
         content,
+        actions: state.pending_actions.clone(),
         created_at,
         root_event_id: state.root_event_id.clone(),
         root_event_created_at: state.root_event_created_at,
     }))
+}
+
+async fn load_published_action_versions(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    community_id: Uuid,
+    organization_id: Uuid,
+    channel_id: Uuid,
+    period_start: NaiveDate,
+) -> Result<BTreeMap<Uuid, i64>> {
+    let rows = sqlx::query(
+        "SELECT payment_id, payment_version \
+         FROM airhop_payment_buzz_action_state \
+         WHERE community_id = $1 AND organization_id = $2 \
+           AND channel_id = $3 AND period_start = $4",
+    )
+    .bind(community_id)
+    .bind(organization_id)
+    .bind(channel_id)
+    .bind(period_start)
+    .fetch_all(&mut **transaction)
+    .await?;
+    rows.into_iter()
+        .map(|row| Ok((row.try_get("payment_id")?, row.try_get("payment_version")?)))
+        .collect()
 }
 
 async fn load_overdue_rows(
@@ -693,9 +920,11 @@ async fn load_overdue_rows(
     local_date: NaiveDate,
 ) -> Result<Vec<OverdueRow>> {
     let rows = sqlx::query(
-        "SELECT child.display_name AS child_name, family.display_name AS family_name, \
+        "SELECT payment.id AS payment_id, payment.version AS payment_version, \
+                child.display_name AS child_name, family.display_name AS family_name, \
                 group_row.name AS group_name, branch.name AS branch_name, \
-                payment.amount_minor, payment.currency, payment.due_date \
+                payment.tariff_name_snapshot AS tariff_name, payment.amount_minor, \
+                payment.currency, payment.due_date \
          FROM airhop_payment_expectations payment \
          JOIN airhop_children child \
            ON child.community_id = payment.community_id \
@@ -727,10 +956,13 @@ async fn load_overdue_rows(
     rows.into_iter()
         .map(|row| {
             Ok(OverdueRow {
+                payment_id: row.try_get("payment_id")?,
+                payment_version: row.try_get("payment_version")?,
                 child_name: row.try_get("child_name")?,
                 family_name: row.try_get("family_name")?,
                 group_name: row.try_get("group_name")?,
                 branch_name: row.try_get("branch_name")?,
+                tariff_name: row.try_get("tariff_name")?,
                 amount_minor: row.try_get("amount_minor")?,
                 currency: row.try_get("currency")?,
                 due_date: row.try_get("due_date")?,
@@ -824,7 +1056,7 @@ fn format_summary(locale: &str, local_date: NaiveDate, rows: &[OverdueRow]) -> S
         .join(" + ");
     if russian {
         format!(
-            "Просрочено: {} · {}\nСостояние на {}\n\n{}\n\nИтого: {}\nОтметьте оплату в AirHub Center — следующая сводка обновится автоматически.",
+            "Просрочено: {} · {}\nСостояние на {}\n\n{}\n\nИтого: {}\nПодтвердите конкретную оплату ✅ на её карточке ниже или отметьте её в AirHub Center.",
             rows.len(),
             totals,
             format_date(local_date, true),
@@ -833,12 +1065,39 @@ fn format_summary(locale: &str, local_date: NaiveDate, rows: &[OverdueRow]) -> S
         )
     } else {
         format!(
-            "Overdue: {} · {}\nSnapshot for {}\n\n{}\n\nTotal: {}\nMark payments in AirHub Center; the next snapshot updates automatically.",
+            "Overdue: {} · {}\nSnapshot for {}\n\n{}\n\nTotal: {}\nConfirm a specific payment with ✅ on its card below, or mark it in AirHub Center.",
             rows.len(),
             totals,
             format_date(local_date, false),
             lines.join("\n\n"),
             totals,
+        )
+    }
+}
+
+fn format_payment_action(locale: &str, row: &OverdueRow) -> String {
+    let russian = locale.to_ascii_lowercase().starts_with("ru");
+    if russian {
+        format!(
+            "💳 Подтверждение оплаты\n\n{} · {}\n{} · #{}\nТариф: {}\n{} · срок {}\n\nПоставьте ✅ на это сообщение, чтобы отметить оплату полученной.",
+            row.child_name,
+            row.family_name,
+            row.group_name,
+            row.branch_name,
+            row.tariff_name,
+            format_money(row.amount_minor, &row.currency, true),
+            format_date(row.due_date, true),
+        )
+    } else {
+        format!(
+            "💳 Payment confirmation\n\n{} · {}\n{} · #{}\nPlan: {}\n{} · due {}\n\nReact ✅ to this message to mark the payment received.",
+            row.child_name,
+            row.family_name,
+            row.group_name,
+            row.branch_name,
+            row.tariff_name,
+            format_money(row.amount_minor, &row.currency, false),
+            format_date(row.due_date, false),
         )
     }
 }
@@ -938,10 +1197,13 @@ mod tests {
     #[test]
     fn russian_summary_is_bounded_and_contains_branch_context() {
         let rows = vec![OverdueRow {
+            payment_id: Uuid::from_u128(1),
+            payment_version: 3,
             child_name: "Маша".to_owned(),
             family_name: "Семья Ивановых".to_owned(),
             group_name: "Рисование".to_owned(),
             branch_name: "Курская".to_owned(),
+            tariff_name: "8 занятий".to_owned(),
             amount_minor: 600_000,
             currency: "RUB".to_owned(),
             due_date: NaiveDate::from_ymd_opt(2026, 8, 5).unwrap(),
@@ -954,6 +1216,9 @@ mod tests {
         assert!(summary.contains("#Курская"));
         assert!(summary.contains("6 000,00 ₽"));
         assert!(summary.contains("05.08.2026"));
+        let action = format_payment_action("ru-RU", &rows[0]);
+        assert!(action.contains("Тариф: 8 занятий"));
+        assert!(action.contains("Поставьте ✅"));
     }
 
     #[test]
@@ -965,25 +1230,74 @@ mod tests {
     #[test]
     fn overdue_digest_changes_with_the_queue_not_the_polling_date() {
         let row = OverdueRow {
+            payment_id: Uuid::from_u128(2),
+            payment_version: 1,
             child_name: "Маша".to_owned(),
             family_name: "Ивановы".to_owned(),
             group_name: "Рисование".to_owned(),
             branch_name: "Курская".to_owned(),
+            tariff_name: "8 занятий".to_owned(),
             amount_minor: 600_000,
             currency: "RUB".to_owned(),
             due_date: NaiveDate::from_ymd_opt(2026, 8, 5).unwrap(),
         };
+        let digest = summary_digest(&[row]);
         assert_eq!(
-            summary_digest(&[row]),
+            digest,
             summary_digest(&[OverdueRow {
+                payment_id: Uuid::from_u128(2),
+                payment_version: 1,
                 child_name: "Маша".to_owned(),
                 family_name: "Ивановы".to_owned(),
                 group_name: "Рисование".to_owned(),
                 branch_name: "Курская".to_owned(),
+                tariff_name: "8 занятий".to_owned(),
                 amount_minor: 600_000,
                 currency: "RUB".to_owned(),
                 due_date: NaiveDate::from_ymd_opt(2026, 8, 5).unwrap(),
             }])
         );
+        assert_ne!(
+            digest,
+            summary_digest(&[OverdueRow {
+                payment_id: Uuid::from_u128(2),
+                payment_version: 2,
+                child_name: "Маша".to_owned(),
+                family_name: "Ивановы".to_owned(),
+                group_name: "Рисование".to_owned(),
+                branch_name: "Курская".to_owned(),
+                tariff_name: "8 занятий".to_owned(),
+                amount_minor: 600_000,
+                currency: "RUB".to_owned(),
+                due_date: NaiveDate::from_ymd_opt(2026, 8, 5).unwrap(),
+            }])
+        );
+    }
+
+    #[test]
+    fn published_cards_must_match_the_reserved_payment_versions() {
+        let expected = vec![PendingPaymentAction {
+            payment_id: Uuid::from_u128(8),
+            payment_version: 3,
+            content: "preview".to_owned(),
+        }];
+        assert!(validate_published_actions(
+            &expected,
+            &[PublishedPaymentAction {
+                payment_id: Uuid::from_u128(8),
+                payment_version: 3,
+                event_id: vec![9; 32],
+            }]
+        )
+        .is_ok());
+        assert!(validate_published_actions(
+            &expected,
+            &[PublishedPaymentAction {
+                payment_id: Uuid::from_u128(8),
+                payment_version: 4,
+                event_id: vec![9; 32],
+            }]
+        )
+        .is_err());
     }
 }

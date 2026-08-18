@@ -2688,19 +2688,28 @@ async fn ingest_event_inner(
         // the event in the same transaction. Ordering is load-bearing: active
         // duplicate reactions must return before storing a duplicate kind:7 event.
         let thread_params = thread_meta.as_ref().map(|m| m.as_params());
-        let (stored_event, was_inserted) = match state
+        let relay_pubkey = state.relay_keypair.public_key().to_bytes();
+        let (stored_event, was_inserted, airhop_payment) = match state
             .db
             .insert_reaction_event_with_thread_metadata(
-                tenant.community(),
+                tenant,
                 &event,
                 channel_id,
                 thread_params,
                 &target_id,
                 &actor_bytes,
                 emoji,
+                &relay_pubkey,
             )
             .await
-            .map_err(|e| IngestError::Internal(format!("error: {e}")))?
+            .map_err(|error| match error {
+                buzz_db::DbError::AirhopVersionConflict
+                | buzz_db::DbError::AirhopPaymentTransition => IngestError::Rejected(
+                    "conflict: this AirHub payment card is no longer current; wait for the updated card or use AirHub Center"
+                        .into(),
+                ),
+                error => IngestError::Internal(format!("error: {error}")),
+            })?
         {
             buzz_db::ReactionEventInsertOutcome::TargetMissing => {
                 return Err(IngestError::Rejected(
@@ -2717,7 +2726,8 @@ async fn ingest_event_inner(
             buzz_db::ReactionEventInsertOutcome::Inserted {
                 stored_event,
                 was_inserted,
-            } => (stored_event, was_inserted),
+                airhop_payment,
+            } => (stored_event, was_inserted, airhop_payment),
         };
 
         let pubkey_hex = auth.pubkey().to_hex();
@@ -2751,11 +2761,22 @@ async fn ingest_event_inner(
         )
         .await;
 
-        info!(event_id = %event_id_hex, kind = kind_u32, "Event ingested via pipeline");
+        if let Some(payment) = airhop_payment {
+            info!(
+                event_id = %event_id_hex,
+                payment_id = %payment.payment_id,
+                payment_version = payment.version,
+                "AirHub payment confirmed via Buzz reaction"
+            );
+        } else {
+            info!(event_id = %event_id_hex, kind = kind_u32, "Event ingested via pipeline");
+        }
         return Ok(IngestResult {
             event_id: event_id_hex,
             accepted: true,
-            message: String::new(),
+            message: airhop_payment.map_or_else(String::new, |_| {
+                "payment marked paid in AirHub Center".to_owned()
+            }),
         });
     }
 

@@ -4,6 +4,7 @@ use buzz_core::TenantContext;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -14,6 +15,7 @@ use super::{
 use crate::{Db, DbError, Result};
 
 const MUTATE_PAYMENT_COMMAND_TYPE: &str = "MutatePaymentExpectation";
+const CONFIRM_PAYMENT_FROM_BUZZ_COMMAND_TYPE: &str = "ConfirmPaymentFromBuzzReaction";
 
 /// Durable lifecycle of one expected payment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -353,6 +355,233 @@ impl Db {
         )
         .await
     }
+}
+
+/// Marks the versioned payment preview selected by a relay-signed Buzz card paid.
+///
+/// The caller owns the transaction that also persists the kind:7 event and
+/// reaction row. A stale card therefore rolls back the visual reaction together
+/// with the business command instead of leaving the two sources inconsistent.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn confirm_airhop_payment_from_buzz_reaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    payment_id: Uuid,
+    expected_version: i64,
+    channel_id: Uuid,
+    actor_pubkey: &[u8],
+    reaction_event_id: &[u8],
+    target_event_id: &[u8],
+) -> Result<i64> {
+    let actor_pubkey: [u8; 32] = actor_pubkey.try_into().map_err(|_| {
+        DbError::InvalidData("AirHub Buzz confirmation actor is invalid".to_owned())
+    })?;
+    if organization_id.is_nil()
+        || payment_id.is_nil()
+        || expected_version <= 0
+        || reaction_event_id.len() != 32
+        || target_event_id.len() != 32
+    {
+        return Err(DbError::InvalidData(
+            "AirHub Buzz payment preview identity is invalid".to_owned(),
+        ));
+    }
+    let channel_is_current: bool = sqlx::query_scalar(
+        "SELECT EXISTS (\
+             SELECT 1 FROM airhop_organizations \
+             WHERE community_id = $1 AND id = $2 AND status = 'active' \
+               AND payments_buzz_channel_id = $3\
+         )",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(channel_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !channel_is_current {
+        return Err(DbError::AirhopPaymentTransition);
+    }
+    let target_is_reserved: bool = sqlx::query_scalar(
+        "SELECT EXISTS (\
+             SELECT 1 FROM airhop_payment_buzz_action_state \
+             WHERE community_id = $1 AND organization_id = $2 AND payment_id = $3 \
+               AND channel_id = $4 AND payment_version = $5 AND event_id = $6\
+         )",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(payment_id)
+    .bind(channel_id)
+    .bind(expected_version)
+    .bind(target_event_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !target_is_reserved {
+        return Err(DbError::AirhopPaymentTransition);
+    }
+
+    let actor = AirhopActor {
+        kind: super::ActorKind::Staff,
+        pubkey: Some(actor_pubkey),
+        on_behalf_of_pubkey: None,
+        agent_pubkey: None,
+    };
+    let idempotency_digest = buzz_confirmation_digest(reaction_event_id);
+    let request_hash = buzz_confirmation_request_hash(
+        organization_id,
+        payment_id,
+        expected_version,
+        channel_id,
+        &actor_pubkey,
+        reaction_event_id,
+        target_event_id,
+    );
+    let command = match insert_pending_command(
+        transaction,
+        tenant,
+        &NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id,
+            command_type: CONFIRM_PAYMENT_FROM_BUZZ_COMMAND_TYPE.to_owned(),
+            idempotency_digest,
+            request_hash,
+            actor: actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        },
+    )
+    .await?
+    {
+        CommandInsertOutcome::Inserted(command) => command,
+        CommandInsertOutcome::Existing(command) => match command.status {
+            CommandStatus::Committed => {
+                let stored: StoredPaymentMutationResult =
+                    serde_json::from_value(command.result.ok_or_else(|| {
+                        DbError::InvalidData(
+                            "committed AirHub Buzz confirmation has no result".to_owned(),
+                        )
+                    })?)?;
+                if stored.payment_id != payment_id {
+                    return Err(DbError::AirhopIdempotencyConflict);
+                }
+                return Ok(stored.version);
+            }
+            CommandStatus::Pending => return Err(DbError::AirhopCommandInProgress),
+            CommandStatus::Failed => return Err(DbError::AirhopCommandPreviouslyFailed),
+        },
+    };
+
+    let row = sqlx::query(
+        "SELECT status, amount_minor, due_date, version \
+         FROM airhop_payment_expectations \
+         WHERE community_id = $1 AND organization_id = $2 AND id = $3 FOR UPDATE",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(payment_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    let Some(row) = row else {
+        return Err(DbError::AirhopPaymentTransition);
+    };
+    let current = LockedPayment {
+        status: PaymentStatus::from_db(row.try_get("status")?)?,
+        amount_minor: row.try_get("amount_minor")?,
+        due_date: row.try_get("due_date")?,
+        version: row.try_get("version")?,
+    };
+    if current.version != expected_version {
+        return Err(DbError::AirhopVersionConflict);
+    }
+    validate_transition(&current, &PaymentChange::MarkPaid)?;
+    let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
+        .fetch_one(&mut **transaction)
+        .await?;
+    let actor_reference = hex::encode(actor_pubkey);
+    let version: i64 = sqlx::query_scalar(
+        "UPDATE airhop_payment_expectations \
+         SET status = 'paid', paid_at = $5, paid_by = $6, \
+             cancelled_at = NULL, cancelled_by = NULL, internal_reason = NULL, \
+             version = version + 1, updated_at = $5 \
+         WHERE community_id = $1 AND organization_id = $2 AND id = $3 AND version = $4 \
+         RETURNING version",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(payment_id)
+    .bind(expected_version)
+    .bind(occurred_at)
+    .bind(actor_reference)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(DbError::AirhopVersionConflict)?;
+    append_domain_event(
+        transaction,
+        tenant,
+        &NewDomainEvent {
+            id: Uuid::new_v4(),
+            organization_id,
+            stream_type: "payment_expectation".to_owned(),
+            stream_id: payment_id,
+            stream_version: version,
+            event_type: "airhop.payment.paid.v1".to_owned(),
+            schema_version: 1,
+            occurred_at,
+            actor,
+            causation_id: command.id,
+            correlation_id: command.correlation_id,
+            payload: json!({
+                "paymentId": payment_id,
+                "previousStatus": current.status,
+                "source": "buzz_reaction",
+                "reactionEventId": hex::encode(reaction_event_id),
+                "targetEventId": hex::encode(target_event_id),
+            }),
+            privacy_class: PrivacyClass::Operational,
+        },
+    )
+    .await?;
+    commit_command(
+        transaction,
+        tenant,
+        organization_id,
+        command.id,
+        &serde_json::to_value(StoredPaymentMutationResult {
+            payment_id,
+            version,
+        })?,
+    )
+    .await?;
+    Ok(version)
+}
+
+fn buzz_confirmation_digest(reaction_event_id: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"airhop.payment.buzz-confirmation.idempotency.v1\0");
+    hasher.update(reaction_event_id);
+    hasher.finalize().into()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn buzz_confirmation_request_hash(
+    organization_id: Uuid,
+    payment_id: Uuid,
+    expected_version: i64,
+    channel_id: Uuid,
+    actor_pubkey: &[u8; 32],
+    reaction_event_id: &[u8],
+    target_event_id: &[u8],
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"airhop.payment.buzz-confirmation.request.v1\0");
+    hasher.update(organization_id.as_bytes());
+    hasher.update(payment_id.as_bytes());
+    hasher.update(expected_version.to_be_bytes());
+    hasher.update(channel_id.as_bytes());
+    hasher.update(actor_pubkey);
+    hasher.update(reaction_event_id);
+    hasher.update(target_event_id);
+    hasher.finalize().into()
 }
 
 async fn apply_change(
@@ -705,5 +934,37 @@ mod tests {
             }
         )
         .is_err());
+    }
+
+    #[test]
+    fn buzz_confirmation_receipt_is_bound_to_reaction_and_preview() {
+        let reaction_id = [4_u8; 32];
+        assert_eq!(
+            buzz_confirmation_digest(&reaction_id),
+            buzz_confirmation_digest(&reaction_id)
+        );
+        let base = buzz_confirmation_request_hash(
+            Uuid::from_u128(1),
+            Uuid::from_u128(2),
+            3,
+            Uuid::from_u128(4),
+            &[5_u8; 32],
+            &reaction_id,
+            &[6_u8; 32],
+        );
+        let stale_version = buzz_confirmation_request_hash(
+            Uuid::from_u128(1),
+            Uuid::from_u128(2),
+            4,
+            Uuid::from_u128(4),
+            &[5_u8; 32],
+            &reaction_id,
+            &[6_u8; 32],
+        );
+        assert_ne!(base, stale_version);
+        assert_ne!(
+            buzz_confirmation_digest(&reaction_id),
+            buzz_confirmation_digest(&[7_u8; 32])
+        );
     }
 }

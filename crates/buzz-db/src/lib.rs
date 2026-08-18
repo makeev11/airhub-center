@@ -2097,30 +2097,33 @@ impl Db {
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_reaction_event_with_thread_metadata(
         &self,
-        community_id: CommunityId,
+        tenant: &buzz_core::TenantContext,
         event: &nostr::Event,
         channel_id: Option<Uuid>,
         thread_meta: Option<event::ThreadMetadataParams<'_>>,
         target_event_id: &[u8],
         actor_pubkey: &[u8],
         emoji: &str,
+        relay_pubkey: &[u8],
     ) -> Result<event::ReactionEventInsertOutcome> {
         let outcome = event::insert_reaction_event_with_thread_metadata(
             &self.pool,
-            community_id,
+            tenant,
             event,
             channel_id,
             thread_meta,
             target_event_id,
             actor_pubkey,
             emoji,
+            relay_pubkey,
         )
         .await?;
         if let event::ReactionEventInsertOutcome::Inserted {
             was_inserted: true, ..
         } = &outcome
         {
-            if let Err(e) = insert_mentions(&self.pool, community_id, event, channel_id).await {
+            if let Err(e) = insert_mentions(&self.pool, tenant.community(), event, channel_id).await
+            {
                 tracing::warn!(event_id = %event.id, "Failed to insert mentions: {e}");
             }
         }
