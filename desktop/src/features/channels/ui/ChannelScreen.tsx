@@ -270,11 +270,7 @@ export function ChannelScreen({
   const {
     entranceMessageId: welcomeEntranceMessageId,
     handleEntranceComplete: handleWelcomeEntranceComplete,
-  } = useWelcomeKickoffEntrance(
-    activeChannel,
-    resolvedMessages,
-    threadReplyEvents,
-  );
+  } = useWelcomeKickoffEntrance(activeChannel, resolvedMessages);
   const messageEventProfilePubkeys = useMessageEventProfilePubkeys(
     resolvedMessages,
     threadReplyEvents,

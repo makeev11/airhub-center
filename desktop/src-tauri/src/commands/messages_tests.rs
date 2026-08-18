@@ -1,3 +1,41 @@
+#[test]
+fn airhop_agent_task_has_exact_flat_targeting_tags() {
+    let channel_id = uuid::Uuid::new_v4();
+    let agent_pubkey = Keys::generate().public_key().to_hex();
+    let task_id = "airhop-welcome:test:fizz_intro";
+    let event = build_airhop_agent_task(
+        channel_id,
+        &agent_pubkey,
+        task_id,
+        "fizz_intro",
+        "Introduce yourself briefly.",
+    )
+    .expect("task should build")
+    .sign_with_keys(&Keys::generate())
+    .expect("task should sign");
+
+    let has_tag = |name: &str, value: &str| {
+        event.tags.iter().any(|tag| {
+            let parts = tag.as_slice();
+            parts.len() >= 2 && parts[0] == name && parts[1] == value
+        })
+    };
+    assert_eq!(
+        event.kind.as_u16() as u32,
+        buzz_core_pkg::kind::KIND_AIRHOP_AGENT_TASK
+    );
+    assert!(has_tag("h", &channel_id.to_string()));
+    assert!(has_tag("p", &agent_pubkey));
+    assert!(has_tag("airhop-task", task_id));
+    assert!(has_tag("airhop-kickoff-stage", "fizz_intro"));
+    assert!(
+        !event
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice().first().map(String::as_str) == Some("e"))
+    );
+}
+
 use super::*;
 
 #[test]

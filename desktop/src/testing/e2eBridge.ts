@@ -12323,6 +12323,26 @@ export function maybeInstallE2eTauriMocks() {
           payload as Parameters<typeof handleSendChannelMessage>[0],
           activeConfig,
         );
+      case "dispatch_airhop_agent_task": {
+        const args = payload as {
+          channelId: string;
+          agentPubkey: string;
+          taskId: string;
+          stage: string;
+          instruction: string;
+        };
+        return createMockEvent(
+          21021,
+          args.instruction,
+          [
+            ["h", args.channelId],
+            ["p", args.agentPubkey],
+            ["airhop-task", args.taskId],
+            ["airhop-kickoff-stage", args.stage],
+          ],
+          identity?.pubkey ?? DEFAULT_MOCK_IDENTITY.pubkey,
+        ).id;
+      }
       case "has_managed_agent_channel_message_marker": {
         const args = payload as {
           channelId: string;

@@ -145,6 +145,7 @@ pub const RESULT_GATED_KINDS: &[u32] = &[KIND_DM_VISIBILITY, KIND_AGENT_TURN_MET
 /// storage-layer search defense does not apply to them.
 pub const P_GATED_KINDS: &[u32] = &[
     KIND_AGENT_OBSERVER_FRAME,
+    KIND_AIRHOP_AGENT_TASK,
     KIND_MEMBER_ADDED_NOTIFICATION,
     KIND_MEMBER_REMOVED_NOTIFICATION,
     KIND_GIFT_WRAP,
@@ -452,6 +453,10 @@ pub const KIND_PRESENCE_UPDATE: u32 = 20001;
 pub const KIND_PAIRING: u32 = 24134;
 /// Ephemeral: typing indicator for a channel.
 pub const KIND_TYPING_INDICATOR: u32 = 20002;
+/// Airhop owner-signed task addressed to one registered Welcome agent.
+/// Ephemeral delivery only; model output is published separately as top-level
+/// kind:9 messages carrying a durable semantic stage receipt.
+pub const KIND_AIRHOP_AGENT_TASK: u32 = 21021;
 /// Ephemeral: owner-scoped encrypted agent observer telemetry and control frame.
 pub const KIND_AGENT_OBSERVER_FRAME: u32 = 24200;
 /// Ephemeral: huddle emoji reaction burst. Channel-scoped to the ephemeral
@@ -680,6 +685,7 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_WINDOW_BOUNDS,
     KIND_PRESENCE_UPDATE,
     KIND_TYPING_INDICATOR,
+    KIND_AIRHOP_AGENT_TASK,
     KIND_HUDDLE_REACTION,
     KIND_BLOSSOM_AUTH,
     KIND_PAIRING,
@@ -865,6 +871,7 @@ const _: () = assert!(KIND_AUTH <= u16::MAX as u32);
 const _: () = assert!(KIND_CANVAS <= u16::MAX as u32);
 const _: () = assert!(KIND_HUDDLE_GUIDELINES <= u16::MAX as u32);
 const _: () = assert!(EPHEMERAL_KIND_MIN < EPHEMERAL_KIND_MAX);
+const _: () = assert!(is_ephemeral(KIND_AIRHOP_AGENT_TASK));
 // Compile-time: KIND_AGENT_TURN_METRIC is a regular stored kind (not ephemeral, not replaceable).
 const _: () = assert!(!is_ephemeral(KIND_AGENT_TURN_METRIC));
 const _: () = assert!(!is_replaceable(KIND_AGENT_TURN_METRIC));
@@ -890,6 +897,14 @@ mod tests {
         for &k in ALL_KINDS {
             assert!(seen.insert(k), "duplicate kind value: {k}");
         }
+    }
+
+    #[test]
+    fn airhop_agent_task_is_ephemeral() {
+        assert_eq!(KIND_AIRHOP_AGENT_TASK, 21021);
+        assert!(is_ephemeral(KIND_AIRHOP_AGENT_TASK));
+        assert!(!is_replaceable(KIND_AIRHOP_AGENT_TASK));
+        assert!(!is_parameterized_replaceable(KIND_AIRHOP_AGENT_TASK));
     }
 
     #[test]
