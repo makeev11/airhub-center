@@ -87,6 +87,7 @@ function group(overrides = {}) {
     minAgeMonths: 84,
     maxAgeMonths: 119,
     capacity: 10,
+    activeEnrollmentCount: 0,
     status: "active",
     version: 1,
     ...overrides,

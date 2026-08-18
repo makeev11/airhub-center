@@ -170,6 +170,10 @@ export function groupActiveEnrollmentCount(
   groupId: string,
   onDate: string,
 ): number {
+  const authoritativeCount = workspace.groups.find(
+    (group) => group.id === groupId,
+  )?.activeEnrollmentCount;
+  if (authoritativeCount !== undefined) return authoritativeCount;
   return workspace.enrollments.filter(
     (enrollment) =>
       enrollment.groupId === groupId &&

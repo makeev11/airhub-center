@@ -129,3 +129,22 @@ test("family and group read models expose configured enrollment", () => {
     1,
   );
 });
+
+test("server group enrollment count overrides incomplete local family data", () => {
+  const workspace = workspaceWithCommerce();
+  const groups = workspace.groups.map((group) =>
+    group.id === "robotics-junior"
+      ? { ...group, activeEnrollmentCount: 7 }
+      : group,
+  );
+  const serverWorkspace = parseBookingWorkspace({ ...workspace, groups });
+
+  assert.equal(
+    readModels.groupActiveEnrollmentCount(
+      serverWorkspace,
+      "robotics-junior",
+      "2026-08-06",
+    ),
+    7,
+  );
+});

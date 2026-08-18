@@ -24,6 +24,7 @@ use crate::{Db, DbError, Result};
 const ADD_PARTICIPANT_COMMAND_TYPE: &str = "AddLessonParticipant";
 const SET_ATTENDANCE_COMMAND_TYPE: &str = "SetLessonAttendance";
 const ENROLL_TRIAL_COMMAND_TYPE: &str = "EnrollTrialParticipant";
+const ENROLL_STAFF_COMMAND_TYPE: &str = "EnrollStaffParticipant";
 
 /// Explicit attendance value stored for one expected child.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -228,6 +229,29 @@ pub struct EnrollStaffTrialParticipantInput {
     pub actor: AirhopActor,
 }
 
+/// Atomic command enrolling an existing active child without requiring a trial booking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnrollStaffParticipantInput {
+    /// Active family that owns the selected child.
+    pub family_id: Uuid,
+    /// Existing active child selected by staff.
+    pub child_id: Uuid,
+    /// Active group receiving the permanent student.
+    pub group_id: Uuid,
+    /// Active reusable tariff selected by staff.
+    pub tariff_id: Uuid,
+    /// Inclusive enrollment start date.
+    pub start_date: NaiveDate,
+    /// Explicit permanent weekly slots in the selected group.
+    pub schedule: Vec<EnrollmentScheduleSelection>,
+    /// Keyed digest of the HTTP idempotency key.
+    pub idempotency_digest: [u8; 32],
+    /// Canonical method/path/body request hash.
+    pub request_hash: [u8; 32],
+    /// Verified staff attribution.
+    pub actor: AirhopActor,
+}
+
 /// Deterministic permanent enrollment result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnrollStaffTrialParticipantOutcome {
@@ -301,8 +325,8 @@ struct ExistingBooking {
 }
 
 #[derive(Debug)]
-struct TrialEnrollmentSource {
-    booking_id: Uuid,
+struct EnrollmentSource {
+    booking_id: Option<Uuid>,
     family_id: Uuid,
     birth_date: NaiveDate,
     min_age_months: Option<i32>,
@@ -690,170 +714,97 @@ impl Db {
         )
         .await?;
         validate_enrollment_age(&source, input.start_date)?;
-        let tariff = load_active_enrollment_tariff(
+        let stored = create_enrollment_and_first_payment(
             &mut transaction,
             tenant,
             organization_id,
-            input.tariff_id,
-        )
-        .await?;
-        if input.schedule.len() > usize::try_from(tariff.weekly_schedule_limit).unwrap_or(0) {
-            return Err(DbError::AirhopEnrollmentScheduleInvalid);
-        }
-        validate_enrollment_schedule(
-            &mut transaction,
-            tenant,
-            organization_id,
+            &source,
+            input.child_id,
             occurrence.group_id,
+            input.tariff_id,
             input.start_date,
             &input.schedule,
+            Some(input.lesson_ref),
+            &input.actor,
+            &command,
+            occurred_at,
         )
         .await?;
-        let overlap: Option<Uuid> = sqlx::query_scalar(
-            "SELECT id FROM airhop_enrollments \
-             WHERE community_id = $1 AND organization_id = $2 \
-               AND child_id = $3 AND group_id = $4 AND status = 'active' \
-               AND (end_date IS NULL OR end_date >= $5) \
-             ORDER BY start_date, id LIMIT 1 FOR UPDATE",
-        )
-        .bind(tenant.community().as_uuid())
-        .bind(organization_id)
-        .bind(input.child_id)
-        .bind(occurrence.group_id)
-        .bind(input.start_date)
-        .fetch_optional(&mut *transaction)
-        .await?;
-        if overlap.is_some() {
-            return Err(DbError::AirhopEnrollmentConflict);
-        }
-
-        let enrollment_id = Uuid::new_v4();
-        let payment_expectation_id = Uuid::new_v4();
-        sqlx::query(
-            "INSERT INTO airhop_enrollments ( \
-                 community_id, organization_id, id, family_id, child_id, group_id, tariff_id, \
-                 start_date, status, assignment_state, source, created_by, created_at, updated_at \
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', 'configured', \
-                       'staff_ui', 'airhop-center-staff', $9, $9)",
-        )
-        .bind(tenant.community().as_uuid())
-        .bind(organization_id)
-        .bind(enrollment_id)
-        .bind(source.family_id)
-        .bind(input.child_id)
-        .bind(occurrence.group_id)
-        .bind(input.tariff_id)
-        .bind(input.start_date)
-        .bind(occurred_at)
-        .execute(&mut *transaction)
-        .await?;
-        for selection in &input.schedule {
-            sqlx::query(
-                "INSERT INTO airhop_enrollment_schedule ( \
-                     community_id, organization_id, enrollment_id, group_id, \
-                     recurrence_rule_id, weekday \
-                 ) VALUES ($1, $2, $3, $4, $5, $6)",
-            )
-            .bind(tenant.community().as_uuid())
-            .bind(organization_id)
-            .bind(enrollment_id)
-            .bind(occurrence.group_id)
-            .bind(selection.recurrence_rule_id)
-            .bind(weekday_str(selection.weekday))
-            .execute(&mut *transaction)
-            .await?;
-        }
-        sqlx::query(
-            "INSERT INTO airhop_payment_expectations ( \
-                 community_id, organization_id, id, family_id, child_id, enrollment_id, \
-                 tariff_id, tariff_name_snapshot, amount_minor, currency, billing_period, due_date, \
-                 status, created_at, updated_at \
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
-                       'expected', $13, $13)",
-        )
-        .bind(tenant.community().as_uuid())
-        .bind(organization_id)
-        .bind(payment_expectation_id)
-        .bind(source.family_id)
-        .bind(input.child_id)
-        .bind(enrollment_id)
-        .bind(input.tariff_id)
-        .bind(&tariff.name)
-        .bind(tariff.price_minor)
-        .bind(&tariff.currency)
-        .bind(input.start_date.with_day(1).ok_or_else(|| {
-            DbError::InvalidData("invalid AirHub enrollment billing period".to_owned())
-        })?)
-        .bind(input.start_date)
-        .bind(occurred_at)
-        .execute(&mut *transaction)
-        .await?;
-
-        append_domain_event(
+        commit_command(
             &mut transaction,
             tenant,
-            &NewDomainEvent {
-                id: Uuid::new_v4(),
-                organization_id,
-                stream_type: "enrollment".to_owned(),
-                stream_id: enrollment_id,
-                stream_version: 1,
-                event_type: "airhop.enrollment.created_from_trial.v1".to_owned(),
-                schema_version: 1,
-                occurred_at,
-                actor: input.actor.clone(),
-                causation_id: command.id,
-                correlation_id: command.correlation_id,
-                payload: json!({
-                    "enrollmentId": enrollment_id,
-                    "sourceBookingId": source.booking_id,
-                    "sourceLesson": input.lesson_ref,
-                    "childId": input.child_id,
-                    "groupId": occurrence.group_id,
-                    "tariffId": input.tariff_id,
-                    "startDate": input.start_date,
-                    "schedule": input.schedule,
-                    "paymentExpectationId": payment_expectation_id,
-                }),
-                privacy_class: PrivacyClass::SensitiveChild,
-            },
+            organization_id,
+            command.id,
+            &serde_json::to_value(&stored)?,
         )
         .await?;
-        append_domain_event(
+        transaction.commit().await?;
+        Ok(EnrollStaffTrialParticipantOutcome {
+            child_id: stored.child_id,
+            enrollment_id: stored.enrollment_id,
+            payment_expectation_id: stored.payment_expectation_id,
+            enrollment_version: stored.enrollment_version,
+            payment_version: stored.payment_version,
+            replayed: false,
+        })
+    }
+
+    /// Enrolls one existing active child and creates the first payment atomically.
+    pub async fn enroll_airhop_staff_participant(
+        &self,
+        tenant: &TenantContext,
+        input: &EnrollStaffParticipantInput,
+    ) -> Result<EnrollStaffTrialParticipantOutcome> {
+        validate_staff_enrollment(input)?;
+        let mut transaction = self.pool.begin().await?;
+        let (organization_id, _, occurred_at) =
+            active_organization_clock(&mut transaction, tenant).await?;
+        let command = match insert_pending_command(
             &mut transaction,
             tenant,
-            &NewDomainEvent {
+            &NewAirhopCommand {
                 id: Uuid::new_v4(),
                 organization_id,
-                stream_type: "payment_expectation".to_owned(),
-                stream_id: payment_expectation_id,
-                stream_version: 1,
-                event_type: "airhop.payment.expected.v1".to_owned(),
-                schema_version: 1,
-                occurred_at,
+                command_type: ENROLL_STAFF_COMMAND_TYPE.to_owned(),
+                idempotency_digest: input.idempotency_digest,
+                request_hash: input.request_hash,
                 actor: input.actor.clone(),
-                causation_id: command.id,
-                correlation_id: command.correlation_id,
-                payload: json!({
-                    "paymentExpectationId": payment_expectation_id,
-                    "enrollmentId": enrollment_id,
-                    "tariffId": input.tariff_id,
-                    "amountMinor": tariff.price_minor,
-                    "currency": tariff.currency,
-                    "dueDate": input.start_date,
-                    "status": "expected",
-                }),
-                privacy_class: PrivacyClass::SensitiveChild,
+                correlation_id: Uuid::new_v4(),
             },
         )
-        .await?;
-        let stored = StoredEnrollmentResult {
-            child_id: input.child_id,
-            enrollment_id,
-            payment_expectation_id,
-            enrollment_version: 1,
-            payment_version: 1,
+        .await?
+        {
+            CommandInsertOutcome::Inserted(command) => command,
+            CommandInsertOutcome::Existing(command) => {
+                return replay_enrollment(transaction, command).await;
+            }
         };
+        let source = load_staff_enrollment_source(
+            &mut transaction,
+            tenant,
+            organization_id,
+            input.family_id,
+            input.child_id,
+            input.group_id,
+        )
+        .await?;
+        validate_enrollment_age(&source, input.start_date)?;
+        let stored = create_enrollment_and_first_payment(
+            &mut transaction,
+            tenant,
+            organization_id,
+            &source,
+            input.child_id,
+            input.group_id,
+            input.tariff_id,
+            input.start_date,
+            &input.schedule,
+            None,
+            &input.actor,
+            &command,
+            occurred_at,
+        )
+        .await?;
         commit_command(
             &mut transaction,
             tenant,
@@ -1271,7 +1222,7 @@ async fn load_trial_enrollment_source(
     organization_id: Uuid,
     input: &EnrollStaffTrialParticipantInput,
     group_id: Uuid,
-) -> Result<TrialEnrollmentSource> {
+) -> Result<EnrollmentSource> {
     let row = sqlx::query(
         "SELECT booking.id AS booking_id, booking.family_id, child.birth_date, \
                 group_row.min_age_months, group_row.max_age_months \
@@ -1302,8 +1253,8 @@ async fn load_trial_enrollment_source(
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(DbError::AirhopConfirmedTrialRequired)?;
-    Ok(TrialEnrollmentSource {
-        booking_id: row.try_get("booking_id")?,
+    Ok(EnrollmentSource {
+        booking_id: Some(row.try_get("booking_id")?),
         family_id: row.try_get("family_id")?,
         birth_date: row.try_get("birth_date")?,
         min_age_months: row.try_get("min_age_months")?,
@@ -1311,7 +1262,50 @@ async fn load_trial_enrollment_source(
     })
 }
 
-fn validate_enrollment_age(source: &TrialEnrollmentSource, start_date: NaiveDate) -> Result<()> {
+async fn load_staff_enrollment_source(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    family_id: Uuid,
+    child_id: Uuid,
+    group_id: Uuid,
+) -> Result<EnrollmentSource> {
+    let row = sqlx::query(
+        "SELECT child.family_id, child.birth_date, \
+                group_row.min_age_months, group_row.max_age_months \
+         FROM airhop_children child \
+         JOIN airhop_families family \
+           ON family.community_id = child.community_id \
+          AND family.organization_id = child.organization_id \
+          AND family.id = child.family_id \
+         JOIN airhop_groups group_row \
+           ON group_row.community_id = child.community_id \
+          AND group_row.organization_id = child.organization_id \
+          AND group_row.id = $5 \
+         WHERE child.community_id = $1 AND child.organization_id = $2 \
+           AND child.family_id = $3 AND child.id = $4 \
+           AND family.status = 'active' AND child.status = 'active' \
+           AND group_row.status = 'active' \
+         FOR UPDATE OF family, child, group_row",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(family_id)
+    .bind(child_id)
+    .bind(group_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(DbError::AirhopIdentityMismatch)?;
+    Ok(EnrollmentSource {
+        booking_id: None,
+        family_id: row.try_get("family_id")?,
+        birth_date: row.try_get("birth_date")?,
+        min_age_months: row.try_get("min_age_months")?,
+        max_age_months: row.try_get("max_age_months")?,
+    })
+}
+
+fn validate_enrollment_age(source: &EnrollmentSource, start_date: NaiveDate) -> Result<()> {
     let minimum_age = optional_months(source.min_age_months)?;
     let maximum_age = optional_months(source.max_age_months)?;
     let age_limits = AgeLimits::new(minimum_age, maximum_age)
@@ -1382,6 +1376,202 @@ async fn validate_enrollment_schedule(
         }
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn create_enrollment_and_first_payment(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    source: &EnrollmentSource,
+    child_id: Uuid,
+    group_id: Uuid,
+    tariff_id: Uuid,
+    start_date: NaiveDate,
+    schedule: &[EnrollmentScheduleSelection],
+    source_lesson: Option<StableLessonReference>,
+    actor: &AirhopActor,
+    command: &AirhopCommand,
+    occurred_at: DateTime<Utc>,
+) -> Result<StoredEnrollmentResult> {
+    let tariff =
+        load_active_enrollment_tariff(transaction, tenant, organization_id, tariff_id).await?;
+    if schedule.len() > usize::try_from(tariff.weekly_schedule_limit).unwrap_or(0) {
+        return Err(DbError::AirhopEnrollmentScheduleInvalid);
+    }
+    validate_enrollment_schedule(
+        transaction,
+        tenant,
+        organization_id,
+        group_id,
+        start_date,
+        schedule,
+    )
+    .await?;
+    let overlap: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM airhop_enrollments \
+         WHERE community_id = $1 AND organization_id = $2 \
+           AND child_id = $3 AND group_id = $4 AND status = 'active' \
+           AND (end_date IS NULL OR end_date >= $5) \
+         ORDER BY start_date, id LIMIT 1 FOR UPDATE",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(child_id)
+    .bind(group_id)
+    .bind(start_date)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    if overlap.is_some() {
+        return Err(DbError::AirhopEnrollmentConflict);
+    }
+
+    let enrollment_id = Uuid::new_v4();
+    let payment_expectation_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO airhop_enrollments ( \
+             community_id, organization_id, id, family_id, child_id, group_id, tariff_id, \
+             start_date, status, assignment_state, source, created_by, created_at, updated_at \
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', 'configured', \
+                   'staff_ui', 'airhop-center-staff', $9, $9)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(enrollment_id)
+    .bind(source.family_id)
+    .bind(child_id)
+    .bind(group_id)
+    .bind(tariff_id)
+    .bind(start_date)
+    .bind(occurred_at)
+    .execute(&mut **transaction)
+    .await?;
+    for selection in schedule {
+        sqlx::query(
+            "INSERT INTO airhop_enrollment_schedule ( \
+                 community_id, organization_id, enrollment_id, group_id, \
+                 recurrence_rule_id, weekday \
+             ) VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .bind(enrollment_id)
+        .bind(group_id)
+        .bind(selection.recurrence_rule_id)
+        .bind(weekday_str(selection.weekday))
+        .execute(&mut **transaction)
+        .await?;
+    }
+    sqlx::query(
+        "INSERT INTO airhop_payment_expectations ( \
+             community_id, organization_id, id, family_id, child_id, enrollment_id, \
+             tariff_id, tariff_name_snapshot, amount_minor, currency, billing_period, due_date, \
+             status, created_at, updated_at \
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
+                   'expected', $13, $13)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(payment_expectation_id)
+    .bind(source.family_id)
+    .bind(child_id)
+    .bind(enrollment_id)
+    .bind(tariff_id)
+    .bind(&tariff.name)
+    .bind(tariff.price_minor)
+    .bind(&tariff.currency)
+    .bind(start_date.with_day(1).ok_or_else(|| {
+        DbError::InvalidData("invalid AirHub enrollment billing period".to_owned())
+    })?)
+    .bind(start_date)
+    .bind(occurred_at)
+    .execute(&mut **transaction)
+    .await?;
+
+    let (event_type, payload) = match (source.booking_id, source_lesson) {
+        (Some(source_booking_id), Some(source_lesson)) => (
+            "airhop.enrollment.created_from_trial.v1",
+            json!({
+                "enrollmentId": enrollment_id,
+                "sourceBookingId": source_booking_id,
+                "sourceLesson": source_lesson,
+                "childId": child_id,
+                "groupId": group_id,
+                "tariffId": tariff_id,
+                "startDate": start_date,
+                "schedule": schedule,
+                "paymentExpectationId": payment_expectation_id,
+            }),
+        ),
+        _ => (
+            "airhop.enrollment.created.v1",
+            json!({
+                "enrollmentId": enrollment_id,
+                "source": "staff_ui",
+                "childId": child_id,
+                "groupId": group_id,
+                "tariffId": tariff_id,
+                "startDate": start_date,
+                "schedule": schedule,
+                "paymentExpectationId": payment_expectation_id,
+            }),
+        ),
+    };
+    append_domain_event(
+        transaction,
+        tenant,
+        &NewDomainEvent {
+            id: Uuid::new_v4(),
+            organization_id,
+            stream_type: "enrollment".to_owned(),
+            stream_id: enrollment_id,
+            stream_version: 1,
+            event_type: event_type.to_owned(),
+            schema_version: 1,
+            occurred_at,
+            actor: actor.clone(),
+            causation_id: command.id,
+            correlation_id: command.correlation_id,
+            payload,
+            privacy_class: PrivacyClass::SensitiveChild,
+        },
+    )
+    .await?;
+    append_domain_event(
+        transaction,
+        tenant,
+        &NewDomainEvent {
+            id: Uuid::new_v4(),
+            organization_id,
+            stream_type: "payment_expectation".to_owned(),
+            stream_id: payment_expectation_id,
+            stream_version: 1,
+            event_type: "airhop.payment.expected.v1".to_owned(),
+            schema_version: 1,
+            occurred_at,
+            actor: actor.clone(),
+            causation_id: command.id,
+            correlation_id: command.correlation_id,
+            payload: json!({
+                "paymentExpectationId": payment_expectation_id,
+                "enrollmentId": enrollment_id,
+                "tariffId": tariff_id,
+                "amountMinor": tariff.price_minor,
+                "currency": tariff.currency,
+                "dueDate": start_date,
+                "status": "expected",
+            }),
+            privacy_class: PrivacyClass::SensitiveChild,
+        },
+    )
+    .await?;
+    Ok(StoredEnrollmentResult {
+        child_id,
+        enrollment_id,
+        payment_expectation_id,
+        enrollment_version: 1,
+        payment_version: 1,
+    })
 }
 
 async fn load_existing_booking(
@@ -1690,6 +1880,26 @@ fn validate_trial_enrollment(input: &EnrollStaffTrialParticipantInput) -> Result
     Ok(())
 }
 
+fn validate_staff_enrollment(input: &EnrollStaffParticipantInput) -> Result<()> {
+    input.actor.validate()?;
+    let unique = input.schedule.iter().copied().collect::<HashSet<_>>();
+    if input.family_id.is_nil()
+        || input.child_id.is_nil()
+        || input.group_id.is_nil()
+        || input.tariff_id.is_nil()
+        || input.schedule.is_empty()
+        || input.schedule.len() > 7
+        || unique.len() != input.schedule.len()
+        || input
+            .schedule
+            .iter()
+            .any(|selection| selection.recurrence_rule_id.is_nil())
+    {
+        return Err(DbError::AirhopEnrollmentScheduleInvalid);
+    }
+    Ok(())
+}
+
 fn optional_months(value: Option<i32>) -> Result<Option<u32>> {
     value
         .map(u32::try_from)
@@ -1782,5 +1992,40 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn direct_enrollment_requires_exact_family_child_group_and_slots() {
+        let selection = EnrollmentScheduleSelection {
+            recurrence_rule_id: Uuid::new_v4(),
+            weekday: Weekday::Tuesday,
+        };
+        let base = EnrollStaffParticipantInput {
+            family_id: Uuid::new_v4(),
+            child_id: Uuid::new_v4(),
+            group_id: Uuid::new_v4(),
+            tariff_id: Uuid::new_v4(),
+            start_date: NaiveDate::from_ymd_opt(2026, 8, 18).unwrap(),
+            schedule: vec![selection],
+            idempotency_digest: [1; 32],
+            request_hash: [2; 32],
+            actor: AirhopActor {
+                kind: super::super::ActorKind::Staff,
+                pubkey: Some([3; 32]),
+                on_behalf_of_pubkey: None,
+                agent_pubkey: None,
+            },
+        };
+        assert!(validate_staff_enrollment(&base).is_ok());
+        assert!(validate_staff_enrollment(&EnrollStaffParticipantInput {
+            family_id: Uuid::nil(),
+            ..base.clone()
+        })
+        .is_err());
+        assert!(validate_staff_enrollment(&EnrollStaffParticipantInput {
+            schedule: vec![selection, selection],
+            ..base
+        })
+        .is_err());
     }
 }

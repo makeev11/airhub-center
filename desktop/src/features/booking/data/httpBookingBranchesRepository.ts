@@ -51,6 +51,7 @@ const serverGroupSchema = groupSchema.safeExtend({
   branchId: z.string().uuid(),
   roomId: z.string().uuid().optional(),
   teacherIds: z.array(z.string().uuid()),
+  activeEnrollmentCount: z.number().int().nonnegative(),
   version: z.number().int().positive(),
 });
 const serverRecurrenceRuleSchema = recurrenceRuleSchema.safeExtend({

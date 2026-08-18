@@ -164,6 +164,7 @@ export const groupSchema = z
     trialPolicyOverride: trialPolicySchema.optional(),
     trackAttendanceOverride: z.boolean().optional(),
     allowSingleVisitsOverride: z.boolean().optional(),
+    activeEnrollmentCount: z.number().int().nonnegative().optional(),
     status: z.enum(["active", "archived"]),
   })
   .refine(

@@ -21,6 +21,11 @@ import {
   StaffFamilyCommandApiError,
 } from "@/features/booking/data/staffFamilyCommandService";
 import {
+  BookingWorkspaceProvider,
+  useBookingWorkspace,
+} from "@/features/booking/data/BookingWorkspaceProvider";
+import { createHttpBookingBranchesRepository } from "@/features/booking/data/httpBookingBranchesRepository";
+import {
   createHttpStaffFamilyLifecycleService,
   StaffFamilyLifecycleApiError,
 } from "@/features/booking/data/staffFamilyLifecycleService";
@@ -52,6 +57,10 @@ import {
   ServerChildFormDialog,
   ServerFamilyFormDialog,
 } from "@/features/booking/ui/ServerFamilyEntityForms";
+import {
+  type DirectEnrollmentClient,
+  ServerDirectEnrollmentDialog,
+} from "@/features/booking/ui/ServerDirectEnrollmentDialog";
 
 function bookingStatusLabel(
   status: StaffFamilyDetail["bookings"][number]["status"],
@@ -125,6 +134,8 @@ function FamilyContent({
   reload: () => Promise<void>;
 }) {
   const navigate = useNavigate();
+  const booking = useBookingWorkspace();
+  const workspace = booking.workspace;
   const messages = getBookingAdminMessages(detail.organization.locale);
   const commandMessages = getStaffFamilyCommandMessages(
     detail.organization.locale,
@@ -156,6 +167,8 @@ function FamilyContent({
   >(null);
   const [primaryError, setPrimaryError] = React.useState<string | null>(null);
   const [isChangingPrimary, setIsChangingPrimary] = React.useState(false);
+  const [enrollmentClient, setEnrollmentClient] =
+    React.useState<DirectEnrollmentClient | null>(null);
 
   const changeMemberStatus = async () => {
     if (!memberLifecycleTarget) return;
@@ -446,9 +459,35 @@ function FamilyContent({
                   <Badge variant="secondary">{messages.archived}</Badge>
                 ) : null}
                 <section className="space-y-2 border-t border-border/70 pt-3">
-                  <h3 className="text-sm font-semibold">
-                    {messages.familyEnrollments}
-                  </h3>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">
+                      {messages.familyEnrollments}
+                    </h3>
+                    {workspace &&
+                    detail.family.status === "active" &&
+                    child.status === "active" ? (
+                      <Button
+                        data-testid={`airhop-enroll-child-${child.id}`}
+                        onClick={() =>
+                          setEnrollmentClient({
+                            familyId: detail.family.id,
+                            childId: child.id,
+                            childName: child.displayName,
+                            parentName:
+                              detail.representatives.find(
+                                (representative) =>
+                                  representative.id ===
+                                  detail.family.primaryRepresentativeId,
+                              )?.displayName ?? detail.family.displayName,
+                          })
+                        }
+                        size="sm"
+                        variant="outline"
+                      >
+                        <Plus /> {messages.groupEnrollStudent}
+                      </Button>
+                    ) : null}
+                  </div>
                   {!enrollments.length ? (
                     <p className="text-sm text-muted-foreground">
                       {messages.familyNoEnrollments}
@@ -575,6 +614,21 @@ function FamilyContent({
         onSaved={reload}
         open={childDialogOpen}
       />
+      {workspace ? (
+        <ServerDirectEnrollmentDialog
+          initialClient={enrollmentClient ?? undefined}
+          onOpenChange={(open) => {
+            if (!open) setEnrollmentClient(null);
+          }}
+          onSaved={() => {
+            toast.success(messages.enrollmentCreated);
+            void reload();
+            void booking.reload();
+          }}
+          open={enrollmentClient !== null}
+          workspace={workspace}
+        />
+      ) : null}
       <AlertDialog
         onOpenChange={(open) => {
           if (!open && !isChangingMemberStatus) {
@@ -676,7 +730,7 @@ function FamilyContent({
 }
 
 /** Read-only production family card backed exclusively by Booking Core. */
-export function ServerFamilyDetailsScreen({ familyId }: { familyId: string }) {
+function ServerFamilyDetailsContent({ familyId }: { familyId: string }) {
   const state = useStaffFamilyDetail(familyId);
   const [familyFormOpen, setFamilyFormOpen] = React.useState(false);
   const [statusConfirmationOpen, setStatusConfirmationOpen] =
@@ -866,5 +920,17 @@ export function ServerFamilyDetailsScreen({ familyId }: { familyId: string }) {
         </>
       ) : null}
     </div>
+  );
+}
+
+/** Production family card with the server catalog required for direct enrollment. */
+export function ServerFamilyDetailsScreen({ familyId }: { familyId: string }) {
+  const [repository] = React.useState(() =>
+    createHttpBookingBranchesRepository(),
+  );
+  return (
+    <BookingWorkspaceProvider repository={repository}>
+      <ServerFamilyDetailsContent familyId={familyId} />
+    </BookingWorkspaceProvider>
   );
 }

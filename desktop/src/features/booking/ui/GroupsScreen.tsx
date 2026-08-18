@@ -24,6 +24,7 @@ import {
 } from "@/features/booking/ui/BookingWorkspaceState";
 import { GroupFormDialog } from "@/features/booking/ui/GroupFormDialog";
 import { EnrollmentDialog } from "@/features/booking/ui/EnrollmentDialog";
+import { ServerDirectEnrollmentDialog } from "@/features/booking/ui/ServerDirectEnrollmentDialog";
 import { BookingSettingsNav } from "@/features/booking/ui/BookingSettingsNav";
 import {
   AlertDialog,
@@ -44,9 +45,11 @@ import { PageHeader } from "@/shared/ui/PageHeader";
 function GroupsContent({
   createRequest,
   enrollmentEnabled,
+  serverEnrollment,
 }: {
   createRequest: number;
   enrollmentEnabled: boolean;
+  serverEnrollment: boolean;
 }) {
   const booking = useBookingWorkspace();
   const workspace = booking.workspace as NonNullable<typeof booking.workspace>;
@@ -310,7 +313,20 @@ function GroupsContent({
         }
         open={formOpen}
       />
-      {enrollmentEnabled ? (
+      {enrollmentEnabled && serverEnrollment ? (
+        <ServerDirectEnrollmentDialog
+          initialGroupId={enrollmentGroupId ?? undefined}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setEnrollmentGroupId(null);
+          }}
+          onSaved={() => {
+            setFeedbackMessage(messages.enrollmentCreated);
+            void booking.reload();
+          }}
+          open={enrollmentGroupId !== null}
+          workspace={workspace}
+        />
+      ) : enrollmentEnabled ? (
         <EnrollmentDialog
           initialGroupId={enrollmentGroupId ?? undefined}
           onOpenChange={(nextOpen) => {
@@ -364,8 +380,10 @@ function GroupsContent({
 
 function GroupsScreenContent({
   enrollmentEnabled,
+  serverEnrollment = false,
 }: {
   enrollmentEnabled: boolean;
+  serverEnrollment?: boolean;
 }) {
   const booking = useBookingWorkspace();
   const messages = getBookingAdminMessages(
@@ -396,6 +414,7 @@ function GroupsScreenContent({
             <GroupsContent
               createRequest={createRequested}
               enrollmentEnabled={enrollmentEnabled}
+              serverEnrollment={serverEnrollment}
             />
           )}
         </BookingWorkspaceGate>
@@ -410,7 +429,7 @@ function ServerGroupsScreen() {
   );
   return (
     <BookingWorkspaceProvider repository={repository}>
-      <GroupsScreenContent enrollmentEnabled={false} />
+      <GroupsScreenContent enrollmentEnabled serverEnrollment />
     </BookingWorkspaceProvider>
   );
 }

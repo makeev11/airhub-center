@@ -45,9 +45,9 @@ use buzz_db::airhop::lesson_exception::{
     AirhopLessonException, LessonExceptionChange, PutLessonExceptionInput,
 };
 use buzz_db::airhop::lesson_participants::{
-    AddStaffLessonParticipantInput, EnrollStaffTrialParticipantInput, EnrollmentScheduleSelection,
-    LessonAttendanceStatus, SetStaffLessonAttendanceInput, StaffLessonParticipantClient,
-    StaffLessonRoster,
+    AddStaffLessonParticipantInput, EnrollStaffParticipantInput, EnrollStaffTrialParticipantInput,
+    EnrollmentScheduleSelection, LessonAttendanceStatus, SetStaffLessonAttendanceInput,
+    StaffLessonParticipantClient, StaffLessonRoster,
 };
 use buzz_db::airhop::organization_settings::PutOrganizationSettingsInput;
 use buzz_db::airhop::payment_queue::{MutatePaymentInput, PaymentChange, StaffPaymentQueueItem};
@@ -410,6 +410,17 @@ pub(crate) struct EnrollmentScheduleSelectionBody {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct EnrollTrialParticipantBody {
+    tariff_id: Uuid,
+    start_date: chrono::NaiveDate,
+    schedule: Vec<EnrollmentScheduleSelectionBody>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct EnrollStaffParticipantBody {
+    family_id: Uuid,
+    child_id: Uuid,
+    group_id: Uuid,
     tariff_id: Uuid,
     start_date: chrono::NaiveDate,
     schedule: Vec<EnrollmentScheduleSelectionBody>,
@@ -1534,6 +1545,59 @@ pub(crate) async fn enroll_trial_participant(
                     idempotency_key.as_bytes(),
                 )?,
                 request_hash: command_request_hash("POST", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "childId": outcome.child_id,
+        "enrollmentId": outcome.enrollment_id,
+        "paymentExpectationId": outcome.payment_expectation_id,
+        "enrollmentVersion": outcome.enrollment_version,
+        "paymentVersion": outcome.payment_version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Enrolls one existing active child without requiring a source trial booking.
+pub(crate) async fn enroll_staff_participant(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/enrollments";
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "POST", path, Some(&body), Access::Staff).await?;
+    let request: EnrollStaffParticipantBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .enroll_airhop_staff_participant(
+            &tenant,
+            &EnrollStaffParticipantInput {
+                family_id: request.family_id,
+                child_id: request.child_id,
+                group_id: request.group_id,
+                tariff_id: request.tariff_id,
+                start_date: request.start_date,
+                schedule: request
+                    .schedule
+                    .into_iter()
+                    .map(|selection| EnrollmentScheduleSelection {
+                        recurrence_rule_id: selection.recurrence_rule_id,
+                        weekday: selection.weekday,
+                    })
+                    .collect(),
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.enrollment.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("POST", path, &body),
                 actor: staff_actor(pubkey),
             },
         )
@@ -2763,6 +2827,7 @@ fn group_json(group: &AirhopGroup) -> Value {
         "name": group.name,
         "teacherIds": group.teacher_ids,
         "status": group.status,
+        "activeEnrollmentCount": group.active_enrollment_count,
         "version": group.version,
         "createdAt": group.created_at,
         "updatedAt": group.updated_at,
@@ -3275,6 +3340,30 @@ mod tests {
         assert_eq!(body.schedule.len(), 1);
         assert_eq!(body.schedule[0].recurrence_rule_id, rule_id);
         assert_eq!(body.schedule[0].weekday, Weekday::Tuesday);
+    }
+
+    #[test]
+    fn direct_enrollment_body_binds_family_child_group_and_schedule() {
+        let family_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+        let group_id = Uuid::new_v4();
+        let rule_id = Uuid::new_v4();
+        let body: EnrollStaffParticipantBody = serde_json::from_value(json!({
+            "familyId": family_id,
+            "childId": child_id,
+            "groupId": group_id,
+            "tariffId": Uuid::new_v4(),
+            "startDate": "2026-08-18",
+            "schedule": [{
+                "recurrenceRuleId": rule_id,
+                "weekday": "tuesday"
+            }]
+        }))
+        .expect("valid direct enrollment body");
+        assert_eq!(body.family_id, family_id);
+        assert_eq!(body.child_id, child_id);
+        assert_eq!(body.group_id, group_id);
+        assert_eq!(body.schedule[0].recurrence_rule_id, rule_id);
     }
 
     #[test]

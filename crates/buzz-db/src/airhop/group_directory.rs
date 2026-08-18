@@ -164,6 +164,8 @@ pub struct AirhopGroup {
     pub allow_single_visits_override: Option<bool>,
     /// Operational lifecycle.
     pub status: GroupStatus,
+    /// Active enrollments covering the organization's current local date.
+    pub active_enrollment_count: i64,
     /// Aggregate optimistic version.
     pub version: i64,
     /// Creation instant.
@@ -280,13 +282,29 @@ impl Db {
     pub async fn list_airhop_groups(&self, tenant: &TenantContext) -> Result<Vec<AirhopGroup>> {
         let organization_id = resolve_active_organization(&self.pool, tenant).await?;
         let rows = sqlx::query(
-            "SELECT id, organization_id, branch_id, room_id, name, description, \
-                    min_age_months, max_age_months, capacity, trial_policy_override, \
-                    track_attendance_override, allow_single_visits_override, status, \
-                    version, created_at, updated_at \
-             FROM airhop_groups \
-             WHERE community_id = $1 AND organization_id = $2 \
-             ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, lower(name), id",
+            "SELECT group_row.id, group_row.organization_id, group_row.branch_id, \
+                    group_row.room_id, group_row.name, group_row.description, \
+                    group_row.min_age_months, group_row.max_age_months, group_row.capacity, \
+                    group_row.trial_policy_override, group_row.track_attendance_override, \
+                    group_row.allow_single_visits_override, group_row.status, \
+                    group_row.version, group_row.created_at, group_row.updated_at, \
+                    (SELECT count(*)::BIGINT FROM airhop_enrollments enrollment \
+                     WHERE enrollment.community_id = group_row.community_id \
+                       AND enrollment.organization_id = group_row.organization_id \
+                       AND enrollment.group_id = group_row.id \
+                       AND enrollment.status = 'active' \
+                       AND enrollment.start_date <= \
+                           (now() AT TIME ZONE organization.time_zone)::date \
+                       AND (enrollment.end_date IS NULL OR enrollment.end_date >= \
+                           (now() AT TIME ZONE organization.time_zone)::date)) \
+                        AS active_enrollment_count \
+             FROM airhop_groups group_row \
+             JOIN airhop_organizations organization \
+               ON organization.community_id = group_row.community_id \
+              AND organization.id = group_row.organization_id \
+             WHERE group_row.community_id = $1 AND group_row.organization_id = $2 \
+             ORDER BY CASE group_row.status WHEN 'active' THEN 0 ELSE 1 END, \
+                      lower(group_row.name), group_row.id",
         )
         .bind(tenant.community().as_uuid())
         .bind(organization_id)
@@ -1158,19 +1176,16 @@ async fn replace_rule_children(
     rule_id: Uuid,
     rule: &RecurrenceRuleInput,
 ) -> Result<()> {
-    sqlx::query(
-        "DELETE FROM airhop_recurrence_weekdays \
-         WHERE community_id = $1 AND organization_id = $2 AND recurrence_rule_id = $3",
-    )
-    .bind(tenant.community().as_uuid())
-    .bind(organization_id)
-    .bind(rule_id)
-    .execute(&mut **transaction)
-    .await?;
+    let weekdays: Vec<String> = rule
+        .weekdays
+        .iter()
+        .map(|weekday| weekday_str(*weekday).to_owned())
+        .collect();
     for weekday in &rule.weekdays {
         sqlx::query(
             "INSERT INTO airhop_recurrence_weekdays \
-             (community_id, organization_id, recurrence_rule_id, weekday) VALUES ($1, $2, $3, $4)",
+             (community_id, organization_id, recurrence_rule_id, weekday) \
+             VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
         )
         .bind(tenant.community().as_uuid())
         .bind(organization_id)
@@ -1179,6 +1194,17 @@ async fn replace_rule_children(
         .execute(&mut **transaction)
         .await?;
     }
+    sqlx::query(
+        "DELETE FROM airhop_recurrence_weekdays \
+         WHERE community_id = $1 AND organization_id = $2 AND recurrence_rule_id = $3 \
+           AND NOT (weekday = ANY($4::text[]))",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(rule_id)
+    .bind(&weekdays)
+    .execute(&mut **transaction)
+    .await?;
     sqlx::query(
         "DELETE FROM airhop_recurrence_teachers \
          WHERE community_id = $1 AND organization_id = $2 AND recurrence_rule_id = $3",
@@ -1306,6 +1332,7 @@ fn parse_group_row(row: sqlx::postgres::PgRow) -> Result<AirhopGroup> {
         track_attendance_override: row.try_get("track_attendance_override")?,
         allow_single_visits_override: row.try_get("allow_single_visits_override")?,
         status: GroupStatus::from_db(row.try_get("status")?)?,
+        active_enrollment_count: row.try_get("active_enrollment_count")?,
         version: row.try_get("version")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
@@ -1482,6 +1509,9 @@ mod tests {
     use buzz_core::CommunityId;
 
     use super::*;
+    use crate::airhop::lesson_participants::{
+        EnrollStaffParticipantInput, EnrollmentScheduleSelection,
+    };
     use crate::airhop::public_booking::{
         CreatePublicBookingInput, PreferredContactChannel, PublicBookingApplicant,
         PublicBookingSurface,
@@ -1650,6 +1680,108 @@ mod tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].weekdays, schedule_rule.weekdays);
+
+        let family_id = Uuid::new_v4();
+        let representative_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+        let tariff_id = Uuid::new_v4();
+        let mut fixture = db.pool.begin().await.expect("begin enrollment fixture");
+        sqlx::query(
+            "INSERT INTO airhop_families (community_id, organization_id, id, \
+                 display_name, primary_representative_id) \
+             VALUES ($1, $2, $3, 'Ивановы', $4)",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(family_id)
+        .bind(representative_id)
+        .execute(&mut *fixture)
+        .await
+        .expect("insert enrollment family");
+        sqlx::query(
+            "INSERT INTO airhop_representatives (community_id, organization_id, id, family_id, \
+                 display_name, phone_normalized, phone_display, phone_match_digest) \
+             VALUES ($1, $2, $3, $4, 'Мария Иванова', '+79990000001', \
+                 '+7 999 000-00-01', $5)",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(representative_id)
+        .bind(family_id)
+        .bind([21_u8; 32].as_slice())
+        .execute(&mut *fixture)
+        .await
+        .expect("insert enrollment representative");
+        sqlx::query(
+            "INSERT INTO airhop_children (community_id, organization_id, id, family_id, \
+                 display_name, birth_date) VALUES ($1, $2, $3, $4, 'Анна Иванова', $5)",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(child_id)
+        .bind(family_id)
+        .bind(
+            current_date
+                .checked_sub_months(chrono::Months::new(96))
+                .expect("child birth date"),
+        )
+        .execute(&mut *fixture)
+        .await
+        .expect("insert enrollment child");
+        sqlx::query(
+            "INSERT INTO airhop_tariffs (community_id, organization_id, id, name, price_minor, \
+                 currency, weekly_schedule_limit, payment_day_of_month) \
+             VALUES ($1, $2, $3, 'Абонемент', 640000, 'RUB', 1, 10)",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(tariff_id)
+        .execute(&mut *fixture)
+        .await
+        .expect("insert enrollment tariff");
+        fixture.commit().await.expect("commit enrollment fixture");
+
+        let enroll = EnrollStaffParticipantInput {
+            family_id,
+            child_id,
+            group_id: created.group_id,
+            tariff_id,
+            start_date: current_date,
+            schedule: vec![EnrollmentScheduleSelection {
+                recurrence_rule_id: rules[0].id,
+                weekday: schedule_rule.weekdays[0],
+            }],
+            idempotency_digest: [22; 32],
+            request_hash: [23; 32],
+            actor: actor(),
+        };
+        let enrolled = db
+            .enroll_airhop_staff_participant(&tenant, &enroll)
+            .await
+            .expect("directly enroll existing child");
+        assert!(!enrolled.replayed);
+        assert!(
+            db.enroll_airhop_staff_participant(&tenant, &enroll)
+                .await
+                .expect("replay direct enrollment")
+                .replayed
+        );
+        let payment_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM airhop_payment_expectations \
+             WHERE community_id = $1 AND organization_id = $2 AND enrollment_id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(enrolled.enrollment_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("count first enrollment payment");
+        assert_eq!(payment_count, 1);
+        let groups = db
+            .list_airhop_groups(&tenant)
+            .await
+            .expect("reload groups after enrollment");
+        assert_eq!(groups[0].active_enrollment_count, 1);
 
         let occurrence_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM airhop_lesson_occurrences \
@@ -2041,16 +2173,27 @@ mod tests {
             stored_exceptions[0].effective_payload.as_ref().unwrap()["date"],
             json!(moved_date)
         );
+        let weekday_offset = u64::from(current_date.weekday().num_days_from_monday());
+        let summer_date = NaiveDate::from_ymd_opt(2026, 10, 19)
+            .expect("valid pre-DST week")
+            .checked_add_days(chrono::Days::new(weekday_offset))
+            .expect("pre-DST occurrence date");
+        let winter_date = NaiveDate::from_ymd_opt(2026, 10, 26)
+            .expect("valid post-DST week")
+            .checked_add_days(chrono::Days::new(weekday_offset))
+            .expect("post-DST occurrence date");
         let dst_instants = sqlx::query(
             "SELECT \
-                 MAX(starts_at) FILTER (WHERE effective_date = DATE '2026-10-19') AS summer_start, \
-                 MAX(starts_at) FILTER (WHERE effective_date = DATE '2026-10-26') AS winter_start \
+                 MAX(starts_at) FILTER (WHERE effective_date = $4) AS summer_start, \
+                 MAX(starts_at) FILTER (WHERE effective_date = $5) AS winter_start \
              FROM airhop_lesson_occurrences \
              WHERE community_id = $1 AND organization_id = $2 AND group_id = $3",
         )
         .bind(community_id)
         .bind(organization_id)
         .bind(created.group_id)
+        .bind(summer_date)
+        .bind(winter_date)
         .fetch_one(&db.pool)
         .await
         .expect("load occurrences around DST transition");
