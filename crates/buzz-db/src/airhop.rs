@@ -76,6 +76,8 @@ pub mod staff_queue;
 pub mod tariff_directory;
 /// Tenant-scoped teacher directory and audited staff commands.
 pub mod teacher_directory;
+/// Tenant-scoped Airhop Welcome agent manifest and routing state.
+pub mod welcome_agents;
 
 /// Lifecycle of an Airhop organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

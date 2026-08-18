@@ -86,6 +86,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .with_state(state.clone());
 
+    let airhop_agents_router = Router::new()
+        .route(
+            "/api/airhop/agents/v1/welcome-team",
+            get(api::airhop_agents::get_welcome_team).put(api::airhop_agents::put_welcome_team),
+        )
+        .layer(RequestBodyLimitLayer::new(16 * 1024))
+        .with_state(state.clone());
+
     let airhop_activation_router = Router::new()
         .route(
             "/api/airhop/activation/v1/claim",
@@ -356,6 +364,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .merge(git_router)
         .merge(git_policy_router)
         .merge(airhop_activation_router)
+        .merge(airhop_agents_router)
         .merge(airhop_public_router)
         .merge(airhop_staff_router);
     if let Some(admin_router) = admin_router {

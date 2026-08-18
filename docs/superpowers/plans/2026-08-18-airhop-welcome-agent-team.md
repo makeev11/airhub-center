@@ -40,7 +40,7 @@
 
 ### Relay routing and state
 
-- `migrations/0039_airhop_welcome_agent_team.sql` stores the tenant-scoped Welcome manifest, route decisions, conversation state, kickoff stage receipts, and pending actions.
+- `migrations/0042_airhop_welcome_agent_team.sql` stores the tenant-scoped Welcome manifest, route decisions, conversation state, kickoff stage receipts, and pending actions.
 - `crates/buzz-db/src/airhop/welcome_agents.rs` owns manifest registration, route selection/claim, turn-state updates, and kickoff receipts.
 - `crates/buzz-relay/src/api/airhop_agents.rs` exposes signed owner/agent endpoints without weakening existing staff API admission.
 - `crates/buzz-relay/src/router.rs` mounts those endpoints.
@@ -190,7 +190,7 @@ Expected: all focused tests PASS.
 ### Task 2: Persist the Welcome Team Manifest on the Relay
 
 **Files:**
-- Create: `migrations/0039_airhop_welcome_agent_team.sql`
+- Create: `migrations/0042_airhop_welcome_agent_team.sql`
 - Create: `crates/buzz-db/src/airhop/welcome_agents.rs`
 - Modify: `crates/buzz-db/src/airhop.rs`
 - Create: `crates/buzz-relay/src/api/airhop_agents.rs`
@@ -291,7 +291,7 @@ Run:
 cargo test -p buzz-db airhop::welcome_agents
 cargo test -p buzz-relay airhop_agents
 cargo fmt --all -- --check
-git add migrations/0039_airhop_welcome_agent_team.sql crates/buzz-db/src/airhop.rs crates/buzz-db/src/airhop/welcome_agents.rs crates/buzz-relay/src/api/airhop_auth.rs crates/buzz-relay/src/api/airhop_agents.rs crates/buzz-relay/src/api/mod.rs crates/buzz-relay/src/router.rs
+git add migrations/0042_airhop_welcome_agent_team.sql crates/buzz-db/src/airhop.rs crates/buzz-db/src/airhop/welcome_agents.rs crates/buzz-relay/src/api/airhop_auth.rs crates/buzz-relay/src/api/airhop_agents.rs crates/buzz-relay/src/api/mod.rs crates/buzz-relay/src/router.rs
 git commit -s -m "feat(airhop): register Welcome agent team"
 ```
 

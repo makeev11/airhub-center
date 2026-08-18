@@ -11,7 +11,7 @@ use airhop_core::{
 use axum::body::Bytes;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Path, Query, RawQuery, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::Json;
 use buzz_db::airhop::booking::BookingVisitKind;
 use buzz_db::airhop::booking_decision::{
@@ -76,7 +76,7 @@ use uuid::Uuid;
 
 use crate::state::AppState;
 
-use super::{api_error, bridge, internal_error};
+use super::{api_error, internal_error};
 
 type HmacSha256 = Hmac<Sha256>;
 const IDEMPOTENCY_HEADER: &str = "idempotency-key";
@@ -2698,41 +2698,18 @@ async fn authenticate(
     body: Option<&[u8]>,
     access: Access,
 ) -> Result<(buzz_core::TenantContext, nostr::PublicKey), (StatusCode, Json<Value>)> {
-    let raw_host = headers
-        .get(header::HOST)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-    let tenant = crate::tenant::bind_community(&state.db, raw_host)
-        .await
-        .map_err(|_| {
-            api_error(
-                StatusCode::NOT_FOUND,
-                "relay: no community is configured for this host",
-            )
-        })?;
-    let url = bridge::nip98_expected_url(&state.config.relay_url, &tenant, path);
-    let (pubkey, event_id) =
-        bridge::verify_bridge_auth_with_options(headers, method, &url, body, true, body.is_some())?;
-    bridge::check_nip98_replay(state, &tenant, event_id).await?;
-    bridge::enforce_http_admission(state, &tenant, &pubkey).await?;
-    let member = state
-        .db
-        .get_relay_member(tenant.community(), &pubkey.to_hex())
-        .await
-        .map_err(|error| internal_error(&format!("AirHub member lookup failed: {error}")))?
-        .ok_or_else(|| {
-            api_error(
-                StatusCode::FORBIDDEN,
-                "AirHub workspace membership required",
-            )
-        })?;
-    if matches!(access, Access::Integration) && member.role != "owner" && member.role != "admin" {
+    let principal =
+        super::airhop_auth::authenticate_airhop(state, headers, method, path, body).await?;
+    if matches!(access, Access::Integration)
+        && principal.member_role != "owner"
+        && principal.member_role != "admin"
+    {
         return Err(api_error(
             StatusCode::FORBIDDEN,
             "AirHub integration access requires owner or admin role",
         ));
     }
-    Ok((tenant, pubkey))
+    Ok((principal.tenant, principal.pubkey))
 }
 
 fn booking_queue_filter(
