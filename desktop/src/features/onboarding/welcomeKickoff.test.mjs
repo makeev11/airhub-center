@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createMockWelcomeAgentTeamFixture } from "../../testing/e2eBridge.ts";
 import {
   ALL_WELCOME_KICKOFF_STAGES,
   buildKickoffTask,
@@ -173,4 +174,25 @@ test("runtime readiness is scoped to the exact agent and relay", () => {
     welcomeRuntimeIsReady(runtimes, FIZZ, "ws://localhost:3001"),
     false,
   );
+});
+
+test("mock reload resumes after durable kickoff receipts without duplication", () => {
+  const fixture = createMockWelcomeAgentTeamFixture({
+    locale: "ru-RU",
+    routeTargetByEvent: {},
+    unavailableRoles: [],
+    completedKickoffStages: ["fizz_intro"],
+    pendingActions: [],
+  });
+
+  assert.equal(fixture.nextKickoffStage?.(), "administrator_intro");
+  fixture.completeKickoffStage?.("administrator_intro");
+
+  const reloaded = fixture.reload?.();
+  assert.ok(reloaded);
+  assert.equal(reloaded.nextKickoffStage?.(), "analyst_intro");
+  assert.deepEqual(reloaded.snapshot().completedKickoffStages, [
+    "fizz_intro",
+    "administrator_intro",
+  ]);
 });

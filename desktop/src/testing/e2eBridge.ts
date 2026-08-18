@@ -13,6 +13,12 @@ import {
 import { relayClient } from "@/shared/api/relayClient";
 import { activateRateLimit } from "@/shared/api/relayRateLimitGate";
 import { resolveAgentParallelism } from "@/features/agents/lib/agentParallelism";
+import { ALL_WELCOME_KICKOFF_STAGES } from "@/features/onboarding/welcomeKickoff";
+import { resolveWelcomeLocale } from "@/features/onboarding/welcomeTeamLocale";
+import type {
+  AirhopWelcomeRole,
+  WelcomeKickoffStage,
+} from "@/features/onboarding/welcomeTeamLocale";
 import type { ConnectionState } from "@/shared/api/relayClientShared";
 import type { ChannelTemplate, RelayEvent } from "@/shared/api/types";
 import { getMarkdownParseCount } from "@/shared/ui/markdown/nodeCache";
@@ -164,6 +170,236 @@ type MockHuddleSeed = {
   isCreator?: boolean;
 };
 
+export type MockAirhopAgentAction = Readonly<{
+  id: string;
+  previewEventId: string;
+  specialistRole: AirhopWelcomeRole;
+  status: "pending" | "superseded" | "confirmed" | "committed" | "failed";
+  bookingCoreCommitted: boolean;
+}>;
+
+export type MockWelcomeAgentTeamSeed = Readonly<{
+  locale: string;
+  routeTargetByEvent: Readonly<Record<string, AirhopWelcomeRole>>;
+  unavailableRoles: readonly AirhopWelcomeRole[];
+  completedKickoffStages: readonly WelcomeKickoffStage[];
+  pendingActions: readonly MockAirhopAgentAction[];
+}>;
+
+export type MockWelcomeAgentTeamSnapshot = Readonly<{
+  locale: string;
+  routeTargetByEvent: Readonly<Record<string, AirhopWelcomeRole>>;
+  unavailableRoles: readonly AirhopWelcomeRole[];
+  completedKickoffStages: readonly WelcomeKickoffStage[];
+  pendingActions: readonly MockAirhopAgentAction[];
+}>;
+
+export type MockWelcomeAgentTurn = Readonly<{
+  targetRole: AirhopWelcomeRole;
+  respondingRoles: readonly AirhopWelcomeRole[];
+  messages: readonly string[];
+  notices: readonly string[];
+}>;
+
+export type MockAirhopActionOutcome = MockAirhopAgentAction &
+  Readonly<{
+    respondingRoles: readonly AirhopWelcomeRole[];
+    messages: readonly string[];
+  }>;
+export type MockWelcomeObservedMessage = Readonly<{
+  role: AirhopWelcomeRole;
+  content: string;
+}>;
+
+export type MockWelcomeTurnObservationInput = Readonly<{
+  eventId: string;
+  humanMessage: string;
+  knownFactKeys: readonly string[];
+  requestedFactKeys: readonly string[];
+  messages: readonly MockWelcomeObservedMessage[];
+}>;
+
+export type MockWelcomeDialogueObservation = Readonly<{
+  targetRole: AirhopWelcomeRole;
+  respondingRoles: readonly AirhopWelcomeRole[];
+  messages: readonly string[];
+  hasHeading: boolean;
+  reasksKnownFact: boolean;
+}>;
+
+export type MockWelcomeAgentTeamFixture = Readonly<{
+  snapshot: () => MockWelcomeAgentTeamSnapshot;
+  nextKickoffStage: () => WelcomeKickoffStage | null;
+  completeKickoffStage: (stage: WelcomeKickoffStage) => void;
+  providerNotice: () => MockWelcomeAgentTurn | null;
+  respondToEvent: (eventId: string) => MockWelcomeAgentTurn;
+  confirmAction: (actionId: string) => MockAirhopActionOutcome | null;
+  recordBookingCoreCommit: (actionId: string) => MockAirhopActionOutcome | null;
+  observeTurn: (
+    input: MockWelcomeTurnObservationInput,
+  ) => MockWelcomeDialogueObservation;
+  replacePendingAction: (
+    actionId: string,
+    replacement: MockAirhopAgentAction,
+  ) => MockWelcomeAgentTeamSnapshot | null;
+  setLocale: (locale: string) => void;
+  idleMessages: () => readonly string[];
+  reload: () => MockWelcomeAgentTeamFixture;
+}>;
+
+type MockMutableAirhopAgentAction = {
+  -readonly [Key in keyof MockAirhopAgentAction]: MockAirhopAgentAction[Key];
+};
+
+type MockWelcomeAgentTeamRuntimeState = {
+  providerNoticeSent: boolean;
+};
+
+type MockWelcomeAgentTeamMutableState = {
+  locale: string;
+  routeTargetByEvent: Record<string, AirhopWelcomeRole>;
+  unavailableRoles: AirhopWelcomeRole[];
+  completedKickoffStages: WelcomeKickoffStage[];
+  pendingActions: MockMutableAirhopAgentAction[];
+};
+
+export function createMockWelcomeAgentTeamFixture(
+  input: MockWelcomeAgentTeamSeed,
+): MockWelcomeAgentTeamFixture {
+  return createMockWelcomeAgentTeamFixtureWithRuntime(input, {
+    providerNoticeSent: false,
+  });
+}
+
+function createMockWelcomeAgentTeamFixtureWithRuntime(
+  input: MockWelcomeAgentTeamSeed,
+  runtime: MockWelcomeAgentTeamRuntimeState,
+): MockWelcomeAgentTeamFixture {
+  const state = structuredClone(input) as MockWelcomeAgentTeamMutableState;
+
+  const snapshot = () => structuredClone(state) as MockWelcomeAgentTeamSnapshot;
+  const actionOutcome = (
+    action: MockMutableAirhopAgentAction,
+    messages: readonly string[],
+  ): MockAirhopActionOutcome => ({
+    ...structuredClone(action),
+    respondingRoles: messages.length > 0 ? [action.specialistRole] : [],
+    messages: [...messages],
+  });
+
+  return {
+    snapshot,
+    nextKickoffStage: () =>
+      ALL_WELCOME_KICKOFF_STAGES.find(
+        (stage) => !state.completedKickoffStages.includes(stage),
+      ) ?? null,
+    completeKickoffStage: (stage) => {
+      if (!state.completedKickoffStages.includes(stage)) {
+        state.completedKickoffStages.push(stage);
+      }
+    },
+    providerNotice: () => {
+      if (runtime.providerNoticeSent) return null;
+      runtime.providerNoticeSent = true;
+      return {
+        targetRole: "fizz",
+        respondingRoles: ["fizz"],
+        messages: [resolveWelcomeLocale(state.locale).providerRequired],
+        notices: [],
+      };
+    },
+    respondToEvent: (eventId) => {
+      const targetRole = state.routeTargetByEvent[eventId] ?? "fizz";
+      if (state.unavailableRoles.includes(targetRole)) {
+        return {
+          targetRole,
+          respondingRoles: [],
+          messages: [],
+          notices: [
+            resolveWelcomeLocale(state.locale).specialistUnavailable(
+              targetRole,
+            ),
+          ],
+        };
+      }
+      return {
+        targetRole,
+        respondingRoles: [targetRole],
+        messages: [],
+        notices: [],
+      };
+    },
+    confirmAction: (actionId) => {
+      const action = state.pendingActions.find(
+        (candidate) => candidate.id === actionId,
+      );
+      if (action?.status !== "pending") return null;
+      action.status = "confirmed";
+      return actionOutcome(action, []);
+    },
+    recordBookingCoreCommit: (actionId) => {
+      const action = state.pendingActions.find(
+        (candidate) => candidate.id === actionId,
+      );
+      if (action?.status !== "confirmed") return null;
+      action.status = "committed";
+      action.bookingCoreCommitted = true;
+      const language = resolveWelcomeLocale(state.locale).language;
+      const message =
+        language === "ru"
+          ? "Готово. Изменение сохранено в Booking Core."
+          : language === "pt"
+            ? "Pronto. A alteracao foi salva no Booking Core."
+            : "Done. The change was saved in Booking Core.";
+      return actionOutcome(action, [message]);
+    },
+    observeTurn: (input) => {
+      const messages = input.messages.map(({ content }) => content);
+      const respondingRoles = [
+        ...new Set(input.messages.map(({ role }) => role)),
+      ];
+      const knownFacts = new Set(input.knownFactKeys);
+      return {
+        targetRole: state.routeTargetByEvent[input.eventId] ?? "fizz",
+        respondingRoles,
+        messages,
+        hasHeading: messages.some((message) =>
+          /^\s{0,3}#{1,6}\s/mu.test(message),
+        ),
+        reasksKnownFact: input.requestedFactKeys.some((fact) =>
+          knownFacts.has(fact),
+        ),
+      };
+    },
+    replacePendingAction: (actionId, replacement) => {
+      const current = state.pendingActions.find(
+        (candidate) => candidate.id === actionId,
+      );
+      const conflicts = state.pendingActions.some(
+        (candidate) =>
+          candidate.id === replacement.id ||
+          candidate.previewEventId === replacement.previewEventId,
+      );
+      if (current?.status !== "pending" || conflicts) return null;
+      current.status = "superseded";
+      state.pendingActions.push(
+        structuredClone(replacement) as MockMutableAirhopAgentAction,
+      );
+      return snapshot();
+    },
+    setLocale: (locale) => {
+      const normalized = locale.trim();
+      if (normalized) state.locale = normalized;
+    },
+    idleMessages: () => [],
+    reload: () =>
+      createMockWelcomeAgentTeamFixtureWithRuntime(
+        snapshot(),
+        structuredClone(runtime),
+      ),
+  };
+}
+
 type E2eConfig = {
   mode?: "mock" | "relay";
   mock?: {
@@ -259,6 +495,7 @@ type E2eConfig = {
       mcp?: MockCommandAvailability;
     };
     managedAgents?: MockManagedAgentSeed[];
+    welcomeAgentTeam?: MockWelcomeAgentTeamSeed;
     /** Result returned by the mocked `add_agent_to_huddle` command. */
     addAgentToHuddleResult?: {
       ephemeral_added: boolean;
