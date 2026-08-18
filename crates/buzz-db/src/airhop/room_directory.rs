@@ -4,7 +4,7 @@ use buzz_core::TenantContext;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::{
@@ -328,6 +328,107 @@ impl Db {
     }
 }
 
+/// Executes the normal room creation service inside a caller-owned transaction.
+pub(super) async fn create_airhop_room_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    input: &CreateRoomInput,
+) -> Result<RoomMutationOutcome> {
+    validate_agent_create_input(input)?;
+    let organization_id = resolve_active_organization(&mut **transaction, tenant).await?;
+    let command = match insert_pending_command(
+        transaction,
+        tenant,
+        &NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id,
+            command_type: CREATE_ROOM_COMMAND_TYPE.to_owned(),
+            idempotency_digest: input.idempotency_digest,
+            request_hash: input.request_hash,
+            actor: input.actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        },
+    )
+    .await?
+    {
+        CommandInsertOutcome::Inserted(command) => command,
+        CommandInsertOutcome::Existing(command) => return replay_without_commit(command),
+    };
+    require_active_branch(transaction, tenant, organization_id, input.branch_id).await?;
+    let room_id = Uuid::new_v4();
+    let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
+        .fetch_one(&mut **transaction)
+        .await?;
+    sqlx::query(
+        "INSERT INTO airhop_rooms (\
+             community_id, organization_id, id, branch_id, name, created_at, updated_at\
+         ) VALUES ($1, $2, $3, $4, $5, $6, $6)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(room_id)
+    .bind(input.branch_id)
+    .bind(input.name.trim())
+    .bind(occurred_at)
+    .execute(&mut **transaction)
+    .await?;
+    append_domain_event(
+        transaction,
+        tenant,
+        &NewDomainEvent {
+            id: Uuid::new_v4(),
+            organization_id,
+            stream_type: "room".to_owned(),
+            stream_id: room_id,
+            stream_version: 1,
+            event_type: "airhop.room.created.v1".to_owned(),
+            schema_version: 1,
+            occurred_at,
+            actor: input.actor.clone(),
+            causation_id: command.id,
+            correlation_id: command.correlation_id,
+            payload: json!({"roomId": room_id, "branchId": input.branch_id}),
+            privacy_class: PrivacyClass::Operational,
+        },
+    )
+    .await?;
+    let stored = StoredRoomMutationResult {
+        room_id,
+        version: 1,
+    };
+    commit_command(
+        transaction,
+        tenant,
+        organization_id,
+        command.id,
+        &serde_json::to_value(&stored)?,
+    )
+    .await?;
+    Ok(RoomMutationOutcome {
+        room_id,
+        version: 1,
+        replayed: false,
+    })
+}
+
+fn replay_without_commit(command: AirhopCommand) -> Result<RoomMutationOutcome> {
+    match command.status {
+        CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
+        CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
+        CommandStatus::Committed => {
+            let stored: StoredRoomMutationResult =
+                serde_json::from_value(command.result.ok_or_else(|| {
+                    DbError::InvalidData("committed AirHub command has no result".to_owned())
+                })?)?;
+            Ok(RoomMutationOutcome {
+                room_id: stored.room_id,
+                version: stored.version,
+                replayed: true,
+            })
+        }
+    }
+}
+
 async fn resolve_active_organization<'e, E>(executor: E, tenant: &TenantContext) -> Result<Uuid>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
@@ -435,7 +536,11 @@ fn parse_room_row(row: sqlx::postgres::PgRow) -> Result<AirhopRoom> {
 }
 
 fn validate_create_input(input: &CreateRoomInput) -> Result<()> {
-    validate_common(input.branch_id, &input.name, &input.actor)
+    validate_common(input.branch_id, &input.name, &input.actor, false)
+}
+
+fn validate_agent_create_input(input: &CreateRoomInput) -> Result<()> {
+    validate_common(input.branch_id, &input.name, &input.actor, true)
 }
 
 fn validate_put_input(input: &PutRoomInput) -> Result<()> {
@@ -444,12 +549,17 @@ fn validate_put_input(input: &PutRoomInput) -> Result<()> {
             "AirHub room identity or version is invalid".to_owned(),
         ));
     }
-    validate_common(input.branch_id, &input.name, &input.actor)
+    validate_common(input.branch_id, &input.name, &input.actor, false)
 }
 
-fn validate_common(branch_id: Uuid, name: &str, actor: &AirhopActor) -> Result<()> {
+fn validate_common(
+    branch_id: Uuid,
+    name: &str,
+    actor: &AirhopActor,
+    allow_bot: bool,
+) -> Result<()> {
     actor.validate()?;
-    if actor.kind != ActorKind::Staff
+    if !(actor.kind == ActorKind::Staff || (allow_bot && actor.kind == ActorKind::Bot))
         || branch_id.is_nil()
         || name.trim().is_empty()
         || name.chars().count() > 160

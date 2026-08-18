@@ -993,6 +993,78 @@ impl Db {
     }
 }
 
+/// Enrolls one existing child inside the caller-owned Buzz reaction transaction.
+pub(super) async fn enroll_airhop_staff_participant_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    input: &EnrollStaffParticipantInput,
+) -> Result<EnrollStaffTrialParticipantOutcome> {
+    validate_staff_enrollment(input)?;
+    let (organization_id, _, occurred_at) = active_organization_clock(transaction, tenant).await?;
+    let command = match insert_pending_command(
+        transaction,
+        tenant,
+        &NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id,
+            command_type: ENROLL_STAFF_COMMAND_TYPE.to_owned(),
+            idempotency_digest: input.idempotency_digest,
+            request_hash: input.request_hash,
+            actor: input.actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        },
+    )
+    .await?
+    {
+        CommandInsertOutcome::Inserted(command) => command,
+        CommandInsertOutcome::Existing(command) => {
+            return replay_enrollment_without_commit(command);
+        }
+    };
+    let source = load_staff_enrollment_source(
+        transaction,
+        tenant,
+        organization_id,
+        input.family_id,
+        input.child_id,
+        input.group_id,
+    )
+    .await?;
+    validate_enrollment_age(&source, input.start_date)?;
+    let stored = create_enrollment_and_first_payment(
+        transaction,
+        tenant,
+        organization_id,
+        &source,
+        input.child_id,
+        input.group_id,
+        input.tariff_id,
+        input.start_date,
+        &input.schedule,
+        None,
+        &input.actor,
+        &command,
+        occurred_at,
+    )
+    .await?;
+    commit_command(
+        transaction,
+        tenant,
+        organization_id,
+        command.id,
+        &serde_json::to_value(&stored)?,
+    )
+    .await?;
+    Ok(EnrollStaffTrialParticipantOutcome {
+        child_id: stored.child_id,
+        enrollment_id: stored.enrollment_id,
+        payment_expectation_id: stored.payment_expectation_id,
+        enrollment_version: stored.enrollment_version,
+        payment_version: stored.payment_version,
+        replayed: false,
+    })
+}
+
 async fn active_organization_id(pool: &sqlx::PgPool, tenant: &TenantContext) -> Result<Uuid> {
     sqlx::query_scalar(
         "SELECT id FROM airhop_organizations WHERE community_id = $1 AND status = 'active'",
@@ -1808,6 +1880,14 @@ async fn replay_enrollment(
     transaction: Transaction<'_, Postgres>,
     command: AirhopCommand,
 ) -> Result<EnrollStaffTrialParticipantOutcome> {
+    let outcome = replay_enrollment_without_commit(command)?;
+    transaction.commit().await?;
+    Ok(outcome)
+}
+
+fn replay_enrollment_without_commit(
+    command: AirhopCommand,
+) -> Result<EnrollStaffTrialParticipantOutcome> {
     match command.status {
         CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
         CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
@@ -1816,7 +1896,6 @@ async fn replay_enrollment(
                 serde_json::from_value(command.result.ok_or_else(|| {
                     DbError::InvalidData("committed AirHub command has no result".to_owned())
                 })?)?;
-            transaction.commit().await?;
             Ok(EnrollStaffTrialParticipantOutcome {
                 child_id: stored.child_id,
                 enrollment_id: stored.enrollment_id,

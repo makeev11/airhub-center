@@ -376,6 +376,162 @@ impl Db {
     }
 }
 
+/// Executes the normal family creation service inside a caller-owned transaction.
+pub(super) async fn create_airhop_family_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    input: &CreateFamilyInput,
+) -> Result<CreateFamilyOutcome> {
+    validate_agent_create(input)?;
+    let (organization_id, occurred_at, current_date) =
+        resolve_organization(transaction, tenant).await?;
+    if input.child_birth_date > current_date {
+        return Err(DbError::InvalidData(
+            "AirHub child birth date cannot be in the future".to_owned(),
+        ));
+    }
+    let command = NewAirhopCommand {
+        id: Uuid::new_v4(),
+        organization_id,
+        command_type: CREATE_FAMILY_COMMAND_TYPE.to_owned(),
+        idempotency_digest: input.idempotency_digest,
+        request_hash: input.request_hash,
+        actor: input.actor.clone(),
+        correlation_id: Uuid::new_v4(),
+    };
+    let command = match insert_pending_command(transaction, tenant, &command).await? {
+        CommandInsertOutcome::Inserted(command) => command,
+        CommandInsertOutcome::Existing(command) => return replay_create_without_commit(command),
+    };
+    let family_id = Uuid::new_v4();
+    let representative_id = Uuid::new_v4();
+    let child_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO airhop_families (community_id, organization_id, id, \
+             display_name, primary_representative_id) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(family_id)
+    .bind(input.display_name.trim())
+    .bind(representative_id)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "INSERT INTO airhop_representatives (community_id, organization_id, id, \
+             family_id, display_name, phone_normalized, phone_display, \
+             phone_match_digest, preferred_contact_channel) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(representative_id)
+    .bind(family_id)
+    .bind(input.representative_name.trim())
+    .bind(&input.phone_normalized)
+    .bind(input.phone_display.trim())
+    .bind(input.phone_match_digest.as_slice())
+    .bind(&input.preferred_contact_channel)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "INSERT INTO airhop_children (community_id, organization_id, id, family_id, \
+             display_name, birth_date, note) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(child_id)
+    .bind(family_id)
+    .bind(input.child_name.trim())
+    .bind(input.child_birth_date)
+    .bind(normalized_note(input.child_note.as_deref()))
+    .execute(&mut **transaction)
+    .await?;
+    create_duplicate_candidates(
+        transaction,
+        tenant,
+        organization_id,
+        representative_id,
+        child_id,
+        input,
+    )
+    .await?;
+    let has_pending_duplicate = pending_duplicate(
+        transaction,
+        tenant,
+        organization_id,
+        representative_id,
+        child_id,
+    )
+    .await?;
+    append_domain_event(
+        transaction,
+        tenant,
+        &NewDomainEvent {
+            id: Uuid::new_v4(),
+            organization_id,
+            stream_type: "family".to_owned(),
+            stream_id: family_id,
+            stream_version: 1,
+            event_type: "airhop.family.created.v1".to_owned(),
+            schema_version: 1,
+            occurred_at,
+            actor: input.actor.clone(),
+            causation_id: command.id,
+            correlation_id: command.correlation_id,
+            payload: json!({
+                "familyId": family_id,
+                "primaryRepresentativeId": representative_id,
+                "firstChildId": child_id,
+                "hasPendingDuplicate": has_pending_duplicate
+            }),
+            privacy_class: PrivacyClass::SensitiveChild,
+        },
+    )
+    .await?;
+    let stored = StoredCreateResult {
+        family_id,
+        representative_id,
+        child_id,
+        has_pending_duplicate,
+    };
+    commit_command(
+        transaction,
+        tenant,
+        organization_id,
+        command.id,
+        &serde_json::to_value(&stored)?,
+    )
+    .await?;
+    Ok(CreateFamilyOutcome {
+        family_id,
+        representative_id,
+        child_id,
+        has_pending_duplicate,
+        replayed: false,
+    })
+}
+
+fn replay_create_without_commit(command: super::AirhopCommand) -> Result<CreateFamilyOutcome> {
+    match command.status {
+        CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
+        CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
+        CommandStatus::Committed => {
+            let stored: StoredCreateResult =
+                serde_json::from_value(command.result.ok_or_else(|| {
+                    DbError::InvalidData("committed AirHub command has no result".to_owned())
+                })?)?;
+            Ok(CreateFamilyOutcome {
+                family_id: stored.family_id,
+                representative_id: stored.representative_id,
+                child_id: stored.child_id,
+                has_pending_duplicate: stored.has_pending_duplicate,
+                replayed: true,
+            })
+        }
+    }
+}
+
 async fn create_duplicate_candidates(
     transaction: &mut Transaction<'_, Postgres>,
     tenant: &TenantContext,
@@ -499,9 +655,17 @@ async fn replay_result<T: for<'de> Deserialize<'de>>(
 }
 
 fn validate_create(input: &CreateFamilyInput) -> Result<()> {
+    validate_create_for_actor(input, false)
+}
+
+fn validate_agent_create(input: &CreateFamilyInput) -> Result<()> {
+    validate_create_for_actor(input, true)
+}
+
+fn validate_create_for_actor(input: &CreateFamilyInput, allow_bot: bool) -> Result<()> {
     input.actor.validate()?;
     let note = input.child_note.as_deref().map(str::trim);
-    if input.actor.kind != ActorKind::Staff
+    if !(input.actor.kind == ActorKind::Staff || (allow_bot && input.actor.kind == ActorKind::Bot))
         || !bounded(&input.display_name, 200)
         || !bounded(&input.representative_name, 160)
         || !bounded(&input.phone_display, 80)

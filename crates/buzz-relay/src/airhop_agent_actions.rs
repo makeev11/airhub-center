@@ -119,6 +119,47 @@ impl AirhopAgentCommand {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MaterializeCommandError {
+    Serialization,
+    InvalidPhone,
+    PhoneIdentityUnavailable,
+}
+
+fn materialize_command_for_storage(
+    command: &AirhopAgentCommand,
+    community_id: &Uuid,
+    phone_index_key: Option<&[u8; 32]>,
+) -> Result<Value, MaterializeCommandError> {
+    let mut value = command
+        .canonical_value()
+        .map_err(|_| MaterializeCommandError::Serialization)?;
+    if matches!(command, AirhopAgentCommand::CreateFamily(_)) {
+        let input = value
+            .get_mut("input")
+            .and_then(Value::as_object_mut)
+            .ok_or(MaterializeCommandError::Serialization)?;
+        let phone = input
+            .get("phone")
+            .and_then(Value::as_str)
+            .ok_or(MaterializeCommandError::InvalidPhone)?;
+        let phone_normalized = crate::api::airhop_public::normalize_airhop_phone(phone)
+            .ok_or(MaterializeCommandError::InvalidPhone)?;
+        let index_key = phone_index_key.ok_or(MaterializeCommandError::PhoneIdentityUnavailable)?;
+        let phone_match_digest = crate::api::airhop_public::airhop_phone_match_digest(
+            index_key,
+            community_id,
+            &phone_normalized,
+        );
+        input.insert("phoneNormalized".to_owned(), Value::from(phone_normalized));
+        input.insert(
+            "phoneMatchDigest".to_owned(),
+            Value::from(hex::encode(phone_match_digest)),
+        );
+    }
+    Ok(value)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PrepareAgentActionBody {
@@ -159,12 +200,6 @@ pub(crate) async fn prepare_agent_action(
                 "Airhop organization is not configured",
             )
         })?;
-    let command = request.command.canonical_value().map_err(|error| {
-        internal_error(&format!("Airhop command serialization failed: {error}"))
-    })?;
-    let command_bytes = serde_json::to_vec(&command)
-        .map_err(|error| internal_error(&format!("Airhop command digest failed: {error}")))?;
-    let command_digest: [u8; 32] = Sha256::digest(&command_bytes).into();
     let expected_versions = validate_current_state(
         &state,
         &principal.tenant,
@@ -172,6 +207,31 @@ pub(crate) async fn prepare_agent_action(
         organization.version,
     )
     .await?;
+    let phone_index_key = state
+        .config
+        .airhop_public_booking
+        .as_ref()
+        .map(|config| config.index_key());
+    let command = materialize_command_for_storage(
+        &request.command,
+        principal.tenant.community().as_uuid(),
+        phone_index_key,
+    )
+    .map_err(|error| match error {
+        MaterializeCommandError::Serialization => {
+            internal_error("Airhop command serialization failed")
+        }
+        MaterializeCommandError::InvalidPhone => {
+            api_error(StatusCode::UNPROCESSABLE_ENTITY, "invalid phone number")
+        }
+        MaterializeCommandError::PhoneIdentityUnavailable => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Airhop phone identity is not configured",
+        ),
+    })?;
+    let command_bytes = serde_json::to_vec(&command)
+        .map_err(|error| internal_error(&format!("Airhop command digest failed: {error}")))?;
+    let command_digest: [u8; 32] = Sha256::digest(&command_bytes).into();
     let prepared = state
         .db
         .prepare_airhop_agent_action(
@@ -337,6 +397,82 @@ async fn validate_current_state(
                     insert_version(&mut expected, "teacher", teacher.id, teacher.version);
                 }
             }
+            let active_rules = input
+                .get("activeRules")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    api_error(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "active recurrence rules are required",
+                    )
+                })?;
+            for rule in active_rules {
+                let branch_override = optional_uuid(rule, "branchIdOverride")?;
+                let effective_branch_id = branch_override.unwrap_or(branch_id);
+                if let Some(branch_override) = branch_override {
+                    let branch = branches
+                        .iter()
+                        .find(|branch| {
+                            branch.id == branch_override && branch.status == BranchStatus::Active
+                        })
+                        .ok_or_else(|| {
+                            api_error(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                "active recurrence branch override not found",
+                            )
+                        })?;
+                    insert_version(&mut expected, "branch", branch.id, branch.version);
+                }
+                if rule
+                    .get("roomOverrideSet")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    if let Some(room_id) = optional_uuid(rule, "roomIdOverride")? {
+                        let rooms = state
+                            .db
+                            .list_airhop_rooms(tenant)
+                            .await
+                            .map_err(map_db_error)?;
+                        let room = rooms
+                            .iter()
+                            .find(|room| {
+                                room.id == room_id
+                                    && room.branch_id == effective_branch_id
+                                    && room.status == RoomStatus::Active
+                            })
+                            .ok_or_else(|| {
+                                api_error(
+                                    StatusCode::UNPROCESSABLE_ENTITY,
+                                    "active recurrence room override not found",
+                                )
+                            })?;
+                        insert_version(&mut expected, "room", room.id, room.version);
+                    }
+                }
+                let teacher_overrides = optional_uuid_array(rule, "teacherIdsOverride")?;
+                if !teacher_overrides.is_empty() {
+                    let teachers = state
+                        .db
+                        .list_airhop_teachers(tenant)
+                        .await
+                        .map_err(map_db_error)?;
+                    for teacher_id in teacher_overrides {
+                        let teacher = teachers
+                            .iter()
+                            .find(|teacher| {
+                                teacher.id == teacher_id && teacher.status == TeacherStatus::Active
+                            })
+                            .ok_or_else(|| {
+                                api_error(
+                                    StatusCode::UNPROCESSABLE_ENTITY,
+                                    "active recurrence teacher override not found",
+                                )
+                            })?;
+                        insert_version(&mut expected, "teacher", teacher.id, teacher.version);
+                    }
+                }
+            }
         }
         AirhopAgentCommand::EnrollParticipant(_) => {
             let family_id = required_uuid(input, "familyId")?;
@@ -348,23 +484,29 @@ async fn validate_current_state(
                 .get_airhop_staff_family_detail(tenant, family_id)
                 .await
                 .map_err(map_db_error)?;
-            if family.family.status != "active"
-                || !family
-                    .children
-                    .iter()
-                    .any(|child| child.id == child_id && child.status == "active")
-            {
+            if family.family.status != "active" {
                 return Err(api_error(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     "active family child not found",
                 ));
             }
+            let child = family
+                .children
+                .iter()
+                .find(|child| child.id == child_id && child.status == "active")
+                .ok_or_else(|| {
+                    api_error(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "active family child not found",
+                    )
+                })?;
             insert_version(
                 &mut expected,
                 "family",
                 family.family.id,
                 family.family.version,
             );
+            insert_version(&mut expected, "child", child.id, child.version);
             let groups = state
                 .db
                 .list_airhop_groups(tenant)
@@ -862,6 +1004,34 @@ mod tests {
             "input": {"branchId": Uuid::nil(), "body": {"name": "Blue"}}
         }))
         .is_ok());
+    }
+
+    #[test]
+    fn family_storage_material_is_server_normalized_and_tenant_keyed() {
+        let command: AirhopAgentCommand = serde_json::from_value(json!({
+            "type": "create_family",
+            "input": {
+                "displayName": "Smith",
+                "representativeName": "Sam",
+                "phone": "+1 (202) 555-0123",
+                "childName": "Kim",
+                "childBirthDate": "2020-01-02"
+            }
+        }))
+        .unwrap();
+        let community_id = Uuid::from_u128(77);
+        let index_key = [9_u8; 32];
+        let materialized =
+            materialize_command_for_storage(&command, &community_id, Some(&index_key)).unwrap();
+        assert_eq!(materialized["input"]["phoneNormalized"], "+12025550123");
+        assert_eq!(
+            materialized["input"]["phoneMatchDigest"],
+            hex::encode(crate::api::airhop_public::airhop_phone_match_digest(
+                &index_key,
+                &community_id,
+                "+12025550123",
+            ))
+        );
     }
 
     #[test]

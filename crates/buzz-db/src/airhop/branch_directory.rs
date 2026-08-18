@@ -7,7 +7,7 @@ use buzz_core::TenantContext;
 use chrono::{DateTime, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::{
@@ -410,6 +410,123 @@ impl Db {
     }
 }
 
+/// Executes the normal branch creation service inside a caller-owned transaction.
+pub(super) async fn create_airhop_branch_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    input: &CreateBranchInput,
+) -> Result<BranchMutationOutcome> {
+    validate_agent_create_input(input)?;
+    let organization_id = resolve_active_organization(&mut **transaction, tenant).await?;
+    validate_channel(transaction, tenant, input.default_buzz_channel_id).await?;
+    let command = match insert_pending_command(
+        transaction,
+        tenant,
+        &NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id,
+            command_type: CREATE_BRANCH_COMMAND_TYPE.to_owned(),
+            idempotency_digest: input.idempotency_digest,
+            request_hash: input.request_hash,
+            actor: input.actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        },
+    )
+    .await?
+    {
+        CommandInsertOutcome::Inserted(command) => command,
+        CommandInsertOutcome::Existing(command) => {
+            return replay_mutation_without_commit(command);
+        }
+    };
+    let branch_id = Uuid::new_v4();
+    let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
+        .fetch_one(&mut **transaction)
+        .await?;
+    sqlx::query(
+        "INSERT INTO airhop_branches (\
+             community_id, organization_id, id, name, address, \
+             default_buzz_channel_id, created_at, updated_at\
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(branch_id)
+    .bind(input.name.trim())
+    .bind(input.address.trim())
+    .bind(input.default_buzz_channel_id)
+    .bind(occurred_at)
+    .execute(&mut **transaction)
+    .await?;
+    replace_working_periods(
+        transaction,
+        tenant,
+        organization_id,
+        branch_id,
+        &input.working_periods,
+    )
+    .await?;
+    append_domain_event(
+        transaction,
+        tenant,
+        &NewDomainEvent {
+            id: Uuid::new_v4(),
+            organization_id,
+            stream_type: "branch".to_owned(),
+            stream_id: branch_id,
+            stream_version: 1,
+            event_type: "airhop.branch.created.v1".to_owned(),
+            schema_version: 1,
+            occurred_at,
+            actor: input.actor.clone(),
+            causation_id: command.id,
+            correlation_id: command.correlation_id,
+            payload: json!({
+                "branchId": branch_id,
+                "defaultBuzzChannelId": input.default_buzz_channel_id,
+                "workingPeriodCount": input.working_periods.len(),
+            }),
+            privacy_class: PrivacyClass::Operational,
+        },
+    )
+    .await?;
+    let stored = StoredBranchMutationResult {
+        branch_id,
+        version: 1,
+    };
+    commit_command(
+        transaction,
+        tenant,
+        organization_id,
+        command.id,
+        &serde_json::to_value(&stored)?,
+    )
+    .await?;
+    Ok(BranchMutationOutcome {
+        branch_id,
+        version: 1,
+        replayed: false,
+    })
+}
+
+fn replay_mutation_without_commit(command: AirhopCommand) -> Result<BranchMutationOutcome> {
+    match command.status {
+        CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
+        CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
+        CommandStatus::Committed => {
+            let stored: StoredBranchMutationResult =
+                serde_json::from_value(command.result.ok_or_else(|| {
+                    DbError::InvalidData("committed AirHub command has no result".to_owned())
+                })?)?;
+            Ok(BranchMutationOutcome {
+                branch_id: stored.branch_id,
+                version: stored.version,
+                replayed: true,
+            })
+        }
+    }
+}
+
 async fn resolve_active_organization<'e, E>(executor: E, tenant: &TenantContext) -> Result<Uuid>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
@@ -554,12 +671,21 @@ fn parse_branch_row(row: sqlx::postgres::PgRow) -> Result<AirhopBranch> {
 }
 
 fn validate_create_input(input: &CreateBranchInput) -> Result<()> {
+    validate_create_input_for_actor(input, false)
+}
+
+fn validate_agent_create_input(input: &CreateBranchInput) -> Result<()> {
+    validate_create_input_for_actor(input, true)
+}
+
+fn validate_create_input_for_actor(input: &CreateBranchInput, allow_bot: bool) -> Result<()> {
     validate_common(
         &input.name,
         &input.address,
         &input.working_periods,
         input.default_buzz_channel_id,
         &input.actor,
+        allow_bot,
     )
 }
 
@@ -575,6 +701,7 @@ fn validate_put_input(input: &PutBranchInput) -> Result<()> {
         &input.working_periods,
         input.default_buzz_channel_id,
         &input.actor,
+        false,
     )
 }
 
@@ -584,9 +711,10 @@ fn validate_common(
     periods: &[BranchWorkingPeriod],
     default_buzz_channel_id: Option<Uuid>,
     actor: &AirhopActor,
+    allow_bot: bool,
 ) -> Result<()> {
     actor.validate()?;
-    if actor.kind != ActorKind::Staff
+    if !(actor.kind == ActorKind::Staff || (allow_bot && actor.kind == ActorKind::Bot))
         || name.trim().is_empty()
         || name.chars().count() > 160
         || address.trim().is_empty()

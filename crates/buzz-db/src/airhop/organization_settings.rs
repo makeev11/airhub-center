@@ -77,10 +77,7 @@ impl Db {
         // The organization row does not exist during bootstrap, so a row lock
         // alone cannot serialize two first writes. A tenant-keyed transaction
         // advisory lock closes that race without introducing a global lock.
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 4107))")
-            .bind(tenant.community().as_uuid())
-            .execute(&mut *transaction)
-            .await?;
+        lock_airhop_organization_settings_write(&mut transaction, tenant).await?;
 
         let current = load_locked_organization(&mut transaction, tenant).await?;
         let organization_id = current
@@ -269,6 +266,194 @@ impl Db {
     }
 }
 
+/// Serializes settings writers before any of them lock the organization row.
+///
+/// Agent-action confirmation calls this before its optimistic organization
+/// fence, preserving the same lock order as direct staff settings writes.
+pub(super) async fn lock_airhop_organization_settings_write(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tenant: &TenantContext,
+) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 4107))")
+        .bind(tenant.community().as_uuid())
+        .execute(&mut **transaction)
+        .await?;
+    Ok(())
+}
+
+/// Replaces organization settings inside the caller-owned Buzz reaction transaction.
+pub(super) async fn put_airhop_organization_settings_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tenant: &TenantContext,
+    input: &PutOrganizationSettingsInput,
+) -> Result<PutOrganizationSettingsOutcome> {
+    validate_agent_input(input)?;
+    lock_airhop_organization_settings_write(transaction, tenant).await?;
+    let current = load_locked_organization(transaction, tenant).await?;
+    let organization_id = current
+        .as_ref()
+        .map_or_else(Uuid::new_v4, |organization| organization.id);
+    let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
+        .fetch_one(&mut **transaction)
+        .await?;
+    validate_buzz_channel(transaction, tenant, input.payments_buzz_channel_id).await?;
+    validate_buzz_channel(transaction, tenant, input.analytics_buzz_channel_id).await?;
+    if current.is_none() {
+        if input.expected_version != 0 {
+            return Err(DbError::AirhopVersionConflict);
+        }
+        insert_organization(transaction, tenant, organization_id, input, occurred_at).await?;
+    }
+    let command = match insert_pending_command(
+        transaction,
+        tenant,
+        &NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id,
+            command_type: PUT_ORGANIZATION_SETTINGS_COMMAND_TYPE.to_owned(),
+            idempotency_digest: input.idempotency_digest,
+            request_hash: input.request_hash,
+            actor: input.actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        },
+    )
+    .await?
+    {
+        CommandInsertOutcome::Inserted(command) => command,
+        CommandInsertOutcome::Existing(command) => {
+            return replay_settings_write_without_commit(command);
+        }
+    };
+    let (version, event_type, changed_fields) = match current {
+        None => (
+            1,
+            "airhop.organization.configured.v1",
+            vec![
+                "name",
+                "locale",
+                "time_zone",
+                "payments_buzz_channel_id",
+                "analytics_buzz_channel_id",
+                "default_trial_policy",
+                "track_attendance_by_default",
+                "allow_single_visits_by_default",
+                "existing_students_onboarding_status",
+                "public_booking_purpose",
+                "public_booking_appearance",
+                "payment_day_of_month",
+            ],
+        ),
+        Some(current) => {
+            if current.status != OrganizationStatus::Active {
+                return Err(DbError::NotFound("active AirHub organization".to_owned()));
+            }
+            if current.version != input.expected_version {
+                return Err(DbError::AirhopVersionConflict);
+            }
+            let changed_fields = changed_fields(&current, input);
+            if changed_fields.is_empty() {
+                (current.version, "", changed_fields)
+            } else {
+                let version =
+                    update_organization(transaction, tenant, organization_id, input, occurred_at)
+                        .await?;
+                (
+                    version,
+                    "airhop.organization.settings-updated.v1",
+                    changed_fields,
+                )
+            }
+        }
+    };
+    if changed_fields.iter().any(|field| {
+        matches!(
+            *field,
+            "time_zone"
+                | "default_trial_policy"
+                | "track_attendance_by_default"
+                | "allow_single_visits_by_default"
+        )
+    }) {
+        super::schedule::rematerialize_organization_schedule(
+            transaction,
+            tenant,
+            organization_id,
+            occurred_at,
+        )
+        .await?;
+    }
+    if changed_fields.contains(&"payments_buzz_channel_id") {
+        sqlx::query(
+            "DELETE FROM airhop_payment_buzz_action_state
+             WHERE community_id = $1 AND organization_id = $2",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .execute(&mut **transaction)
+        .await?;
+        sqlx::query(
+            "DELETE FROM airhop_payment_buzz_summary_state
+             WHERE community_id = $1 AND organization_id = $2",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    if changed_fields.contains(&"analytics_buzz_channel_id") {
+        sqlx::query(
+            "DELETE FROM airhop_analytics_buzz_report_state
+             WHERE community_id = $1 AND organization_id = $2",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    if !event_type.is_empty() {
+        append_domain_event(
+            transaction,
+            tenant,
+            &NewDomainEvent {
+                id: Uuid::new_v4(),
+                organization_id,
+                stream_type: "organization".to_owned(),
+                stream_id: organization_id,
+                stream_version: version,
+                event_type: event_type.to_owned(),
+                schema_version: 1,
+                occurred_at,
+                actor: input.actor.clone(),
+                causation_id: command.id,
+                correlation_id: command.correlation_id,
+                payload: json!({
+                    "organizationId": organization_id,
+                    "changedFields": changed_fields,
+                }),
+                privacy_class: PrivacyClass::Operational,
+            },
+        )
+        .await?;
+    }
+    let stored = StoredOrganizationSettingsResult {
+        organization_id,
+        version,
+    };
+    commit_command(
+        transaction,
+        tenant,
+        organization_id,
+        command.id,
+        &serde_json::to_value(&stored)?,
+    )
+    .await?;
+    Ok(PutOrganizationSettingsOutcome {
+        organization_id,
+        version,
+        replayed: false,
+    })
+}
+
 async fn load_locked_organization(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     tenant: &TenantContext,
@@ -425,6 +610,14 @@ async fn replay_settings_write(
     transaction: sqlx::Transaction<'_, sqlx::Postgres>,
     command: super::AirhopCommand,
 ) -> Result<PutOrganizationSettingsOutcome> {
+    let outcome = replay_settings_write_without_commit(command)?;
+    transaction.commit().await?;
+    Ok(outcome)
+}
+
+fn replay_settings_write_without_commit(
+    command: super::AirhopCommand,
+) -> Result<PutOrganizationSettingsOutcome> {
     match command.status {
         CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
         CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
@@ -433,7 +626,6 @@ async fn replay_settings_write(
                 serde_json::from_value(command.result.ok_or_else(|| {
                     DbError::InvalidData("committed AirHub command has no result".to_owned())
                 })?)?;
-            transaction.commit().await?;
             Ok(PutOrganizationSettingsOutcome {
                 organization_id: stored.organization_id,
                 version: stored.version,
@@ -444,9 +636,19 @@ async fn replay_settings_write(
 }
 
 fn validate_input(input: &PutOrganizationSettingsInput) -> Result<()> {
+    validate_input_for_actor(input, false)
+}
+
+fn validate_agent_input(input: &PutOrganizationSettingsInput) -> Result<()> {
+    validate_input_for_actor(input, true)
+}
+
+fn validate_input_for_actor(input: &PutOrganizationSettingsInput, allow_bot: bool) -> Result<()> {
     input.actor.validate()?;
+    let actor_is_allowed =
+        input.actor.kind == ActorKind::Staff || (allow_bot && input.actor.kind == ActorKind::Bot);
     if input.expected_version < 0
-        || input.actor.kind != ActorKind::Staff
+        || !actor_is_allowed
         || input.name.trim().is_empty()
         || input.name.chars().count() > 160
         || input.locale.trim().len() < 2

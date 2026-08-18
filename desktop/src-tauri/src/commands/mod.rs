@@ -87,6 +87,7 @@ pub use media::*;
 pub use media_download::*;
 #[cfg(feature = "mesh-llm")]
 pub use mesh_llm::*;
+pub use messages::airhop_agent_tasks::*;
 pub use messages::*;
 pub use notifications::*;
 pub use observer_archive::*;

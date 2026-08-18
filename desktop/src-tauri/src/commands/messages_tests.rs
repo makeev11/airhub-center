@@ -3,7 +3,7 @@ fn airhop_agent_task_has_exact_flat_targeting_tags() {
     let channel_id = uuid::Uuid::new_v4();
     let agent_pubkey = Keys::generate().public_key().to_hex();
     let task_id = "airhop-welcome:test:fizz_intro";
-    let event = build_airhop_agent_task(
+    let event = airhop_agent_tasks::build_task(
         channel_id,
         &agent_pubkey,
         task_id,
@@ -28,12 +28,10 @@ fn airhop_agent_task_has_exact_flat_targeting_tags() {
     assert!(has_tag("p", &agent_pubkey));
     assert!(has_tag("airhop-task", task_id));
     assert!(has_tag("airhop-kickoff-stage", "fizz_intro"));
-    assert!(
-        !event
-            .tags
-            .iter()
-            .any(|tag| tag.as_slice().first().map(String::as_str) == Some("e"))
-    );
+    assert!(!event
+        .tags
+        .iter()
+        .any(|tag| tag.as_slice().first().map(String::as_str) == Some("e")));
 }
 
 use super::*;

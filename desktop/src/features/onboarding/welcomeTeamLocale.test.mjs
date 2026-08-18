@@ -12,11 +12,15 @@ test("Russian locale exposes the localized Airhop team and natural aliases", () 
   assert.equal(locale.language, "ru");
   assert.deepEqual(locale.names, {
     fizz: "\u0424\u0438\u0437",
-    administrator: "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440",
+    administrator:
+      "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440",
     analyst: "\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a",
-    content_marketer: "\u041a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433",
+    content_marketer:
+      "\u041a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433",
   });
-  assert.ok(locale.aliases.administrator.includes("\u0410\u0434\u043c\u0438\u043d"));
+  assert.ok(
+    locale.aliases.administrator.includes("\u0410\u0434\u043c\u0438\u043d"),
+  );
   assert.equal(
     welcomeRoleDefinition("administrator", "ru-RU").name,
     "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440",

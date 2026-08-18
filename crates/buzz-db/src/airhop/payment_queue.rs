@@ -7,7 +7,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::{
@@ -515,6 +515,104 @@ impl Db {
         )
         .await
     }
+}
+
+/// Mutates one payment inside the caller-owned Buzz reaction transaction.
+pub(super) async fn mutate_airhop_payment_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    input: &MutatePaymentInput,
+) -> Result<PaymentMutationOutcome> {
+    validate_input(input)?;
+    input.actor.validate()?;
+    let organization_id = resolve_active_organization(&mut **transaction, tenant).await?;
+    let command = match insert_pending_command(
+        transaction,
+        tenant,
+        &NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id,
+            command_type: MUTATE_PAYMENT_COMMAND_TYPE.to_owned(),
+            idempotency_digest: input.idempotency_digest,
+            request_hash: input.request_hash,
+            actor: input.actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        },
+    )
+    .await?
+    {
+        CommandInsertOutcome::Inserted(command) => command,
+        CommandInsertOutcome::Existing(command) => {
+            return replay_mutation_without_commit(command);
+        }
+    };
+    let current = load_locked_payment(transaction, tenant, organization_id, input.payment_id)
+        .await?
+        .ok_or_else(|| DbError::NotFound("AirHub payment".to_owned()))?;
+    if current.version != input.expected_version {
+        return Err(DbError::AirhopVersionConflict);
+    }
+    validate_transition(&current, &input.change)?;
+    let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
+        .fetch_one(&mut **transaction)
+        .await?;
+    let actor_reference = input
+        .actor
+        .pubkey
+        .map(hex::encode)
+        .ok_or_else(|| DbError::InvalidData("staff actor has no public key".to_owned()))?;
+    let applied = apply_change(
+        transaction,
+        tenant,
+        organization_id,
+        input.payment_id,
+        input.expected_version,
+        &current,
+        &input.change,
+        PaymentMethod::Other,
+        occurred_at,
+        &actor_reference,
+    )
+    .await?;
+    let (event_type, payload) =
+        event_for_change(input.payment_id, &current, &input.change, &applied);
+    append_domain_event(
+        transaction,
+        tenant,
+        &NewDomainEvent {
+            id: Uuid::new_v4(),
+            organization_id,
+            stream_type: "payment_expectation".to_owned(),
+            stream_id: input.payment_id,
+            stream_version: applied.version,
+            event_type: event_type.to_owned(),
+            schema_version: 1,
+            occurred_at,
+            actor: input.actor.clone(),
+            causation_id: command.id,
+            correlation_id: command.correlation_id,
+            payload,
+            privacy_class: PrivacyClass::Operational,
+        },
+    )
+    .await?;
+    let stored = StoredPaymentMutationResult {
+        payment_id: input.payment_id,
+        version: applied.version,
+    };
+    commit_command(
+        transaction,
+        tenant,
+        organization_id,
+        command.id,
+        &serde_json::to_value(&stored)?,
+    )
+    .await?;
+    Ok(PaymentMutationOutcome {
+        payment_id: input.payment_id,
+        version: applied.version,
+        replayed: false,
+    })
 }
 
 /// Marks the versioned payment preview selected by a relay-signed Buzz card paid.
@@ -1310,6 +1408,12 @@ async fn replay_mutation(
     transaction: sqlx::Transaction<'_, sqlx::Postgres>,
     command: AirhopCommand,
 ) -> Result<PaymentMutationOutcome> {
+    let outcome = replay_mutation_without_commit(command)?;
+    transaction.commit().await?;
+    Ok(outcome)
+}
+
+fn replay_mutation_without_commit(command: AirhopCommand) -> Result<PaymentMutationOutcome> {
     match command.status {
         CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
         CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
@@ -1318,7 +1422,6 @@ async fn replay_mutation(
                 serde_json::from_value(command.result.ok_or_else(|| {
                     DbError::InvalidData("committed AirHub command has no result".to_owned())
                 })?)?;
-            transaction.commit().await?;
             Ok(PaymentMutationOutcome {
                 payment_id: stored.payment_id,
                 version: stored.version,

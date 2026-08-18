@@ -4,7 +4,7 @@ use buzz_core::TenantContext;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::{
@@ -393,6 +393,124 @@ impl Db {
             version,
         )
         .await
+    }
+}
+
+/// Executes the normal tariff creation service inside a caller-owned transaction.
+pub(super) async fn create_airhop_tariff_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    input: &CreateTariffInput,
+) -> Result<TariffMutationOutcome> {
+    validate_tariff_fields(
+        &input.name,
+        input.description.as_deref(),
+        input.price_minor,
+        &input.currency,
+        input.weekly_schedule_limit,
+        input.payment_day_of_month,
+    )?;
+    input.actor.validate()?;
+    let organization_id = resolve_active_organization(&mut **transaction, tenant).await?;
+    let command = match insert_pending_command(
+        transaction,
+        tenant,
+        &NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id,
+            command_type: CREATE_TARIFF_COMMAND_TYPE.to_owned(),
+            idempotency_digest: input.idempotency_digest,
+            request_hash: input.request_hash,
+            actor: input.actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        },
+    )
+    .await?
+    {
+        CommandInsertOutcome::Inserted(command) => command,
+        CommandInsertOutcome::Existing(command) => return replay_without_commit(command),
+    };
+    let tariff_id = Uuid::new_v4();
+    let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
+        .fetch_one(&mut **transaction)
+        .await?;
+    sqlx::query(
+        "INSERT INTO airhop_tariffs ( \
+             community_id, organization_id, id, name, description, price_minor, \
+             currency, weekly_schedule_limit, payment_day_of_month, created_at, updated_at \
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(tariff_id)
+    .bind(input.name.trim())
+    .bind(trimmed_optional(input.description.as_deref()))
+    .bind(input.price_minor)
+    .bind(input.currency.as_str())
+    .bind(input.weekly_schedule_limit)
+    .bind(input.payment_day_of_month)
+    .bind(occurred_at)
+    .execute(&mut **transaction)
+    .await?;
+    append_domain_event(
+        transaction,
+        tenant,
+        &NewDomainEvent {
+            id: Uuid::new_v4(),
+            organization_id,
+            stream_type: "tariff".to_owned(),
+            stream_id: tariff_id,
+            stream_version: 1,
+            event_type: "airhop.tariff.created.v1".to_owned(),
+            schema_version: 1,
+            occurred_at,
+            actor: input.actor.clone(),
+            causation_id: command.id,
+            correlation_id: command.correlation_id,
+            payload: json!({
+                "tariffId": tariff_id,
+                "priceMinor": input.price_minor,
+                "currency": input.currency,
+                "weeklyScheduleLimit": input.weekly_schedule_limit,
+            }),
+            privacy_class: PrivacyClass::Operational,
+        },
+    )
+    .await?;
+    let stored = StoredTariffMutationResult {
+        tariff_id,
+        version: 1,
+    };
+    commit_command(
+        transaction,
+        tenant,
+        organization_id,
+        command.id,
+        &serde_json::to_value(&stored)?,
+    )
+    .await?;
+    Ok(TariffMutationOutcome {
+        tariff_id,
+        version: 1,
+        replayed: false,
+    })
+}
+
+fn replay_without_commit(command: AirhopCommand) -> Result<TariffMutationOutcome> {
+    match command.status {
+        CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
+        CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
+        CommandStatus::Committed => {
+            let stored: StoredTariffMutationResult =
+                serde_json::from_value(command.result.ok_or_else(|| {
+                    DbError::InvalidData("committed AirHub command has no result".to_owned())
+                })?)?;
+            Ok(TariffMutationOutcome {
+                tariff_id: stored.tariff_id,
+                version: stored.version,
+                replayed: true,
+            })
+        }
     }
 }
 

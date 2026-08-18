@@ -21,7 +21,7 @@ import {
   resolveWelcomeLocale,
 } from "@/features/onboarding/welcomeTeamLocale";
 import { useIdentityQuery } from "@/shared/api/hooks";
-import { dispatchAirhopAgentTask } from "@/shared/api/tauri";
+import { dispatchAirhopAgentTask } from "@/shared/api/tauriAirhopAgentTasks";
 import { sendManagedAgentChannelMessage } from "@/shared/api/tauriManagedAgentMessages";
 import { getProfile } from "@/shared/api/tauriProfiles";
 import type {

@@ -4,7 +4,7 @@ use buzz_core::TenantContext;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::{
@@ -325,6 +325,108 @@ impl Db {
             version,
         )
         .await
+    }
+}
+
+/// Executes the normal teacher creation service inside a caller-owned transaction.
+pub(super) async fn create_airhop_teacher_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    input: &CreateTeacherInput,
+) -> Result<TeacherMutationOutcome> {
+    validate_teacher_fields(&input.display_name, input.buzz_username.as_deref())?;
+    input.actor.validate()?;
+    let organization_id = resolve_active_organization(&mut **transaction, tenant).await?;
+    let command = match insert_pending_command(
+        transaction,
+        tenant,
+        &NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id,
+            command_type: CREATE_TEACHER_COMMAND_TYPE.to_owned(),
+            idempotency_digest: input.idempotency_digest,
+            request_hash: input.request_hash,
+            actor: input.actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        },
+    )
+    .await?
+    {
+        CommandInsertOutcome::Inserted(command) => command,
+        CommandInsertOutcome::Existing(command) => return replay_without_commit(command),
+    };
+    let teacher_id = Uuid::new_v4();
+    let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
+        .fetch_one(&mut **transaction)
+        .await?;
+    sqlx::query(
+        "INSERT INTO airhop_teachers ( \
+             community_id, organization_id, id, display_name, buzz_username, \
+             created_at, updated_at \
+         ) VALUES ($1, $2, $3, $4, $5, $6, $6)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(teacher_id)
+    .bind(input.display_name.trim())
+    .bind(trimmed_optional(input.buzz_username.as_deref()))
+    .bind(occurred_at)
+    .execute(&mut **transaction)
+    .await?;
+    append_domain_event(
+        transaction,
+        tenant,
+        &NewDomainEvent {
+            id: Uuid::new_v4(),
+            organization_id,
+            stream_type: "teacher".to_owned(),
+            stream_id: teacher_id,
+            stream_version: 1,
+            event_type: "airhop.teacher.created.v1".to_owned(),
+            schema_version: 1,
+            occurred_at,
+            actor: input.actor.clone(),
+            causation_id: command.id,
+            correlation_id: command.correlation_id,
+            payload: json!({"teacherId": teacher_id}),
+            privacy_class: PrivacyClass::Operational,
+        },
+    )
+    .await?;
+    let stored = StoredTeacherMutationResult {
+        teacher_id,
+        version: 1,
+    };
+    commit_command(
+        transaction,
+        tenant,
+        organization_id,
+        command.id,
+        &serde_json::to_value(&stored)?,
+    )
+    .await?;
+    Ok(TeacherMutationOutcome {
+        teacher_id,
+        version: 1,
+        replayed: false,
+    })
+}
+
+fn replay_without_commit(command: AirhopCommand) -> Result<TeacherMutationOutcome> {
+    match command.status {
+        CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
+        CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
+        CommandStatus::Committed => {
+            let stored: StoredTeacherMutationResult =
+                serde_json::from_value(command.result.ok_or_else(|| {
+                    DbError::InvalidData("committed AirHub command has no result".to_owned())
+                })?)?;
+            Ok(TeacherMutationOutcome {
+                teacher_id: stored.teacher_id,
+                version: stored.version,
+                replayed: true,
+            })
+        }
     }
 }
 

@@ -7,7 +7,7 @@ use buzz_core::TenantContext;
 use chrono::{DateTime, Datelike, NaiveDate, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::{
@@ -776,6 +776,163 @@ impl Db {
     }
 }
 
+/// Executes the normal group creation service inside a caller-owned transaction.
+pub(super) async fn create_airhop_group_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    input: &CreateGroupInput,
+) -> Result<GroupMutationOutcome> {
+    validate_agent_create_input(input)?;
+    let organization_id = resolve_active_organization(&mut **transaction, tenant).await?;
+    let command = match insert_pending_command(
+        transaction,
+        tenant,
+        &NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id,
+            command_type: CREATE_GROUP_COMMAND_TYPE.to_owned(),
+            idempotency_digest: input.idempotency_digest,
+            request_hash: input.request_hash,
+            actor: input.actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        },
+    )
+    .await?
+    {
+        CommandInsertOutcome::Inserted(command) => command,
+        CommandInsertOutcome::Existing(command) => return replay_without_commit(command),
+    };
+    require_active_branch(transaction, tenant, organization_id, input.group.branch_id).await?;
+    validate_group_links(
+        transaction,
+        tenant,
+        organization_id,
+        &input.group,
+        &BTreeSet::new(),
+        None,
+    )
+    .await?;
+    for rule in &input.active_rules {
+        validate_rule_links(transaction, tenant, organization_id, &input.group, rule).await?;
+    }
+    let group_id = Uuid::new_v4();
+    let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
+        .fetch_one(&mut **transaction)
+        .await?;
+    let trial_policy = optional_json(input.group.trial_policy_override.as_ref())?;
+    sqlx::query(
+        "INSERT INTO airhop_groups (community_id, organization_id, id, branch_id, \
+             room_id, name, description, min_age_months, max_age_months, capacity, \
+             trial_policy_override, track_attendance_override, \
+             allow_single_visits_override, status, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(group_id)
+    .bind(input.group.branch_id)
+    .bind(input.group.room_id)
+    .bind(input.group.name.trim())
+    .bind(clean_optional(&input.group.description))
+    .bind(input.group.min_age_months)
+    .bind(input.group.max_age_months)
+    .bind(input.group.capacity)
+    .bind(trial_policy)
+    .bind(input.group.track_attendance_override)
+    .bind(input.group.allow_single_visits_override)
+    .bind(input.group.status.as_db_str())
+    .bind(occurred_at)
+    .execute(&mut **transaction)
+    .await?;
+    replace_group_teachers(
+        transaction,
+        tenant,
+        organization_id,
+        group_id,
+        &input.group.teacher_ids,
+    )
+    .await?;
+    for rule in &input.active_rules {
+        insert_rule(
+            transaction,
+            tenant,
+            organization_id,
+            group_id,
+            rule,
+            occurred_at,
+        )
+        .await?;
+    }
+    super::schedule::rematerialize_group_schedule(
+        transaction,
+        tenant,
+        organization_id,
+        group_id,
+        occurred_at,
+    )
+    .await?;
+    append_domain_event(
+        transaction,
+        tenant,
+        &NewDomainEvent {
+            id: Uuid::new_v4(),
+            organization_id,
+            stream_type: "group".to_owned(),
+            stream_id: group_id,
+            stream_version: 1,
+            event_type: "airhop.group.created.v1".to_owned(),
+            schema_version: 1,
+            occurred_at,
+            actor: input.actor.clone(),
+            causation_id: command.id,
+            correlation_id: command.correlation_id,
+            payload: json!({
+                "groupId": group_id,
+                "branchId": input.group.branch_id,
+                "roomId": input.group.room_id,
+                "activeRuleCount": input.active_rules.len(),
+            }),
+            privacy_class: PrivacyClass::Operational,
+        },
+    )
+    .await?;
+    let stored = StoredGroupMutationResult {
+        group_id,
+        version: 1,
+    };
+    commit_command(
+        transaction,
+        tenant,
+        organization_id,
+        command.id,
+        &serde_json::to_value(&stored)?,
+    )
+    .await?;
+    Ok(GroupMutationOutcome {
+        group_id,
+        version: 1,
+        replayed: false,
+    })
+}
+
+fn replay_without_commit(command: AirhopCommand) -> Result<GroupMutationOutcome> {
+    match command.status {
+        CommandStatus::Pending => Err(DbError::AirhopCommandInProgress),
+        CommandStatus::Failed => Err(DbError::AirhopCommandPreviouslyFailed),
+        CommandStatus::Committed => {
+            let stored: StoredGroupMutationResult =
+                serde_json::from_value(command.result.ok_or_else(|| {
+                    DbError::InvalidData("committed AirHub command has no result".to_owned())
+                })?)?;
+            Ok(GroupMutationOutcome {
+                group_id: stored.group_id,
+                version: stored.version,
+                replayed: true,
+            })
+        }
+    }
+}
+
 async fn resolve_active_organization<'e, E>(executor: E, tenant: &TenantContext) -> Result<Uuid>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
@@ -1366,6 +1523,14 @@ fn parse_rule_row(row: sqlx::postgres::PgRow) -> Result<AirhopRecurrenceRule> {
 }
 
 fn validate_create_input(input: &CreateGroupInput) -> Result<()> {
+    validate_create_input_for_actor(input, false)
+}
+
+fn validate_agent_create_input(input: &CreateGroupInput) -> Result<()> {
+    validate_create_input_for_actor(input, true)
+}
+
+fn validate_create_input_for_actor(input: &CreateGroupInput, allow_bot: bool) -> Result<()> {
     if input.group.status != GroupStatus::Active
         || input.active_rules.iter().any(|rule| rule.id.is_some())
     {
@@ -1373,7 +1538,7 @@ fn validate_create_input(input: &CreateGroupInput) -> Result<()> {
             "new AirHub group or recurrence identity is invalid".to_owned(),
         ));
     }
-    validate_common(&input.group, &input.active_rules, &input.actor)
+    validate_common(&input.group, &input.active_rules, &input.actor, allow_bot)
 }
 
 fn validate_put_input(input: &PutGroupInput) -> Result<()> {
@@ -1382,13 +1547,14 @@ fn validate_put_input(input: &PutGroupInput) -> Result<()> {
             "AirHub group identity or version is invalid".to_owned(),
         ));
     }
-    validate_common(&input.group, &input.active_rules, &input.actor)
+    validate_common(&input.group, &input.active_rules, &input.actor, false)
 }
 
 fn validate_common(
     group: &GroupDefinition,
     rules: &[RecurrenceRuleInput],
     actor: &AirhopActor,
+    allow_bot: bool,
 ) -> Result<()> {
     actor.validate()?;
     let teacher_ids = group.teacher_ids.iter().copied().collect::<BTreeSet<_>>();
@@ -1396,7 +1562,7 @@ fn validate_common(
         .iter()
         .filter_map(|rule| rule.id)
         .collect::<BTreeSet<_>>();
-    if actor.kind != ActorKind::Staff
+    if !(actor.kind == ActorKind::Staff || (allow_bot && actor.kind == ActorKind::Bot))
         || group.branch_id.is_nil()
         || group.room_id.is_some_and(|id| id.is_nil())
         || group.name.trim().is_empty()

@@ -2689,7 +2689,7 @@ async fn ingest_event_inner(
         // duplicate reactions must return before storing a duplicate kind:7 event.
         let thread_params = thread_meta.as_ref().map(|m| m.as_params());
         let relay_pubkey = state.relay_keypair.public_key().to_bytes();
-        let (stored_event, was_inserted, airhop_payment) = match state
+        let (stored_event, was_inserted, airhop_payment, airhop_action) = match state
             .db
             .insert_reaction_event_with_thread_metadata(
                 tenant,
@@ -2705,12 +2705,14 @@ async fn ingest_event_inner(
             .map_err(|error| match error {
                 buzz_db::DbError::AirhopVersionConflict
                 | buzz_db::DbError::AirhopPaymentTransition => IngestError::Rejected(
-                    "conflict: this AirHub payment card is no longer current; wait for the updated card or use AirHub Center"
+                    "conflict: this Airhop card is no longer current; wait for an updated card"
                         .into(),
                 ),
+                buzz_db::DbError::AccessDenied(message) => {
+                    IngestError::Rejected(format!("forbidden: {message}"))
+                }
                 error => IngestError::Internal(format!("error: {error}")),
-            })?
-        {
+            })? {
             buzz_db::ReactionEventInsertOutcome::TargetMissing => {
                 return Err(IngestError::Rejected(
                     "invalid: reaction target event not found".into(),
@@ -2727,7 +2729,8 @@ async fn ingest_event_inner(
                 stored_event,
                 was_inserted,
                 airhop_payment,
-            } => (stored_event, was_inserted, airhop_payment),
+                airhop_action,
+            } => (stored_event, was_inserted, airhop_payment, airhop_action),
         };
 
         let pubkey_hex = auth.pubkey().to_hex();
@@ -2761,7 +2764,14 @@ async fn ingest_event_inner(
         )
         .await;
 
-        if let Some(payment) = airhop_payment {
+        if let Some(action) = &airhop_action {
+            info!(
+                event_id = %event_id_hex,
+                action_id = %action.action_id,
+                replayed = action.replayed,
+                "Airhop specialist action confirmed via Buzz reaction"
+            );
+        } else if let Some(payment) = &airhop_payment {
             info!(
                 event_id = %event_id_hex,
                 payment_id = %payment.payment_id,
@@ -2774,9 +2784,13 @@ async fn ingest_event_inner(
         return Ok(IngestResult {
             event_id: event_id_hex,
             accepted: true,
-            message: airhop_payment.map_or_else(String::new, |_| {
-                "payment marked paid in AirHub Center".to_owned()
-            }),
+            message: if airhop_action.is_some() {
+                "Airhop action applied".to_owned()
+            } else if airhop_payment.is_some() {
+                "payment marked paid in Airhop Center".to_owned()
+            } else {
+                String::new()
+            },
         });
     }
 

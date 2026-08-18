@@ -1146,7 +1146,7 @@ pub(crate) fn normalize_airhop_phone(value: &str) -> Option<String> {
 }
 
 /// Produces the same tenant-scoped phone match key used by public booking.
-pub(super) fn airhop_phone_match_digest(
+pub(crate) fn airhop_phone_match_digest(
     index_key: &[u8; 32],
     community_id: &Uuid,
     phone_normalized: &str,

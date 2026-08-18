@@ -41,9 +41,11 @@ const PERSONA_IDS: Record<AirhopWelcomeRole, string> = {
 
 const RU_NAMES: Record<AirhopWelcomeRole, string> = {
   fizz: "\u0424\u0438\u0437",
-  administrator: "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440",
+  administrator:
+    "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440",
   analyst: "\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a",
-  content_marketer: "\u041a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433",
+  content_marketer:
+    "\u041a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433",
 };
 
 const EN_NAMES: Record<AirhopWelcomeRole, string> = {
@@ -65,23 +67,30 @@ const RU: WelcomeLocalePack = {
   names: RU_NAMES,
   roleLabels: {
     fizz: "\u0440\u0443\u043a\u043e\u0432\u043e\u0434\u0438\u0442\u0435\u043b\u044c \u043a\u043e\u043c\u0430\u043d\u0434\u044b",
-    administrator: "\u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440",
+    administrator:
+      "\u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440",
     analyst: "\u0430\u043d\u0430\u043b\u0438\u0442\u0438\u043a",
-    content_marketer: "\u043a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433",
+    content_marketer:
+      "\u043a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433",
   },
   aliases: {
     fizz: ["\u0424\u0438\u0437", "Fizz"],
-    administrator: ["\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440", "\u0410\u0434\u043c\u0438\u043d"],
+    administrator: [
+      "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440",
+      "\u0410\u0434\u043c\u0438\u043d",
+    ],
     analyst: ["\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a"],
-    content_marketer: ["\u041a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433", "\u041a\u043e\u043d\u0442\u0435\u043d\u0442"],
+    content_marketer: [
+      "\u041a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433",
+      "\u041a\u043e\u043d\u0442\u0435\u043d\u0442",
+    ],
   },
   providerRequired:
     "\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u0435 AI-\u043f\u0440\u043e\u0432\u0430\u0439\u0434\u0435\u0440\u0430 \u0432 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u0445. \u041f\u043e\u0441\u043b\u0435 \u044d\u0442\u043e\u0433\u043e \u043a\u043e\u043c\u0430\u043d\u0434\u0430 Airhop \u0441\u043c\u043e\u0436\u0435\u0442 \u043d\u0430\u0447\u0430\u0442\u044c.",
   specialistUnavailable: (role) =>
     RU_NAMES[role] +
     " \u0441\u0435\u0439\u0447\u0430\u0441 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u042f \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u043b \u0437\u0430\u0434\u0430\u0447\u0443 \u2014 \u043f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0447\u0443\u0442\u044c \u043f\u043e\u0437\u0436\u0435.",
-  kickoffInstruction: (stage, ownerName) =>
-    kickoff("ru", stage, ownerName),
+  kickoffInstruction: (stage, ownerName) => kickoff("ru", stage, ownerName),
 };
 
 const EN: WelcomeLocalePack = {
@@ -104,8 +113,7 @@ const EN: WelcomeLocalePack = {
   specialistUnavailable: (role) =>
     EN_NAMES[role] +
     " is unavailable right now. I kept the task; please try again shortly.",
-  kickoffInstruction: (stage, ownerName) =>
-    kickoff("en", stage, ownerName),
+  kickoffInstruction: (stage, ownerName) => kickoff("en", stage, ownerName),
 };
 
 const PT: WelcomeLocalePack = {
@@ -128,8 +136,7 @@ const PT: WelcomeLocalePack = {
   specialistUnavailable: (role) =>
     PT_NAMES[role] +
     " nao esta disponivel agora. Guardei a tarefa; tente novamente em breve.",
-  kickoffInstruction: (stage, ownerName) =>
-    kickoff("pt", stage, ownerName),
+  kickoffInstruction: (stage, ownerName) => kickoff("pt", stage, ownerName),
 };
 
 function kickoff(
@@ -177,7 +184,11 @@ function kickoff(
       (owner || "Proprietario") +
       ", faca uma primeira pergunta curta para o briefing vivo. Nao anuncie a conclusao.",
   };
-  return language === "ru" ? ru[stage] : language === "pt" ? pt[stage] : en[stage];
+  return language === "ru"
+    ? ru[stage]
+    : language === "pt"
+      ? pt[stage]
+      : en[stage];
 }
 
 export function resolveWelcomeLocale(

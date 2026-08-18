@@ -143,6 +143,8 @@ pub enum ReactionEventInsertOutcome {
         was_inserted: bool,
         /// AirHub payment changed by an exact ✅ confirmation, when applicable.
         airhop_payment: Option<AirhopPaymentReactionConfirmation>,
+        /// Airhop specialist action committed by an exact ✅ confirmation.
+        airhop_action: Option<AirhopAgentActionReactionConfirmation>,
     },
 }
 
@@ -155,11 +157,30 @@ pub struct AirhopPaymentReactionConfirmation {
     pub version: i64,
 }
 
+/// Agent action atomically coupled to a kind:7 confirmation reaction.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AirhopAgentActionReactionConfirmation {
+    /// Stable pending action selected by the relay-signed preview.
+    pub action_id: Uuid,
+    /// Durable typed result and audit payload.
+    pub result: serde_json::Value,
+    /// True when a previously committed action was safely replayed.
+    pub replayed: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AirhopPaymentTag {
     organization_id: Uuid,
     payment_id: Uuid,
     payment_version: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AirhopActionTag {
+    organization_id: Uuid,
+    action_id: Uuid,
+    schema_version: i64,
+    command_digest: [u8; 32],
 }
 
 /// Maximum length for a `d_tag` value (bytes). NIP-33 d-tags are short identifiers;
@@ -1416,12 +1437,45 @@ pub async fn insert_reaction_event_with_thread_metadata(
         None
     };
 
+    let airhop_action = if let Some(action) = recognize_airhop_action_confirmation(
+        emoji,
+        &target_pubkey,
+        relay_pubkey,
+        target_channel_id,
+        channel_id,
+        &target_tags,
+    )? {
+        let action_channel_id = target_channel_id.ok_or_else(|| {
+            DbError::InvalidData("relay-signed Airhop action card has no channel".to_owned())
+        })?;
+        let committed = crate::airhop::agent_actions::commit_airhop_agent_action_from_reaction(
+            &mut tx,
+            tenant,
+            action.organization_id,
+            action.action_id,
+            action.command_digest,
+            action_channel_id,
+            actor_pubkey,
+            reaction_event.id.as_bytes(),
+            target_event_id,
+        )
+        .await?;
+        Some(AirhopAgentActionReactionConfirmation {
+            action_id: committed.action_id,
+            result: committed.result,
+            replayed: committed.replayed,
+        })
+    } else {
+        None
+    };
+
     tx.commit().await?;
 
     Ok(ReactionEventInsertOutcome::Inserted {
         stored_event: Box::new(stored_event),
         was_inserted,
         airhop_payment,
+        airhop_action,
     })
 }
 
@@ -1464,6 +1518,80 @@ fn parse_airhop_payment_tag(tags: &serde_json::Value) -> Result<Option<AirhopPay
         payment_id,
         payment_version,
     }))
+}
+
+fn parse_airhop_action_tag(tags: &serde_json::Value) -> Result<Option<AirhopActionTag>> {
+    let tags = tags.as_array().ok_or_else(|| {
+        DbError::InvalidData("stored Buzz event tags are not an array".to_owned())
+    })?;
+    let Some(parts) = tags.iter().find_map(|tag| {
+        let parts = tag.as_array()?;
+        (parts.first()?.as_str()? == "airhop-action").then_some(parts)
+    }) else {
+        return Ok(None);
+    };
+    if parts.len() != 5 {
+        return Err(DbError::InvalidData(
+            "relay-signed Airhop action tag is malformed".to_owned(),
+        ));
+    }
+    let part = |index: usize| {
+        parts[index].as_str().ok_or_else(|| {
+            DbError::InvalidData("relay-signed Airhop action tag is malformed".to_owned())
+        })
+    };
+    let organization_id = Uuid::parse_str(part(1)?).map_err(|_| {
+        DbError::InvalidData("relay-signed Airhop organization id is malformed".to_owned())
+    })?;
+    let action_id = Uuid::parse_str(part(2)?).map_err(|_| {
+        DbError::InvalidData("relay-signed Airhop action id is malformed".to_owned())
+    })?;
+    let schema_version = part(3)?.parse::<i64>().map_err(|_| {
+        DbError::InvalidData("relay-signed Airhop action schema is malformed".to_owned())
+    })?;
+    let digest = hex::decode(part(4)?).map_err(|_| {
+        DbError::InvalidData("relay-signed Airhop action digest is malformed".to_owned())
+    })?;
+    let command_digest: [u8; 32] = digest.try_into().map_err(|digest: Vec<u8>| {
+        DbError::InvalidData(format!(
+            "relay-signed Airhop action digest must contain 32 bytes, got {}",
+            digest.len()
+        ))
+    })?;
+    if organization_id.is_nil() || action_id.is_nil() || schema_version != 1 {
+        return Err(DbError::InvalidData(
+            "relay-signed Airhop action identity is invalid".to_owned(),
+        ));
+    }
+    Ok(Some(AirhopActionTag {
+        organization_id,
+        action_id,
+        schema_version,
+        command_digest,
+    }))
+}
+
+fn recognize_airhop_action_confirmation(
+    emoji: &str,
+    target_pubkey: &[u8],
+    relay_pubkey: &[u8],
+    target_channel_id: Option<Uuid>,
+    reaction_channel_id: Option<Uuid>,
+    target_tags: &serde_json::Value,
+) -> Result<Option<AirhopActionTag>> {
+    if emoji != "✅" || target_pubkey != relay_pubkey {
+        return Ok(None);
+    }
+    let Some(action) = parse_airhop_action_tag(target_tags)? else {
+        return Ok(None);
+    };
+    let target_channel_id = target_channel_id.ok_or_else(|| {
+        DbError::InvalidData("relay-signed Airhop action card has no channel".to_owned())
+    })?;
+    if reaction_channel_id != Some(target_channel_id) {
+        return Err(DbError::AirhopVersionConflict);
+    }
+    Ok(Some(action))
 }
 
 /// A due reminder row returned by [`query_due_reminders`].
@@ -2066,6 +2194,137 @@ mod tests {
     fn malformed_airhop_payment_tag_is_not_treated_as_a_generic_reaction() {
         let tags = serde_json::json!([["airhop-payment", "not-a-uuid", "missing-version"]]);
         assert!(parse_airhop_payment_tag(&tags).is_err());
+    }
+
+    #[test]
+    fn airhop_agent_action_tag_binds_exact_pending_action_and_digest() {
+        let organization_id = Uuid::from_u128(11);
+        let action_id = Uuid::from_u128(12);
+        let digest = [13_u8; 32];
+        let tags = serde_json::json!([
+            ["h", Uuid::from_u128(14).to_string()],
+            [
+                "airhop-action",
+                organization_id.to_string(),
+                action_id.to_string(),
+                "1",
+                hex::encode(digest),
+            ]
+        ]);
+
+        assert_eq!(
+            parse_airhop_action_tag(&tags).unwrap(),
+            Some(AirhopActionTag {
+                organization_id,
+                action_id,
+                schema_version: 1,
+                command_digest: digest,
+            })
+        );
+    }
+
+    #[test]
+    fn malformed_airhop_agent_action_tag_cannot_fall_back_to_generic_reaction() {
+        let organization_id = Uuid::from_u128(11);
+        let action_id = Uuid::from_u128(12);
+        let extra_part = serde_json::json!([[
+            "airhop-action",
+            organization_id.to_string(),
+            action_id.to_string(),
+            "1",
+            hex::encode([13_u8; 32]),
+            "extra",
+        ]]);
+        let malformed_digest = serde_json::json!([[
+            "airhop-action",
+            organization_id.to_string(),
+            action_id.to_string(),
+            "1",
+            "not-a-digest",
+        ]]);
+
+        assert!(parse_airhop_action_tag(&extra_part).is_err());
+        assert!(parse_airhop_action_tag(&malformed_digest).is_err());
+    }
+
+    #[test]
+    fn ordinary_user_card_is_not_an_airhop_agent_action() {
+        let tags = serde_json::json!([
+            ["h", Uuid::from_u128(14).to_string()],
+            ["subject", "Please confirm"],
+        ]);
+
+        assert_eq!(parse_airhop_action_tag(&tags).unwrap(), None);
+    }
+
+    #[test]
+    fn only_exact_relay_signed_checkmark_action_card_is_recognized() {
+        let organization_id = Uuid::from_u128(11);
+        let action_id = Uuid::from_u128(12);
+        let channel_id = Uuid::from_u128(14);
+        let relay = [15_u8; 32];
+        let tags = serde_json::json!([[
+            "airhop-action",
+            organization_id.to_string(),
+            action_id.to_string(),
+            "1",
+            hex::encode([13_u8; 32]),
+        ]]);
+
+        let recognized = recognize_airhop_action_confirmation(
+            "✅",
+            &relay,
+            &relay,
+            Some(channel_id),
+            Some(channel_id),
+            &tags,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(recognized.action_id, action_id);
+
+        assert!(recognize_airhop_action_confirmation(
+            "👍",
+            &relay,
+            &relay,
+            Some(channel_id),
+            Some(channel_id),
+            &tags,
+        )
+        .unwrap()
+        .is_none());
+        assert!(recognize_airhop_action_confirmation(
+            "✅",
+            &[16_u8; 32],
+            &relay,
+            Some(channel_id),
+            Some(channel_id),
+            &tags,
+        )
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
+    fn relay_action_card_confirmation_rejects_cross_channel_reaction() {
+        let relay = [15_u8; 32];
+        let tags = serde_json::json!([[
+            "airhop-action",
+            Uuid::from_u128(11).to_string(),
+            Uuid::from_u128(12).to_string(),
+            "1",
+            hex::encode([13_u8; 32]),
+        ]]);
+
+        assert!(recognize_airhop_action_confirmation(
+            "✅",
+            &relay,
+            &relay,
+            Some(Uuid::from_u128(14)),
+            Some(Uuid::from_u128(17)),
+            &tags,
+        )
+        .is_err());
     }
 
     #[tokio::test]
