@@ -20,6 +20,8 @@ use crate::{Db, DbError, Result};
 pub mod booking;
 /// Staff booking decisions, messenger bindings, and delivery leases.
 pub mod booking_decision;
+/// Tenant-scoped cohort analytics for trial bookings and first payments.
+pub mod booking_funnel_analytics;
 /// Tenant-scoped branch directory and audited staff commands.
 pub mod branch_directory;
 /// AirHub Center owner-enrollment codes and deployment binding.

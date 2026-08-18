@@ -129,6 +129,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(api::airhop_staff::get_payment_analytics),
         )
         .route(
+            "/api/airhop/staff/v1/booking-funnel-analytics",
+            get(api::airhop_staff::get_booking_funnel_analytics),
+        )
+        .route(
             "/api/airhop/staff/v1/branches",
             get(api::airhop_staff::list_branches).post(api::airhop_staff::create_branch),
         )

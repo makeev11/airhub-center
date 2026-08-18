@@ -14,6 +14,7 @@ const CHILD_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const ENROLLMENT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const TARIFF_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const GROUP_ID = "11111111-1111-4111-8111-111111111111";
+const BRANCH_ID = "22222222-2222-4222-8222-222222222222";
 
 function signedEvent(input) {
   return {
@@ -145,6 +146,80 @@ test("payment service validates currency-safe server analytics", async () => {
   assert.equal(
     result.analytics.currencies[0].periods.at(-1).paidShareBps,
     5000,
+  );
+});
+
+test("payment service validates source-and-branch funnel analytics", async () => {
+  let requested;
+  const stages = {
+    trialBookings: 3,
+    confirmedTrials: 2,
+    attendedTrials: 2,
+    permanentEnrollments: 1,
+    firstPaymentsPaid: 1,
+  };
+  const service = new HttpStaffPaymentService({
+    relayHttpUrl: async () => "https://center.example/",
+    nonceFactory: () => "funnel-nonce",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requested = { url: String(url), init };
+      return new Response(
+        JSON.stringify({
+          organization: organization(),
+          analytics: {
+            asOfDate: "2026-08-18",
+            periods: Array.from({ length: 6 }, (_, index) => ({
+              periodStart: `2026-${String(index + 3).padStart(2, "0")}-01`,
+              stages:
+                index === 5
+                  ? stages
+                  : {
+                      trialBookings: 0,
+                      confirmedTrials: 0,
+                      attendedTrials: 0,
+                      permanentEnrollments: 0,
+                      firstPaymentsPaid: 0,
+                    },
+              firstPaidCurrencies:
+                index === 5
+                  ? [{ currency: "RUB", paidCount: 1, paidMinor: 600000 }]
+                  : [],
+              segments:
+                index === 5
+                  ? [
+                      {
+                        sourceChannel: "website",
+                        branchId: BRANCH_ID,
+                        branchName: "Центр",
+                        stages,
+                        firstPaidCurrencies: [
+                          {
+                            currency: "RUB",
+                            paidCount: 1,
+                            paidMinor: 600000,
+                          },
+                        ],
+                      },
+                    ]
+                  : [],
+            })),
+          },
+        }),
+      );
+    },
+  });
+
+  const result = await service.getBookingFunnelAnalytics();
+  assert.equal(
+    requested.url,
+    "https://center.example/api/airhop/staff/v1/booking-funnel-analytics",
+  );
+  assert.equal(requested.init.method, "GET");
+  assert.equal(result.analytics.periods.at(-1).stages.firstPaymentsPaid, 1);
+  assert.equal(
+    result.analytics.periods.at(-1).segments[0].sourceChannel,
+    "website",
   );
 });
 

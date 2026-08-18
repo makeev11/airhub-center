@@ -260,6 +260,15 @@ test("AirHop exposes the payment analytics route", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Для аналитики пока нет данных" }),
   ).toBeVisible();
+  await page.getByRole("tab", { name: "Воронка" }).click();
+  await expect(
+    page.getByTestId("airhop-booking-funnel-analytics"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "В этой когорте пока нет пробных записей",
+    }),
+  ).toBeVisible();
 });
 
 test("AirHop settings and archived branches survive a browser preview reload", async ({

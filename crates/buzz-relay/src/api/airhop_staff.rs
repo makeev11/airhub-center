@@ -860,6 +860,42 @@ pub(crate) async fn get_payment_analytics(
     })))
 }
 
+/// Cohort funnel from trial booking through the first confirmed payment.
+pub(crate) async fn get_booking_funnel_analytics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/booking-funnel-analytics";
+    let (tenant, _) = authenticate(&state, &headers, "GET", path, None, Access::Staff).await?;
+    let organization = state
+        .db
+        .get_airhop_organization(&tenant)
+        .await
+        .map_err(map_db_error)?
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "AirHub organization is not configured",
+            )
+        })?;
+    let analytics = state
+        .db
+        .get_airhop_staff_booking_funnel_analytics(&tenant)
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "organization": organization_json(
+            organization.id,
+            &organization.name,
+            &organization.locale,
+            &organization.time_zone,
+            organization.payments_buzz_channel_id,
+            &organization.settings,
+        ),
+        "analytics": analytics,
+    })))
+}
+
 /// Idempotently changes one expected payment or its lifecycle.
 pub(crate) async fn mutate_payment(
     State(state): State<Arc<AppState>>,

@@ -24,6 +24,26 @@ export type BookingPaymentMessages = {
   analyticsPaymentsCount: (count: number) => string;
   analyticsNoDataTitle: string;
   analyticsNoDataDescription: string;
+  analyticsPaymentsTab: string;
+  analyticsFunnelTab: string;
+  funnelAsOf: (date: string) => string;
+  funnelCohort: string;
+  funnelSource: string;
+  funnelBranch: string;
+  funnelAllSources: string;
+  funnelAllBranches: string;
+  funnelTrialBookings: string;
+  funnelConfirmedTrials: string;
+  funnelAttendedTrials: string;
+  funnelPermanentEnrollments: string;
+  funnelFirstPaymentsPaid: string;
+  funnelShareOfCohort: string;
+  funnelFirstPaymentAmount: string;
+  funnelTrendTitle: string;
+  funnelTrendDescription: string;
+  funnelNoDataTitle: string;
+  funnelNoDataDescription: string;
+  funnelSourceLabel: (channel: string) => string;
   paymentFilterOpen: string;
   paymentFilterPaid: string;
   paymentFilterCancelled: string;
@@ -110,6 +130,38 @@ export const ruPaymentMessages: BookingPaymentMessages = {
   analyticsNoDataTitle: "Для аналитики пока нет данных",
   analyticsNoDataDescription:
     "Показатели появятся после создания первой ожидаемой оплаты.",
+  analyticsPaymentsTab: "Оплаты",
+  analyticsFunnelTab: "Воронка",
+  funnelAsOf: (date) => `Когорты на ${date}`,
+  funnelCohort: "Месяц заявки",
+  funnelSource: "Источник",
+  funnelBranch: "Филиал",
+  funnelAllSources: "Все источники",
+  funnelAllBranches: "Все филиалы",
+  funnelTrialBookings: "Заявки на пробное",
+  funnelConfirmedTrials: "Пробное подтверждено",
+  funnelAttendedTrials: "Пробное посещено",
+  funnelPermanentEnrollments: "Постоянное зачисление",
+  funnelFirstPaymentsPaid: "Первая оплата",
+  funnelShareOfCohort: "от заявок этой когорты",
+  funnelFirstPaymentAmount: "Сумма первых оплат",
+  funnelTrendTitle: "Когорты за шесть месяцев",
+  funnelTrendDescription:
+    "Каждая строка показывает путь от созданных заявок до первой оплаты.",
+  funnelNoDataTitle: "В этой когорте пока нет пробных записей",
+  funnelNoDataDescription:
+    "Выберите другой месяц, источник или филиал либо дождитесь новых заявок.",
+  funnelSourceLabel: (channel) =>
+    ({
+      website: "Сайт",
+      phone: "Телефон",
+      visit: "Визит",
+      telegram: "Telegram",
+      max: "MAX",
+      whatsapp: "WhatsApp",
+      buzz: "Buzz",
+      other: "Другое",
+    })[channel] ?? channel,
   paymentFilterOpen: "Нужно оплатить",
   paymentFilterPaid: "Оплачено",
   paymentFilterCancelled: "Отменено",

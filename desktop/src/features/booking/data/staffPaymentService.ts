@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  bookingSourceChannelSchema,
   organizationSchema,
   paymentExpectationSchema,
 } from "@/features/booking/model/bookingCore";
@@ -11,6 +12,8 @@ const NIP98_KIND = 27235;
 const REQUEST_TIMEOUT_MS = 15_000;
 const PAYMENTS_PATH = "/api/airhop/staff/v1/payments";
 const PAYMENT_ANALYTICS_PATH = "/api/airhop/staff/v1/payment-analytics";
+const BOOKING_FUNNEL_ANALYTICS_PATH =
+  "/api/airhop/staff/v1/booking-funnel-analytics";
 
 const serverPaymentSchema = paymentExpectationSchema.safeExtend({
   id: z.string().uuid(),
@@ -76,6 +79,39 @@ const paymentAnalyticsSchema = z.object({
   }),
 });
 
+const bookingFunnelStagesSchema = z.object({
+  trialBookings: analyticsCountSchema,
+  confirmedTrials: analyticsCountSchema,
+  attendedTrials: analyticsCountSchema,
+  permanentEnrollments: analyticsCountSchema,
+  firstPaymentsPaid: analyticsCountSchema,
+});
+const bookingFunnelCurrencyAmountSchema = z.object({
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  paidCount: analyticsCountSchema,
+  paidMinor: analyticsAmountSchema,
+});
+const bookingFunnelSegmentSchema = z.object({
+  sourceChannel: bookingSourceChannelSchema,
+  branchId: z.string().uuid(),
+  branchName: z.string().trim().min(1).max(200),
+  stages: bookingFunnelStagesSchema,
+  firstPaidCurrencies: z.array(bookingFunnelCurrencyAmountSchema),
+});
+const bookingFunnelPeriodSchema = z.object({
+  periodStart: z.iso.date(),
+  stages: bookingFunnelStagesSchema,
+  firstPaidCurrencies: z.array(bookingFunnelCurrencyAmountSchema),
+  segments: z.array(bookingFunnelSegmentSchema),
+});
+const bookingFunnelAnalyticsSchema = z.object({
+  organization: organizationSchema,
+  analytics: z.object({
+    asOfDate: z.iso.date(),
+    periods: z.array(bookingFunnelPeriodSchema).length(6),
+  }),
+});
+
 const mutationOutcomeSchema = z.object({
   paymentId: z.string().uuid(),
   version: z.number().int().positive(),
@@ -91,6 +127,18 @@ export type StaffPaymentAnalyticsCurrency = z.infer<
 export type StaffPaymentAnalyticsPeriod = z.infer<
   typeof paymentAnalyticsPeriodSchema
 >;
+export type StaffBookingFunnelAnalytics = z.infer<
+  typeof bookingFunnelAnalyticsSchema
+>;
+export type StaffBookingFunnelPeriod = z.infer<
+  typeof bookingFunnelPeriodSchema
+>;
+export type StaffBookingFunnelSegment = z.infer<
+  typeof bookingFunnelSegmentSchema
+>;
+export type StaffBookingFunnelStages = z.infer<
+  typeof bookingFunnelStagesSchema
+>;
 export type StaffPaymentMutationOutcome = z.infer<typeof mutationOutcomeSchema>;
 
 export type StaffPaymentMutation =
@@ -103,6 +151,7 @@ export type StaffPaymentMutation =
 export interface StaffPaymentService {
   listPayments(): Promise<StaffPaymentQueue>;
   getPaymentAnalytics(): Promise<StaffPaymentAnalytics>;
+  getBookingFunnelAnalytics(): Promise<StaffBookingFunnelAnalytics>;
   mutatePayment(input: {
     paymentId: string;
     expectedVersion: number;
@@ -245,6 +294,36 @@ export class HttpStaffPaymentService implements StaffPaymentService {
       throw new StaffPaymentApiError(
         502,
         "The AirHub payment analytics API returned invalid data.",
+      );
+    }
+    return parsed.data;
+  }
+
+  async getBookingFunnelAnalytics(): Promise<StaffBookingFunnelAnalytics> {
+    const url = await this.url(BOOKING_FUNNEL_ANALYTICS_PATH);
+    const response = await this.fetchImplementation(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: await authorization(
+          "GET",
+          url,
+          undefined,
+          this.nonceFactory(),
+          this.signEvent,
+        ),
+      },
+      credentials: "omit",
+      redirect: "error",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw this.apiError(response, payload);
+    const parsed = bookingFunnelAnalyticsSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new StaffPaymentApiError(
+        502,
+        "The AirHub booking funnel analytics API returned invalid data.",
       );
     }
     return parsed.data;

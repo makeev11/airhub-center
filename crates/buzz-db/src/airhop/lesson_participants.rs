@@ -302,6 +302,7 @@ struct ExistingBooking {
 
 #[derive(Debug)]
 struct TrialEnrollmentSource {
+    booking_id: Uuid,
     family_id: Uuid,
     birth_date: NaiveDate,
     min_age_months: Option<i32>,
@@ -805,6 +806,7 @@ impl Db {
                 correlation_id: command.correlation_id,
                 payload: json!({
                     "enrollmentId": enrollment_id,
+                    "sourceBookingId": source.booking_id,
                     "sourceLesson": input.lesson_ref,
                     "childId": input.child_id,
                     "groupId": occurrence.group_id,
@@ -1271,7 +1273,7 @@ async fn load_trial_enrollment_source(
     group_id: Uuid,
 ) -> Result<TrialEnrollmentSource> {
     let row = sqlx::query(
-        "SELECT booking.family_id, child.birth_date, \
+        "SELECT booking.id AS booking_id, booking.family_id, child.birth_date, \
                 group_row.min_age_months, group_row.max_age_months \
          FROM airhop_bookings booking \
          JOIN airhop_children child \
@@ -1301,6 +1303,7 @@ async fn load_trial_enrollment_source(
     .await?
     .ok_or(DbError::AirhopConfirmedTrialRequired)?;
     Ok(TrialEnrollmentSource {
+        booking_id: row.try_get("booking_id")?,
         family_id: row.try_get("family_id")?,
         birth_date: row.try_get("birth_date")?,
         min_age_months: row.try_get("min_age_months")?,

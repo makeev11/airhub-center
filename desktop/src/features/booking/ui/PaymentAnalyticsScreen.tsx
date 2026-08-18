@@ -4,12 +4,17 @@ import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspacePro
 import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import {
   createHttpStaffPaymentService,
+  type StaffBookingFunnelAnalytics,
   type StaffPaymentAnalytics,
   type StaffPaymentAnalyticsCurrency,
   type StaffPaymentService,
 } from "@/features/booking/data/staffPaymentService";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import { organizationLocalDateTime } from "@/features/booking/lib/bookingDateTime";
+import {
+  buildBookingFunnelAnalytics,
+  type BookingFunnelReport,
+} from "@/features/booking/lib/bookingFunnelAnalytics";
 import { createBookingFormatters } from "@/features/booking/lib/bookingLocale";
 import {
   buildPaymentAnalytics,
@@ -20,6 +25,7 @@ import {
   BookingFeedbackBanners,
   BookingWorkspaceGate,
 } from "@/features/booking/ui/BookingWorkspaceState";
+import { BookingFunnelAnalyticsView } from "@/features/booking/ui/BookingFunnelAnalyticsView";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -165,7 +171,7 @@ function CurrencyAnalytics({
   );
 }
 
-function AnalyticsContent({
+function PaymentAnalyticsContent({
   organization,
   report,
 }: {
@@ -222,6 +228,54 @@ function AnalyticsContent({
   );
 }
 
+function AnalyticsDashboard({
+  funnelReport,
+  organization,
+  paymentReport,
+}: {
+  funnelReport: BookingFunnelReport;
+  organization: BookingOrganization;
+  paymentReport: PaymentAnalyticsReport;
+}) {
+  const messages = getBookingAdminMessages(organization.locale);
+  const [tab, setTab] = React.useState<"payments" | "funnel">("payments");
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2" role="tablist">
+        <Button
+          aria-selected={tab === "payments"}
+          onClick={() => setTab("payments")}
+          role="tab"
+          size="sm"
+          variant={tab === "payments" ? "default" : "outline"}
+        >
+          {messages.analyticsPaymentsTab}
+        </Button>
+        <Button
+          aria-selected={tab === "funnel"}
+          onClick={() => setTab("funnel")}
+          role="tab"
+          size="sm"
+          variant={tab === "funnel" ? "default" : "outline"}
+        >
+          {messages.analyticsFunnelTab}
+        </Button>
+      </div>
+      {tab === "payments" ? (
+        <PaymentAnalyticsContent
+          organization={organization}
+          report={paymentReport}
+        />
+      ) : (
+        <BookingFunnelAnalyticsView
+          organization={organization}
+          report={funnelReport}
+        />
+      )}
+    </div>
+  );
+}
+
 function AnalyticsFrame({
   children,
   locale,
@@ -253,9 +307,13 @@ function WorkspaceAnalyticsContent() {
   return (
     <>
       <BookingFeedbackBanners />
-      <AnalyticsContent
+      <AnalyticsDashboard
+        funnelReport={buildBookingFunnelAnalytics(workspace, asOfDate)}
         organization={workspace.organization}
-        report={buildPaymentAnalytics(workspace.paymentExpectations, asOfDate)}
+        paymentReport={buildPaymentAnalytics(
+          workspace.paymentExpectations,
+          asOfDate,
+        )}
       />
     </>
   );
@@ -278,13 +336,14 @@ function ServerPaymentAnalyticsScreen() {
   const [service] = React.useState<StaffPaymentService>(() =>
     createHttpStaffPaymentService(),
   );
-  const [payload, setPayload] = React.useState<StaffPaymentAnalytics | null>(
-    null,
-  );
+  const [payload, setPayload] = React.useState<{
+    funnel: StaffBookingFunnelAnalytics;
+    payments: StaffPaymentAnalytics;
+  } | null>(null);
   const [error, setError] = React.useState<Error | null>(null);
   const [loading, setLoading] = React.useState(true);
   const locale =
-    payload?.organization.locale ??
+    payload?.payments.organization.locale ??
     booking.workspace?.organization.locale ??
     "ru-RU";
   const messages = getBookingAdminMessages(locale);
@@ -292,7 +351,11 @@ function ServerPaymentAnalyticsScreen() {
     setLoading(true);
     setError(null);
     try {
-      setPayload(await service.getPaymentAnalytics());
+      const [payments, funnel] = await Promise.all([
+        service.getPaymentAnalytics(),
+        service.getBookingFunnelAnalytics(),
+      ]);
+      setPayload({ funnel, payments });
     } catch (cause) {
       setError(cause instanceof Error ? cause : new Error(String(cause)));
     } finally {
@@ -323,9 +386,10 @@ function ServerPaymentAnalyticsScreen() {
           </AlertDescription>
         </Alert>
       ) : (
-        <AnalyticsContent
-          organization={payload.organization}
-          report={payload.analytics}
+        <AnalyticsDashboard
+          funnelReport={payload.funnel.analytics}
+          organization={payload.payments.organization}
+          paymentReport={payload.payments.analytics}
         />
       )}
     </AnalyticsFrame>
