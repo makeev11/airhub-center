@@ -62,6 +62,9 @@ use buzz_db::airhop::staff_queue::{
 use buzz_db::airhop::tariff_directory::{
     AirhopTariff, CreateTariffInput, PutTariffInput, TariffStatus,
 };
+use buzz_db::airhop::teacher_directory::{
+    AirhopTeacher, CreateTeacherInput, PutTeacherInput, TeacherStatus,
+};
 use buzz_db::airhop::{ActorKind, AirhopActor};
 use chrono::{DateTime, NaiveTime, Utc};
 use hmac::digest::KeyInit;
@@ -457,6 +460,24 @@ pub(crate) struct PutTariffBody {
     #[serde(default)]
     payment_day_of_month: Option<i16>,
     status: TariffStatus,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CreateTeacherBody {
+    display_name: String,
+    #[serde(default)]
+    buzz_username: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PutTeacherBody {
+    expected_version: i64,
+    display_name: String,
+    #[serde(default)]
+    buzz_username: Option<String>,
+    status: TeacherStatus,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -888,6 +909,125 @@ pub(crate) async fn put_tariff(
     })))
 }
 
+/// Authoritative active and archived teacher directory.
+pub(crate) async fn list_teachers(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/teachers";
+    let (tenant, _) = authenticate(&state, &headers, "GET", path, None, Access::Staff).await?;
+    let organization = state
+        .db
+        .get_airhop_organization(&tenant)
+        .await
+        .map_err(map_db_error)?
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "Airhop organization is not configured",
+            )
+        })?;
+    let teachers = state
+        .db
+        .list_airhop_teachers(&tenant)
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "organization": organization_json(
+            organization.id,
+            &organization.name,
+            &organization.locale,
+            &organization.time_zone,
+            organization.payments_buzz_channel_id,
+            &organization.settings,
+        ),
+        "organizationVersion": organization.version,
+        "items": teachers.iter().map(teacher_json).collect::<Vec<_>>(),
+    })))
+}
+
+/// Idempotently creates one tenant-scoped teacher profile.
+pub(crate) async fn create_teacher(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/teachers";
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "POST", path, Some(&body), Access::Staff).await?;
+    let request: CreateTeacherBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .create_airhop_teacher(
+            &tenant,
+            &CreateTeacherInput {
+                display_name: request.display_name.trim().to_owned(),
+                buzz_username: trimmed_optional(request.buzz_username),
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.teacher.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("POST", path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "teacherId": outcome.teacher_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Optimistically updates, archives, or restores one teacher profile.
+pub(crate) async fn put_teacher(
+    State(state): State<Arc<AppState>>,
+    Path(teacher_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/teachers/{teacher_id}");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: PutTeacherBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .put_airhop_teacher(
+            &tenant,
+            &PutTeacherInput {
+                teacher_id,
+                expected_version: request.expected_version,
+                display_name: request.display_name.trim().to_owned(),
+                buzz_username: trimmed_optional(request.buzz_username),
+                status: request.status,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.teacher.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("PUT", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "teacherId": outcome.teacher_id,
+        "version": outcome.version,
+        "replayed": outcome.replayed,
+    })))
+}
+
 /// Authoritative payment work queue and retained decision history.
 pub(crate) async fn list_payments(
     State(state): State<Arc<AppState>>,
@@ -1086,6 +1226,11 @@ pub(crate) async fn list_branches(
         .list_airhop_tariffs(&tenant)
         .await
         .map_err(map_db_error)?;
+    let teachers = state
+        .db
+        .list_airhop_teachers(&tenant)
+        .await
+        .map_err(map_db_error)?;
     Ok(Json(json!({
         "organization": organization_json(
             organization.id,
@@ -1102,6 +1247,7 @@ pub(crate) async fn list_branches(
         "recurrenceRules": recurrence_rules.iter().map(recurrence_rule_json).collect::<Vec<_>>(),
         "lessonExceptions": lesson_exceptions.iter().map(lesson_exception_json).collect::<Vec<_>>(),
         "tariffs": tariffs.iter().map(tariff_json).collect::<Vec<_>>(),
+        "teachers": teachers.iter().map(teacher_json).collect::<Vec<_>>(),
     })))
 }
 
@@ -2937,6 +3083,19 @@ fn tariff_json(tariff: &AirhopTariff) -> Value {
     })
 }
 
+fn teacher_json(teacher: &AirhopTeacher) -> Value {
+    json!({
+        "id": teacher.id,
+        "organizationId": teacher.organization_id,
+        "displayName": teacher.display_name,
+        "buzzUsername": teacher.buzz_username,
+        "status": teacher.status,
+        "version": teacher.version,
+        "createdAt": teacher.created_at,
+        "updatedAt": teacher.updated_at,
+    })
+}
+
 fn room_json(room: &AirhopRoom) -> Value {
     json!({
         "id": room.id,
@@ -3465,6 +3624,26 @@ mod tests {
         assert_eq!(body.price_minor, 600_000);
         assert_eq!(body.weekly_schedule_limit, 2);
         assert_eq!(body.payment_day_of_month, None);
+    }
+
+    #[test]
+    fn teacher_body_contract_uses_camel_case_and_rejects_unknown_fields() {
+        let body: PutTeacherBody = serde_json::from_value(json!({
+            "expectedVersion": 4,
+            "displayName": "Анна Орлова",
+            "buzzUsername": "anna",
+            "status": "archived"
+        }))
+        .expect("valid teacher body");
+        assert_eq!(body.expected_version, 4);
+        assert_eq!(body.display_name, "Анна Орлова");
+        assert_eq!(body.buzz_username.as_deref(), Some("anna"));
+        assert_eq!(body.status, TeacherStatus::Archived);
+        assert!(serde_json::from_value::<CreateTeacherBody>(json!({
+            "displayName": "Анна Орлова",
+            "unexpected": true
+        }))
+        .is_err());
     }
 
     #[test]

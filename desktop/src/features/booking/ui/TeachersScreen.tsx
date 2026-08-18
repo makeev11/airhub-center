@@ -1,7 +1,12 @@
 import * as React from "react";
 import { AtSign, Plus, UserRound } from "lucide-react";
 
-import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import {
+  BookingWorkspaceProvider,
+  useBookingWorkspace,
+} from "@/features/booking/data/BookingWorkspaceProvider";
+import { createHttpBookingBranchesRepository } from "@/features/booking/data/httpBookingBranchesRepository";
+import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import { teacherUsage } from "@/features/booking/lib/bookingAdmin";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import type { BookingTeacher } from "@/features/booking/model/bookingCore";
@@ -238,7 +243,7 @@ function TeachersContent({ createRequest }: { createRequest: number }) {
   );
 }
 
-export function TeachersScreen() {
+function TeachersScreenContent() {
   const booking = useBookingWorkspace();
   const messages = getBookingAdminMessages(
     booking.workspace?.organization.locale ?? "ru-RU",
@@ -268,5 +273,25 @@ export function TeachersScreen() {
         </BookingWorkspaceGate>
       </div>
     </div>
+  );
+}
+
+function ServerTeachersScreen() {
+  const [repository] = React.useState(() =>
+    createHttpBookingBranchesRepository(),
+  );
+  return (
+    <BookingWorkspaceProvider repository={repository}>
+      <TeachersScreenContent />
+    </BookingWorkspaceProvider>
+  );
+}
+
+/** Uses PostgreSQL teacher commands in Tauri and isolated demo state in previews. */
+export function TeachersScreen() {
+  return currentAirhopStaffDataRuntime() === "server" ? (
+    <ServerTeachersScreen />
+  ) : (
+    <TeachersScreenContent />
   );
 }

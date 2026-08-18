@@ -74,8 +74,10 @@ pub mod schedule;
 pub mod staff_queue;
 /// Tenant-scoped tariff directory and audited staff commands.
 pub mod tariff_directory;
+/// Tenant-scoped teacher directory and audited staff commands.
+pub mod teacher_directory;
 
-/// Lifecycle of an AirHub organization.
+/// Lifecycle of an Airhop organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrganizationStatus {
     /// Operational reads and writes are allowed subject to policy.

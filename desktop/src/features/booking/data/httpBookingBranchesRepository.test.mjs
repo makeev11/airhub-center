@@ -14,6 +14,7 @@ const ROOM_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const GROUP_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const RULE_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const EXCEPTION_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+const TEACHER_ID = "11111111-1111-4111-8111-111111111111";
 
 function signedEvent(input) {
   return {
@@ -70,6 +71,18 @@ function room(overrides = {}) {
     organizationId: ORGANIZATION_ID,
     branchId: BRANCH_ID,
     name: "Большой зал",
+    status: "active",
+    version: 1,
+    ...overrides,
+  };
+}
+
+function teacher(overrides = {}) {
+  return {
+    id: TEACHER_ID,
+    organizationId: ORGANIZATION_ID,
+    displayName: "Анна Орлова",
+    buzzUsername: "anna",
     status: "active",
     version: 1,
     ...overrides,
@@ -138,6 +151,7 @@ function directory(
   groups = [],
   recurrenceRules = [],
   lessonExceptions = [],
+  teachers = [],
 ) {
   return {
     organization: organization(),
@@ -147,6 +161,7 @@ function directory(
     groups,
     recurrenceRules,
     lessonExceptions,
+    teachers,
   };
 }
 
@@ -156,6 +171,10 @@ function mutation(version = 1) {
 
 function roomMutation(version = 1) {
   return { roomId: ROOM_ID, version, replayed: false };
+}
+
+function teacherMutation(version = 1) {
+  return { teacherId: TEACHER_ID, version, replayed: false };
 }
 
 function groupMutation(version = 1) {
@@ -189,6 +208,11 @@ function draftFrom(workspace, branches) {
 function draftWithRooms(workspace, rooms) {
   const { revision: _revision, ...draft } = workspace;
   return { ...draft, rooms };
+}
+
+function draftWithTeachers(workspace, teachers) {
+  const { revision: _revision, ...draft } = workspace;
+  return { ...draft, teachers };
 }
 
 function draftWithGroups(workspace, groups, recurrenceRules) {
@@ -657,4 +681,111 @@ test("branches repository rejects malformed successful responses", async () => {
     repository.load(),
     (error) => error instanceof BookingBranchesApiError && error.status === 502,
   );
+});
+test("branches repository creates a server-owned teacher and reloads it", async () => {
+  const requests = [];
+  let getCount = 0;
+  const repository = new HttpBookingBranchesRepository({
+    relayHttpUrl: async () => "https://center.example/",
+    idempotencyKeyFactory: () => "teacher-create-1234567890",
+    nonceFactory: () => `nonce-${requests.length}`,
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), init });
+      if (init.method === "GET") {
+        getCount += 1;
+        return jsonResponse(
+          directory([], 3, [], [], [], [], getCount === 1 ? [] : [teacher()]),
+        );
+      }
+      return jsonResponse(teacherMutation());
+    },
+  });
+
+  const current = await repository.load();
+  const temporary = {
+    ...teacher(),
+    id: "teacher-temporary",
+  };
+  delete temporary.version;
+  const saved = await repository.save(
+    draftWithTeachers(current, [temporary]),
+    current.revision,
+  );
+
+  assert.equal(saved.teachers[0].id, TEACHER_ID);
+  assert.equal(saved.revision, 4);
+  const post = requests[1];
+  assert.equal(post.url, "https://center.example/api/airhop/staff/v1/teachers");
+  assert.equal(post.init.method, "POST");
+  assert.deepEqual(JSON.parse(post.init.body), {
+    displayName: "Анна Орлова",
+    buzzUsername: "anna",
+  });
+});
+
+test("branches repository updates and archives a versioned teacher", async () => {
+  const requests = [];
+  let getCount = 0;
+  const repository = new HttpBookingBranchesRepository({
+    relayHttpUrl: async () => "https://center.example",
+    idempotencyKeyFactory: () => "teacher-put-1234567890",
+    nonceFactory: () => `nonce-${requests.length}`,
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), init });
+      if (init.method === "GET") {
+        getCount += 1;
+        return jsonResponse(
+          directory(
+            [],
+            3,
+            [],
+            [],
+            [],
+            [],
+            [
+              teacher(
+                getCount === 1
+                  ? { version: 4 }
+                  : {
+                      displayName: "Анна Соколова",
+                      buzzUsername: null,
+                      status: "archived",
+                      version: 5,
+                    },
+              ),
+            ],
+          ),
+        );
+      }
+      return jsonResponse(teacherMutation(5));
+    },
+  });
+
+  const current = await repository.load();
+  const changed = {
+    ...current.teachers[0],
+    displayName: "Анна Соколова",
+    buzzUsername: undefined,
+    status: "archived",
+  };
+  const saved = await repository.save(
+    draftWithTeachers(current, [changed]),
+    current.revision,
+  );
+
+  assert.equal(saved.teachers[0].status, "archived");
+  const put = requests[1];
+  assert.equal(
+    put.url,
+    `https://center.example/api/airhop/staff/v1/teachers/${TEACHER_ID}`,
+  );
+  assert.equal(put.init.method, "PUT");
+  assert.deepEqual(JSON.parse(put.init.body), {
+    expectedVersion: 4,
+    displayName: "Анна Соколова",
+    buzzUsername: null,
+    status: "archived",
+  });
 });

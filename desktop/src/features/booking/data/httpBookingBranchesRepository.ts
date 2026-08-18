@@ -13,11 +13,13 @@ import {
   recurrenceRuleSchema,
   roomSchema,
   tariffSchema,
+  teacherSchema,
   type BookingBranch,
   type BookingGroup,
   type BookingOrganization,
   type BookingRoom,
   type BookingTariff,
+  type BookingTeacher,
   type BookingWorkspace,
   type BookingWorkspaceDraft,
   type LessonException,
@@ -30,6 +32,7 @@ const NIP98_KIND = 27235;
 const REQUEST_TIMEOUT_MS = 15_000;
 const BRANCHES_PATH = "/api/airhop/staff/v1/branches";
 const GROUPS_PATH = "/api/airhop/staff/v1/groups";
+const TEACHERS_PATH = "/api/airhop/staff/v1/teachers";
 
 const serverBranchSchema = branchSchema
   .omit({ defaultBuzzChannelId: true })
@@ -43,6 +46,12 @@ const serverRoomSchema = roomSchema.extend({
   id: z.string().uuid(),
   organizationId: z.string().uuid(),
   branchId: z.string().uuid(),
+  version: z.number().int().positive(),
+});
+const serverTeacherSchema = teacherSchema.extend({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  buzzUsername: z.string().max(160).nullable().optional(),
   version: z.number().int().positive(),
 });
 const serverGroupSchema = groupSchema.safeExtend({
@@ -92,6 +101,7 @@ const directoryResponseSchema = z.object({
   recurrenceRules: z.array(serverRecurrenceRuleSchema),
   lessonExceptions: z.array(serverLessonExceptionSchema).default([]),
   tariffs: z.array(serverTariffSchema).default([]),
+  teachers: z.array(serverTeacherSchema).default([]),
 });
 const mutationResponseSchema = z
   .object({
@@ -101,6 +111,7 @@ const mutationResponseSchema = z
   .and(
     z.union([
       z.object({ branchId: z.string().uuid() }),
+      z.object({ teacherId: z.string().uuid() }),
       z.object({ roomId: z.string().uuid() }),
       z.object({ groupId: z.string().uuid() }),
       z.object({
@@ -143,6 +154,7 @@ function emptyWorkspace(
   organization: BookingOrganization,
   branches: BookingBranch[],
   rooms: BookingRoom[],
+  teachers: BookingTeacher[],
   groups: BookingGroup[],
   recurrenceRules: RecurrenceRule[],
   lessonExceptions: LessonException[],
@@ -155,7 +167,7 @@ function emptyWorkspace(
     organization,
     branches,
     rooms,
-    teachers: [],
+    teachers,
     groups,
     recurrenceRules,
     lessonExceptions,
@@ -231,6 +243,19 @@ function roomBody(room: BookingRoom, expectedVersion?: number) {
 }
 
 function sameRoom(first: BookingRoom, second: BookingRoom): boolean {
+  return JSON.stringify(first) === JSON.stringify(second);
+}
+
+function teacherBody(teacher: BookingTeacher, expectedVersion?: number) {
+  return {
+    ...(expectedVersion === undefined ? {} : { expectedVersion }),
+    displayName: teacher.displayName,
+    buzzUsername: teacher.buzzUsername ?? null,
+    ...(expectedVersion === undefined ? {} : { status: teacher.status }),
+  };
+}
+
+function sameTeacher(first: BookingTeacher, second: BookingTeacher): boolean {
   return JSON.stringify(first) === JSON.stringify(second);
 }
 
@@ -355,6 +380,7 @@ export class HttpBookingBranchesRepository implements BookingRepository {
   private snapshot: BookingWorkspace | null = null;
   private branchVersions = new Map<string, number>();
   private roomVersions = new Map<string, number>();
+  private teacherVersions = new Map<string, number>();
   private groupVersions = new Map<string, number>();
   private lessonExceptionVersions = new Map<string, number>();
 
@@ -385,6 +411,7 @@ export class HttpBookingBranchesRepository implements BookingRepository {
     }
     const nextBranches = z.array(branchSchema).parse(draft.branches);
     const nextRooms = z.array(roomSchema).parse(draft.rooms);
+    const nextTeachers = z.array(teacherSchema).parse(draft.teachers);
     const nextGroups = z.array(groupSchema).parse(draft.groups);
     const nextRules = z
       .array(recurrenceRuleSchema)
@@ -400,6 +427,12 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       current.rooms.map((room) => [room.id, room]),
     );
     const nextRoomsById = new Map(nextRooms.map((room) => [room.id, room]));
+    const currentTeachersById = new Map(
+      current.teachers.map((teacher) => [teacher.id, teacher]),
+    );
+    const nextTeachersById = new Map(
+      nextTeachers.map((teacher) => [teacher.id, teacher]),
+    );
     const currentGroupsById = new Map(
       current.groups.map((group) => [group.id, group]),
     );
@@ -434,6 +467,12 @@ export class HttpBookingBranchesRepository implements BookingRepository {
         "Rooms must be archived instead of removed.",
       );
     }
+    if (current.teachers.some((teacher) => !nextTeachersById.has(teacher.id))) {
+      throw new BookingBranchesApiError(
+        400,
+        "Teachers must be archived instead of removed.",
+      );
+    }
     if (current.groups.some((group) => !nextGroupsById.has(group.id))) {
       throw new BookingBranchesApiError(
         400,
@@ -459,6 +498,13 @@ export class HttpBookingBranchesRepository implements BookingRepository {
     const changedRooms = nextRooms.filter((room) => {
       const previous = currentRoomsById.get(room.id);
       return previous !== undefined && !sameRoom(previous, room);
+    });
+    const createdTeachers = nextTeachers.filter(
+      (teacher) => !currentTeachersById.has(teacher.id),
+    );
+    const changedTeachers = nextTeachers.filter((teacher) => {
+      const previous = currentTeachersById.get(teacher.id);
+      return previous !== undefined && !sameTeacher(previous, teacher);
     });
     const createdGroups = nextGroups.filter(
       (group) => !currentGroupsById.has(group.id),
@@ -499,6 +545,8 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       changedBranches.length +
       createdRooms.length +
       changedRooms.length +
+      createdTeachers.length +
+      changedTeachers.length +
       affectedGroupIds.size +
       createdExceptions.length +
       changedExceptions.length +
@@ -507,7 +555,7 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       if (mutationCount === 0) return current;
       throw new BookingBranchesApiError(
         400,
-        "Save one AirHub branch, room, group, or lesson at a time.",
+        "Save one Airhop branch, room, teacher, group, or lesson at a time.",
       );
     }
     try {
@@ -534,6 +582,30 @@ export class HttpBookingBranchesRepository implements BookingRepository {
           restoredExceptions.length === 1
             ? { action: "restore", expectedVersion }
             : lessonExceptionBody(exception, expectedVersion),
+        );
+      } else if (createdTeachers.length === 1) {
+        const teacher = createdTeachers[0];
+        if (teacher.status !== "active") {
+          throw new BookingBranchesApiError(
+            400,
+            "A new Airhop teacher must be active.",
+          );
+        }
+        await this.mutate("POST", TEACHERS_PATH, teacherBody(teacher));
+      } else if (changedTeachers.length === 1) {
+        const teacher = changedTeachers[0];
+        const version = this.teacherVersions.get(teacher.id);
+        const teacherId = z.string().uuid().safeParse(teacher.id);
+        if (!teacherId.success || version === undefined) {
+          throw new BookingBranchesApiError(
+            400,
+            "The Airhop teacher identity is not server-owned.",
+          );
+        }
+        await this.mutate(
+          "PUT",
+          `${TEACHERS_PATH}/${encodeURIComponent(teacherId.data)}`,
+          teacherBody(teacher, version),
         );
       } else if (createdBranches.length === 1) {
         if (createdBranches[0].status !== "active") {
@@ -696,6 +768,9 @@ export class HttpBookingBranchesRepository implements BookingRepository {
     this.roomVersions = new Map(
       parsed.data.rooms.map((room) => [room.id, room.version]),
     );
+    this.teacherVersions = new Map(
+      parsed.data.teachers.map((teacher) => [teacher.id, teacher.version]),
+    );
     this.groupVersions = new Map(
       parsed.data.groups.map((group) => [group.id, group.version]),
     );
@@ -714,6 +789,13 @@ export class HttpBookingBranchesRepository implements BookingRepository {
     );
     const rooms = parsed.data.rooms.map(({ version: _version, ...room }) =>
       roomSchema.parse(room),
+    );
+    const teachers = parsed.data.teachers.map(
+      ({ version: _version, buzzUsername, ...teacher }) =>
+        teacherSchema.parse({
+          ...teacher,
+          ...(buzzUsername ? { buzzUsername } : {}),
+        }),
     );
     const groups = parsed.data.groups.map(({ version: _version, ...group }) =>
       groupSchema.parse(group),
@@ -737,6 +819,10 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       parsed.data.organizationVersion +
       parsed.data.items.reduce((total, branch) => total + branch.version, 0) +
       parsed.data.rooms.reduce((total, room) => total + room.version, 0) +
+      parsed.data.teachers.reduce(
+        (total, teacher) => total + teacher.version,
+        0,
+      ) +
       parsed.data.groups.reduce((total, group) => total + group.version, 0) +
       parsed.data.recurrenceRules.reduce(
         (total, rule) => total + rule.version,
@@ -751,6 +837,7 @@ export class HttpBookingBranchesRepository implements BookingRepository {
       parsed.data.organization,
       branches,
       rooms,
+      teachers,
       groups,
       recurrenceRules,
       lessonExceptions,

@@ -117,6 +117,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             put(api::airhop_staff::put_tariff),
         )
         .route(
+            "/api/airhop/staff/v1/teachers",
+            get(api::airhop_staff::list_teachers).post(api::airhop_staff::create_teacher),
+        )
+        .route(
+            "/api/airhop/staff/v1/teachers/{teacher_id}",
+            put(api::airhop_staff::put_teacher),
+        )
+        .route(
             "/api/airhop/staff/v1/payments",
             get(api::airhop_staff::list_payments),
         )
