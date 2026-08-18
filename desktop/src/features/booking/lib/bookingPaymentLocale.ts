@@ -60,6 +60,20 @@ export type BookingPaymentMessages = {
   paymentGroup: string;
   paymentDueDate: string;
   paymentAmount: string;
+  paymentReceived: string;
+  paymentOutstanding: string;
+  paymentHistory: string;
+  paymentReceipt: string;
+  paymentRefund: string;
+  paymentRefundAction: string;
+  paymentMethod: string;
+  paymentMethodCash: string;
+  paymentMethodCard: string;
+  paymentMethodBankTransfer: string;
+  paymentMethodOther: string;
+  paymentNote: string;
+  paymentNotePlaceholder: string;
+  paymentRefundSuccess: string;
   paymentMarkPaid: string;
   paymentChangeAmount: string;
   paymentMoveDueDate: string;
@@ -75,6 +89,8 @@ export type BookingPaymentMessages = {
   paymentPaidTitle: string;
   paymentPaidDescription: string;
   paymentAmountTitle: string;
+  paymentRefundTitle: string;
+  paymentRefundDescription: string;
   paymentAmountDescription: string;
   paymentDueDateTitle: string;
   paymentDueDateDescription: string;
@@ -89,6 +105,7 @@ export type BookingPaymentMessages = {
   paymentInvalidAmount: string;
   paymentConfirmPaid: string;
   paymentConfirmAmount: string;
+  paymentConfirmRefund: string;
   paymentConfirmDueDate: string;
   paymentConfirmCancel: string;
   paymentConfirmRestore: string;
@@ -183,6 +200,20 @@ export const ruPaymentMessages: BookingPaymentMessages = {
   paymentDueDate: "Срок оплаты",
   paymentAmount: "Сумма",
   paymentMarkPaid: "Отметить оплату",
+  paymentReceived: "Получено",
+  paymentOutstanding: "Осталось",
+  paymentHistory: "История операций",
+  paymentReceipt: "Оплата",
+  paymentRefund: "Возврат",
+  paymentRefundAction: "Оформить возврат",
+  paymentMethod: "Способ оплаты",
+  paymentMethodCash: "Наличные",
+  paymentMethodCard: "Карта",
+  paymentMethodBankTransfer: "Банковский перевод",
+  paymentMethodOther: "Другое",
+  paymentNote: "Заметка (необязательно)",
+  paymentNotePlaceholder: "Например, номер перевода или комментарий",
+  paymentRefundSuccess: "Возврат записан",
   paymentChangeAmount: "Изменить сумму",
   paymentMoveDueDate: "Перенести срок",
   paymentCancel: "Отменить оплату",
@@ -198,6 +229,9 @@ export const ruPaymentMessages: BookingPaymentMessages = {
   paymentPaidTitle: "Подтвердить оплату",
   paymentPaidDescription:
     "После подтверждения оплата уйдёт из рабочей очереди в историю.",
+  paymentRefundTitle: "Оформить возврат",
+  paymentRefundDescription:
+    "Возврат уменьшит полученную сумму и вернёт остаток в рабочую очередь.",
   paymentAmountTitle: "Изменить сумму оплаты",
   paymentAmountDescription:
     "Изменение касается только этой оплаты и не меняет стоимость тарифа.",
@@ -218,6 +252,7 @@ export const ruPaymentMessages: BookingPaymentMessages = {
   paymentConfirmPaid: "Подтвердить оплату",
   paymentConfirmAmount: "Сохранить сумму",
   paymentConfirmDueDate: "Перенести срок",
+  paymentConfirmRefund: "Записать возврат",
   paymentConfirmCancel: "Отменить оплату",
   paymentConfirmRestore: "Восстановить",
   paymentActionSummary: (child, amount, date) =>

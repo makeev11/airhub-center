@@ -1,4 +1,6 @@
-//! Tenant-scoped payment work queue and audited staff commands.
+//! Tenant-scoped payment ledger, work queue, and audited staff commands.
+
+use std::collections::BTreeMap;
 
 use buzz_core::TenantContext;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -42,6 +44,104 @@ impl PaymentStatus {
     }
 }
 
+/// Immutable direction of one money movement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaymentTransactionKind {
+    /// Money received from a family.
+    Receipt,
+    /// Money returned to a family.
+    Refund,
+}
+
+impl PaymentTransactionKind {
+    fn from_db(value: &str) -> Result<Self> {
+        match value {
+            "receipt" => Ok(Self::Receipt),
+            "refund" => Ok(Self::Refund),
+            other => Err(DbError::InvalidData(format!(
+                "unknown AirHub payment transaction kind {other:?}"
+            ))),
+        }
+    }
+
+    const fn as_db(self) -> &'static str {
+        match self {
+            Self::Receipt => "receipt",
+            Self::Refund => "refund",
+        }
+    }
+}
+
+/// Staff-selected payment method or a trusted system source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaymentMethod {
+    /// Physical cash.
+    Cash,
+    /// Card or acquiring terminal.
+    Card,
+    /// Bank transfer.
+    BankTransfer,
+    /// Another staff-described method.
+    Other,
+    /// Full outstanding balance confirmed from a reserved Buzz card.
+    Buzz,
+    /// Receipt materialized from a pre-ledger paid row.
+    Legacy,
+}
+
+impl PaymentMethod {
+    fn from_db(value: &str) -> Result<Self> {
+        match value {
+            "cash" => Ok(Self::Cash),
+            "card" => Ok(Self::Card),
+            "bank_transfer" => Ok(Self::BankTransfer),
+            "other" => Ok(Self::Other),
+            "buzz" => Ok(Self::Buzz),
+            "legacy" => Ok(Self::Legacy),
+            other => Err(DbError::InvalidData(format!(
+                "unknown AirHub payment method {other:?}"
+            ))),
+        }
+    }
+
+    const fn as_db(self) -> &'static str {
+        match self {
+            Self::Cash => "cash",
+            Self::Card => "card",
+            Self::BankTransfer => "bank_transfer",
+            Self::Other => "other",
+            Self::Buzz => "buzz",
+            Self::Legacy => "legacy",
+        }
+    }
+}
+
+/// One append-only receipt or refund belonging to an expected payment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaffPaymentTransaction {
+    /// Stable transaction identity.
+    pub id: Uuid,
+    /// Parent expected payment.
+    pub payment_expectation_id: Uuid,
+    /// Receipt or refund.
+    pub kind: PaymentTransactionKind,
+    /// Positive magnitude in minor units.
+    pub amount_minor: i64,
+    /// Currency snapshot, always matching the parent expectation.
+    pub currency: String,
+    /// Staff-selected method or system source.
+    pub payment_method: PaymentMethod,
+    /// Optional staff note or refund reason.
+    pub note: Option<String>,
+    /// Business occurrence instant.
+    pub occurred_at: DateTime<Utc>,
+    /// Verified staff/system attribution.
+    pub recorded_by: String,
+}
+
 /// Server-authoritative expected-payment record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,6 +162,10 @@ pub struct StaffPaymentRecord {
     pub tariff_name_snapshot: String,
     /// Current amount for this payment only, in minor units.
     pub amount_minor: i64,
+    /// Net received amount after refunds, in minor units.
+    pub paid_minor: i64,
+    /// Amount still expected, in minor units.
+    pub outstanding_minor: i64,
     /// Three-letter currency code.
     pub currency: String,
     /// Organization-local due date.
@@ -84,6 +188,8 @@ pub struct StaffPaymentRecord {
     pub created_at: DateTime<Utc>,
     /// Last mutation instant.
     pub updated_at: DateTime<Utc>,
+    /// Newest-first immutable money movements.
+    pub transactions: Vec<StaffPaymentTransaction>,
 }
 
 /// Minimal family label required by the payment queue.
@@ -145,6 +251,22 @@ pub struct StaffPaymentQueueItem {
 pub enum PaymentChange {
     /// Confirm receipt of money.
     MarkPaid,
+    /// Record a partial or full receipt.
+    RecordPayment {
+        /// Positive received amount in minor units.
+        amount_minor: i64,
+        /// How the family paid.
+        method: PaymentMethod,
+        /// Optional staff note.
+        note: Option<String>,
+    },
+    /// Record a partial or full refund without deleting the original receipt.
+    RefundPayment {
+        /// Positive returned amount in minor units.
+        amount_minor: i64,
+        /// Required staff reason.
+        reason: String,
+    },
     /// Cancel the expectation and retain a staff reason on the row.
     Cancel {
         /// Staff-only reason retained on the cancelled row.
@@ -208,8 +330,18 @@ struct StoredPaymentMutationResult {
 struct LockedPayment {
     status: PaymentStatus,
     amount_minor: i64,
+    paid_minor: i64,
+    currency: String,
     due_date: NaiveDate,
     version: i64,
+}
+
+#[derive(Debug)]
+struct AppliedPaymentChange {
+    version: i64,
+    transaction_id: Option<Uuid>,
+    paid_minor: i64,
+    outstanding_minor: i64,
 }
 
 impl Db {
@@ -222,7 +354,10 @@ impl Db {
         let rows = sqlx::query(
             "SELECT payment.id, payment.organization_id, payment.family_id, payment.child_id, \
                     payment.enrollment_id, payment.tariff_id, payment.tariff_name_snapshot, \
-                    payment.amount_minor, payment.currency, payment.due_date, payment.status, \
+                    payment.amount_minor, COALESCE(ledger.paid_minor, 0)::BIGINT AS paid_minor, \
+                    GREATEST(payment.amount_minor - COALESCE(ledger.paid_minor, 0), 0)::BIGINT \
+                        AS outstanding_minor, \
+                    payment.currency, payment.due_date, payment.status, \
                     payment.paid_at, payment.paid_by, payment.cancelled_at, \
                     payment.cancelled_by, payment.internal_reason, payment.version, \
                     payment.created_at, payment.updated_at, \
@@ -245,6 +380,15 @@ impl Db {
                ON group_row.community_id = enrollment.community_id \
               AND group_row.organization_id = enrollment.organization_id \
               AND group_row.id = enrollment.group_id \
+             LEFT JOIN LATERAL ( \
+                 SELECT COALESCE(SUM(CASE movement.kind \
+                     WHEN 'receipt' THEN movement.amount_minor \
+                     ELSE -movement.amount_minor END), 0)::BIGINT AS paid_minor \
+                 FROM airhop_payment_transactions movement \
+                 WHERE movement.community_id = payment.community_id \
+                   AND movement.organization_id = payment.organization_id \
+                   AND movement.payment_expectation_id = payment.id \
+             ) ledger ON TRUE \
              WHERE payment.community_id = $1 AND payment.organization_id = $2 \
              ORDER BY CASE payment.status WHEN 'expected' THEN 0 WHEN 'paid' THEN 1 ELSE 2 END, \
                       payment.due_date, lower(child.display_name), payment.id",
@@ -253,7 +397,31 @@ impl Db {
         .bind(organization_id)
         .fetch_all(&self.pool)
         .await?;
-        rows.into_iter().map(parse_queue_row).collect()
+        let transaction_rows = sqlx::query(
+            "SELECT id, payment_expectation_id, kind, amount_minor, currency, \
+                    payment_method, note, occurred_at, recorded_by \
+             FROM airhop_payment_transactions \
+             WHERE community_id = $1 AND organization_id = $2 \
+             ORDER BY occurred_at DESC, id DESC",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut transactions = BTreeMap::<Uuid, Vec<StaffPaymentTransaction>>::new();
+        for row in transaction_rows {
+            let transaction = parse_payment_transaction(row)?;
+            transactions
+                .entry(transaction.payment_expectation_id)
+                .or_default()
+                .push(transaction);
+        }
+        rows.into_iter()
+            .map(|row| {
+                let payment_id = row.try_get("id")?;
+                parse_queue_row(row, transactions.remove(&payment_id).unwrap_or_default())
+            })
+            .collect()
     }
 
     /// Mutates one payment, its immutable audit event, and command receipt atomically.
@@ -286,23 +454,10 @@ impl Db {
                 return replay_mutation(transaction, command).await;
             }
         };
-        let row = sqlx::query(
-            "SELECT status, amount_minor, due_date, version \
-             FROM airhop_payment_expectations \
-             WHERE community_id = $1 AND organization_id = $2 AND id = $3 FOR UPDATE",
-        )
-        .bind(tenant.community().as_uuid())
-        .bind(organization_id)
-        .bind(input.payment_id)
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or_else(|| DbError::NotFound("AirHub payment".to_owned()))?;
-        let current = LockedPayment {
-            status: PaymentStatus::from_db(row.try_get("status")?)?,
-            amount_minor: row.try_get("amount_minor")?,
-            due_date: row.try_get("due_date")?,
-            version: row.try_get("version")?,
-        };
+        let current =
+            load_locked_payment(&mut transaction, tenant, organization_id, input.payment_id)
+                .await?
+                .ok_or_else(|| DbError::NotFound("AirHub payment".to_owned()))?;
         if current.version != input.expected_version {
             return Err(DbError::AirhopVersionConflict);
         }
@@ -315,16 +470,21 @@ impl Db {
             .pubkey
             .map(hex::encode)
             .ok_or_else(|| DbError::InvalidData("staff actor has no public key".to_owned()))?;
-        let version = apply_change(
+        let applied = apply_change(
             &mut transaction,
             tenant,
             organization_id,
-            input,
+            input.payment_id,
+            input.expected_version,
+            &current,
+            &input.change,
+            PaymentMethod::Other,
             occurred_at,
             &actor_reference,
         )
         .await?;
-        let (event_type, payload) = event_for_change(input.payment_id, &current, &input.change);
+        let (event_type, payload) =
+            event_for_change(input.payment_id, &current, &input.change, &applied);
         append_domain_event(
             &mut transaction,
             tenant,
@@ -333,7 +493,7 @@ impl Db {
                 organization_id,
                 stream_type: "payment_expectation".to_owned(),
                 stream_id: input.payment_id,
-                stream_version: version,
+                stream_version: applied.version,
                 event_type: event_type.to_owned(),
                 schema_version: 1,
                 occurred_at,
@@ -351,7 +511,7 @@ impl Db {
             organization_id,
             command.id,
             input.payment_id,
-            version,
+            applied.version,
         )
         .await
     }
@@ -471,50 +631,32 @@ pub(crate) async fn confirm_airhop_payment_from_buzz_reaction(
         },
     };
 
-    let row = sqlx::query(
-        "SELECT status, amount_minor, due_date, version \
-         FROM airhop_payment_expectations \
-         WHERE community_id = $1 AND organization_id = $2 AND id = $3 FOR UPDATE",
-    )
-    .bind(tenant.community().as_uuid())
-    .bind(organization_id)
-    .bind(payment_id)
-    .fetch_optional(&mut **transaction)
-    .await?;
-    let Some(row) = row else {
+    let current = load_locked_payment(transaction, tenant, organization_id, payment_id).await?;
+    let Some(current) = current else {
         return Err(DbError::AirhopPaymentTransition);
-    };
-    let current = LockedPayment {
-        status: PaymentStatus::from_db(row.try_get("status")?)?,
-        amount_minor: row.try_get("amount_minor")?,
-        due_date: row.try_get("due_date")?,
-        version: row.try_get("version")?,
     };
     if current.version != expected_version {
         return Err(DbError::AirhopVersionConflict);
     }
-    validate_transition(&current, &PaymentChange::MarkPaid)?;
+    let change = PaymentChange::MarkPaid;
+    validate_transition(&current, &change)?;
     let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
         .fetch_one(&mut **transaction)
         .await?;
     let actor_reference = hex::encode(actor_pubkey);
-    let version: i64 = sqlx::query_scalar(
-        "UPDATE airhop_payment_expectations \
-         SET status = 'paid', paid_at = $5, paid_by = $6, \
-             cancelled_at = NULL, cancelled_by = NULL, internal_reason = NULL, \
-             version = version + 1, updated_at = $5 \
-         WHERE community_id = $1 AND organization_id = $2 AND id = $3 AND version = $4 \
-         RETURNING version",
+    let applied = apply_change(
+        transaction,
+        tenant,
+        organization_id,
+        payment_id,
+        expected_version,
+        &current,
+        &change,
+        PaymentMethod::Buzz,
+        occurred_at,
+        &actor_reference,
     )
-    .bind(tenant.community().as_uuid())
-    .bind(organization_id)
-    .bind(payment_id)
-    .bind(expected_version)
-    .bind(occurred_at)
-    .bind(actor_reference)
-    .fetch_optional(&mut **transaction)
-    .await?
-    .ok_or(DbError::AirhopVersionConflict)?;
+    .await?;
     append_domain_event(
         transaction,
         tenant,
@@ -523,7 +665,7 @@ pub(crate) async fn confirm_airhop_payment_from_buzz_reaction(
             organization_id,
             stream_type: "payment_expectation".to_owned(),
             stream_id: payment_id,
-            stream_version: version,
+            stream_version: applied.version,
             event_type: "airhop.payment.paid.v1".to_owned(),
             schema_version: 1,
             occurred_at,
@@ -533,6 +675,9 @@ pub(crate) async fn confirm_airhop_payment_from_buzz_reaction(
             payload: json!({
                 "paymentId": payment_id,
                 "previousStatus": current.status,
+                "transactionId": applied.transaction_id,
+                "amountMinor": applied.paid_minor - current.paid_minor,
+                "outstandingMinor": applied.outstanding_minor,
                 "source": "buzz_reaction",
                 "reactionEventId": hex::encode(reaction_event_id),
                 "targetEventId": hex::encode(target_event_id),
@@ -548,11 +693,11 @@ pub(crate) async fn confirm_airhop_payment_from_buzz_reaction(
         command.id,
         &serde_json::to_value(StoredPaymentMutationResult {
             payment_id,
-            version,
+            version: applied.version,
         })?,
     )
     .await?;
-    Ok(version)
+    Ok(applied.version)
 }
 
 fn buzz_confirmation_digest(reaction_event_id: &[u8]) -> [u8; 32] {
@@ -584,30 +729,253 @@ fn buzz_confirmation_request_hash(
     hasher.finalize().into()
 }
 
+async fn load_locked_payment(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    payment_id: Uuid,
+) -> Result<Option<LockedPayment>> {
+    let row = sqlx::query(
+        "SELECT payment.status, payment.amount_minor, payment.currency, payment.due_date, \
+                payment.version, COALESCE(( \
+                    SELECT SUM(CASE ledger.kind WHEN 'receipt' THEN ledger.amount_minor \
+                        ELSE -ledger.amount_minor END) \
+                    FROM airhop_payment_transactions ledger \
+                    WHERE ledger.community_id = payment.community_id \
+                      AND ledger.organization_id = payment.organization_id \
+                      AND ledger.payment_expectation_id = payment.id \
+                ), 0)::BIGINT AS paid_minor \
+         FROM airhop_payment_expectations payment \
+         WHERE payment.community_id = $1 AND payment.organization_id = $2 AND payment.id = $3 \
+         FOR UPDATE",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(payment_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    row.map(|row| {
+        Ok(LockedPayment {
+            status: PaymentStatus::from_db(row.try_get("status")?)?,
+            amount_minor: row.try_get("amount_minor")?,
+            paid_minor: row.try_get("paid_minor")?,
+            currency: row.try_get::<String, _>("currency")?.trim().to_owned(),
+            due_date: row.try_get("due_date")?,
+            version: row.try_get("version")?,
+        })
+    })
+    .transpose()
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn insert_payment_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    payment_id: Uuid,
+    kind: PaymentTransactionKind,
+    amount_minor: i64,
+    currency: &str,
+    method: PaymentMethod,
+    note: Option<&str>,
+    occurred_at: DateTime<Utc>,
+    actor_reference: &str,
+) -> Result<Uuid> {
+    let transaction_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO airhop_payment_transactions ( \
+             community_id, organization_id, id, payment_expectation_id, kind, amount_minor, \
+             currency, payment_method, note, occurred_at, recorded_by \
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(transaction_id)
+    .bind(payment_id)
+    .bind(kind.as_db())
+    .bind(amount_minor)
+    .bind(currency)
+    .bind(method.as_db())
+    .bind(note)
+    .bind(occurred_at)
+    .bind(actor_reference)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(transaction_id)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn apply_ledger_movement(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    payment_id: Uuid,
+    expected_version: i64,
+    current: &LockedPayment,
+    kind: PaymentTransactionKind,
+    amount_minor: i64,
+    method: PaymentMethod,
+    note: Option<&str>,
+    occurred_at: DateTime<Utc>,
+    actor_reference: &str,
+) -> Result<AppliedPaymentChange> {
+    let paid_minor = match kind {
+        PaymentTransactionKind::Receipt => current.paid_minor.checked_add(amount_minor),
+        PaymentTransactionKind::Refund => current.paid_minor.checked_sub(amount_minor),
+    }
+    .ok_or_else(|| DbError::InvalidData("AirHub payment balance overflow".to_owned()))?;
+    if paid_minor < 0 || paid_minor > current.amount_minor {
+        return Err(DbError::AirhopPaymentTransition);
+    }
+    let transaction_id = insert_payment_transaction(
+        transaction,
+        tenant,
+        organization_id,
+        payment_id,
+        kind,
+        amount_minor,
+        &current.currency,
+        method,
+        note,
+        occurred_at,
+        actor_reference,
+    )
+    .await?;
+    let fully_paid = paid_minor == current.amount_minor;
+    let status = if fully_paid { "paid" } else { "expected" };
+    let version: i64 = sqlx::query_scalar(
+        "UPDATE airhop_payment_expectations \
+         SET status = $5, paid_at = CASE WHEN $6 THEN $7 ELSE NULL END, \
+             paid_by = CASE WHEN $6 THEN $8 ELSE NULL END, \
+             cancelled_at = NULL, cancelled_by = NULL, internal_reason = NULL, \
+             version = version + 1, updated_at = $7 \
+         WHERE community_id = $1 AND organization_id = $2 AND id = $3 AND version = $4 \
+         RETURNING version",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(payment_id)
+    .bind(expected_version)
+    .bind(status)
+    .bind(fully_paid)
+    .bind(occurred_at)
+    .bind(actor_reference)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(DbError::AirhopVersionConflict)?;
+    Ok(AppliedPaymentChange {
+        version,
+        transaction_id: Some(transaction_id),
+        paid_minor,
+        outstanding_minor: current.amount_minor - paid_minor,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn apply_change(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     tenant: &TenantContext,
     organization_id: Uuid,
-    input: &MutatePaymentInput,
+    payment_id: Uuid,
+    expected_version: i64,
+    current: &LockedPayment,
+    change: &PaymentChange,
+    mark_paid_method: PaymentMethod,
+    occurred_at: DateTime<Utc>,
+    actor_reference: &str,
+) -> Result<AppliedPaymentChange> {
+    let ledger = match change {
+        PaymentChange::MarkPaid => Some((
+            PaymentTransactionKind::Receipt,
+            current.amount_minor - current.paid_minor,
+            mark_paid_method,
+            None,
+        )),
+        PaymentChange::RecordPayment {
+            amount_minor,
+            method,
+            note,
+        } => Some((
+            PaymentTransactionKind::Receipt,
+            *amount_minor,
+            *method,
+            note.as_deref(),
+        )),
+        PaymentChange::RefundPayment {
+            amount_minor,
+            reason,
+        } => Some((
+            PaymentTransactionKind::Refund,
+            *amount_minor,
+            PaymentMethod::Other,
+            Some(reason.trim()),
+        )),
+        PaymentChange::Restore { reason } if current.status == PaymentStatus::Paid => Some((
+            PaymentTransactionKind::Refund,
+            current.paid_minor,
+            PaymentMethod::Other,
+            Some(reason.trim()),
+        )),
+        _ => None,
+    };
+    if let Some((kind, amount_minor, method, note)) = ledger {
+        return apply_ledger_movement(
+            transaction,
+            tenant,
+            organization_id,
+            payment_id,
+            expected_version,
+            current,
+            kind,
+            amount_minor,
+            method,
+            note,
+            occurred_at,
+            actor_reference,
+        )
+        .await;
+    }
+    let version = apply_expectation_change(
+        transaction,
+        tenant,
+        organization_id,
+        payment_id,
+        expected_version,
+        change,
+        occurred_at,
+        actor_reference,
+    )
+    .await?;
+    let amount_minor = match change {
+        PaymentChange::ChangeAmount { amount_minor } => *amount_minor,
+        _ => current.amount_minor,
+    };
+    Ok(AppliedPaymentChange {
+        version,
+        transaction_id: None,
+        paid_minor: current.paid_minor,
+        outstanding_minor: amount_minor - current.paid_minor,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn apply_expectation_change(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tenant: &TenantContext,
+    organization_id: Uuid,
+    payment_id: Uuid,
+    expected_version: i64,
+    change: &PaymentChange,
     occurred_at: DateTime<Utc>,
     actor_reference: &str,
 ) -> Result<i64> {
     let community_id = *tenant.community().as_uuid();
-    let query = match &input.change {
-        PaymentChange::MarkPaid => sqlx::query_scalar(
-            "UPDATE airhop_payment_expectations \
-             SET status = 'paid', paid_at = $5, paid_by = $6, \
-                 cancelled_at = NULL, cancelled_by = NULL, internal_reason = NULL, \
-                 version = version + 1, updated_at = $5 \
-             WHERE community_id = $1 AND organization_id = $2 AND id = $3 AND version = $4 \
-             RETURNING version",
-        )
-        .bind(community_id)
-        .bind(organization_id)
-        .bind(input.payment_id)
-        .bind(input.expected_version)
-        .bind(occurred_at)
-        .bind(actor_reference),
+    let query = match change {
+        PaymentChange::MarkPaid
+        | PaymentChange::RecordPayment { .. }
+        | PaymentChange::RefundPayment { .. } => {
+            return Err(DbError::AirhopPaymentTransition);
+        }
         PaymentChange::Cancel { reason } => sqlx::query_scalar(
             "UPDATE airhop_payment_expectations \
              SET status = 'cancelled', paid_at = NULL, paid_by = NULL, \
@@ -618,8 +986,8 @@ async fn apply_change(
         )
         .bind(community_id)
         .bind(organization_id)
-        .bind(input.payment_id)
-        .bind(input.expected_version)
+        .bind(payment_id)
+        .bind(expected_version)
         .bind(occurred_at)
         .bind(actor_reference)
         .bind(reason.trim()),
@@ -633,8 +1001,8 @@ async fn apply_change(
         )
         .bind(community_id)
         .bind(organization_id)
-        .bind(input.payment_id)
-        .bind(input.expected_version)
+        .bind(payment_id)
+        .bind(expected_version)
         .bind(occurred_at),
         PaymentChange::ChangeAmount { amount_minor } => sqlx::query_scalar(
             "UPDATE airhop_payment_expectations \
@@ -644,8 +1012,8 @@ async fn apply_change(
         )
         .bind(community_id)
         .bind(organization_id)
-        .bind(input.payment_id)
-        .bind(input.expected_version)
+        .bind(payment_id)
+        .bind(expected_version)
         .bind(amount_minor)
         .bind(occurred_at),
         PaymentChange::MoveDueDate { due_date, .. } => sqlx::query_scalar(
@@ -656,8 +1024,8 @@ async fn apply_change(
         )
         .bind(community_id)
         .bind(organization_id)
-        .bind(input.payment_id)
-        .bind(input.expected_version)
+        .bind(payment_id)
+        .bind(expected_version)
         .bind(due_date)
         .bind(occurred_at),
     };
@@ -671,11 +1039,49 @@ fn event_for_change(
     payment_id: Uuid,
     current: &LockedPayment,
     change: &PaymentChange,
+    applied: &AppliedPaymentChange,
 ) -> (&'static str, serde_json::Value) {
     match change {
         PaymentChange::MarkPaid => (
             "airhop.payment.paid.v1",
-            json!({ "paymentId": payment_id, "previousStatus": current.status }),
+            json!({
+                "paymentId": payment_id,
+                "previousStatus": current.status,
+                "transactionId": applied.transaction_id,
+                "amountMinor": applied.paid_minor - current.paid_minor,
+                "paidMinor": applied.paid_minor,
+                "outstandingMinor": applied.outstanding_minor,
+            }),
+        ),
+        PaymentChange::RecordPayment {
+            amount_minor,
+            method,
+            note,
+        } => (
+            "airhop.payment.receipt_recorded.v1",
+            json!({
+                "paymentId": payment_id,
+                "transactionId": applied.transaction_id,
+                "amountMinor": amount_minor,
+                "paymentMethod": method,
+                "note": note,
+                "paidMinor": applied.paid_minor,
+                "outstandingMinor": applied.outstanding_minor,
+            }),
+        ),
+        PaymentChange::RefundPayment {
+            amount_minor,
+            reason,
+        } => (
+            "airhop.payment.refund_recorded.v1",
+            json!({
+                "paymentId": payment_id,
+                "transactionId": applied.transaction_id,
+                "amountMinor": amount_minor,
+                "reason": reason.trim(),
+                "paidMinor": applied.paid_minor,
+                "outstandingMinor": applied.outstanding_minor,
+            }),
         ),
         PaymentChange::Cancel { reason } => (
             "airhop.payment.cancelled.v1",
@@ -720,11 +1126,31 @@ fn validate_input(input: &MutatePaymentInput) -> Result<()> {
         ));
     }
     match &input.change {
+        PaymentChange::RecordPayment { amount_minor, .. }
+        | PaymentChange::RefundPayment { amount_minor, .. }
+            if *amount_minor <= 0 =>
+        {
+            Err(DbError::InvalidData(
+                "AirHub payment transaction amount is invalid".to_owned(),
+            ))
+        }
+        PaymentChange::RecordPayment {
+            method: PaymentMethod::Buzz | PaymentMethod::Legacy,
+            ..
+        } => Err(DbError::InvalidData(
+            "AirHub staff payment method is invalid".to_owned(),
+        )),
+        PaymentChange::RecordPayment {
+            note: Some(note), ..
+        } if note.trim().is_empty() || note.trim().chars().count() > 4_000 => Err(
+            DbError::InvalidData("AirHub payment note is invalid".to_owned()),
+        ),
         PaymentChange::ChangeAmount { amount_minor } if *amount_minor < 0 => Err(
             DbError::InvalidData("AirHub payment amount is invalid".to_owned()),
         ),
         PaymentChange::Cancel { reason }
         | PaymentChange::Restore { reason }
+        | PaymentChange::RefundPayment { reason, .. }
         | PaymentChange::MoveDueDate { reason, .. }
             if reason.trim().is_empty() || reason.trim().chars().count() > 4_000 =>
         {
@@ -737,30 +1163,48 @@ fn validate_input(input: &MutatePaymentInput) -> Result<()> {
 }
 
 fn validate_transition(current: &LockedPayment, change: &PaymentChange) -> Result<()> {
+    let outstanding_minor = current.amount_minor - current.paid_minor;
     let allowed = match change {
-        PaymentChange::MarkPaid
-        | PaymentChange::Cancel { .. }
-        | PaymentChange::ChangeAmount { .. }
-        | PaymentChange::MoveDueDate { .. } => current.status == PaymentStatus::Expected,
-        PaymentChange::Restore { .. } => {
-            matches!(
-                current.status,
-                PaymentStatus::Paid | PaymentStatus::Cancelled
-            )
+        PaymentChange::MarkPaid => {
+            current.status == PaymentStatus::Expected && outstanding_minor > 0
+        }
+        PaymentChange::RecordPayment { amount_minor, .. } => {
+            current.status == PaymentStatus::Expected
+                && *amount_minor > 0
+                && *amount_minor <= outstanding_minor
+        }
+        PaymentChange::RefundPayment { amount_minor, .. } => {
+            current.status != PaymentStatus::Cancelled
+                && *amount_minor > 0
+                && *amount_minor <= current.paid_minor
+        }
+        PaymentChange::Cancel { .. } => {
+            current.status == PaymentStatus::Expected && current.paid_minor == 0
+        }
+        PaymentChange::Restore { .. } => match current.status {
+            PaymentStatus::Paid => current.paid_minor > 0,
+            PaymentStatus::Cancelled => current.paid_minor == 0,
+            PaymentStatus::Expected => false,
+        },
+        PaymentChange::ChangeAmount { amount_minor } => {
+            current.status == PaymentStatus::Expected
+                && *amount_minor != current.amount_minor
+                && (current.paid_minor == 0 || *amount_minor > current.paid_minor)
+        }
+        PaymentChange::MoveDueDate { due_date, .. } => {
+            current.status == PaymentStatus::Expected && *due_date != current.due_date
         }
     };
-    let changes_value = match change {
-        PaymentChange::ChangeAmount { amount_minor } => *amount_minor != current.amount_minor,
-        PaymentChange::MoveDueDate { due_date, .. } => *due_date != current.due_date,
-        _ => true,
-    };
-    if !allowed || !changes_value {
+    if !allowed {
         return Err(DbError::AirhopPaymentTransition);
     }
     Ok(())
 }
 
-fn parse_queue_row(row: sqlx::postgres::PgRow) -> Result<StaffPaymentQueueItem> {
+fn parse_queue_row(
+    row: sqlx::postgres::PgRow,
+    transactions: Vec<StaffPaymentTransaction>,
+) -> Result<StaffPaymentQueueItem> {
     let payment_id = row.try_get("id")?;
     let family_id = row.try_get("family_id")?;
     let child_id = row.try_get("child_id")?;
@@ -775,6 +1219,8 @@ fn parse_queue_row(row: sqlx::postgres::PgRow) -> Result<StaffPaymentQueueItem> 
             tariff_id: row.try_get("tariff_id")?,
             tariff_name_snapshot: row.try_get("tariff_name_snapshot")?,
             amount_minor: row.try_get("amount_minor")?,
+            paid_minor: row.try_get("paid_minor")?,
+            outstanding_minor: row.try_get("outstanding_minor")?,
             currency: row.try_get::<String, _>("currency")?.trim().to_owned(),
             due_date: row.try_get("due_date")?,
             status: PaymentStatus::from_db(row.try_get("status")?)?,
@@ -786,6 +1232,7 @@ fn parse_queue_row(row: sqlx::postgres::PgRow) -> Result<StaffPaymentQueueItem> 
             version: row.try_get("version")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
+            transactions,
         },
         family: StaffPaymentFamily {
             id: family_id,
@@ -800,6 +1247,20 @@ fn parse_queue_row(row: sqlx::postgres::PgRow) -> Result<StaffPaymentQueueItem> 
             id: row.try_get("group_id")?,
             name: row.try_get("group_name")?,
         },
+    })
+}
+
+fn parse_payment_transaction(row: sqlx::postgres::PgRow) -> Result<StaffPaymentTransaction> {
+    Ok(StaffPaymentTransaction {
+        id: row.try_get("id")?,
+        payment_expectation_id: row.try_get("payment_expectation_id")?,
+        kind: PaymentTransactionKind::from_db(row.try_get("kind")?)?,
+        amount_minor: row.try_get("amount_minor")?,
+        currency: row.try_get::<String, _>("currency")?.trim().to_owned(),
+        payment_method: PaymentMethod::from_db(row.try_get("payment_method")?)?,
+        note: row.try_get("note")?,
+        occurred_at: row.try_get("occurred_at")?,
+        recorded_by: row.try_get("recorded_by")?,
     })
 }
 
@@ -872,9 +1333,12 @@ mod tests {
     use super::*;
 
     fn locked(status: PaymentStatus) -> LockedPayment {
+        let paid_minor = i64::from(status == PaymentStatus::Paid) * 450_000;
         LockedPayment {
             status,
             amount_minor: 450_000,
+            paid_minor,
+            currency: "RUB".to_owned(),
             due_date: NaiveDate::from_ymd_opt(2026, 8, 18).unwrap(),
             version: 1,
         }
@@ -899,6 +1363,53 @@ mod tests {
             }
         )
         .is_ok());
+    }
+
+    #[test]
+    fn partial_balance_bounds_receipts_refunds_and_cancellation() {
+        let mut payment = locked(PaymentStatus::Expected);
+        payment.paid_minor = 150_000;
+        assert!(validate_transition(
+            &payment,
+            &PaymentChange::RecordPayment {
+                amount_minor: 300_000,
+                method: PaymentMethod::Card,
+                note: None,
+            },
+        )
+        .is_ok());
+        assert!(validate_transition(
+            &payment,
+            &PaymentChange::RecordPayment {
+                amount_minor: 300_001,
+                method: PaymentMethod::Card,
+                note: None,
+            },
+        )
+        .is_err());
+        assert!(validate_transition(
+            &payment,
+            &PaymentChange::RefundPayment {
+                amount_minor: 150_000,
+                reason: "Возврат".to_owned(),
+            },
+        )
+        .is_ok());
+        assert!(validate_transition(
+            &payment,
+            &PaymentChange::RefundPayment {
+                amount_minor: 150_001,
+                reason: "Возврат".to_owned(),
+            },
+        )
+        .is_err());
+        assert!(validate_transition(
+            &payment,
+            &PaymentChange::Cancel {
+                reason: "Отмена".to_owned(),
+            },
+        )
+        .is_err());
     }
 
     #[test]

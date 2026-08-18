@@ -571,7 +571,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 40);
+        assert_eq!(migrations.len(), 41);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -1022,6 +1022,15 @@ mod tests {
         );
         assert!(airhop_analytics_reports.contains("pending_digest"));
         assert!(airhop_analytics_reports.contains("last_report_event_id"));
+
+        assert_eq!(migrations[40].version, 41);
+        let airhop_payment_ledger = migrations[40].sql.as_str();
+        assert!(airhop_payment_ledger.contains("CREATE TABLE airhop_payment_transactions"));
+        assert!(airhop_payment_ledger.contains("kind IN ('receipt', 'refund')"));
+        assert!(airhop_payment_ledger.contains("'cash', 'card', 'bank_transfer'"));
+        assert!(airhop_payment_ledger.contains("REFERENCES airhop_payment_expectations"));
+        assert!(airhop_payment_ledger.contains("WHERE status = 'paid'"));
+        assert!(airhop_payment_ledger.contains("'legacy'"));
     }
 
     #[test]

@@ -15,6 +15,7 @@ const ENROLLMENT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const TARIFF_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const GROUP_ID = "11111111-1111-4111-8111-111111111111";
 const BRANCH_ID = "22222222-2222-4222-8222-222222222222";
+const TRANSACTION_ID = "33333333-3333-4333-8333-333333333333";
 
 function signedEvent(input) {
   return {
@@ -57,6 +58,21 @@ function queue() {
           tariffId: TARIFF_ID,
           tariffNameSnapshot: "Два раза в неделю",
           amountMinor: 600000,
+          paidMinor: 150000,
+          outstandingMinor: 450000,
+          transactions: [
+            {
+              id: TRANSACTION_ID,
+              paymentExpectationId: PAYMENT_ID,
+              kind: "receipt",
+              amountMinor: 150000,
+              currency: "RUB",
+              paymentMethod: "card",
+              note: "Перевод 1234",
+              occurredAt: "2026-08-18T11:00:00Z",
+              recordedBy: "staff-pubkey",
+            },
+          ],
           currency: "RUB",
           dueDate: "2026-08-18",
           status: "expected",
@@ -92,6 +108,8 @@ test("payment service validates the authoritative queue projection", async () =>
   );
   assert.equal(requested.init.method, "GET");
   assert.equal(result.items[0].payment.version, 3);
+  assert.equal(result.items[0].payment.outstandingMinor, 450000);
+  assert.equal(result.items[0].payment.transactions[0].paymentMethod, "card");
   assert.equal(result.items[0].family.displayName, "Семья Орловых");
 });
 
@@ -274,6 +292,57 @@ test("payment move binds exact payload, path and idempotency key", async () => {
     createHash("sha256").update(requested.init.body).digest("hex"),
   );
   assert.equal(outcome.version, 4);
+});
+
+test("payment ledger commands preserve exact amounts and metadata", async () => {
+  const bodies = [];
+  const service = new HttpStaffPaymentService({
+    relayHttpUrl: async () => "https://center.example/",
+    idempotencyKeyFactory: () => "ledger-command-12345",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (_url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return new Response(
+        JSON.stringify({ paymentId: PAYMENT_ID, version: 4, replayed: false }),
+      );
+    },
+  });
+
+  await service.mutatePayment({
+    paymentId: PAYMENT_ID,
+    expectedVersion: 3,
+    mutation: {
+      action: "record_payment",
+      amountMinor: 150000,
+      method: "card",
+      note: "Перевод 1234",
+    },
+  });
+  await service.mutatePayment({
+    paymentId: PAYMENT_ID,
+    expectedVersion: 4,
+    mutation: {
+      action: "refund_payment",
+      amountMinor: 50000,
+      reason: "Возврат переплаты",
+    },
+  });
+
+  assert.deepEqual(bodies, [
+    {
+      action: "record_payment",
+      amountMinor: 150000,
+      method: "card",
+      note: "Перевод 1234",
+      expectedVersion: 3,
+    },
+    {
+      action: "refund_payment",
+      amountMinor: 50000,
+      reason: "Возврат переплаты",
+      expectedVersion: 4,
+    },
+  ]);
 });
 
 test("payment service exposes authoritative conflicts", async () => {

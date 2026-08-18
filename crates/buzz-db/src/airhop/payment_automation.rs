@@ -934,7 +934,15 @@ async fn load_overdue_rows(
         "SELECT payment.id AS payment_id, payment.version AS payment_version, \
                 child.display_name AS child_name, family.display_name AS family_name, \
                 group_row.name AS group_name, branch.name AS branch_name, \
-                payment.tariff_name_snapshot AS tariff_name, payment.amount_minor, \
+                payment.tariff_name_snapshot AS tariff_name, \
+                (payment.amount_minor - COALESCE(( \
+                    SELECT SUM(CASE ledger.kind \
+                        WHEN 'receipt' THEN ledger.amount_minor ELSE -ledger.amount_minor END) \
+                    FROM airhop_payment_transactions ledger \
+                    WHERE ledger.community_id = payment.community_id \
+                      AND ledger.organization_id = payment.organization_id \
+                      AND ledger.payment_expectation_id = payment.id \
+                ), 0)::BIGINT) AS amount_minor, \
                 payment.currency, payment.due_date \
          FROM airhop_payment_expectations payment \
          JOIN airhop_children child \

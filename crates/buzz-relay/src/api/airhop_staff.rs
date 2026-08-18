@@ -51,7 +51,9 @@ use buzz_db::airhop::lesson_participants::{
     StaffLessonParticipantClient, StaffLessonRoster,
 };
 use buzz_db::airhop::organization_settings::PutOrganizationSettingsInput;
-use buzz_db::airhop::payment_queue::{MutatePaymentInput, PaymentChange, StaffPaymentQueueItem};
+use buzz_db::airhop::payment_queue::{
+    MutatePaymentInput, PaymentChange, PaymentMethod, StaffPaymentQueueItem,
+};
 use buzz_db::airhop::public_booking::{PreferredContactChannel, PublicBookingApplicant};
 use buzz_db::airhop::room_directory::{AirhopRoom, CreateRoomInput, PutRoomInput, RoomStatus};
 use buzz_db::airhop::staff_queue::{
@@ -472,6 +474,18 @@ pub(crate) enum MutatePaymentBody {
         expected_version: i64,
         reason: String,
     },
+    RecordPayment {
+        expected_version: i64,
+        amount_minor: i64,
+        method: PaymentMethod,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    RefundPayment {
+        expected_version: i64,
+        amount_minor: i64,
+        reason: String,
+    },
     Restore {
         expected_version: i64,
         reason: String,
@@ -539,6 +553,12 @@ impl MutatePaymentBody {
             | Self::Cancel {
                 expected_version, ..
             }
+            | Self::RecordPayment {
+                expected_version, ..
+            }
+            | Self::RefundPayment {
+                expected_version, ..
+            }
             | Self::Restore {
                 expected_version, ..
             }
@@ -554,6 +574,24 @@ impl MutatePaymentBody {
     fn into_change(self) -> PaymentChange {
         match self {
             Self::MarkPaid { .. } => PaymentChange::MarkPaid,
+            Self::RecordPayment {
+                amount_minor,
+                method,
+                note,
+                ..
+            } => PaymentChange::RecordPayment {
+                amount_minor,
+                method,
+                note,
+            },
+            Self::RefundPayment {
+                amount_minor,
+                reason,
+                ..
+            } => PaymentChange::RefundPayment {
+                amount_minor,
+                reason,
+            },
             Self::Cancel { reason, .. } => PaymentChange::Cancel { reason },
             Self::Restore { reason, .. } => PaymentChange::Restore { reason },
             Self::ChangeAmount { amount_minor, .. } => PaymentChange::ChangeAmount { amount_minor },
@@ -3470,6 +3508,52 @@ mod tests {
             "action": "move_due_date",
             "expectedVersion": 4,
             "dueDate": "2026-08-25"
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn payment_body_contract_supports_receipts_and_refunds() {
+        let receipt: MutatePaymentBody = serde_json::from_value(json!({
+            "action": "record_payment",
+            "expectedVersion": 7,
+            "amountMinor": 150000,
+            "method": "card",
+            "note": "Перевод 1234"
+        }))
+        .expect("valid receipt body");
+        assert_eq!(receipt.expected_version(), 7);
+        assert!(matches!(
+            receipt.into_change(),
+            PaymentChange::RecordPayment {
+                amount_minor: 150_000,
+                method: PaymentMethod::Card,
+                note: Some(note),
+            } if note == "Перевод 1234"
+        ));
+
+        let refund: MutatePaymentBody = serde_json::from_value(json!({
+            "action": "refund_payment",
+            "expectedVersion": 8,
+            "amountMinor": 50000,
+            "reason": "Возврат переплаты"
+        }))
+        .expect("valid refund body");
+        assert_eq!(refund.expected_version(), 8);
+        assert!(matches!(
+            refund.into_change(),
+            PaymentChange::RefundPayment {
+                amount_minor: 50_000,
+                reason,
+            } if reason == "Возврат переплаты"
+        ));
+
+        assert!(serde_json::from_value::<MutatePaymentBody>(json!({
+            "action": "record_payment",
+            "expectedVersion": 7,
+            "amountMinor": 150000,
+            "method": "card",
+            "unexpected": true
         }))
         .is_err());
     }

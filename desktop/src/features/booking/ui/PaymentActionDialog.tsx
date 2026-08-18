@@ -9,7 +9,11 @@ import {
 } from "@/features/booking/lib/bookingAdmin";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import { createBookingFormatters } from "@/features/booking/lib/bookingLocale";
-import type { PaymentExpectation } from "@/features/booking/model/bookingCore";
+import type {
+  PaymentExpectation,
+  PaymentMethod,
+} from "@/features/booking/model/bookingCore";
+import { BookingSelect } from "@/features/booking/ui/BookingSelect";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import {
@@ -28,6 +32,7 @@ export type PaymentActionMode =
   | "due_date"
   | "paid"
   | "cancel"
+  | "refund"
   | "restore";
 
 export type PaymentActionRow = {
@@ -40,6 +45,8 @@ export type PaymentActionValues = {
   amountMinor?: number;
   dueDate?: string;
   reason?: string;
+  paymentMethod?: Exclude<PaymentMethod, "buzz" | "legacy">;
+  note?: string;
 };
 
 export function PaymentActionDialog({
@@ -72,16 +79,31 @@ export function PaymentActionDialog({
   const [dueDate, setDueDate] = React.useState("");
   const [reason, setReason] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = React.useState<
+    "cash" | "card" | "bank_transfer" | "other"
+  >("card");
+  const [note, setNote] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   React.useEffect(() => {
     if (!open || !row) return;
-    setAmount(majorMoneyInput(row.payment.amountMinor, row.payment.currency));
+    const paidMinor =
+      row.payment.paidMinor ??
+      (row.payment.status === "paid" ? row.payment.amountMinor : 0);
+    const initialMinor =
+      mode === "paid"
+        ? (row.payment.outstandingMinor ?? row.payment.amountMinor - paidMinor)
+        : mode === "refund"
+          ? paidMinor
+          : row.payment.amountMinor;
+    setAmount(majorMoneyInput(initialMinor, row.payment.currency));
+    setPaymentMethod("card");
+    setNote("");
     setDueDate(row.payment.dueDate);
     setReason("");
     setError(null);
     setIsSubmitting(false);
-  }, [open, row]);
+  }, [mode, open, row]);
 
   if (!row) return null;
 
@@ -92,9 +114,11 @@ export function PaymentActionDialog({
         ? messages.paymentDueDateTitle
         : mode === "paid"
           ? messages.paymentPaidTitle
-          : mode === "cancel"
-            ? messages.paymentCancelTitle
-            : messages.paymentRestoreTitle;
+          : mode === "refund"
+            ? messages.paymentRefundTitle
+            : mode === "cancel"
+              ? messages.paymentCancelTitle
+              : messages.paymentRestoreTitle;
   const description =
     mode === "amount"
       ? messages.paymentAmountDescription
@@ -102,9 +126,11 @@ export function PaymentActionDialog({
         ? messages.paymentDueDateDescription
         : mode === "paid"
           ? messages.paymentPaidDescription
-          : mode === "cancel"
-            ? messages.paymentCancelDescription
-            : messages.paymentRestoreDescription;
+          : mode === "refund"
+            ? messages.paymentRefundDescription
+            : mode === "cancel"
+              ? messages.paymentCancelDescription
+              : messages.paymentRestoreDescription;
   const confirmLabel =
     mode === "amount"
       ? messages.paymentConfirmAmount
@@ -112,18 +138,32 @@ export function PaymentActionDialog({
         ? messages.paymentConfirmDueDate
         : mode === "paid"
           ? messages.paymentConfirmPaid
-          : mode === "cancel"
-            ? messages.paymentConfirmCancel
-            : messages.paymentConfirmRestore;
+          : mode === "refund"
+            ? messages.paymentConfirmRefund
+            : mode === "cancel"
+              ? messages.paymentConfirmCancel
+              : messages.paymentConfirmRestore;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!workspace && !onExecute) return;
-    const parsedAmount =
-      mode === "amount"
-        ? parseMajorMoneyInput(amount, row.payment.currency)
-        : null;
-    if (mode === "amount" && parsedAmount === null) {
+    const hasAmount = mode === "amount" || mode === "paid" || mode === "refund";
+    const parsedAmount = hasAmount
+      ? parseMajorMoneyInput(amount, row.payment.currency)
+      : null;
+    const paidMinor =
+      row.payment.paidMinor ??
+      (row.payment.status === "paid" ? row.payment.amountMinor : 0);
+    const outstandingMinor =
+      row.payment.outstandingMinor ?? row.payment.amountMinor - paidMinor;
+    const maxAmount =
+      mode === "paid" ? outstandingMinor : mode === "refund" ? paidMinor : null;
+    if (
+      hasAmount &&
+      (parsedAmount === null ||
+        ((mode === "paid" || mode === "refund") && parsedAmount <= 0) ||
+        (maxAmount !== null && parsedAmount > maxAmount))
+    ) {
       setError(messages.paymentInvalidAmount);
       return;
     }
@@ -135,7 +175,10 @@ export function PaymentActionDialog({
       return;
     }
     if (
-      (mode === "due_date" || mode === "cancel" || mode === "restore") &&
+      (mode === "due_date" ||
+        mode === "refund" ||
+        mode === "cancel" ||
+        mode === "restore") &&
       !reason.trim()
     ) {
       setError(messages.paymentReasonRequired);
@@ -149,6 +192,8 @@ export function PaymentActionDialog({
           ...(parsedAmount === null ? {} : { amountMinor: parsedAmount }),
           ...(mode === "due_date" ? { dueDate } : {}),
           ...(reason.trim() ? { reason: reason.trim() } : {}),
+          ...(mode === "paid" ? { paymentMethod } : {}),
+          ...(mode === "paid" && note.trim() ? { note: note.trim() } : {}),
         });
       } else {
         await booking.save(
@@ -177,7 +222,9 @@ export function PaymentActionDialog({
                           : mode === "cancel"
                             ? "cancelled"
                             : "expected",
-                      ...(mode === "cancel" || mode === "restore"
+                      ...(mode === "refund" ||
+                      mode === "cancel" ||
+                      mode === "restore"
                         ? { internalReason: reason.trim() }
                         : {}),
                     },
@@ -225,7 +272,7 @@ export function PaymentActionDialog({
               </p>
             </div>
 
-            {mode === "amount" ? (
+            {mode === "amount" || mode === "paid" || mode === "refund" ? (
               <div className="grid gap-2">
                 <label
                   className="text-sm font-medium"
@@ -248,6 +295,49 @@ export function PaymentActionDialog({
               </div>
             ) : null}
 
+            {mode === "paid" ? (
+              <div className="grid gap-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor="airhop-payment-method"
+                >
+                  {messages.paymentMethod}
+                </label>
+                <BookingSelect
+                  id="airhop-payment-method"
+                  onChange={(event) =>
+                    setPaymentMethod(event.target.value as typeof paymentMethod)
+                  }
+                  value={paymentMethod}
+                >
+                  <option value="cash">{messages.paymentMethodCash}</option>
+                  <option value="card">{messages.paymentMethodCard}</option>
+                  <option value="bank_transfer">
+                    {messages.paymentMethodBankTransfer}
+                  </option>
+                  <option value="other">{messages.paymentMethodOther}</option>
+                </BookingSelect>
+              </div>
+            ) : null}
+
+            {mode === "paid" ? (
+              <div className="grid gap-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor="airhop-payment-note"
+                >
+                  {messages.paymentNote}
+                </label>
+                <Textarea
+                  id="airhop-payment-note"
+                  onChange={(event) => setNote(event.target.value)}
+                  placeholder={messages.paymentNotePlaceholder}
+                  rows={3}
+                  value={note}
+                />
+              </div>
+            ) : null}
+
             {mode === "due_date" ? (
               <div className="grid gap-2">
                 <label
@@ -266,7 +356,10 @@ export function PaymentActionDialog({
               </div>
             ) : null}
 
-            {mode === "due_date" || mode === "cancel" || mode === "restore" ? (
+            {mode === "due_date" ||
+            mode === "refund" ||
+            mode === "cancel" ||
+            mode === "restore" ? (
               <div className="grid gap-2">
                 <label
                   className="text-sm font-medium"

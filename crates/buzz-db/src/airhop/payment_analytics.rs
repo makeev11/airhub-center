@@ -96,17 +96,29 @@ impl Db {
                      ($3::date - INTERVAL '5 months')::timestamp, \
                      $3::date::timestamp, INTERVAL '1 month' \
                  )::date AS period_start \
+             ), balances AS ( \
+                 SELECT payment.*, COALESCE(( \
+                     SELECT SUM(CASE ledger.kind \
+                         WHEN 'receipt' THEN ledger.amount_minor \
+                         ELSE -ledger.amount_minor END) \
+                     FROM airhop_payment_transactions ledger \
+                     WHERE ledger.community_id = payment.community_id \
+                       AND ledger.organization_id = payment.organization_id \
+                       AND ledger.payment_expectation_id = payment.id \
+                 ), 0)::BIGINT AS paid_minor \
+                 FROM airhop_payment_expectations payment \
+                 WHERE payment.community_id = $1 AND payment.organization_id = $2 \
              ), overview AS ( \
                  SELECT currency, \
                         COUNT(*) FILTER (WHERE status = 'expected')::BIGINT AS open_count, \
-                        COALESCE(SUM(amount_minor) FILTER (WHERE status = 'expected'), 0)::BIGINT \
+                        COALESCE(SUM(amount_minor - paid_minor) FILTER (WHERE status = 'expected'), 0)::BIGINT \
                             AS open_minor, \
                         COUNT(*) FILTER (WHERE status = 'expected' AND due_date < $4)::BIGINT \
                             AS overdue_count, \
-                        COALESCE(SUM(amount_minor) FILTER ( \
+                        COALESCE(SUM(amount_minor - paid_minor) FILTER ( \
                             WHERE status = 'expected' AND due_date < $4 \
                         ), 0)::BIGINT AS overdue_minor \
-                 FROM airhop_payment_expectations \
+                 FROM balances \
                  WHERE community_id = $1 AND organization_id = $2 \
                  GROUP BY currency \
              ), period_totals AS ( \
@@ -116,22 +128,22 @@ impl Db {
                         COALESCE(SUM(amount_minor) FILTER (WHERE status <> 'cancelled'), 0)::BIGINT \
                             AS scheduled_minor, \
                         COUNT(*) FILTER (WHERE status = 'paid')::BIGINT AS paid_count, \
-                        COALESCE(SUM(amount_minor) FILTER (WHERE status = 'paid'), 0)::BIGINT \
+                        COALESCE(SUM(paid_minor) FILTER (WHERE status <> 'cancelled'), 0)::BIGINT \
                             AS paid_minor, \
                         COUNT(*) FILTER (WHERE status = 'expected')::BIGINT \
                             AS outstanding_count, \
-                        COALESCE(SUM(amount_minor) FILTER (WHERE status = 'expected'), 0)::BIGINT \
+                        COALESCE(SUM(amount_minor - paid_minor) FILTER (WHERE status = 'expected'), 0)::BIGINT \
                             AS outstanding_minor, \
                         COUNT(*) FILTER (WHERE status = 'expected' AND due_date < $4)::BIGINT \
                             AS overdue_count, \
-                        COALESCE(SUM(amount_minor) FILTER ( \
+                        COALESCE(SUM(amount_minor - paid_minor) FILTER ( \
                             WHERE status = 'expected' AND due_date < $4 \
                         ), 0)::BIGINT AS overdue_minor, \
                         COUNT(*) FILTER (WHERE status = 'cancelled')::BIGINT \
                             AS cancelled_count, \
                         COALESCE(SUM(amount_minor) FILTER (WHERE status = 'cancelled'), 0)::BIGINT \
                             AS cancelled_minor \
-                 FROM airhop_payment_expectations \
+                 FROM balances \
                  WHERE community_id = $1 AND organization_id = $2 \
                    AND billing_period BETWEEN ($3::date - INTERVAL '5 months')::date AND $3 \
                  GROUP BY currency, billing_period \

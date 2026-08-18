@@ -1513,6 +1513,9 @@ mod tests {
     use crate::airhop::lesson_participants::{
         EnrollStaffParticipantInput, EnrollmentScheduleSelection,
     };
+    use crate::airhop::payment_queue::{
+        MutatePaymentInput, PaymentChange, PaymentMethod, PaymentStatus,
+    };
     use crate::airhop::public_booking::{
         CreatePublicBookingInput, PreferredContactChannel, PublicBookingApplicant,
         PublicBookingSurface,
@@ -1994,6 +1997,124 @@ mod tests {
             .iter()
             .all(|row| { row.try_get::<Uuid, _>("tariff_id").unwrap() == replacement_tariff_id }));
 
+        let (ledger_payment_id, ledger_version, ledger_amount): (Uuid, i64, i64) = sqlx::query_as(
+            "SELECT id, version, amount_minor FROM airhop_payment_expectations \
+                 WHERE community_id = $1 AND organization_id = $2 AND enrollment_id = $3 \
+                   AND billing_period = $4",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(enrolled.enrollment_id)
+        .bind(current_period)
+        .fetch_one(&db.pool)
+        .await
+        .expect("load current payment for ledger test");
+        let partial_minor = ledger_amount / 4;
+        let partial = MutatePaymentInput {
+            payment_id: ledger_payment_id,
+            expected_version: ledger_version,
+            change: PaymentChange::RecordPayment {
+                amount_minor: partial_minor,
+                method: PaymentMethod::Cash,
+                note: Some("Частичная оплата".to_owned()),
+            },
+            idempotency_digest: [50; 32],
+            request_hash: [51; 32],
+            actor: actor(),
+        };
+        let partial_outcome = db
+            .mutate_airhop_payment(&tenant, &partial)
+            .await
+            .expect("record partial payment");
+        assert_eq!(partial_outcome.version, ledger_version + 1);
+        assert!(
+            db.mutate_airhop_payment(&tenant, &partial)
+                .await
+                .expect("replay partial payment")
+                .replayed
+        );
+        let partial_row = db
+            .list_airhop_staff_payments(&tenant)
+            .await
+            .expect("load partial payment")
+            .into_iter()
+            .find(|item| item.payment.id == ledger_payment_id)
+            .expect("partial payment row");
+        assert_eq!(partial_row.payment.status, PaymentStatus::Expected);
+        assert_eq!(partial_row.payment.paid_minor, partial_minor);
+        assert_eq!(
+            partial_row.payment.outstanding_minor,
+            ledger_amount - partial_minor
+        );
+        assert_eq!(partial_row.payment.transactions.len(), 1);
+
+        let paid = db
+            .mutate_airhop_payment(
+                &tenant,
+                &MutatePaymentInput {
+                    payment_id: ledger_payment_id,
+                    expected_version: partial_outcome.version,
+                    change: PaymentChange::RecordPayment {
+                        amount_minor: ledger_amount - partial_minor,
+                        method: PaymentMethod::Card,
+                        note: None,
+                    },
+                    idempotency_digest: [52; 32],
+                    request_hash: [53; 32],
+                    actor: actor(),
+                },
+            )
+            .await
+            .expect("complete payment");
+        let refund_minor = 50_000;
+        let refunded = db
+            .mutate_airhop_payment(
+                &tenant,
+                &MutatePaymentInput {
+                    payment_id: ledger_payment_id,
+                    expected_version: paid.version,
+                    change: PaymentChange::RefundPayment {
+                        amount_minor: refund_minor,
+                        reason: "Возврат части оплаты".to_owned(),
+                    },
+                    idempotency_digest: [54; 32],
+                    request_hash: [55; 32],
+                    actor: actor(),
+                },
+            )
+            .await
+            .expect("refund part of payment");
+        let refunded_row = db
+            .list_airhop_staff_payments(&tenant)
+            .await
+            .expect("load refunded payment")
+            .into_iter()
+            .find(|item| item.payment.id == ledger_payment_id)
+            .expect("refunded payment row");
+        assert_eq!(refunded_row.payment.status, PaymentStatus::Expected);
+        assert_eq!(
+            refunded_row.payment.paid_minor,
+            ledger_amount - refund_minor
+        );
+        assert_eq!(refunded_row.payment.outstanding_minor, refund_minor);
+        assert_eq!(refunded_row.payment.transactions.len(), 3);
+        assert!(matches!(
+            db.mutate_airhop_payment(
+                &tenant,
+                &MutatePaymentInput {
+                    payment_id: ledger_payment_id,
+                    expected_version: refunded.version,
+                    change: PaymentChange::Cancel {
+                        reason: "Нельзя отменить полученные деньги".to_owned(),
+                    },
+                    idempotency_digest: [56; 32],
+                    request_hash: [57; 32],
+                    actor: actor(),
+                },
+            )
+            .await,
+            Err(DbError::AirhopPaymentTransition)
+        ));
         let occurrence_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM airhop_lesson_occurrences \
              WHERE community_id = $1 AND organization_id = $2 AND group_id = $3",

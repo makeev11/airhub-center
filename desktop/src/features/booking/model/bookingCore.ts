@@ -492,6 +492,34 @@ export const enrollmentSchema = z
     { message: "Enrollment range is reversed" },
   );
 
+export const paymentTransactionKindSchema = z.enum(["receipt", "refund"]);
+
+export const paymentMethodSchema = z.enum([
+  "cash",
+  "card",
+  "bank_transfer",
+  "other",
+  "buzz",
+  "legacy",
+]);
+
+export const paymentTransactionSchema = z.object({
+  id: bookingIdSchema,
+  paymentExpectationId: bookingIdSchema,
+  kind: paymentTransactionKindSchema,
+  amountMinor: z.number().int().positive().safe(),
+  currency: z
+    .string()
+    .regex(/^[A-Z]{3}$/)
+    .refine((currency) => currencyMinorUnitExponent(currency) !== null, {
+      message: "Unknown currency",
+    }),
+  paymentMethod: paymentMethodSchema,
+  note: z.string().trim().min(1).max(4_000).optional(),
+  occurredAt: z.string().datetime({ offset: true }),
+  recordedBy: z.string().trim().min(1).max(200),
+});
+
 export const paymentExpectationStatusSchema = z.enum([
   "expected",
   "paid",
@@ -508,6 +536,9 @@ export const paymentExpectationSchema = z
     tariffId: bookingIdSchema,
     tariffNameSnapshot: z.string().trim().min(1).max(160),
     amountMinor: z.number().int().nonnegative().safe(),
+    paidMinor: z.number().int().nonnegative().safe().optional(),
+    outstandingMinor: z.number().int().nonnegative().safe().optional(),
+    transactions: z.array(paymentTransactionSchema).optional(),
     currency: z
       .string()
       .regex(/^[A-Z]{3}$/)
@@ -697,6 +728,11 @@ export type PaymentExpectationStatus = z.infer<
   typeof paymentExpectationStatusSchema
 >;
 export type PaymentExpectation = z.infer<typeof paymentExpectationSchema>;
+export type PaymentTransactionKind = z.infer<
+  typeof paymentTransactionKindSchema
+>;
+export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
+export type PaymentTransaction = z.infer<typeof paymentTransactionSchema>;
 export type BookingIntakeRequest = z.infer<typeof intakeRequestSchema>;
 export type BookingAttendanceRecord = z.infer<typeof attendanceRecordSchema>;
 export type BookingPendingAction = z.infer<typeof pendingActionSchema>;

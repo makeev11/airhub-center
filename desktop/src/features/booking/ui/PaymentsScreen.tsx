@@ -37,6 +37,7 @@ import {
 import type {
   BookingOrganization,
   PaymentExpectation,
+  PaymentMethod,
 } from "@/features/booking/model/bookingCore";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
@@ -71,6 +72,28 @@ function paymentStateLabel(
   return messages.paymentCancelled;
 }
 
+function paidMinor(payment: PaymentExpectation): number {
+  return (
+    payment.paidMinor ?? (payment.status === "paid" ? payment.amountMinor : 0)
+  );
+}
+
+function outstandingMinor(payment: PaymentExpectation): number {
+  return payment.outstandingMinor ?? payment.amountMinor - paidMinor(payment);
+}
+
+function paymentMethodLabel(
+  method: PaymentMethod,
+  messages: ReturnType<typeof getBookingAdminMessages>,
+): string {
+  if (method === "cash") return messages.paymentMethodCash;
+  if (method === "card") return messages.paymentMethodCard;
+  if (method === "bank_transfer") return messages.paymentMethodBankTransfer;
+  if (method === "buzz") return "Buzz";
+  if (method === "legacy") return "Legacy";
+  return messages.paymentMethodOther;
+}
+
 function PaymentCard({
   onAction,
   organization,
@@ -85,6 +108,9 @@ function PaymentCard({
   const formatters = createBookingFormatters(organization.locale);
   const isOpen =
     row.displayState === "expected" || row.displayState === "overdue";
+  const receivedMinor = paidMinor(row.payment);
+  const remainingMinor = outstandingMinor(row.payment);
+  const transactions = row.payment.transactions ?? [];
 
   return (
     <Card
@@ -123,7 +149,10 @@ function PaymentCard({
           </button>
         </div>
         <p className="shrink-0 text-lg font-semibold tabular-nums">
-          {formatters.money(row.payment.amountMinor, row.payment.currency)}
+          {formatters.money(
+            isOpen ? remainingMinor : row.payment.amountMinor,
+            row.payment.currency,
+          )}
         </p>
       </div>
 
@@ -150,6 +179,22 @@ function PaymentCard({
             {formatters.date(row.payment.dueDate)}
           </dd>
         </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">
+            {messages.paymentReceived}
+          </dt>
+          <dd className="mt-0.5 font-medium tabular-nums">
+            {formatters.money(receivedMinor, row.payment.currency)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">
+            {messages.paymentOutstanding}
+          </dt>
+          <dd className="mt-0.5 font-medium tabular-nums">
+            {formatters.money(remainingMinor, row.payment.currency)}
+          </dd>
+        </div>
         {row.payment.internalReason ? (
           <div>
             <dt className="text-xs text-muted-foreground">
@@ -160,6 +205,40 @@ function PaymentCard({
         ) : null}
       </dl>
 
+      {transactions.length ? (
+        <div className="space-y-2 border-t border-border/70 pt-4">
+          <h3 className="text-sm font-semibold">{messages.paymentHistory}</h3>
+          <ul className="space-y-2">
+            {transactions.map((transaction) => (
+              <li
+                className="flex items-start justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2 text-sm"
+                key={transaction.id}
+              >
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    {transaction.kind === "receipt"
+                      ? messages.paymentReceipt
+                      : messages.paymentRefund}
+                    {" · "}
+                    {paymentMethodLabel(transaction.paymentMethod, messages)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatters.date(transaction.occurredAt)}
+                    {transaction.note ? ` · ${transaction.note}` : ""}
+                  </p>
+                </div>
+                <span className="shrink-0 font-medium tabular-nums">
+                  {transaction.kind === "refund" ? "−" : "+"}
+                  {formatters.money(
+                    transaction.amountMinor,
+                    transaction.currency,
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-2 border-t border-border/70 pt-4">
         {isOpen ? (
           <>
@@ -167,6 +246,16 @@ function PaymentCard({
               <CircleCheck />
               {messages.paymentMarkPaid}
             </Button>
+            {receivedMinor > 0 ? (
+              <Button
+                onClick={() => onAction("refund", row)}
+                size="sm"
+                variant="outline"
+              >
+                <RotateCcw />
+                {messages.paymentRefundAction}
+              </Button>
+            ) : null}
             <Button
               onClick={() => onAction("amount", row)}
               size="sm"
@@ -182,14 +271,25 @@ function PaymentCard({
               <CalendarClock />
               {messages.paymentMoveDueDate}
             </Button>
-            <Button
-              onClick={() => onAction("cancel", row)}
-              size="sm"
-              variant="ghost"
-            >
-              {messages.paymentCancel}
-            </Button>
+            {receivedMinor === 0 ? (
+              <Button
+                onClick={() => onAction("cancel", row)}
+                size="sm"
+                variant="ghost"
+              >
+                {messages.paymentCancel}
+              </Button>
+            ) : null}
           </>
+        ) : row.displayState === "paid" ? (
+          <Button
+            onClick={() => onAction("refund", row)}
+            size="sm"
+            variant="outline"
+          >
+            <RotateCcw />
+            {messages.paymentRefundAction}
+          </Button>
         ) : (
           <Button
             onClick={() => onAction("restore", row)}
@@ -197,9 +297,7 @@ function PaymentCard({
             variant="outline"
           >
             <RotateCcw />
-            {row.displayState === "paid"
-              ? messages.paymentReopen
-              : messages.paymentRestore}
+            {messages.paymentRestore}
           </Button>
         )}
       </div>
@@ -336,13 +434,15 @@ function PaymentsContent({
           setSuccessMessage(
             mode === "paid"
               ? messages.paymentPaidSuccess
-              : mode === "amount"
-                ? messages.paymentAmountUpdated
-                : mode === "due_date"
-                  ? messages.paymentDueDateUpdated
-                  : mode === "cancel"
-                    ? messages.paymentCancelledSuccess
-                    : messages.paymentRestoredSuccess,
+              : mode === "refund"
+                ? messages.paymentRefundSuccess
+                : mode === "amount"
+                  ? messages.paymentAmountUpdated
+                  : mode === "due_date"
+                    ? messages.paymentDueDateUpdated
+                    : mode === "cancel"
+                      ? messages.paymentCancelledSuccess
+                      : messages.paymentRestoredSuccess,
           );
         }}
         open={action !== null}
@@ -406,7 +506,25 @@ function paymentMutation(
   mode: PaymentActionMode,
   values: PaymentActionValues,
 ): StaffPaymentMutation {
-  if (mode === "paid") return { action: "mark_paid" };
+  if (
+    mode === "paid" &&
+    values.amountMinor !== undefined &&
+    values.paymentMethod
+  ) {
+    return {
+      action: "record_payment",
+      amountMinor: values.amountMinor,
+      method: values.paymentMethod,
+      ...(values.note ? { note: values.note } : {}),
+    };
+  }
+  if (mode === "refund" && values.amountMinor !== undefined && values.reason) {
+    return {
+      action: "refund_payment",
+      amountMinor: values.amountMinor,
+      reason: values.reason,
+    };
+  }
   if (mode === "amount" && values.amountMinor !== undefined) {
     return { action: "change_amount", amountMinor: values.amountMinor };
   }

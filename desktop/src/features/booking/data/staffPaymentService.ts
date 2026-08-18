@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   bookingSourceChannelSchema,
   organizationSchema,
+  type PaymentMethod,
+  paymentTransactionSchema,
   paymentExpectationSchema,
 } from "@/features/booking/model/bookingCore";
 import { getRelayHttpUrl, signRelayEvent } from "@/shared/api/tauri";
@@ -15,6 +17,11 @@ const PAYMENT_ANALYTICS_PATH = "/api/airhop/staff/v1/payment-analytics";
 const BOOKING_FUNNEL_ANALYTICS_PATH =
   "/api/airhop/staff/v1/booking-funnel-analytics";
 
+const serverPaymentTransactionSchema = paymentTransactionSchema.extend({
+  id: z.string().uuid(),
+  paymentExpectationId: z.string().uuid(),
+});
+
 const serverPaymentSchema = paymentExpectationSchema.safeExtend({
   id: z.string().uuid(),
   organizationId: z.string().uuid(),
@@ -23,6 +30,9 @@ const serverPaymentSchema = paymentExpectationSchema.safeExtend({
   enrollmentId: z.string().uuid(),
   tariffId: z.string().uuid(),
   version: z.number().int().positive(),
+  paidMinor: z.number().int().nonnegative().safe(),
+  outstandingMinor: z.number().int().nonnegative().safe(),
+  transactions: z.array(serverPaymentTransactionSchema),
 });
 
 const paymentQueueItemSchema = z.object({
@@ -144,6 +154,17 @@ export type StaffPaymentMutationOutcome = z.infer<typeof mutationOutcomeSchema>;
 export type StaffPaymentMutation =
   | { action: "mark_paid" }
   | { action: "cancel"; reason: string }
+  | {
+      action: "record_payment";
+      amountMinor: number;
+      method: Exclude<PaymentMethod, "buzz" | "legacy">;
+      note?: string;
+    }
+  | {
+      action: "refund_payment";
+      amountMinor: number;
+      reason: string;
+    }
   | { action: "restore"; reason: string }
   | { action: "change_amount"; amountMinor: number }
   | { action: "move_due_date"; dueDate: string; reason: string };
