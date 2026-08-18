@@ -48,6 +48,7 @@ type SettingsForm = {
   price: string;
   paymentDay: string;
   paymentsBuzzChannelId: string;
+  analyticsBuzzChannelId: string;
   attendance: boolean;
   singleVisits: boolean;
   publicBookingPurpose: PublicBookingPurpose;
@@ -75,6 +76,7 @@ function formFromOrganization(
     price: majorMoneyInput(paid?.amountMinor ?? 0, currency),
     paymentDay: String(organization.paymentDayOfMonth),
     paymentsBuzzChannelId: organization.paymentsBuzzChannelId ?? "",
+    analyticsBuzzChannelId: organization.analyticsBuzzChannelId ?? "",
     attendance: organization.trackAttendanceByDefault,
     singleVisits: organization.allowSingleVisitsByDefault,
     publicBookingPurpose: organization.publicBooking.purpose,
@@ -178,6 +180,7 @@ function SettingsFormContent({
       timeZone: form.timeZone,
       paymentDayOfMonth: paymentDay,
       paymentsBuzzChannelId: form.paymentsBuzzChannelId || undefined,
+      analyticsBuzzChannelId: form.analyticsBuzzChannelId || undefined,
       defaultTrialPolicy:
         form.trialMode === "paid"
           ? {
@@ -333,6 +336,30 @@ function SettingsFormContent({
                 value={form.paymentsBuzzChannelId}
               >
                 <option value="">{messages.paymentsBuzzChannelNone}</option>
+                {paymentChannels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>
+                    #{channel.name}
+                  </option>
+                ))}
+              </BookingSelect>
+            </Field>
+            <Field
+              hint={messages.analyticsBuzzChannelHint}
+              label={messages.analyticsBuzzChannel}
+            >
+              <BookingSelect
+                aria-label={messages.analyticsBuzzChannel}
+                data-testid="airhop-settings-analytics-channel"
+                disabled={channelsQuery.isLoading}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    analyticsBuzzChannelId: event.target.value,
+                  }))
+                }
+                value={form.analyticsBuzzChannelId}
+              >
+                <option value="">{messages.analyticsBuzzChannelNone}</option>
                 {paymentChannels.map((channel) => (
                   <option key={channel.id} value={channel.id}>
                     #{channel.name}

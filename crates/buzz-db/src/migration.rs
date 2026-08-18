@@ -571,7 +571,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 39);
+        assert_eq!(migrations.len(), 40);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -1013,6 +1013,15 @@ mod tests {
         assert!(airhop_enrollment_lifecycle.contains("ADD COLUMN payment_generation_from"));
         assert!(airhop_enrollment_lifecycle
             .contains("airhop_enrollments_payment_generation_from_valid"));
+
+        assert_eq!(migrations[39].version, 40);
+        let airhop_analytics_reports = migrations[39].sql.as_str();
+        assert!(airhop_analytics_reports.contains("analytics_buzz_channel_id"));
+        assert!(
+            airhop_analytics_reports.contains("CREATE TABLE airhop_analytics_buzz_report_state")
+        );
+        assert!(airhop_analytics_reports.contains("pending_digest"));
+        assert!(airhop_analytics_reports.contains("last_report_event_id"));
     }
 
     #[test]

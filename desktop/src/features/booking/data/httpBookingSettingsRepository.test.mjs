@@ -10,6 +10,7 @@ import {
 
 const ORGANIZATION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PAYMENTS_CHANNEL_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const ANALYTICS_CHANNEL_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 function signedEvent(input) {
   return {
@@ -36,6 +37,7 @@ function organization(overrides = {}) {
     publicBooking: { purpose: "trial", appearance: "automatic" },
     paymentDayOfMonth: 5,
     paymentsBuzzChannelId: PAYMENTS_CHANNEL_ID,
+    analyticsBuzzChannelId: ANALYTICS_CHANNEL_ID,
     ...overrides,
   };
 }
@@ -101,6 +103,7 @@ test("settings repository bootstraps an unconfigured Center with version zero", 
   assert.equal(body.expectedVersion, 0);
   assert.equal(body.existingStudentsOnboardingStatus, "not_started");
   assert.equal(body.paymentsBuzzChannelId, PAYMENTS_CHANNEL_ID);
+  assert.equal(body.analyticsBuzzChannelId, ANALYTICS_CHANNEL_ID);
   assert.equal(saved.revision, 1);
   assert.deepEqual(signedInputs[0].tags.slice(0, 2), [
     ["u", "https://center.example/api/airhop/staff/v1/settings"],

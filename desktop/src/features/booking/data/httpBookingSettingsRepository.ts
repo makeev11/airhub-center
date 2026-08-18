@@ -220,6 +220,9 @@ export class HttpBookingSettingsRepository implements BookingRepository {
       ...(organization.paymentsBuzzChannelId
         ? { paymentsBuzzChannelId: organization.paymentsBuzzChannelId }
         : {}),
+      ...(organization.analyticsBuzzChannelId
+        ? { analyticsBuzzChannelId: organization.analyticsBuzzChannelId }
+        : {}),
     });
     const authorization = await nip98Authorization(
       "PUT",

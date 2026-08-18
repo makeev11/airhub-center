@@ -34,6 +34,8 @@ pub struct PutOrganizationSettingsInput {
     pub time_zone: String,
     /// Shared Buzz channel used for payments and overdue summaries.
     pub payments_buzz_channel_id: Option<Uuid>,
+    /// Dedicated Buzz channel used for monthly analytics reports.
+    pub analytics_buzz_channel_id: Option<Uuid>,
     /// Operational defaults and public-booking presentation.
     pub settings: OrganizationSettings,
     /// Keyed digest of the HTTP idempotency key.
@@ -87,7 +89,8 @@ impl Db {
         let occurred_at: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
             .fetch_one(&mut *transaction)
             .await?;
-        validate_payments_channel(&mut transaction, tenant, input.payments_buzz_channel_id).await?;
+        validate_buzz_channel(&mut transaction, tenant, input.payments_buzz_channel_id).await?;
+        validate_buzz_channel(&mut transaction, tenant, input.analytics_buzz_channel_id).await?;
 
         if current.is_none() {
             if input.expected_version != 0 {
@@ -129,6 +132,7 @@ impl Db {
                     "locale",
                     "time_zone",
                     "payments_buzz_channel_id",
+                    "analytics_buzz_channel_id",
                     "default_trial_policy",
                     "track_attendance_by_default",
                     "allow_single_visits_by_default",
@@ -205,6 +209,18 @@ impl Db {
             .execute(&mut *transaction)
             .await?;
         }
+        if changed_fields.contains(&"analytics_buzz_channel_id") {
+            // Pending copies are bound to their configured destination. A
+            // channel change starts a fresh monthly thread in the new stream.
+            sqlx::query(
+                "DELETE FROM airhop_analytics_buzz_report_state \
+                 WHERE community_id = $1 AND organization_id = $2",
+            )
+            .bind(tenant.community().as_uuid())
+            .bind(organization_id)
+            .execute(&mut *transaction)
+            .await?;
+        }
 
         if !event_type.is_empty() {
             append_domain_event(
@@ -258,7 +274,8 @@ async fn load_locked_organization(
     tenant: &TenantContext,
 ) -> Result<Option<AirhopOrganization>> {
     let row = sqlx::query(
-        "SELECT id, name, locale, time_zone, payments_buzz_channel_id, default_trial_policy, \
+        "SELECT id, name, locale, time_zone, payments_buzz_channel_id, \
+                analytics_buzz_channel_id, default_trial_policy, \
                 track_attendance_by_default, allow_single_visits_by_default, \
                 existing_students_onboarding_status, public_booking_purpose, \
                 public_booking_appearance, payment_day_of_month, status, version, \
@@ -282,11 +299,12 @@ async fn insert_organization(
 ) -> Result<()> {
     sqlx::query(
         "INSERT INTO airhop_organizations (\
-             community_id, id, name, locale, time_zone, payments_buzz_channel_id, default_trial_policy, \
+             community_id, id, name, locale, time_zone, payments_buzz_channel_id, \
+             analytics_buzz_channel_id, default_trial_policy, \
              track_attendance_by_default, allow_single_visits_by_default, \
              existing_students_onboarding_status, public_booking_purpose, \
              public_booking_appearance, payment_day_of_month, created_at, updated_at\
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)",
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)",
     )
     .bind(tenant.community().as_uuid())
     .bind(organization_id)
@@ -294,6 +312,7 @@ async fn insert_organization(
     .bind(input.locale.trim())
     .bind(input.time_zone.trim())
     .bind(input.payments_buzz_channel_id)
+    .bind(input.analytics_buzz_channel_id)
     .bind(serde_json::to_value(&input.settings.default_trial_policy)?)
     .bind(input.settings.track_attendance_by_default)
     .bind(input.settings.allow_single_visits_by_default)
@@ -320,12 +339,13 @@ async fn update_organization(
 ) -> Result<i64> {
     sqlx::query_scalar(
         "UPDATE airhop_organizations \
-         SET name = $3, locale = $4, time_zone = $5, default_trial_policy = $7, \
-             payments_buzz_channel_id = $6, track_attendance_by_default = $8, \
-             allow_single_visits_by_default = $9, existing_students_onboarding_status = $10, \
-             public_booking_purpose = $11, public_booking_appearance = $12, \
-             payment_day_of_month = $13, version = version + 1, updated_at = $14 \
-         WHERE community_id = $1 AND id = $2 AND version = $15 AND status = 'active' \
+         SET name = $3, locale = $4, time_zone = $5, payments_buzz_channel_id = $6, \
+             analytics_buzz_channel_id = $7, default_trial_policy = $8, \
+             track_attendance_by_default = $9, allow_single_visits_by_default = $10, \
+             existing_students_onboarding_status = $11, public_booking_purpose = $12, \
+             public_booking_appearance = $13, payment_day_of_month = $14, \
+             version = version + 1, updated_at = $15 \
+         WHERE community_id = $1 AND id = $2 AND version = $16 AND status = 'active' \
          RETURNING version",
     )
     .bind(tenant.community().as_uuid())
@@ -334,6 +354,7 @@ async fn update_organization(
     .bind(input.locale.trim())
     .bind(input.time_zone.trim())
     .bind(input.payments_buzz_channel_id)
+    .bind(input.analytics_buzz_channel_id)
     .bind(serde_json::to_value(&input.settings.default_trial_policy)?)
     .bind(input.settings.track_attendance_by_default)
     .bind(input.settings.allow_single_visits_by_default)
@@ -368,6 +389,9 @@ fn changed_fields(
     }
     if current.payments_buzz_channel_id != input.payments_buzz_channel_id {
         fields.push("payments_buzz_channel_id");
+    }
+    if current.analytics_buzz_channel_id != input.analytics_buzz_channel_id {
+        fields.push("analytics_buzz_channel_id");
     }
     if current.settings.default_trial_policy != input.settings.default_trial_policy {
         fields.push("default_trial_policy");
@@ -440,7 +464,7 @@ fn validate_input(input: &PutOrganizationSettingsInput) -> Result<()> {
         .map_err(|error| DbError::InvalidData(error.to_string()))
 }
 
-async fn validate_payments_channel(
+async fn validate_buzz_channel(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     tenant: &TenantContext,
     channel_id: Option<Uuid>,
@@ -450,7 +474,7 @@ async fn validate_payments_channel(
     };
     if channel_id.is_nil() {
         return Err(DbError::InvalidData(
-            "AirHub payments channel is invalid".to_owned(),
+            "AirHub Buzz channel is invalid".to_owned(),
         ));
     }
     let valid: bool = sqlx::query_scalar(
@@ -464,7 +488,7 @@ async fn validate_payments_channel(
     .await?;
     if !valid {
         return Err(DbError::InvalidData(
-            "AirHub payments channel must be an active stream in this community".to_owned(),
+            "AirHub Buzz channel must be an active stream in this community".to_owned(),
         ));
     }
     Ok(())
@@ -486,6 +510,7 @@ mod tests {
             locale: "ru-RU".to_owned(),
             time_zone: "Europe/Moscow".to_owned(),
             payments_buzz_channel_id: None,
+            analytics_buzz_channel_id: None,
             settings: OrganizationSettings {
                 default_trial_policy: TrialPolicy::Free,
                 track_attendance_by_default: true,

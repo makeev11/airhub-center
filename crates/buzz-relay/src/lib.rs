@@ -4,6 +4,9 @@
 
 mod admission;
 
+/// AirHub monthly analytics publication.
+pub mod airhop_analytics;
+
 /// AirHub recurring payments and overdue-summary publication.
 pub mod airhop_payments;
 

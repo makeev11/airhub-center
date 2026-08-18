@@ -216,7 +216,7 @@ fn build_reply_event(
         .map_err(Into::into)
 }
 
-async fn persist_message(
+pub(crate) async fn persist_message(
     state: &Arc<AppState>,
     tenant: &TenantContext,
     channel_id: uuid::Uuid,
@@ -260,12 +260,12 @@ async fn persist_message(
     Ok(inserted)
 }
 
-fn nostr_timestamp(value: DateTime<Utc>) -> anyhow::Result<Timestamp> {
+pub(crate) fn nostr_timestamp(value: DateTime<Utc>) -> anyhow::Result<Timestamp> {
     let seconds = u64::try_from(value.timestamp())?;
     Ok(Timestamp::from(seconds))
 }
 
-fn event_created_at(event: &Event) -> anyhow::Result<DateTime<Utc>> {
+pub(crate) fn event_created_at(event: &Event) -> anyhow::Result<DateTime<Utc>> {
     let seconds = i64::try_from(event.created_at.as_secs())?;
     DateTime::from_timestamp(seconds, 0)
         .ok_or_else(|| anyhow::anyhow!("AirHub Buzz event timestamp is invalid"))

@@ -180,6 +180,8 @@ pub(crate) struct PutOrganizationSettingsBody {
     time_zone: String,
     #[serde(default)]
     payments_buzz_channel_id: Option<Uuid>,
+    #[serde(default)]
+    analytics_buzz_channel_id: Option<Uuid>,
     default_trial_policy: TrialPolicy,
     track_attendance_by_default: bool,
     allow_single_visits_by_default: bool,
@@ -649,12 +651,13 @@ pub(crate) async fn get_organization_settings(
             )
         })?;
     Ok(Json(organization_settings_payload(
-        organization_json(
+        organization_settings_json(
             organization.id,
             &organization.name,
             &organization.locale,
             &organization.time_zone,
             organization.payments_buzz_channel_id,
+            organization.analytics_buzz_channel_id,
             &organization.settings,
         ),
         organization.version,
@@ -680,6 +683,7 @@ pub(crate) async fn put_organization_settings(
         locale: request.locale.trim().to_owned(),
         time_zone: request.time_zone.trim().to_owned(),
         payments_buzz_channel_id: request.payments_buzz_channel_id,
+        analytics_buzz_channel_id: request.analytics_buzz_channel_id,
         settings: OrganizationSettings {
             default_trial_policy: request.default_trial_policy,
             track_attendance_by_default: request.track_attendance_by_default,
@@ -705,12 +709,13 @@ pub(crate) async fn put_organization_settings(
         .await
         .map_err(map_db_error)?;
     Ok(Json(organization_settings_payload(
-        organization_json(
+        organization_settings_json(
             outcome.organization_id,
             &input.name,
             &input.locale,
             &input.time_zone,
             input.payments_buzz_channel_id,
+            input.analytics_buzz_channel_id,
             &input.settings,
         ),
         outcome.version,
@@ -3068,6 +3073,30 @@ fn organization_json(
     value
 }
 
+#[allow(clippy::too_many_arguments)]
+fn organization_settings_json(
+    organization_id: Uuid,
+    name: &str,
+    locale: &str,
+    time_zone: &str,
+    payments_buzz_channel_id: Option<Uuid>,
+    analytics_buzz_channel_id: Option<Uuid>,
+    settings: &OrganizationSettings,
+) -> Value {
+    let mut value = organization_json(
+        organization_id,
+        name,
+        locale,
+        time_zone,
+        payments_buzz_channel_id,
+        settings,
+    );
+    if let Some(channel_id) = analytics_buzz_channel_id {
+        value["analyticsBuzzChannelId"] = json!(channel_id);
+    }
+    value
+}
+
 fn organization_settings_payload(organization: Value, version: i64, replayed: bool) -> Value {
     json!({
         "organization": organization,
@@ -3308,13 +3337,15 @@ mod tests {
         };
         let organization_id = Uuid::new_v4();
         let payments_channel_id = Uuid::new_v4();
+        let analytics_channel_id = Uuid::new_v4();
         let payload = organization_settings_payload(
-            organization_json(
+            organization_settings_json(
                 organization_id,
                 "Каляка Маляка",
                 "ru-RU",
                 "Europe/Moscow",
                 Some(payments_channel_id),
+                Some(analytics_channel_id),
                 &settings,
             ),
             3,
@@ -3324,6 +3355,10 @@ mod tests {
         assert_eq!(
             payload["organization"]["paymentsBuzzChannelId"],
             json!(payments_channel_id)
+        );
+        assert_eq!(
+            payload["organization"]["analyticsBuzzChannelId"],
+            json!(analytics_channel_id)
         );
         assert_eq!(
             payload["organization"]["defaultTrialPolicy"]["mode"],

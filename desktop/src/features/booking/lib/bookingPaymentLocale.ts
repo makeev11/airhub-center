@@ -2,6 +2,9 @@ export type BookingPaymentMessages = {
   paymentsBuzzChannel: string;
   paymentsBuzzChannelHint: string;
   paymentsBuzzChannelNone: string;
+  analyticsBuzzChannel: string;
+  analyticsBuzzChannelHint: string;
+  analyticsBuzzChannelNone: string;
   paymentExpected: string;
   paymentOverdue: string;
   paymentPaid: string;
@@ -97,6 +100,10 @@ export const ruPaymentMessages: BookingPaymentMessages = {
   paymentsBuzzChannelHint:
     "Физ будет вести в этом канале ежемесячный тред с изменениями просроченных оплат.",
   paymentsBuzzChannelNone: "Не публиковать сводки",
+  analyticsBuzzChannel: "Канал аналитики в Buzz",
+  analyticsBuzzChannelHint:
+    "Физ будет вести здесь отдельный месячный тред оплат и воронки, обновляя его только при изменениях.",
+  analyticsBuzzChannelNone: "Не публиковать аналитику",
   paymentExpected: "Ожидается",
   paymentOverdue: "Просрочено",
   paymentPaid: "Оплачено",

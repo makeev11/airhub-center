@@ -2487,6 +2487,90 @@ mod tests {
             current_date
         );
 
+        let analytics_channel_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO channels (id, community_id, name, channel_type, visibility, created_by) \
+             VALUES ($1, $2, 'airhop-analytics', 'stream', 'open', $3)",
+        )
+        .bind(analytics_channel_id)
+        .bind(community_id)
+        .bind([41_u8; 32].as_slice())
+        .execute(&db.pool)
+        .await
+        .expect("insert analytics channel");
+        sqlx::query(
+            "UPDATE airhop_organizations SET analytics_buzz_channel_id = $3 \
+             WHERE community_id = $1 AND id = $2",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(analytics_channel_id)
+        .execute(&db.pool)
+        .await
+        .expect("configure analytics channel");
+
+        let prepared = db
+            .prepare_airhop_analytics_reports()
+            .await
+            .expect("prepare analytics report");
+        assert_eq!(prepared.len(), 1);
+        let report = prepared.first().expect("prepared analytics report");
+        assert_eq!(report.community_id, tenant.community());
+        assert_eq!(report.organization_id, organization_id);
+        assert_eq!(report.channel_id, analytics_channel_id);
+        assert!(report.content.contains("💳 Оплаты"));
+        assert!(report.content.contains("RUB"));
+        assert!(report.content.contains("🎯 Воронка пробных"));
+        let retried = db
+            .prepare_airhop_analytics_reports()
+            .await
+            .expect("retry pending analytics report");
+        assert_eq!(retried.len(), 1);
+        assert_eq!(retried[0].pending_id, report.pending_id);
+        assert_eq!(retried[0].content, report.content);
+        assert_eq!(retried[0].created_at, report.created_at);
+
+        let root_event_id = [42_u8; 32];
+        let first_report_event_id = [43_u8; 32];
+        assert!(db
+            .complete_airhop_analytics_report(
+                &tenant,
+                organization_id,
+                report.pending_id,
+                &root_event_id,
+                report.created_at,
+                &first_report_event_id,
+            )
+            .await
+            .expect("complete analytics report"));
+        assert!(db
+            .prepare_airhop_analytics_reports()
+            .await
+            .expect("skip unchanged analytics report")
+            .is_empty());
+
+        sqlx::query(
+            "UPDATE airhop_payment_expectations \
+             SET amount_minor = amount_minor + 1000, version = version + 1, updated_at = now() \
+             WHERE community_id = $1 AND organization_id = $2 AND billing_period = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(current_period)
+        .execute(&db.pool)
+        .await
+        .expect("change analytics payment snapshot");
+        let changed = db
+            .prepare_airhop_analytics_reports()
+            .await
+            .expect("prepare changed analytics report");
+        assert_eq!(changed.len(), 1);
+        assert_ne!(changed[0].content, report.content);
+        assert_eq!(
+            changed[0].root_event_id.as_deref(),
+            Some(root_event_id.as_slice())
+        );
+
         definition.status = GroupStatus::Archived;
         let put = PutGroupInput {
             group_id: created.group_id,

@@ -121,6 +121,7 @@ export const organizationSchema = z.object({
   publicBooking: publicBookingSettingsSchema,
   paymentDayOfMonth: z.number().int().min(1).max(28),
   paymentsBuzzChannelId: bookingIdSchema.optional(),
+  analyticsBuzzChannelId: bookingIdSchema.optional(),
 });
 
 export const branchSchema = z.object({
