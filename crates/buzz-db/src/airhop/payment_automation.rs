@@ -90,6 +90,7 @@ struct EnrollmentSource {
     child_id: Uuid,
     tariff_id: Uuid,
     start_date: NaiveDate,
+    payment_generation_from: Option<NaiveDate>,
     end_date: Option<NaiveDate>,
     tariff_name: String,
     amount_minor: i64,
@@ -344,7 +345,8 @@ impl Db {
             .await?;
         let rows = sqlx::query(
             "SELECT enrollment.id, enrollment.family_id, enrollment.child_id, \
-                    enrollment.tariff_id, enrollment.start_date, enrollment.end_date, \
+                    enrollment.tariff_id, enrollment.start_date, \
+                    enrollment.payment_generation_from, enrollment.end_date, \
                     tariff.name AS tariff_name, tariff.price_minor, tariff.currency, \
                     COALESCE(tariff.payment_day_of_month, organization.payment_day_of_month) \
                         AS payment_day, MAX(payment.billing_period) AS latest_billing_period \
@@ -363,7 +365,8 @@ impl Db {
              WHERE enrollment.community_id = $1 AND enrollment.organization_id = $2 \
                AND enrollment.status = 'active' AND enrollment.assignment_state = 'configured' \
              GROUP BY enrollment.id, enrollment.family_id, enrollment.child_id, \
-                      enrollment.tariff_id, enrollment.start_date, enrollment.end_date, \
+                      enrollment.tariff_id, enrollment.start_date, \
+                      enrollment.payment_generation_from, enrollment.end_date, \
                       tariff.name, tariff.price_minor, tariff.currency, \
                       tariff.payment_day_of_month, organization.payment_day_of_month \
              ORDER BY enrollment.id",
@@ -389,6 +392,13 @@ impl Db {
                 }
                 None => (first_of_month(source.start_date)?, source.start_date),
             };
+            if let Some(floor) = source.payment_generation_from {
+                let floor_period = first_of_month(floor)?;
+                if billing_period < floor_period {
+                    billing_period = floor_period;
+                    due_date = floor;
+                }
+            }
             for _ in 0..MAX_CREATED_PER_ENROLLMENT {
                 if billing_period > horizon_period
                     || source.end_date.is_some_and(|end_date| due_date > end_date)
@@ -646,6 +656,7 @@ fn parse_enrollment_source(row: sqlx::postgres::PgRow) -> Result<EnrollmentSourc
         child_id: row.try_get("child_id")?,
         tariff_id: row.try_get("tariff_id")?,
         start_date: row.try_get("start_date")?,
+        payment_generation_from: row.try_get("payment_generation_from")?,
         end_date: row.try_get("end_date")?,
         tariff_name: row.try_get("tariff_name")?,
         amount_minor: row.try_get("price_minor")?,

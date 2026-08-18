@@ -117,6 +117,10 @@ pub enum DbError {
     #[error("AirHub enrollment schedule is invalid")]
     AirhopEnrollmentScheduleInvalid,
 
+    /// A permanent enrollment command is invalid for its current lifecycle.
+    #[error("AirHub enrollment transition is not allowed")]
+    AirhopEnrollmentTransition,
+
     /// Trial conversion requires one confirmed trial booking at the source lesson.
     #[error("confirmed AirHub trial booking is required for enrollment")]
     AirhopConfirmedTrialRequired,

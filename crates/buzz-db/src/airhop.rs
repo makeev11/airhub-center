@@ -28,6 +28,8 @@ pub mod branch_directory;
 pub mod center_activation;
 /// Signed health challenges for activated AirHub Center installations.
 pub mod center_health;
+/// Optimistic lifecycle and tariff commands for permanent enrollments.
+pub mod enrollment_lifecycle;
 /// Idempotent staff commands for family-owned operational entities.
 pub mod family_commands;
 /// Tenant-scoped staff family detail projection.

@@ -178,6 +178,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(api::airhop_staff::enroll_staff_participant),
         )
         .route(
+            "/api/airhop/staff/v1/enrollments/{enrollment_id}",
+            put(api::airhop_staff::mutate_enrollment),
+        )
+        .route(
             "/api/airhop/staff/v1/families",
             get(api::airhop_staff::list_families).post(api::airhop_staff::create_family),
         )

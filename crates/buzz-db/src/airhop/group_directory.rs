@@ -1509,6 +1509,7 @@ mod tests {
     use buzz_core::CommunityId;
 
     use super::*;
+    use crate::airhop::enrollment_lifecycle::{EnrollmentChange, MutateEnrollmentInput};
     use crate::airhop::lesson_participants::{
         EnrollStaffParticipantInput, EnrollmentScheduleSelection,
     };
@@ -1685,6 +1686,7 @@ mod tests {
         let representative_id = Uuid::new_v4();
         let child_id = Uuid::new_v4();
         let tariff_id = Uuid::new_v4();
+        let replacement_tariff_id = Uuid::new_v4();
         let mut fixture = db.pool.begin().await.expect("begin enrollment fixture");
         sqlx::query(
             "INSERT INTO airhop_families (community_id, organization_id, id, \
@@ -1739,6 +1741,17 @@ mod tests {
         .execute(&mut *fixture)
         .await
         .expect("insert enrollment tariff");
+        sqlx::query(
+            "INSERT INTO airhop_tariffs (community_id, organization_id, id, name, price_minor, \
+                 currency, weekly_schedule_limit, payment_day_of_month) \
+             VALUES ($1, $2, $3, 'Новый абонемент', 720000, 'RUB', 1, 10)",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(replacement_tariff_id)
+        .execute(&mut *fixture)
+        .await
+        .expect("insert replacement enrollment tariff");
         fixture.commit().await.expect("commit enrollment fixture");
 
         let enroll = EnrollStaffParticipantInput {
@@ -1782,6 +1795,204 @@ mod tests {
             .await
             .expect("reload groups after enrollment");
         assert_eq!(groups[0].active_enrollment_count, 1);
+
+        let change_tariff = MutateEnrollmentInput {
+            enrollment_id: enrolled.enrollment_id,
+            expected_version: 1,
+            change: EnrollmentChange::ChangeTariff {
+                tariff_id: replacement_tariff_id,
+            },
+            idempotency_digest: [24; 32],
+            request_hash: [25; 32],
+            actor: actor(),
+        };
+        assert_eq!(
+            db.mutate_airhop_enrollment(&tenant, &change_tariff)
+                .await
+                .expect("change future enrollment tariff")
+                .version,
+            2
+        );
+        let first_payment_tariff: Uuid = sqlx::query_scalar(
+            "SELECT tariff_id FROM airhop_payment_expectations \
+             WHERE community_id = $1 AND organization_id = $2 AND enrollment_id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(enrolled.enrollment_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("load immutable first payment tariff snapshot");
+        assert_eq!(first_payment_tariff, tariff_id);
+        let historical_period = current_date
+            .with_day(1)
+            .expect("current month start")
+            .checked_sub_months(chrono::Months::new(6))
+            .expect("historical payment period");
+        sqlx::query(
+            "UPDATE airhop_payment_expectations SET billing_period = $4, due_date = $4 \
+             WHERE community_id = $1 AND organization_id = $2 AND enrollment_id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(enrolled.enrollment_id)
+        .bind(historical_period)
+        .execute(&db.pool)
+        .await
+        .expect("move first payment back to simulate a long pause");
+
+        let pause = MutateEnrollmentInput {
+            enrollment_id: enrolled.enrollment_id,
+            expected_version: 2,
+            change: EnrollmentChange::Pause,
+            idempotency_digest: [26; 32],
+            request_hash: [27; 32],
+            actor: actor(),
+        };
+        assert_eq!(
+            db.mutate_airhop_enrollment(&tenant, &pause)
+                .await
+                .expect("pause enrollment")
+                .version,
+            3
+        );
+        assert!(
+            db.mutate_airhop_enrollment(&tenant, &pause)
+                .await
+                .expect("replay pause enrollment")
+                .replayed
+        );
+        let mut stale_pause = pause.clone();
+        stale_pause.idempotency_digest = [28; 32];
+        stale_pause.request_hash = [29; 32];
+        assert!(matches!(
+            db.mutate_airhop_enrollment(&tenant, &stale_pause).await,
+            Err(DbError::AirhopVersionConflict)
+        ));
+        assert_eq!(
+            db.list_airhop_groups(&tenant)
+                .await
+                .expect("reload paused group")[0]
+                .active_enrollment_count,
+            0
+        );
+        let payments_before_refresh: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM airhop_payment_expectations \
+             WHERE community_id = $1 AND organization_id = $2 AND enrollment_id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(enrolled.enrollment_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("count payments before paused refresh");
+        db.refresh_airhop_payment_horizons()
+            .await
+            .expect("refresh payment horizons while paused");
+        let payments_after_refresh: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM airhop_payment_expectations \
+             WHERE community_id = $1 AND organization_id = $2 AND enrollment_id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(enrolled.enrollment_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("count payments after paused refresh");
+        assert_eq!(payments_after_refresh, payments_before_refresh);
+
+        let resume = MutateEnrollmentInput {
+            enrollment_id: enrolled.enrollment_id,
+            expected_version: 3,
+            change: EnrollmentChange::Resume,
+            idempotency_digest: [30; 32],
+            request_hash: [31; 32],
+            actor: actor(),
+        };
+        assert_eq!(
+            db.mutate_airhop_enrollment(&tenant, &resume)
+                .await
+                .expect("resume enrollment")
+                .version,
+            4
+        );
+        let resumed = sqlx::query(
+            "SELECT status, tariff_id, payment_generation_from FROM airhop_enrollments \
+             WHERE community_id = $1 AND organization_id = $2 AND id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(enrolled.enrollment_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("reload resumed enrollment");
+        assert_eq!(resumed.try_get::<&str, _>("status").unwrap(), "active");
+        assert_eq!(
+            resumed.try_get::<Uuid, _>("tariff_id").unwrap(),
+            replacement_tariff_id
+        );
+        assert_eq!(
+            resumed
+                .try_get::<Option<NaiveDate>, _>("payment_generation_from")
+                .unwrap(),
+            Some(current_date)
+        );
+        assert_eq!(
+            db.list_airhop_groups(&tenant)
+                .await
+                .expect("reload resumed group")[0]
+                .active_enrollment_count,
+            1
+        );
+        db.refresh_airhop_payment_horizons()
+            .await
+            .expect("refresh payment horizons after resume");
+        let resumed_payments = sqlx::query(
+            "SELECT billing_period, due_date, tariff_id FROM airhop_payment_expectations \
+             WHERE community_id = $1 AND organization_id = $2 AND enrollment_id = $3 \
+             ORDER BY billing_period",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(enrolled.enrollment_id)
+        .fetch_all(&db.pool)
+        .await
+        .expect("load resumed payment periods");
+        assert_eq!(resumed_payments.len(), 3);
+        assert_eq!(
+            resumed_payments[0]
+                .try_get::<NaiveDate, _>("billing_period")
+                .unwrap(),
+            historical_period
+        );
+        let current_period = current_date.with_day(1).expect("current period");
+        assert_eq!(
+            resumed_payments[1]
+                .try_get::<NaiveDate, _>("billing_period")
+                .unwrap(),
+            current_period
+        );
+        assert_eq!(
+            resumed_payments[1]
+                .try_get::<NaiveDate, _>("due_date")
+                .unwrap(),
+            current_date
+        );
+        assert_eq!(
+            resumed_payments[2]
+                .try_get::<NaiveDate, _>("billing_period")
+                .unwrap(),
+            current_period
+                .checked_add_months(chrono::Months::new(1))
+                .expect("next period")
+        );
+        assert_eq!(
+            resumed_payments[0].try_get::<Uuid, _>("tariff_id").unwrap(),
+            tariff_id
+        );
+        assert!(resumed_payments[1..]
+            .iter()
+            .all(|row| { row.try_get::<Uuid, _>("tariff_id").unwrap() == replacement_tariff_id }));
 
         let occurrence_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM airhop_lesson_occurrences \
@@ -2243,6 +2454,37 @@ mod tests {
         assert_eq!(
             projection_version_after_refresh,
             projection_version_before_refresh
+        );
+
+        let ended = db
+            .mutate_airhop_enrollment(
+                &tenant,
+                &MutateEnrollmentInput {
+                    enrollment_id: enrolled.enrollment_id,
+                    expected_version: 4,
+                    change: EnrollmentChange::End,
+                    idempotency_digest: [32; 32],
+                    request_hash: [33; 32],
+                    actor: actor(),
+                },
+            )
+            .await
+            .expect("end enrollment");
+        assert_eq!(ended.version, 5);
+        let ended_row = sqlx::query(
+            "SELECT status, end_date FROM airhop_enrollments \
+             WHERE community_id = $1 AND organization_id = $2 AND id = $3",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(enrolled.enrollment_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("reload ended enrollment");
+        assert_eq!(ended_row.try_get::<&str, _>("status").unwrap(), "ended");
+        assert_eq!(
+            ended_row.try_get::<NaiveDate, _>("end_date").unwrap(),
+            current_date
         );
 
         definition.status = GroupStatus::Archived;

@@ -61,6 +61,7 @@ import {
   type DirectEnrollmentClient,
   ServerDirectEnrollmentDialog,
 } from "@/features/booking/ui/ServerDirectEnrollmentDialog";
+import { ServerEnrollmentManagementDialog } from "@/features/booking/ui/ServerEnrollmentManagementDialog";
 
 function bookingStatusLabel(
   status: StaffFamilyDetail["bookings"][number]["status"],
@@ -169,6 +170,9 @@ function FamilyContent({
   const [isChangingPrimary, setIsChangingPrimary] = React.useState(false);
   const [enrollmentClient, setEnrollmentClient] =
     React.useState<DirectEnrollmentClient | null>(null);
+  const [managedEnrollment, setManagedEnrollment] = React.useState<
+    StaffFamilyDetail["enrollments"][number] | null
+  >(null);
 
   const changeMemberStatus = async () => {
     if (!memberLifecycleTarget) return;
@@ -537,6 +541,17 @@ function FamilyContent({
                             formatters.date(enrollment.startDate),
                           )}
                         </p>
+                        {enrollment.status !== "ended" ? (
+                          <Button
+                            data-testid={`airhop-manage-enrollment-${enrollment.id}`}
+                            onClick={() => setManagedEnrollment(enrollment)}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            <Pencil /> {messages.enrollmentManage}
+                          </Button>
+                        ) : null}
                       </div>
                     ))
                   )}
@@ -615,19 +630,34 @@ function FamilyContent({
         open={childDialogOpen}
       />
       {workspace ? (
-        <ServerDirectEnrollmentDialog
-          initialClient={enrollmentClient ?? undefined}
-          onOpenChange={(open) => {
-            if (!open) setEnrollmentClient(null);
-          }}
-          onSaved={() => {
-            toast.success(messages.enrollmentCreated);
-            void reload();
-            void booking.reload();
-          }}
-          open={enrollmentClient !== null}
-          workspace={workspace}
-        />
+        <>
+          <ServerDirectEnrollmentDialog
+            initialClient={enrollmentClient ?? undefined}
+            onOpenChange={(open) => {
+              if (!open) setEnrollmentClient(null);
+            }}
+            onSaved={() => {
+              toast.success(messages.enrollmentCreated);
+              void reload();
+              void booking.reload();
+            }}
+            open={enrollmentClient !== null}
+            workspace={workspace}
+          />
+          <ServerEnrollmentManagementDialog
+            enrollment={managedEnrollment}
+            onOpenChange={(open) => {
+              if (!open) setManagedEnrollment(null);
+            }}
+            onSaved={() => {
+              toast.success(messages.enrollmentUpdated);
+              void reload();
+              void booking.reload();
+            }}
+            open={managedEnrollment !== null}
+            workspace={workspace}
+          />
+        </>
       ) : null}
       <AlertDialog
         onOpenChange={(open) => {

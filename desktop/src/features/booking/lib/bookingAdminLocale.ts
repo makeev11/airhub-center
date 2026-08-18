@@ -297,6 +297,21 @@ export type BookingAdminMessages = BookingPaymentMessages & {
   familyEnrollChild: string;
   enrollmentNeedsAssignment: string;
   enrollmentStarts: (date: string) => string;
+  enrollmentManage: string;
+  enrollmentManagementTitle: string;
+  enrollmentManagementDescription: (group: string) => string;
+  enrollmentManagementFailed: string;
+  enrollmentUpdated: string;
+  enrollmentCurrentTariff: string;
+  enrollmentChangeTariff: string;
+  enrollmentSelectTariff: string;
+  enrollmentNoCompatibleTariffs: string;
+  enrollmentTariffFutureOnly: string;
+  enrollmentPause: string;
+  enrollmentResume: string;
+  enrollmentEnd: string;
+  enrollmentEndDescription: string;
+  enrollmentEndWarning: string;
   requestsTitle: string;
   requestsDescription: string;
   requestSearch: string;
@@ -759,6 +774,25 @@ const ru: BookingAdminMessages = {
   familyEnrollChild: "Зачислить в группу",
   enrollmentNeedsAssignment: "Нужно назначить тариф и постоянные дни",
   enrollmentStarts: (date) => `Начало: ${date}`,
+  enrollmentManage: "Управлять",
+  enrollmentManagementTitle: "Управление зачислением",
+  enrollmentManagementDescription: (group) =>
+    `Статус и будущий тариф для группы «${group}».`,
+  enrollmentManagementFailed:
+    "Не удалось изменить зачисление. Обновите карточку и попробуйте ещё раз.",
+  enrollmentUpdated: "Зачисление обновлено",
+  enrollmentCurrentTariff: "Текущий тариф",
+  enrollmentChangeTariff: "Сменить тариф",
+  enrollmentSelectTariff: "Выберите новый тариф",
+  enrollmentNoCompatibleTariffs: "Нет подходящих активных тарифов",
+  enrollmentTariffFutureOnly:
+    "Новый тариф применяется только к ещё не созданным оплатам.",
+  enrollmentPause: "Приостановить",
+  enrollmentResume: "Возобновить",
+  enrollmentEnd: "Завершить",
+  enrollmentEndDescription: "Зачисление будет завершено текущей датой центра.",
+  enrollmentEndWarning:
+    "Уже созданные оплаты сохранятся без изменений. При необходимости отмените их отдельно в очереди оплат.",
   ...ruPaymentMessages,
   requestsTitle: "Заявки",
   requestsDescription:
@@ -816,7 +850,7 @@ const ru: BookingAdminMessages = {
     "Возможно, карточка была удалена или ссылка относится к другой организации.",
   familySourceBookingCore: "Booking Core · сервер",
   familyServerReadOnly:
-    "Карточка загружена из операционной базы. Изменения семьи, представителей и детей сохраняются серверными командами с аудитом; остальные разделы пока доступны только для чтения.",
+    "Карточка загружена из операционной базы. Изменения семьи, представителей, детей и постоянных зачислений сохраняются серверными командами с аудитом.",
   familyVerifiedMessenger: "Мессенджер подтверждён",
   familyNoEnrollments: "Постоянных занятий пока нет.",
   familyEnrollmentPaused: "Приостановлено",

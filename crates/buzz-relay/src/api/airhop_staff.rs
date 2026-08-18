@@ -21,6 +21,7 @@ use buzz_db::airhop::booking_decision::{
 use buzz_db::airhop::branch_directory::{
     AirhopBranch, BranchStatus, BranchWorkingPeriod, CreateBranchInput, PutBranchInput,
 };
+use buzz_db::airhop::enrollment_lifecycle::{EnrollmentChange, MutateEnrollmentInput};
 use buzz_db::airhop::family_commands::{
     UpdateFamilyChildInput, UpdateFamilyInput, UpdateFamilyRepresentativeInput,
 };
@@ -482,6 +483,51 @@ pub(crate) enum MutatePaymentBody {
         due_date: chrono::NaiveDate,
         reason: String,
     },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(
+    tag = "action",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub(crate) enum MutateEnrollmentBody {
+    Pause {
+        expected_version: i64,
+    },
+    Resume {
+        expected_version: i64,
+    },
+    End {
+        expected_version: i64,
+    },
+    ChangeTariff {
+        expected_version: i64,
+        tariff_id: Uuid,
+    },
+}
+
+impl MutateEnrollmentBody {
+    const fn expected_version(&self) -> i64 {
+        match self {
+            Self::Pause { expected_version }
+            | Self::Resume { expected_version }
+            | Self::End { expected_version }
+            | Self::ChangeTariff {
+                expected_version, ..
+            } => *expected_version,
+        }
+    }
+
+    const fn into_change(self) -> EnrollmentChange {
+        match self {
+            Self::Pause { .. } => EnrollmentChange::Pause,
+            Self::Resume { .. } => EnrollmentChange::Resume,
+            Self::End { .. } => EnrollmentChange::End,
+            Self::ChangeTariff { tariff_id, .. } => EnrollmentChange::ChangeTariff { tariff_id },
+        }
+    }
 }
 
 impl MutatePaymentBody {
@@ -1609,6 +1655,48 @@ pub(crate) async fn enroll_staff_participant(
         "paymentExpectationId": outcome.payment_expectation_id,
         "enrollmentVersion": outcome.enrollment_version,
         "paymentVersion": outcome.payment_version,
+        "replayed": outcome.replayed,
+    })))
+}
+
+/// Idempotently changes one permanent enrollment lifecycle or future tariff.
+pub(crate) async fn mutate_enrollment(
+    State(state): State<Arc<AppState>>,
+    Path(enrollment_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/airhop/staff/v1/enrollments/{enrollment_id}");
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "PUT", &path, Some(&body), Access::Staff).await?;
+    let request: MutateEnrollmentBody = parse_body(&body)?;
+    let expected_version = request.expected_version();
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .mutate_airhop_enrollment(
+            &tenant,
+            &MutateEnrollmentInput {
+                enrollment_id,
+                expected_version,
+                change: request.into_change(),
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.enrollment-mutation.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("PUT", &path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "enrollmentId": outcome.enrollment_id,
+        "version": outcome.version,
         "replayed": outcome.replayed,
     })))
 }
@@ -3111,6 +3199,10 @@ fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
             StatusCode::UNPROCESSABLE_ENTITY,
             "Selected AirHub enrollment schedule is invalid",
         ),
+        DbError::AirhopEnrollmentTransition => api_error(
+            StatusCode::CONFLICT,
+            "AirHub enrollment is no longer available for this action",
+        ),
         DbError::AirhopConfirmedTrialRequired => api_error(
             StatusCode::CONFLICT,
             "A confirmed AirHub trial booking is required",
@@ -3300,6 +3392,28 @@ mod tests {
         assert_eq!(body.price_minor, 600_000);
         assert_eq!(body.weekly_schedule_limit, 2);
         assert_eq!(body.payment_day_of_month, None);
+    }
+
+    #[test]
+    fn enrollment_mutation_body_uses_versioned_tagged_actions() {
+        let tariff_id = Uuid::new_v4();
+        let body: MutateEnrollmentBody = serde_json::from_value(json!({
+            "action": "change_tariff",
+            "expectedVersion": 4,
+            "tariffId": tariff_id
+        }))
+        .expect("valid enrollment mutation body");
+        assert_eq!(body.expected_version(), 4);
+        assert_eq!(
+            body.into_change(),
+            EnrollmentChange::ChangeTariff { tariff_id }
+        );
+        assert!(serde_json::from_value::<MutateEnrollmentBody>(json!({
+            "action": "pause",
+            "expectedVersion": 4,
+            "unexpected": true
+        }))
+        .is_err());
     }
 
     #[test]

@@ -42,8 +42,16 @@ const outcomeSchema = z.object({
   paymentVersion: z.number().int().positive(),
   replayed: z.boolean(),
 });
+const mutationOutcomeSchema = z.object({
+  enrollmentId: uuidSchema,
+  version: z.number().int().positive(),
+  replayed: z.boolean(),
+});
 
 export type StaffEnrollmentOutcome = z.infer<typeof outcomeSchema>;
+export type StaffEnrollmentMutationOutcome = z.infer<
+  typeof mutationOutcomeSchema
+>;
 export type StaffEnrollmentCommand = {
   familyId: string;
   childId: string;
@@ -53,9 +61,20 @@ export type StaffEnrollmentCommand = {
   schedule: WeeklyScheduleSelection[];
   idempotencyKey?: string;
 };
+export type StaffEnrollmentMutation =
+  | { action: "pause" }
+  | { action: "resume" }
+  | { action: "end" }
+  | { action: "change_tariff"; tariffId: string };
 
 export interface StaffEnrollmentService {
   enroll(input: StaffEnrollmentCommand): Promise<StaffEnrollmentOutcome>;
+  mutate(input: {
+    enrollmentId: string;
+    expectedVersion: number;
+    mutation: StaffEnrollmentMutation;
+    idempotencyKey?: string;
+  }): Promise<StaffEnrollmentMutationOutcome>;
 }
 
 type EventSigner = (input: {
@@ -102,6 +121,7 @@ function base64Utf8(value: string): string {
 }
 
 async function authorization(
+  method: "POST" | "PUT",
   url: string,
   body: string,
   signEvent: EventSigner,
@@ -111,7 +131,7 @@ async function authorization(
     content: "",
     tags: [
       ["u", url],
-      ["method", "POST"],
+      ["method", method],
       ["payload", await sha256Hex(body)],
       ["nonce", crypto.randomUUID()],
     ],
@@ -150,7 +170,7 @@ export class HttpStaffEnrollmentService implements StaffEnrollmentService {
       method: "POST",
       headers: {
         Accept: "application/json",
-        Authorization: await authorization(url, body, this.signEvent),
+        Authorization: await authorization("POST", url, body, this.signEvent),
         "Content-Type": "application/json",
         "Idempotency-Key": input.idempotencyKey ?? this.idempotencyKeyFactory(),
       },
@@ -171,6 +191,76 @@ export class HttpStaffEnrollmentService implements StaffEnrollmentService {
       throw new StaffEnrollmentApiError(response.status, message);
     }
     const outcome = outcomeSchema.safeParse(payload);
+    if (!outcome.success) {
+      throw new StaffEnrollmentApiError(
+        502,
+        "The AirHub enrollment API returned invalid data.",
+      );
+    }
+    return outcome.data;
+  }
+
+  async mutate(input: {
+    enrollmentId: string;
+    expectedVersion: number;
+    mutation: StaffEnrollmentMutation;
+    idempotencyKey?: string;
+  }): Promise<StaffEnrollmentMutationOutcome> {
+    const enrollmentId = uuidSchema.safeParse(input.enrollmentId);
+    const expectedVersion = z
+      .number()
+      .int()
+      .positive()
+      .safeParse(input.expectedVersion);
+    const mutation = z
+      .discriminatedUnion("action", [
+        z.object({ action: z.literal("pause") }),
+        z.object({ action: z.literal("resume") }),
+        z.object({ action: z.literal("end") }),
+        z.object({ action: z.literal("change_tariff"), tariffId: uuidSchema }),
+      ])
+      .safeParse(input.mutation);
+    if (
+      !enrollmentId.success ||
+      !expectedVersion.success ||
+      !mutation.success
+    ) {
+      throw new StaffEnrollmentApiError(
+        400,
+        "Invalid AirHub enrollment mutation.",
+      );
+    }
+    const baseUrl = (await this.relayHttpUrl()).replace(/\/+$/, "");
+    const url = `${baseUrl}${ENROLLMENTS_PATH}/${enrollmentId.data}`;
+    const body = JSON.stringify({
+      ...mutation.data,
+      expectedVersion: expectedVersion.data,
+    });
+    const response = await this.fetchImplementation(url, {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        Authorization: await authorization("PUT", url, body, this.signEvent),
+        "Content-Type": "application/json",
+        "Idempotency-Key": input.idempotencyKey ?? this.idempotencyKeyFactory(),
+      },
+      body,
+      credentials: "omit",
+      redirect: "error",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const message =
+        typeof payload === "object" &&
+        payload !== null &&
+        "error" in payload &&
+        typeof payload.error === "string"
+          ? payload.error
+          : `HTTP ${response.status}`;
+      throw new StaffEnrollmentApiError(response.status, message);
+    }
+    const outcome = mutationOutcomeSchema.safeParse(payload);
     if (!outcome.success) {
       throw new StaffEnrollmentApiError(
         502,

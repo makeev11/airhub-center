@@ -112,3 +112,46 @@ test("direct enrollment rejects malformed commands before transport", async () =
   );
   assert.equal(requested, false);
 });
+
+test("enrollment mutation signs the versioned action path", async () => {
+  let requested;
+  let signedInput;
+  const service = new HttpStaffEnrollmentService({
+    relayHttpUrl: async () => "https://center.example/",
+    idempotencyKeyFactory: () => "pause-command",
+    signEvent: async (input) => {
+      signedInput = input;
+      return signedEvent(input);
+    },
+    fetch: async (url, init) => {
+      requested = { url, init };
+      return new Response(
+        JSON.stringify({
+          enrollmentId: IDS.enrollment,
+          version: 2,
+          replayed: false,
+        }),
+      );
+    },
+  });
+
+  const outcome = await service.mutate({
+    enrollmentId: IDS.enrollment,
+    expectedVersion: 1,
+    mutation: { action: "pause" },
+  });
+
+  const expectedBody = JSON.stringify({ action: "pause", expectedVersion: 1 });
+  assert.equal(
+    requested.url,
+    `https://center.example/api/airhop/staff/v1/enrollments/${IDS.enrollment}`,
+  );
+  assert.equal(requested.init.method, "PUT");
+  assert.equal(requested.init.body, expectedBody);
+  assert.deepEqual(signedInput.tags.slice(0, 3), [
+    ["u", requested.url],
+    ["method", "PUT"],
+    ["payload", createHash("sha256").update(expectedBody).digest("hex")],
+  ]);
+  assert.equal(outcome.version, 2);
+});
