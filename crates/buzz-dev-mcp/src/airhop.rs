@@ -234,7 +234,40 @@ impl ReadParams {
 pub struct PrepareActionParams {
     #[schemars(with = "String")]
     pub channel_id: Uuid,
-    pub command: Value,
+    /// Hex event ID shown in the triggering `[Event]` block of the turn.
+    pub triggering_event_id: String,
+    pub command: PrepareAgentCommand,
+}
+
+/// Closed setup-command discriminator exposed to the Administrator model.
+/// The relay performs the authoritative per-command body parse using the same
+/// DTOs as its staff HTTP API.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(
+    tag = "type",
+    content = "input",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PrepareAgentCommand {
+    PutOrganizationSettings(Value),
+    CreateBranch(Value),
+    CreateRoom {
+        #[schemars(with = "String")]
+        branch_id: Uuid,
+        body: Value,
+    },
+    CreateTeacher(Value),
+    CreateGroup(Value),
+    CreateTariff(Value),
+    CreateFamily(Value),
+    EnrollParticipant(Value),
+    MutatePayment {
+        #[schemars(with = "String")]
+        payment_id: Uuid,
+        body: Value,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -642,12 +675,25 @@ impl AirhopService {
                 "only the Administrator may prepare Airhop setup actions".to_owned(),
             ));
         }
+        let triggering_event_id = params.triggering_event_id.trim();
+        if triggering_event_id.len() != 64
+            || !triggering_event_id
+                .bytes()
+                .all(|value| value.is_ascii_hexdigit())
+        {
+            return Err(AirhopError(
+                "triggeringEventId must be a 64-character hex event ID".to_owned(),
+            ));
+        }
+        let command = serde_json::to_value(params.command)
+            .map_err(|error| AirhopError(format!("command serialization failed: {error}")))?;
         self.config
             .post_json(
                 "/api/airhop/agents/v1/actions/prepare",
                 &json!({
                     "channelId": params.channel_id,
-                    "command": params.command,
+                    "triggeringEventId": triggering_event_id,
+                    "command": command,
                 }),
             )
             .await
@@ -900,6 +946,38 @@ mod tests {
                 .collect();
             assert_eq!(listed, tools_for(role));
         }
+    }
+
+    #[test]
+    fn prepare_action_wire_is_closed_and_requires_a_trigger_event() {
+        let channel_id = Uuid::new_v4();
+        let params: PrepareActionParams = serde_json::from_value(json!({
+            "channelId": channel_id,
+            "triggeringEventId": "ab".repeat(32),
+            "command": {
+                "type": "create_room",
+                "input": {
+                    "branchId": Uuid::new_v4(),
+                    "body": {"name": "Blue"}
+                }
+            }
+        }))
+        .expect("closed setup command");
+        assert!(matches!(
+            params.command,
+            PrepareAgentCommand::CreateRoom { .. }
+        ));
+        assert!(serde_json::from_value::<PrepareActionParams>(json!({
+            "channelId": channel_id,
+            "triggeringEventId": "ab".repeat(32),
+            "command": {"type": "delete_everything", "input": {}}
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<PrepareActionParams>(json!({
+            "channelId": channel_id,
+            "command": {"type": "create_teacher", "input": {"displayName": "Ann"}}
+        }))
+        .is_err());
     }
 
     #[test]

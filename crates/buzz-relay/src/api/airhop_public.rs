@@ -1141,7 +1141,7 @@ fn normalize_public_phone(value: &str) -> Result<String, ApiFailure> {
 }
 
 /// Shares public-booking phone semantics with authenticated staff commands.
-pub(super) fn normalize_airhop_phone(value: &str) -> Option<String> {
+pub(crate) fn normalize_airhop_phone(value: &str) -> Option<String> {
     normalize_public_phone(value).ok()
 }
 

@@ -7,6 +7,9 @@ mod admission;
 /// AirHub monthly analytics publication.
 pub mod airhop_analytics;
 
+/// Human-confirmed setup actions prepared by Airhop specialists.
+pub mod airhop_agent_actions;
+
 /// AirHub recurring payments and overdue-summary publication.
 pub mod airhop_payments;
 

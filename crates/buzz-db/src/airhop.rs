@@ -16,6 +16,8 @@ use uuid::Uuid;
 
 use crate::{Db, DbError, Result};
 
+/// Pending setup actions prepared by registered Welcome specialists.
+pub mod agent_actions;
 /// Retry-stable monthly analytics reports for a dedicated Buzz stream.
 pub mod analytics_report;
 /// Capacity-safe booking persistence.

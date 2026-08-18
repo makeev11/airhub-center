@@ -22,6 +22,8 @@ use super::{api_error, internal_error};
 const WELCOME_TEAM_PATH: &str = "/api/airhop/agents/v1/welcome-team";
 const WELCOME_ROUTE_PREFIX: &str = "/api/airhop/agents/v1/routes";
 
+pub(crate) use crate::airhop_agent_actions::prepare_agent_action;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PutWelcomeTeamBody {
