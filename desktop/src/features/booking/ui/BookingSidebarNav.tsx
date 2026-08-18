@@ -1,6 +1,7 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   CalendarDays,
+  ChartNoAxesCombined,
   Inbox,
   WalletCards,
   Settings2,
@@ -73,6 +74,10 @@ export function BookingSidebarNav({ isActive }: { isActive: boolean }) {
       label: messages.navPayments,
       icon: WalletCards,
       badge: openPaymentCount,
+    },
+    analytics: {
+      label: messages.navAnalytics,
+      icon: ChartNoAxesCombined,
     },
     settings: { label: messages.navSettings, icon: Settings2 },
   } satisfies Record<

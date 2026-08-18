@@ -13,6 +13,7 @@ export type BookingAdminMessages = BookingPaymentMessages & {
   navGroups: string;
   navTariffs: string;
   navPayments: string;
+  navAnalytics: string;
   navTeachers: string;
   navSettings: string;
   loadingTitle: string;
@@ -411,6 +412,7 @@ const ru: BookingAdminMessages = {
   navGroups: "Группы",
   navTariffs: "Тарифы",
   navPayments: "Оплаты",
+  navAnalytics: "Аналитика",
   navTeachers: "Преподаватели",
   navSettings: "Настройки",
   loadingTitle: "Загружаем AirHop",

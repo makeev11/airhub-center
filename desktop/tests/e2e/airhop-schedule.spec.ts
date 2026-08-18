@@ -188,6 +188,7 @@ test("AirHop keeps daily work in the sidebar and catalogs inside settings", asyn
     "open-airhop-requests",
     "open-airhop-clients",
     "open-airhop-payments",
+    "open-airhop-analytics",
     "open-airhop-settings",
   ]) {
     await expect(sidebar.getByTestId(testId)).toBeVisible();
@@ -243,6 +244,22 @@ test("AirHop keeps daily work in the sidebar and catalogs inside settings", asyn
       .locator("body")
       .evaluate((element) => element.scrollWidth - element.clientWidth),
   ).toBeLessThanOrEqual(1);
+});
+
+test("AirHop exposes the payment analytics route", async ({ page }) => {
+  await page.goto("/#/booking/analytics");
+
+  await expect(page.getByTestId("open-airhop-analytics")).toHaveAttribute(
+    "data-active",
+    "true",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Аналитика оплат" }),
+  ).toBeVisible();
+  await expect(page.getByTestId("airhop-payment-analytics")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Для аналитики пока нет данных" }),
+  ).toBeVisible();
 });
 
 test("AirHop settings and archived branches survive a browser preview reload", async ({

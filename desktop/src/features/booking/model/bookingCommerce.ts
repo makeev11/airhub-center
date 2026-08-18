@@ -182,7 +182,10 @@ function validateFirstPayment(
   tariff: BookingTariff,
   input: PaymentExpectation,
 ): PaymentExpectation {
-  const payment = paymentExpectationSchema.parse(input);
+  const payment = paymentExpectationSchema.parse({
+    ...input,
+    billingPeriod: input.billingPeriod ?? `${input.dueDate.slice(0, 7)}-01`,
+  });
   if (
     payment.organizationId !== enrollment.organizationId ||
     payment.familyId !== enrollment.familyId ||
@@ -381,6 +384,7 @@ export function updateExpectedPaymentDueDate(
   }
   const updated = paymentExpectationSchema.parse({
     ...payment,
+    billingPeriod: payment.billingPeriod ?? `${payment.dueDate.slice(0, 7)}-01`,
     dueDate: input.dueDate,
     updatedAt: input.updatedAt,
   });

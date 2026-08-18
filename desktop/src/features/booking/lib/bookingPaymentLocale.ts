@@ -9,6 +9,21 @@ export type BookingPaymentMessages = {
   paymentDueSummary: (amount: string, date: string) => string;
   paymentsTitle: string;
   paymentsDescription: string;
+  analyticsTitle: string;
+  analyticsDescription: string;
+  analyticsAsOf: (date: string) => string;
+  analyticsPaidThisMonth: string;
+  analyticsOutstandingThisMonth: string;
+  analyticsOpenTotal: (amount: string, count: string) => string;
+  analyticsOverdueTotal: string;
+  analyticsPaidShare: string;
+  analyticsPaidShareHint: string;
+  analyticsTrendTitle: string;
+  analyticsTrendDescription: string;
+  analyticsScheduled: string;
+  analyticsPaymentsCount: (count: number) => string;
+  analyticsNoDataTitle: string;
+  analyticsNoDataDescription: string;
   paymentFilterOpen: string;
   paymentFilterPaid: string;
   paymentFilterCancelled: string;
@@ -70,6 +85,31 @@ export const ruPaymentMessages: BookingPaymentMessages = {
   paymentsTitle: "Оплаты",
   paymentsDescription:
     "Рабочая очередь ожидаемых оплат и история решений сотрудников.",
+  analyticsTitle: "Аналитика оплат",
+  analyticsDescription:
+    "Начисления, оплаты и просрочки по данным Booking Core.",
+  analyticsAsOf: (date) => `Данные на ${date}`,
+  analyticsPaidThisMonth: "Оплачено в этом месяце",
+  analyticsOutstandingThisMonth: "Ожидается за этот месяц",
+  analyticsOpenTotal: (amount, count) => `Всего открыто: ${amount} · ${count}`,
+  analyticsOverdueTotal: "Просрочено всего",
+  analyticsPaidShare: "Доля оплаченного",
+  analyticsPaidShareHint: "От неотменённых начислений текущего месяца",
+  analyticsTrendTitle: "Динамика за шесть месяцев",
+  analyticsTrendDescription:
+    "Расчётный месяц не меняется при переносе срока отдельной оплаты.",
+  analyticsScheduled: "Начислено",
+  analyticsPaymentsCount: (count) => {
+    const lastTwo = count % 100;
+    const last = count % 10;
+    if (lastTwo >= 11 && lastTwo <= 14) return `${count} оплат`;
+    if (last === 1) return `${count} оплата`;
+    if (last >= 2 && last <= 4) return `${count} оплаты`;
+    return `${count} оплат`;
+  },
+  analyticsNoDataTitle: "Для аналитики пока нет данных",
+  analyticsNoDataDescription:
+    "Показатели появятся после создания первой ожидаемой оплаты.",
   paymentFilterOpen: "Нужно оплатить",
   paymentFilterPaid: "Оплачено",
   paymentFilterCancelled: "Отменено",

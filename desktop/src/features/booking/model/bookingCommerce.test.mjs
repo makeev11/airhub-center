@@ -303,11 +303,12 @@ test("expected payment due date can move without changing its tariff snapshot", 
     enrolled,
     firstPayment().id,
     {
-      dueDate: "2026-08-10",
+      dueDate: "2026-09-10",
       updatedAt: "2026-08-07T11:00:00.000Z",
     },
   );
-  assert.equal(moved.paymentExpectations[0].dueDate, "2026-08-10");
+  assert.equal(moved.paymentExpectations[0].dueDate, "2026-09-10");
+  assert.equal(moved.paymentExpectations[0].billingPeriod, "2026-08-01");
   assert.equal(moved.paymentExpectations[0].amountMinor, 600_000);
   assert.equal(
     moved.paymentExpectations[0].tariffNameSnapshot,

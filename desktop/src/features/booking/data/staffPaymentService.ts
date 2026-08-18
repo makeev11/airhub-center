@@ -10,6 +10,7 @@ import type { RelayEvent } from "@/shared/api/types";
 const NIP98_KIND = 27235;
 const REQUEST_TIMEOUT_MS = 15_000;
 const PAYMENTS_PATH = "/api/airhop/staff/v1/payments";
+const PAYMENT_ANALYTICS_PATH = "/api/airhop/staff/v1/payment-analytics";
 
 const serverPaymentSchema = paymentExpectationSchema.safeExtend({
   id: z.string().uuid(),
@@ -43,6 +44,38 @@ const paymentQueueSchema = z.object({
   items: z.array(paymentQueueItemSchema),
 });
 
+const analyticsAmountSchema = z.number().int().nonnegative().safe();
+const analyticsCountSchema = z.number().int().nonnegative().safe();
+const paymentAnalyticsPeriodSchema = z.object({
+  periodStart: z.iso.date(),
+  scheduledCount: analyticsCountSchema,
+  scheduledMinor: analyticsAmountSchema,
+  paidCount: analyticsCountSchema,
+  paidMinor: analyticsAmountSchema,
+  outstandingCount: analyticsCountSchema,
+  outstandingMinor: analyticsAmountSchema,
+  overdueCount: analyticsCountSchema,
+  overdueMinor: analyticsAmountSchema,
+  cancelledCount: analyticsCountSchema,
+  cancelledMinor: analyticsAmountSchema,
+  paidShareBps: z.number().int().min(0).max(10_000).nullable(),
+});
+const paymentAnalyticsCurrencySchema = z.object({
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  openCount: analyticsCountSchema,
+  openMinor: analyticsAmountSchema,
+  overdueCount: analyticsCountSchema,
+  overdueMinor: analyticsAmountSchema,
+  periods: z.array(paymentAnalyticsPeriodSchema).length(6),
+});
+const paymentAnalyticsSchema = z.object({
+  organization: organizationSchema,
+  analytics: z.object({
+    asOfDate: z.iso.date(),
+    currencies: z.array(paymentAnalyticsCurrencySchema),
+  }),
+});
+
 const mutationOutcomeSchema = z.object({
   paymentId: z.string().uuid(),
   version: z.number().int().positive(),
@@ -51,6 +84,13 @@ const mutationOutcomeSchema = z.object({
 
 export type StaffPaymentQueueItem = z.infer<typeof paymentQueueItemSchema>;
 export type StaffPaymentQueue = z.infer<typeof paymentQueueSchema>;
+export type StaffPaymentAnalytics = z.infer<typeof paymentAnalyticsSchema>;
+export type StaffPaymentAnalyticsCurrency = z.infer<
+  typeof paymentAnalyticsCurrencySchema
+>;
+export type StaffPaymentAnalyticsPeriod = z.infer<
+  typeof paymentAnalyticsPeriodSchema
+>;
 export type StaffPaymentMutationOutcome = z.infer<typeof mutationOutcomeSchema>;
 
 export type StaffPaymentMutation =
@@ -62,6 +102,7 @@ export type StaffPaymentMutation =
 
 export interface StaffPaymentService {
   listPayments(): Promise<StaffPaymentQueue>;
+  getPaymentAnalytics(): Promise<StaffPaymentAnalytics>;
   mutatePayment(input: {
     paymentId: string;
     expectedVersion: number;
@@ -174,6 +215,36 @@ export class HttpStaffPaymentService implements StaffPaymentService {
       throw new StaffPaymentApiError(
         502,
         "The AirHub payment queue API returned invalid data.",
+      );
+    }
+    return parsed.data;
+  }
+
+  async getPaymentAnalytics(): Promise<StaffPaymentAnalytics> {
+    const url = await this.url(PAYMENT_ANALYTICS_PATH);
+    const response = await this.fetchImplementation(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: await authorization(
+          "GET",
+          url,
+          undefined,
+          this.nonceFactory(),
+          this.signEvent,
+        ),
+      },
+      credentials: "omit",
+      redirect: "error",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw this.apiError(response, payload);
+    const parsed = paymentAnalyticsSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new StaffPaymentApiError(
+        502,
+        "The AirHub payment analytics API returned invalid data.",
       );
     }
     return parsed.data;

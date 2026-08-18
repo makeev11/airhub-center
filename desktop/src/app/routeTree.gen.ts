@@ -26,6 +26,7 @@ import { Route as bookingDotgroupsRouteImport } from "./routes/booking.groups";
 import { Route as bookingDotdemoHostRouteImport } from "./routes/booking.demo-host";
 import { Route as bookingDotclientsRouteImport } from "./routes/booking.clients";
 import { Route as bookingDotbranchesRouteImport } from "./routes/booking.branches";
+import { Route as bookingDotanalyticsRouteImport } from "./routes/booking.analytics";
 import { Route as bookingDotpublicRouteImport } from "./routes/booking.public";
 import { Route as bookingDotclientsDotindexRouteImport } from "./routes/booking.clients.index";
 import { Route as bookingDotmanageDottokenRouteImport } from "./routes/booking.manage.$token";
@@ -137,6 +138,11 @@ const bookingDotbranchesRoute = bookingDotbranchesRouteImport.update({
   path: "/booking/branches",
   getParentRoute: () => rootRouteImport,
 } as any);
+const bookingDotanalyticsRoute = bookingDotanalyticsRouteImport.update({
+  id: "/booking/analytics",
+  path: "/booking/analytics",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const bookingDotpublicRoute = bookingDotpublicRouteImport.update({
   id: "/booking/",
   path: "/booking/",
@@ -176,6 +182,7 @@ export interface FileRoutesByFullPath {
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/booking/": typeof bookingDotpublicRoute;
+  "/booking/analytics": typeof bookingDotanalyticsRoute;
   "/booking/branches": typeof bookingDotbranchesRoute;
   "/booking/clients": typeof bookingDotclientsRouteWithChildren;
   "/booking/demo-host": typeof bookingDotdemoHostRoute;
@@ -204,6 +211,7 @@ export interface FileRoutesByTo {
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/booking": typeof bookingDotpublicRoute;
+  "/booking/analytics": typeof bookingDotanalyticsRoute;
   "/booking/branches": typeof bookingDotbranchesRoute;
   "/booking/demo-host": typeof bookingDotdemoHostRoute;
   "/booking/groups": typeof bookingDotgroupsRoute;
@@ -232,6 +240,7 @@ export interface FileRoutesById {
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/booking/": typeof bookingDotpublicRoute;
+  "/booking/analytics": typeof bookingDotanalyticsRoute;
   "/booking/branches": typeof bookingDotbranchesRoute;
   "/booking/clients": typeof bookingDotclientsRouteWithChildren;
   "/booking/demo-host": typeof bookingDotdemoHostRoute;
@@ -262,6 +271,7 @@ export interface FileRouteTypes {
     | "/settings"
     | "/workflows"
     | "/booking/"
+    | "/booking/analytics"
     | "/booking/branches"
     | "/booking/clients"
     | "/booking/demo-host"
@@ -290,6 +300,7 @@ export interface FileRouteTypes {
     | "/settings"
     | "/workflows"
     | "/booking"
+    | "/booking/analytics"
     | "/booking/branches"
     | "/booking/demo-host"
     | "/booking/groups"
@@ -317,6 +328,7 @@ export interface FileRouteTypes {
     | "/settings"
     | "/workflows"
     | "/booking/"
+    | "/booking/analytics"
     | "/booking/branches"
     | "/booking/clients"
     | "/booking/demo-host"
@@ -346,6 +358,7 @@ export interface RootRouteChildren {
   settingsRoute: typeof settingsRoute;
   workflowsRoute: typeof workflowsRoute;
   bookingDotpublicRoute: typeof bookingDotpublicRoute;
+  bookingDotanalyticsRoute: typeof bookingDotanalyticsRoute;
   bookingDotbranchesRoute: typeof bookingDotbranchesRoute;
   bookingDotclientsRoute: typeof bookingDotclientsRouteWithChildren;
   bookingDotdemoHostRoute: typeof bookingDotdemoHostRoute;
@@ -513,6 +526,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof bookingDotbranchesRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/booking/analytics": {
+      id: "/booking/analytics";
+      path: "/booking/analytics";
+      fullPath: "/booking/analytics";
+      preLoaderRoute: typeof bookingDotanalyticsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/booking/": {
       id: "/booking/";
       path: "/booking";
@@ -573,6 +593,7 @@ const rootRouteChildren: RootRouteChildren = {
   settingsRoute: settingsRoute,
   workflowsRoute: workflowsRoute,
   bookingDotpublicRoute: bookingDotpublicRoute,
+  bookingDotanalyticsRoute: bookingDotanalyticsRoute,
   bookingDotbranchesRoute: bookingDotbranchesRoute,
   bookingDotclientsRoute: bookingDotclientsRouteWithChildren,
   bookingDotdemoHostRoute: bookingDotdemoHostRoute,

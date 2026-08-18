@@ -94,6 +94,60 @@ test("payment service validates the authoritative queue projection", async () =>
   assert.equal(result.items[0].family.displayName, "Семья Орловых");
 });
 
+test("payment service validates currency-safe server analytics", async () => {
+  let requested;
+  const service = new HttpStaffPaymentService({
+    relayHttpUrl: async () => "https://center.example/",
+    nonceFactory: () => "analytics-nonce",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requested = { url: String(url), init };
+      return new Response(
+        JSON.stringify({
+          organization: organization(),
+          analytics: {
+            asOfDate: "2026-08-18",
+            currencies: [
+              {
+                currency: "RUB",
+                openCount: 2,
+                openMinor: 1200000,
+                overdueCount: 1,
+                overdueMinor: 600000,
+                periods: Array.from({ length: 6 }, (_, index) => ({
+                  periodStart: `2026-${String(index + 3).padStart(2, "0")}-01`,
+                  scheduledCount: index === 5 ? 2 : 0,
+                  scheduledMinor: index === 5 ? 1200000 : 0,
+                  paidCount: index === 5 ? 1 : 0,
+                  paidMinor: index === 5 ? 600000 : 0,
+                  outstandingCount: index === 5 ? 1 : 0,
+                  outstandingMinor: index === 5 ? 600000 : 0,
+                  overdueCount: index === 5 ? 1 : 0,
+                  overdueMinor: index === 5 ? 600000 : 0,
+                  cancelledCount: 0,
+                  cancelledMinor: 0,
+                  paidShareBps: index === 5 ? 5000 : null,
+                })),
+              },
+            ],
+          },
+        }),
+      );
+    },
+  });
+
+  const result = await service.getPaymentAnalytics();
+  assert.equal(
+    requested.url,
+    "https://center.example/api/airhop/staff/v1/payment-analytics",
+  );
+  assert.equal(requested.init.method, "GET");
+  assert.equal(
+    result.analytics.currencies[0].periods.at(-1).paidShareBps,
+    5000,
+  );
+});
+
 test("payment move binds exact payload, path and idempotency key", async () => {
   let signedInput;
   let requested;

@@ -48,6 +48,8 @@ pub mod lesson_exception;
 pub mod lesson_participants;
 /// Idempotent organization bootstrap and settings updates.
 pub mod organization_settings;
+/// Currency-safe server analytics over authoritative payment expectations.
+pub mod payment_analytics;
 /// Rolling future payments and durable Buzz overdue-summary delivery state.
 pub mod payment_automation;
 /// Tenant-scoped payment work queue and audited staff commands.

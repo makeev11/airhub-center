@@ -512,6 +512,11 @@ export const paymentExpectationSchema = z
       .refine((currency) => currencyMinorUnitExponent(currency) !== null, {
         message: "Unknown currency",
       }),
+    billingPeriod: isoDateSchema
+      .refine((date) => date.endsWith("-01"), {
+        message: "Billing period must be the first day of a month",
+      })
+      .optional(),
     dueDate: isoDateSchema,
     status: paymentExpectationStatusSchema,
     paidAt: z.string().datetime({ offset: true }).optional(),
