@@ -33,21 +33,34 @@ struct BuiltInTeam {
 
 const BUILT_IN_TEAMS: &[BuiltInTeam] = &[BuiltInTeam {
     id: "builtin-team:welcome",
-    name: "Welcome Team",
-    description: Some("A friendly starter trio ready to help you plan, create, and ship."),
-    persona_ids: &["builtin:fizz", "builtin:honey", "builtin:bumble"],
+    name: "Airhop Team",
+    description: Some("Airhop's product team for setup, operations, analytics, and content."),
+    persona_ids: &[
+        "builtin:airhop-fizz",
+        "builtin:airhop-administrator",
+        "builtin:airhop-analyst",
+        "builtin:airhop-content-marketer",
+    ],
 }];
 
 // Built-in teams that have been retired. A stored copy that still exactly
 // matches its seed is purged on load (the user never touched it); customized
 // copies are demoted to user-owned teams by the retirement loop in
 // merge_teams_impl.
-const RETIRED_BUILT_IN_TEAMS: &[BuiltInTeam] = &[BuiltInTeam {
-    id: "builtin-team:fizz",
-    name: "Fizz",
-    description: Some("Fizz works carefully and collaboratively."),
-    persona_ids: &["builtin:fizz"],
-}];
+const RETIRED_BUILT_IN_TEAMS: &[BuiltInTeam] = &[
+    BuiltInTeam {
+        id: "builtin-team:fizz",
+        name: "Fizz",
+        description: Some("Fizz works carefully and collaboratively."),
+        persona_ids: &["builtin:fizz"],
+    },
+    BuiltInTeam {
+        id: "builtin-team:welcome",
+        name: "Welcome Team",
+        description: Some("A friendly starter trio ready to help you plan, create, and ship."),
+        persona_ids: &["builtin:fizz", "builtin:honey", "builtin:bumble"],
+    },
+];
 
 fn built_in_team_records(built_ins: &[BuiltInTeam], now: &str) -> Vec<TeamRecord> {
     built_ins
@@ -89,22 +102,8 @@ fn merge_teams_impl(
 ) -> (Vec<TeamRecord>, bool) {
     let mut changed = false;
 
-    // Seed missing built-ins / re-promote existing ones that were downgraded.
-    for built_in in built_in_team_records(built_ins, now) {
-        if let Some(existing) = stored.iter_mut().find(|record| record.id == built_in.id) {
-            if !existing.is_builtin {
-                existing.is_builtin = true;
-                existing.updated_at = now.to_string();
-                changed = true;
-            }
-        } else {
-            stored.push(built_in);
-            changed = true;
-        }
-    }
-
-    // Purge stored copies that are still pristine w.r.t. a retired seed. The
-    // user never touched them, so there is nothing to preserve.
+    // Purge pristine retired seeds before adding current built-ins. This order
+    // lets a replacement reuse a stable id, as the Airhop Welcome team does.
     let before = stored.len();
     stored.retain(|record| {
         !retired.iter().any(|seed| {
@@ -123,6 +122,20 @@ fn merge_teams_impl(
     });
     if stored.len() != before {
         changed = true;
+    }
+
+    // Seed missing built-ins / re-promote existing ones that were downgraded.
+    for built_in in built_in_team_records(built_ins, now) {
+        if let Some(existing) = stored.iter_mut().find(|record| record.id == built_in.id) {
+            if !existing.is_builtin {
+                existing.is_builtin = true;
+                existing.updated_at = now.to_string();
+                changed = true;
+            }
+        } else {
+            stored.push(built_in);
+            changed = true;
+        }
     }
 
     // Demote any stored team flagged as built-in whose id is no longer in

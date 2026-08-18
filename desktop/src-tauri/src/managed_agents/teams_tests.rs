@@ -326,17 +326,18 @@ fn welcome_team_is_seeded_and_idempotent() {
     assert_eq!(records.len(), 1);
     let welcome = &records[0];
     assert_eq!(welcome.id, "builtin-team:welcome");
-    assert_eq!(welcome.name, "Welcome Team");
+    assert_eq!(welcome.name, "Airhop Team");
     assert_eq!(
         welcome.description.as_deref(),
-        Some("A friendly starter trio ready to help you plan, create, and ship.")
+        Some("Airhop's product team for setup, operations, analytics, and content.")
     );
     assert_eq!(
         welcome.persona_ids,
         vec![
-            "builtin:fizz".to_string(),
-            "builtin:honey".to_string(),
-            "builtin:bumble".to_string(),
+            "builtin:airhop-fizz".to_string(),
+            "builtin:airhop-administrator".to_string(),
+            "builtin:airhop-analyst".to_string(),
+            "builtin:airhop-content-marketer".to_string(),
         ]
     );
     assert!(welcome.is_builtin);
@@ -347,6 +348,46 @@ fn welcome_team_is_seeded_and_idempotent() {
     assert_eq!(
         serde_json::to_value(records_after_second_merge).unwrap(),
         expected
+    );
+}
+
+#[test]
+fn migration_pristine_legacy_welcome_is_upgraded() {
+    let legacy = TeamRecord {
+        id: "builtin-team:welcome".to_string(),
+        name: "Welcome Team".to_string(),
+        description: Some(
+            "A friendly starter trio ready to help you plan, create, and ship.".to_string(),
+        ),
+        instructions: None,
+        persona_ids: vec![
+            "builtin:fizz".to_string(),
+            "builtin:honey".to_string(),
+            "builtin:bumble".to_string(),
+        ],
+        is_builtin: true,
+        source_dir: None,
+        is_symlink: false,
+        symlink_target: None,
+        version: None,
+        created_at: "2026-07-01T00:00:00Z".to_string(),
+        updated_at: "2026-07-01T00:00:00Z".to_string(),
+    };
+
+    let (records, changed) = merge_teams(vec![legacy], "2026-08-18T00:00:00Z");
+
+    assert!(changed);
+    assert_eq!(records.len(), 1);
+    let welcome = &records[0];
+    assert_eq!(welcome.name, "Airhop Team");
+    assert_eq!(
+        welcome.persona_ids,
+        vec![
+            "builtin:airhop-fizz",
+            "builtin:airhop-administrator",
+            "builtin:airhop-analyst",
+            "builtin:airhop-content-marketer",
+        ]
     );
 }
 

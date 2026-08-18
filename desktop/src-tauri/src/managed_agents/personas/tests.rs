@@ -45,7 +45,18 @@ fn merge_personas_adds_missing_built_ins() {
         .iter()
         .map(|record| record.display_name.as_str())
         .collect();
-    assert_eq!(display_names, vec!["Fizz", "Honey", "Bumble"]);
+    assert_eq!(
+        display_names,
+        vec![
+            "Fizz",
+            "Honey",
+            "Bumble",
+            "Fizz",
+            "Administrator",
+            "Analyst",
+            "Content Marketer",
+        ]
+    );
     let active_ids: Vec<&str> = records
         .iter()
         .filter(|record| record.is_active)
@@ -53,8 +64,52 @@ fn merge_personas_adds_missing_built_ins() {
         .collect();
     assert_eq!(
         active_ids,
-        vec!["builtin:fizz", "builtin:honey", "builtin:bumble"]
+        vec![
+            "builtin:fizz",
+            "builtin:honey",
+            "builtin:bumble",
+            "builtin:airhop-fizz",
+            "builtin:airhop-administrator",
+            "builtin:airhop-analyst",
+            "builtin:airhop-content-marketer",
+        ]
     );
+}
+
+#[test]
+fn merge_personas_seeds_the_airhop_product_roles_with_stable_ids() {
+    let (records, changed) = merge_personas(Vec::new(), "2026-08-18T00:00:00Z");
+
+    assert!(changed);
+    let airhop: Vec<&AgentDefinition> = records
+        .iter()
+        .filter(|record| record.id.starts_with("builtin:airhop-"))
+        .collect();
+    assert_eq!(
+        airhop
+            .iter()
+            .map(|record| record.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "builtin:airhop-fizz",
+            "builtin:airhop-administrator",
+            "builtin:airhop-analyst",
+            "builtin:airhop-content-marketer",
+        ]
+    );
+    assert_eq!(
+        airhop
+            .iter()
+            .map(|record| record.display_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Fizz", "Administrator", "Analyst", "Content Marketer"]
+    );
+    assert!(airhop.iter().all(|record| record.is_builtin));
+    assert!(airhop.iter().all(|record| record.is_active));
+    assert!(airhop.iter().all(|record| record.runtime.is_none()));
+    assert!(airhop
+        .iter()
+        .all(|record| !record.system_prompt.contains("bee wordplay")));
 }
 
 #[test]
