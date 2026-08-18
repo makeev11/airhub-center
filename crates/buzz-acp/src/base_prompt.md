@@ -51,6 +51,8 @@ For explicit changes to an existing personal agent, use `buzz agents draft-updat
 
 ### Threading
 
+When `[Context]` says `Scope: Airhop Welcome`, keep that channel flat: publish top-level messages in the current channel, never attach a reply event, and split a response into no more than three short messages unless the human asks for detail.
+
 Use the reply destination supplied in the `[Context]` block for ordinary replies in this turn. Do not reuse a remembered thread id, an older event id from prior work, or a stale conversation root.
 
 For human-facing work, keep the conversation flat and easy to read. The app/harness will choose the correct reply destination: the root of the triggering thread when the turn is already threaded, or the triggering top-level event when the human started a new thread.

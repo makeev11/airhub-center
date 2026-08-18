@@ -38,7 +38,7 @@ use crate::config::{compose_session_title, DedupMode, PermissionMode};
 use crate::observer;
 use crate::queue::{
     CancelReason, ContextMessage, ConversationContext, FlushBatch, PromptChannelInfo,
-    PromptProfile, PromptProfileLookup, ThreadTags,
+    PromptProfile, PromptProfileLookup, ThreadTags, WelcomeContextMessage,
 };
 use crate::relay::{ChannelInfo, RestClient};
 
@@ -539,8 +539,10 @@ pub struct PromptContext {
     pub rest_client: RestClient,
     /// Shared channel metadata for startup-known and dynamically joined channels.
     pub channel_info: ChannelInfoResolver,
-    /// Max messages to include in thread/DM context. 0 = disabled.
+    /// Max messages to include in thread/DM/Welcome context. 0 = disabled.
     pub context_message_limit: u32,
+    /// Channels whose agents converse through top-level messages only.
+    pub flat_channel_ids: HashSet<Uuid>,
     /// Max turns per session before proactive rotation. 0 = disabled.
     pub max_turns_per_session: u32,
     /// Permission mode to apply after session creation. `Default` = skip.
@@ -1866,6 +1868,13 @@ pub async fn run_prompt_task(
         crate::queue::format_prompt(
             b,
             &crate::queue::FormatPromptArgs {
+                reply_mode: Some(crate::queue::resolve_reply_mode(
+                    b.channel_id,
+                    &ctx.flat_channel_ids,
+                    channel_info
+                        .as_ref()
+                        .is_some_and(|info| info.channel_type == "dm"),
+                )),
                 agent_core: agent_core.as_deref(),
                 channel_info: channel_info.as_ref(),
                 conversation_context: conversation_context.as_ref(),
@@ -2616,6 +2625,14 @@ async fn fetch_conversation_context(
     // channels and DMs. A DM reply needs thread context (not channel history)
     // because /api/channels/{id}/messages excludes thread replies.
     let last_event = batch.events.last()?;
+
+    // Welcome is intentionally flat even if a malformed/stale event carries
+    // thread tags. Its recent top-level wall is the only conversation context.
+    if ctx.flat_channel_ids.contains(&batch.channel_id) {
+        return fetch_welcome_context(batch.channel_id, &last_event.event, limit, &ctx.rest_client)
+            .await;
+    }
+
     let tags = crate::queue::parse_thread_tags(&last_event.event);
     if let Some(root_id) = tags.root_event_id {
         return fetch_thread_context(
@@ -2667,10 +2684,17 @@ fn collect_prompt_pubkeys(
     let context_messages = match conversation_context {
         Some(ConversationContext::Thread { messages, .. })
         | Some(ConversationContext::Dm { messages, .. }) => Some(messages),
-        None => None,
+        Some(ConversationContext::Welcome { .. }) | None => None,
     };
 
     if let Some(messages) = context_messages {
+        for message in messages {
+            if let Some(normalized) = normalize_prompt_pubkey(&message.pubkey) {
+                pubkeys.insert(normalized);
+            }
+        }
+    }
+    if let Some(ConversationContext::Welcome { messages, .. }) = conversation_context {
         for message in messages {
             if let Some(normalized) = normalize_prompt_pubkey(&message.pubkey) {
                 pubkeys.insert(normalized);
@@ -3006,6 +3030,132 @@ async fn fetch_dm_context(
         }
     })
     .await
+}
+
+/// Fetch recent, top-level kind:9 messages for the flat Airhop Welcome wall.
+async fn fetch_welcome_context(
+    channel_id: Uuid,
+    trigger: &nostr::Event,
+    limit: u32,
+    rest: &RestClient,
+) -> Option<ConversationContext> {
+    use nostr::{Alphabet, SingleLetterTag};
+
+    let h_tag = SingleLetterTag::lowercase(Alphabet::H);
+    let channel = channel_id.to_string();
+    let overfetch = limit.saturating_add(1).saturating_mul(4).clamp(8, 256);
+    let filter = nostr::Filter::new()
+        .kind(nostr::Kind::Custom(
+            buzz_core::kind::KIND_STREAM_MESSAGE as u16,
+        ))
+        .custom_tags(h_tag, [channel.as_str()])
+        .until(trigger.created_at)
+        .limit(overfetch as usize);
+
+    fetch_with_retry(|| async {
+        match timeout(
+            CONTEXT_FETCH_TIMEOUT,
+            rest.query(std::slice::from_ref(&filter)),
+        )
+        .await
+        {
+            Ok(Ok(json)) => parse_nostr_welcome_response(json, trigger, channel_id, limit),
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    channel_id = %channel_id,
+                    "Welcome context fetch failed: {e} — will retry"
+                );
+                None
+            }
+            Err(_) => {
+                tracing::warn!(
+                    channel_id = %channel_id,
+                    "Welcome context fetch timed out — will retry"
+                );
+                None
+            }
+        }
+    })
+    .await
+}
+
+fn parse_nostr_welcome_response(
+    json: serde_json::Value,
+    trigger: &nostr::Event,
+    channel_id: Uuid,
+    limit: u32,
+) -> Option<ConversationContext> {
+    let events = json.as_array()?;
+    let channel = channel_id.to_string();
+    let trigger_id = trigger.id.to_hex();
+    let trigger_timestamp = trigger.created_at.as_secs();
+    let mut seen = HashSet::new();
+    let mut messages = Vec::new();
+
+    for value in events {
+        if value
+            .get("deleted_at")
+            .is_some_and(|value| !value.is_null())
+        {
+            continue;
+        }
+        let Ok(event) = serde_json::from_value::<nostr::Event>(value.clone()) else {
+            continue;
+        };
+        if event.kind.as_u16() as u32 != buzz_core::kind::KIND_STREAM_MESSAGE
+            || event.created_at.as_secs() > trigger_timestamp
+            || event.id.to_hex() == trigger_id
+            || !seen.insert(event.id.to_hex())
+        {
+            continue;
+        }
+        let mut has_channel = false;
+        let mut has_reply = false;
+        for tag in event.tags.iter() {
+            let parts = tag.as_slice();
+            match parts.first().map(String::as_str) {
+                Some("h") if parts.get(1).is_some_and(|value| value == &channel) => {
+                    has_channel = true;
+                }
+                Some("e") => has_reply = true,
+                _ => {}
+            }
+        }
+        if !has_channel || has_reply {
+            continue;
+        }
+        messages.push((event.created_at.as_secs(), welcome_context_message(&event)));
+    }
+
+    messages.sort_by_key(|(timestamp, message)| (*timestamp, message.event_id.clone()));
+    let total = messages.len().saturating_add(1);
+    let display_limit = limit.max(1) as usize;
+    let prior_limit = display_limit.saturating_sub(1);
+    if messages.len() > prior_limit {
+        messages.drain(..messages.len() - prior_limit);
+    }
+    let mut messages: Vec<WelcomeContextMessage> =
+        messages.into_iter().map(|(_, message)| message).collect();
+    messages.push(welcome_context_message(trigger));
+    Some(ConversationContext::Welcome {
+        truncated: total > messages.len(),
+        messages,
+        total,
+    })
+}
+
+fn welcome_context_message(event: &nostr::Event) -> WelcomeContextMessage {
+    let timestamp = chrono::DateTime::from_timestamp(event.created_at.as_secs() as i64, 0)
+        .map(|value| value.to_rfc3339())
+        .unwrap_or_else(|| event.created_at.as_secs().to_string());
+    WelcomeContextMessage {
+        event_id: event.id.to_hex(),
+        kind: event.kind.as_u16() as u32,
+        depth: 0,
+        pubkey: event.pubkey.to_hex(),
+        timestamp,
+        content: event.content.clone(),
+    }
 }
 
 /// Parse the legacy REST thread response (used in tests only).
@@ -4242,6 +4392,82 @@ mod tests {
     #[test]
     fn test_with_core_neither_is_none() {
         assert!(with_core(None, None).is_none());
+    }
+
+    #[test]
+    fn welcome_context_keeps_trigger_last_and_excludes_non_top_level_events() {
+        use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
+
+        let channel_id = Uuid::new_v4();
+        let other_channel = Uuid::new_v4();
+        let keys = Keys::generate();
+        let h = Tag::parse(["h", &channel_id.to_string()]).unwrap();
+        let trigger = EventBuilder::new(Kind::Custom(9), "current human turn")
+            .custom_created_at(Timestamp::from(300))
+            .tags([h.clone()])
+            .sign_with_keys(&keys)
+            .unwrap();
+        let top_level = EventBuilder::new(Kind::Custom(9), "previous agent answer")
+            .custom_created_at(Timestamp::from(200))
+            .tags([h.clone()])
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+        let threaded = EventBuilder::new(Kind::Custom(9), "thread reply")
+            .custom_created_at(Timestamp::from(250))
+            .tags([
+                h.clone(),
+                Tag::parse(["e", &"11".repeat(32), "", "root"]).unwrap(),
+            ])
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+        let task = EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_AIRHOP_AGENT_TASK as u16),
+            "ephemeral task",
+        )
+        .custom_created_at(Timestamp::from(260))
+        .tags([h.clone()])
+        .sign_with_keys(&Keys::generate())
+        .unwrap();
+        let wrong_channel = EventBuilder::new(Kind::Custom(9), "other tenant/channel")
+            .custom_created_at(Timestamp::from(270))
+            .tags([Tag::parse(["h", &other_channel.to_string()]).unwrap()])
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+        let mut deleted = serde_json::to_value(
+            EventBuilder::new(Kind::Custom(9), "deleted")
+                .custom_created_at(Timestamp::from(280))
+                .tags([h])
+                .sign_with_keys(&Keys::generate())
+                .unwrap(),
+        )
+        .unwrap();
+        deleted["deleted_at"] = serde_json::json!("2026-08-18T00:00:00Z");
+
+        let context = parse_nostr_welcome_response(
+            serde_json::json!([
+                serde_json::to_value(&top_level).unwrap(),
+                serde_json::to_value(&threaded).unwrap(),
+                serde_json::to_value(&task).unwrap(),
+                serde_json::to_value(&wrong_channel).unwrap(),
+                deleted,
+            ]),
+            &trigger,
+            channel_id,
+            12,
+        )
+        .expect("Welcome context");
+        match context {
+            ConversationContext::Welcome { messages, .. } => {
+                assert_eq!(messages.len(), 2);
+                assert_eq!(messages[0].content, "previous agent answer");
+                assert_eq!(messages.last().unwrap().event_id, trigger.id.to_hex());
+                assert!(messages.iter().all(|message| message.depth == 0));
+                assert!(messages
+                    .iter()
+                    .all(|message| message.kind == buzz_core::kind::KIND_STREAM_MESSAGE));
+            }
+            _ => panic!("expected Welcome context"),
+        }
     }
 
     #[test]
@@ -6450,6 +6676,7 @@ mod tests {
                 },
             ),
             context_message_limit: 0,
+            flat_channel_ids: HashSet::new(),
             max_turns_per_session: 0,
             permission_mode: PermissionMode::Default,
             agent_keys: agent_keys.clone(),

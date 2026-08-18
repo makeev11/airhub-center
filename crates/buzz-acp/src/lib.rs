@@ -1613,6 +1613,7 @@ async fn tokio_main() -> Result<()> {
         rest_client: relay.rest_client(),
         channel_info: pool::ChannelInfoResolver::new(channel_info_map, relay.rest_client()),
         context_message_limit: config.context_message_limit,
+        flat_channel_ids: config.flat_channel_ids.clone(),
         max_turns_per_session: config.max_turns_per_session,
         permission_mode: config.permission_mode,
         agent_keys: config.keys.clone(),

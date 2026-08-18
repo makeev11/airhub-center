@@ -970,6 +970,31 @@ pub fn slash_command_for_batch(batch: &FlushBatch, known_names: &[&str]) -> Opti
     extract_slash_command(&batch.events[0].event.content, known_names)
 }
 
+/// Where an agent response should be published for the current turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplyMode {
+    /// Airhop Welcome is a single, top-level conversation wall.
+    FlatChannel,
+    /// Ordinary channel turns follow the existing thread behavior.
+    ThreadedChannel,
+    /// Direct messages keep the existing DM reply behavior.
+    DirectMessage,
+}
+
+pub fn resolve_reply_mode(
+    channel_id: Uuid,
+    flat_channel_ids: &HashSet<Uuid>,
+    is_dm: bool,
+) -> ReplyMode {
+    if is_dm {
+        ReplyMode::DirectMessage
+    } else if flat_channel_ids.contains(&channel_id) {
+        ReplyMode::FlatChannel
+    } else {
+        ReplyMode::ThreadedChannel
+    }
+}
+
 /// Conversation context fetched by the harness before prompting.
 #[derive(Debug, Clone)]
 pub enum ConversationContext {
@@ -985,11 +1010,28 @@ pub enum ConversationContext {
         total: usize,
         truncated: bool,
     },
+    /// Recent top-level messages from the Airhop Welcome channel.
+    Welcome {
+        messages: Vec<WelcomeContextMessage>,
+        total: usize,
+        truncated: bool,
+    },
 }
 
 /// A single message in a conversation context section.
 #[derive(Debug, Clone)]
 pub struct ContextMessage {
+    pub pubkey: String,
+    pub timestamp: String,
+    pub content: String,
+}
+
+/// A validated top-level Welcome message with its routing metadata.
+#[derive(Debug, Clone)]
+pub struct WelcomeContextMessage {
+    pub event_id: String,
+    pub kind: u32,
+    pub depth: u32,
     pub pubkey: String,
     pub timestamp: String,
     pub content: String,
@@ -1242,11 +1284,23 @@ fn format_context_hints(
     is_dm: bool,
     has_conversation_context: bool,
     reply_anchor: Option<&str>,
+    reply_mode: ReplyMode,
 ) -> String {
     let channel_display = match channel_info {
         Some(ci) => format!("{} (#{channel_id})", ci.name),
         None => channel_id.to_string(),
     };
+
+    if reply_mode == ReplyMode::FlatChannel {
+        return format!(
+            "[Context]\n\
+             Scope: Airhop Welcome\n\
+             Channel: {channel_display}\n\
+             Reply with top-level messages in this channel.\n\
+             Do not attach a reply event.\n\
+             Use one thought per message and no more than three short messages unless the human asks for detail."
+        );
+    }
 
     // DM check comes first — a DM reply has both thread tags AND is_dm=true,
     // and the scope should be "dm" (not "thread") because the agent is in a DM.
@@ -1323,6 +1377,32 @@ fn format_conversation_context(
     ctx: &ConversationContext,
     profile_lookup: Option<&PromptProfileLookup>,
 ) -> String {
+    if let ConversationContext::Welcome {
+        messages,
+        total,
+        truncated,
+    } = ctx
+    {
+        let trunc_label = if *truncated { ", truncated" } else { "" };
+        let mut s = format!(
+            "[Welcome Context ({} of {total} messages{trunc_label})]",
+            messages.len()
+        );
+        for (i, msg) in messages.iter().enumerate() {
+            s.push_str(&format!(
+                "\n[{}] {} ({}, event {}, kind {}, depth {}): {}",
+                i + 1,
+                format_prompt_actor(&msg.pubkey, profile_lookup),
+                msg.timestamp,
+                msg.event_id,
+                msg.kind,
+                msg.depth,
+                msg.content,
+            ));
+        }
+        return s;
+    }
+
     let (label, messages, total, truncated) = match ctx {
         ConversationContext::Thread {
             messages,
@@ -1334,6 +1414,7 @@ fn format_conversation_context(
             total,
             truncated,
         } => ("Conversation Context", messages, total, truncated),
+        ConversationContext::Welcome { .. } => unreachable!(),
     };
 
     let trunc_label = if *truncated { ", truncated" } else { "" };
@@ -1360,6 +1441,8 @@ pub struct FormatPromptArgs<'a> {
     pub channel_info: Option<&'a PromptChannelInfo>,
     pub conversation_context: Option<&'a ConversationContext>,
     pub profile_lookup: Option<&'a PromptProfileLookup>,
+    /// Explicit response routing. `None` preserves the legacy inferred behavior.
+    pub reply_mode: Option<ReplyMode>,
     /// When true, base_prompt and system_prompt are delivered via the system
     /// role (session/new) and omitted from the user message. When false
     /// (legacy agents), they are injected as `[Base]` and `[System]` sections.
@@ -1425,6 +1508,11 @@ pub fn format_prompt(batch: &FlushBatch, args: &FormatPromptArgs<'_>) -> Vec<Str
         .channel_info
         .map(|ci| ci.channel_type == "dm")
         .unwrap_or(false);
+    let reply_mode = args.reply_mode.unwrap_or(if is_dm {
+        ReplyMode::DirectMessage
+    } else {
+        ReplyMode::ThreadedChannel
+    });
 
     let mut sections: Vec<String> = Vec::with_capacity(7);
 
@@ -1470,18 +1558,18 @@ pub fn format_prompt(batch: &FlushBatch, args: &FormatPromptArgs<'_>) -> Vec<Str
     // Agent↔agent turns get no forced anchor — deep nesting is intentional
     // there. DMs are always 1:1 with a human, so they always anchor.
     let sender_pubkey = last_event.event.pubkey.to_hex();
-    let reply_anchor = if is_dm {
-        thread_tags
+    let reply_anchor = match reply_mode {
+        ReplyMode::FlatChannel => None,
+        ReplyMode::DirectMessage => thread_tags
             .root_event_id
             .is_some()
-            .then(|| last_event.event.id.to_hex())
-    } else {
-        resolve_reply_anchor(
+            .then(|| last_event.event.id.to_hex()),
+        ReplyMode::ThreadedChannel => resolve_reply_anchor(
             &sender_pubkey,
             &thread_tags,
             &last_event.event.id.to_hex(),
             args.profile_lookup,
-        )
+        ),
     };
     sections.push(format_context_hints(
         batch.channel_id,
@@ -1490,6 +1578,7 @@ pub fn format_prompt(batch: &FlushBatch, args: &FormatPromptArgs<'_>) -> Vec<Str
         is_dm,
         args.conversation_context.is_some(),
         reply_anchor.as_deref(),
+        reply_mode,
     ));
 
     // 3. Conversation context (thread or DM).
@@ -1691,6 +1780,41 @@ mod tests {
 
     fn any_in_flight(q: &EventQueue) -> bool {
         !q.in_flight_channels.is_empty()
+    }
+
+    #[test]
+    fn flat_channel_reply_mode_never_emits_a_thread_anchor() {
+        let welcome_id = Uuid::new_v4();
+        let general_id = Uuid::new_v4();
+        let flat_ids = HashSet::from([welcome_id]);
+        assert_eq!(
+            resolve_reply_mode(welcome_id, &flat_ids, false),
+            ReplyMode::FlatChannel
+        );
+        assert_eq!(
+            resolve_reply_mode(general_id, &flat_ids, false),
+            ReplyMode::ThreadedChannel
+        );
+
+        let mut queue = EventQueue::new(DedupMode::Queue);
+        queue.push(make_queued(welcome_id, "Настроим расписание"));
+        let batch = queue.flush_next().unwrap();
+        let welcome_prompt = format_prompt(
+            &batch,
+            &FormatPromptArgs {
+                reply_mode: Some(ReplyMode::FlatChannel),
+                ..FormatPromptArgs::default()
+            },
+        )
+        .join("\n\n");
+        assert!(!welcome_prompt.contains("--reply-to"));
+        assert!(welcome_prompt.contains("Reply with top-level messages"));
+
+        let mut queue = EventQueue::new(DedupMode::Queue);
+        queue.push(make_queued(general_id, "Обычная задача"));
+        let general = queue.flush_next().unwrap();
+        let general_prompt = format_prompt(&general, &FormatPromptArgs::default()).join("\n\n");
+        assert!(general_prompt.contains("--reply-to"));
     }
 
     #[test]
