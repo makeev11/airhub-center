@@ -10,6 +10,7 @@ use rmcp::{
 use std::path::Path;
 use std::sync::Arc;
 
+mod airhop;
 mod paths;
 mod read_file;
 mod rg;
@@ -175,6 +176,10 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
         .with_writer(std::io::stderr)
         .with_ansi(false)
         .init();
+
+    if cmd == "airhop-agent-mcp" {
+        return airhop::run().await;
+    }
 
     let cwd = std::env::current_dir()?;
     let shim = shim::Shim::install()?;

@@ -155,7 +155,7 @@ _ensure-sidecar-stubs:
     set -euo pipefail
     TARGET=$(rustc -vV | sed -n 's|host: ||p')
     mkdir -p desktop/src-tauri/binaries
-    SIDECARS=(buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz)
+    SIDECARS=(buzz-acp buzz-agent buzz-dev-mcp airhop-agent-mcp git-credential-nostr buzz)
     if [[ "$TARGET" != *windows* ]]; then
         SIDECARS+=(buzz-backend-kubernetes)
     fi
@@ -250,6 +250,7 @@ desktop-release-build target="aarch64-apple-darwin":
         touch "desktop/src-tauri/binaries/buzz-backend-kubernetes-$TARGET"
     fi
     touch "desktop/src-tauri/binaries/buzz-dev-mcp-$TARGET"
+    touch "desktop/src-tauri/binaries/airhop-agent-mcp-$TARGET"
     touch "desktop/src-tauri/binaries/git-credential-nostr-$TARGET"
     touch "desktop/src-tauri/binaries/buzz-$TARGET"
     pnpm install
@@ -500,8 +501,10 @@ desktop-standalone *ARGS: _ensure-sidecar-stubs
     cargo build -p buzz-acp -p buzz-agent -p buzz-backend-kubernetes -p buzz-dev-mcp -p buzz-cli -p git-credential-nostr
     TARGET=$(rustc -vV | sed -n 's|host: ||p')
     TARGET_DIR=$(cargo metadata --format-version 1 --no-deps | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).target_directory")
-    for bin in buzz-acp buzz-agent buzz-backend-kubernetes buzz-dev-mcp git-credential-nostr buzz; do
-        cp "${TARGET_DIR}/debug/${bin}" "desktop/src-tauri/binaries/${bin}-${TARGET}"
+    for bin in buzz-acp buzz-agent buzz-backend-kubernetes buzz-dev-mcp airhop-agent-mcp git-credential-nostr buzz; do
+        source_bin="$bin"
+        [[ "$bin" == "airhop-agent-mcp" ]] && source_bin="buzz-dev-mcp"
+        cp "${TARGET_DIR}/debug/${source_bin}" "desktop/src-tauri/binaries/${bin}-${TARGET}"
         chmod +x "desktop/src-tauri/binaries/${bin}-${TARGET}"
     done
     cd {{desktop_dir}}
@@ -538,12 +541,14 @@ staging *ARGS: bootstrap _ensure-sidecar-stubs
     # tauri dev copies next to the exe would hide the provider from "Run on".
     TARGET=$(rustc -vV | sed -n 's|host: ||p')
     TARGET_DIR=$(cargo metadata --format-version 1 --no-deps | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).target_directory")
-    STAGING_SIDECARS=(buzz)
+    STAGING_SIDECARS=(buzz airhop-agent-mcp)
     if [[ "$TARGET" != *windows* ]]; then
         STAGING_SIDECARS+=(buzz-backend-kubernetes)
     fi
     for bin in "${STAGING_SIDECARS[@]}"; do
-        cp "${TARGET_DIR}/release/${bin}" "desktop/src-tauri/binaries/${bin}-${TARGET}"
+        source_bin="$bin"
+        [[ "$bin" == "airhop-agent-mcp" ]] && source_bin="buzz-dev-mcp"
+        cp "${TARGET_DIR}/release/${source_bin}" "desktop/src-tauri/binaries/${bin}-${TARGET}"
         chmod +x "desktop/src-tauri/binaries/${bin}-${TARGET}"
     done
     cd {{desktop_dir}}
@@ -574,12 +579,14 @@ production *ARGS: bootstrap _ensure-sidecar-stubs
     # tauri dev copies next to the exe would hide the provider from "Run on".
     TARGET=$(rustc -vV | sed -n 's|host: ||p')
     TARGET_DIR=$(cargo metadata --format-version 1 --no-deps | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).target_directory")
-    PRODUCTION_SIDECARS=(buzz)
+    PRODUCTION_SIDECARS=(buzz airhop-agent-mcp)
     if [[ "$TARGET" != *windows* ]]; then
         PRODUCTION_SIDECARS+=(buzz-backend-kubernetes)
     fi
     for bin in "${PRODUCTION_SIDECARS[@]}"; do
-        cp "${TARGET_DIR}/release/${bin}" "desktop/src-tauri/binaries/${bin}-${TARGET}"
+        source_bin="$bin"
+        [[ "$bin" == "airhop-agent-mcp" ]] && source_bin="buzz-dev-mcp"
+        cp "${TARGET_DIR}/release/${source_bin}" "desktop/src-tauri/binaries/${bin}-${TARGET}"
         chmod +x "desktop/src-tauri/binaries/${bin}-${TARGET}"
     done
     cd {{desktop_dir}}

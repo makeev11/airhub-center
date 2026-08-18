@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SIDECARS=(buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz)
+SIDECARS=(buzz-acp buzz-agent buzz-dev-mcp airhop-agent-mcp git-credential-nostr buzz)
 HOST=$(rustc -vV | sed -n 's|host: ||p')
 TARGET=${1:-$HOST}
 if [[ "$TARGET" != *windows* ]]; then
@@ -31,7 +31,9 @@ fi
 
 missing=()
 for bin in "${SIDECARS[@]}"; do
-    [[ -f "$SRC_DIR/${bin}${EXE}" ]] || missing+=("${bin}${EXE}")
+    source_bin="$bin"
+    [[ "$bin" == "airhop-agent-mcp" ]] && source_bin="buzz-dev-mcp"
+    [[ -f "$SRC_DIR/${source_bin}${EXE}" ]] || missing+=("${source_bin}${EXE}")
 done
 if [[ ${#missing[@]} -gt 0 ]]; then
     echo "Error: missing release binaries in $SRC_DIR: ${missing[*]}" >&2
@@ -41,8 +43,10 @@ fi
 
 mkdir -p "$BINARIES_DIR"
 for bin in "${SIDECARS[@]}"; do
+    source_bin="$bin"
+    [[ "$bin" == "airhop-agent-mcp" ]] && source_bin="buzz-dev-mcp"
     destination="$BINARIES_DIR/${bin}-${TARGET}${EXE}"
-    cp "$SRC_DIR/${bin}${EXE}" "$destination"
+    cp "$SRC_DIR/${source_bin}${EXE}" "$destination"
 
     # cp preserves the mode of an existing destination on macOS. Generated
     # sidecar placeholders may not be executable, so make the bundled Unix

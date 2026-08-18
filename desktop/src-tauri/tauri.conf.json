@@ -57,6 +57,7 @@
       "binaries/buzz-agent",
       "binaries/buzz-backend-kubernetes",
       "binaries/buzz-dev-mcp",
+      "binaries/airhop-agent-mcp",
       "binaries/git-credential-nostr",
       "binaries/buzz"
     ],
