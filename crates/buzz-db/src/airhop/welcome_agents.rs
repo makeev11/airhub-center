@@ -157,6 +157,19 @@ pub struct WelcomeRouteDecision {
     pub replayed: bool,
 }
 
+/// Current server-owned routing hints for one flat Welcome channel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AirhopWelcomeTurnState {
+    /// Registered role whose last question still expects a human reply.
+    pub last_question_role: Option<AirhopWelcomeRole>,
+    /// Registered specialist holding the current explicit Fizz handoff.
+    pub handoff_role: Option<AirhopWelcomeRole>,
+    /// Monotonic version incremented only by a material state change.
+    pub version: i64,
+    /// Time of the last material state change.
+    pub updated_at: DateTime<Utc>,
+}
+
 /// Selects exactly one product role using the documented precedence.
 pub fn select_welcome_route(
     input: &WelcomeRouteInput,
@@ -245,6 +258,78 @@ fn contains_unicode_token(content: &str, alias: &str) -> bool {
 
 fn is_token_char(value: char) -> bool {
     value.is_alphanumeric() || value == '_'
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WelcomeTurnUpdate {
+    Question(AirhopWelcomeRole),
+    Handoff(AirhopWelcomeRole),
+    Clear(AirhopWelcomeRole),
+}
+
+fn tag_values<'a>(tags: &'a serde_json::Value, name: &str) -> Option<Vec<&'a str>> {
+    let tags = tags.as_array()?;
+    Some(
+        tags.iter()
+            .filter_map(|tag| {
+                let parts = tag.as_array()?;
+                (parts.first()?.as_str()? == name)
+                    .then(|| parts.get(1)?.as_str())
+                    .flatten()
+            })
+            .collect(),
+    )
+}
+
+fn classify_welcome_turn_event(
+    kind: u32,
+    author: [u8; 32],
+    tags: &serde_json::Value,
+    members: &BTreeMap<AirhopWelcomeRole, [u8; 32]>,
+) -> Option<WelcomeTurnUpdate> {
+    let author_role = members
+        .iter()
+        .find_map(|(role, pubkey)| (*pubkey == author).then_some(*role))?;
+    let turn_tags = tag_values(tags, "airhop-agent-turn")?;
+    let [turn_role] = turn_tags.as_slice() else {
+        return None;
+    };
+    if AirhopWelcomeRole::parse(turn_role).ok()? != author_role {
+        return None;
+    }
+
+    if kind == buzz_core::kind::KIND_STREAM_MESSAGE {
+        if !tag_values(tags, "airhop-handoff")?.is_empty() {
+            return None;
+        }
+        let question_tags = tag_values(tags, "airhop-question")?;
+        return match question_tags.as_slice() {
+            [] => Some(WelcomeTurnUpdate::Clear(author_role)),
+            [role] if AirhopWelcomeRole::parse(role).ok()? == author_role => {
+                Some(WelcomeTurnUpdate::Question(author_role))
+            }
+            _ => None,
+        };
+    }
+
+    if kind != buzz_core::kind::KIND_AIRHOP_AGENT_TASK
+        || author_role != AirhopWelcomeRole::Fizz
+        || !tag_values(tags, "airhop-question")?.is_empty()
+    {
+        return None;
+    }
+    let handoff_tags = tag_values(tags, "airhop-handoff")?;
+    let [target] = handoff_tags.as_slice() else {
+        return None;
+    };
+    let target_role = AirhopWelcomeRole::parse(target).ok()?;
+    if target_role == AirhopWelcomeRole::Fizz {
+        return None;
+    }
+    let target_pubkey = members.get(&target_role)?;
+    let p_tags = tag_values(tags, "p")?;
+    (p_tags.len() == 1 && p_tags[0].eq_ignore_ascii_case(&hex::encode(target_pubkey)))
+        .then_some(WelcomeTurnUpdate::Handoff(target_role))
 }
 
 /// Authoritative input for registering the four Welcome agents.
@@ -415,6 +500,91 @@ impl Db {
         Ok(manifest)
     }
 
+    /// Applies a trusted, durably stored Welcome agent answer or question.
+    ///
+    /// Events outside the registered Welcome channel and events that do not
+    /// carry tags matching their current registered agent author are ignored.
+    pub async fn apply_airhop_welcome_stored_turn(
+        &self,
+        tenant: &TenantContext,
+        event_id: [u8; 32],
+    ) -> Result<Option<AirhopWelcomeTurnState>> {
+        let community_id = *tenant.community().as_uuid();
+        let mut tx = self.pool.begin().await?;
+        let Some(team) = welcome_team_for_turn(&mut tx, community_id).await? else {
+            return Ok(None);
+        };
+        let Some(event_row) = sqlx::query(
+            "SELECT pubkey, kind, tags, channel_id
+             FROM events
+             WHERE community_id = $1 AND id = $2 AND deleted_at IS NULL
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(community_id)
+        .bind(event_id.as_slice())
+        .fetch_optional(&mut *tx)
+        .await?
+        else {
+            return Ok(None);
+        };
+        if event_row.try_get::<Option<Uuid>, _>("channel_id")? != Some(team.channel_id) {
+            return Ok(None);
+        }
+        let kind = event_row.try_get::<i32, _>("kind")?;
+        let Ok(kind) = u32::try_from(kind) else {
+            return Ok(None);
+        };
+        let author = vec_to_pubkey(event_row.try_get("pubkey")?, "turn author")?;
+        let tags: serde_json::Value = event_row.try_get("tags")?;
+        let Some(update) = classify_welcome_turn_event(kind, author, &tags, &team.members) else {
+            return Ok(None);
+        };
+        let state =
+            apply_welcome_turn_update(&mut tx, community_id, &team, event_id, kind, author, update)
+                .await?;
+        tx.commit().await?;
+        Ok(Some(state))
+    }
+
+    /// Applies a verified ephemeral Fizz handoff after normal relay
+    /// authentication and channel-membership checks.
+    pub async fn apply_airhop_welcome_ephemeral_turn(
+        &self,
+        tenant: &TenantContext,
+        event: &nostr::Event,
+        channel_id: Uuid,
+    ) -> Result<Option<AirhopWelcomeTurnState>> {
+        event
+            .verify()
+            .map_err(|error| DbError::InvalidData(format!("invalid Welcome handoff: {error}")))?;
+        let community_id = *tenant.community().as_uuid();
+        let mut tx = self.pool.begin().await?;
+        let Some(team) = welcome_team_for_turn(&mut tx, community_id).await? else {
+            return Ok(None);
+        };
+        if channel_id != team.channel_id {
+            return Ok(None);
+        }
+        let kind = u32::from(event.kind.as_u16());
+        let author = event.pubkey.to_bytes();
+        let tags = serde_json::to_value(&event.tags)?;
+        let Some(update) = classify_welcome_turn_event(kind, author, &tags, &team.members) else {
+            return Ok(None);
+        };
+        let state = apply_welcome_turn_update(
+            &mut tx,
+            community_id,
+            &team,
+            *event.id.as_bytes(),
+            kind,
+            author,
+            update,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(Some(state))
+    }
+
     /// Atomically claims one human Welcome event for exactly one registered
     /// agent. Every concurrent/replayed caller receives the persisted winner.
     pub async fn claim_airhop_welcome_route(
@@ -575,6 +745,180 @@ impl Db {
     }
 }
 
+async fn welcome_team_for_turn(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    community_id: Uuid,
+) -> Result<Option<AirhopWelcomeTeam>> {
+    let row = sqlx::query(
+        "SELECT community_id, organization_id, channel_id, locale,
+                fizz_pubkey, administrator_pubkey, analyst_pubkey,
+                content_marketer_pubkey, registered_by_pubkey, version, updated_at
+         FROM airhop_welcome_teams
+         WHERE community_id = $1
+         FOR SHARE",
+    )
+    .bind(community_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    row.as_ref().map(welcome_team_from_row).transpose()
+}
+
+async fn apply_welcome_turn_update(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    community_id: Uuid,
+    team: &AirhopWelcomeTeam,
+    event_id: [u8; 32],
+    event_kind: u32,
+    author: [u8; 32],
+    update: WelcomeTurnUpdate,
+) -> Result<AirhopWelcomeTurnState> {
+    let inserted = sqlx::query(
+        "INSERT INTO airhop_welcome_turn_receipts (
+            community_id, organization_id, channel_id, event_id,
+            event_kind, author_pubkey
+         ) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (community_id, event_id) DO NOTHING",
+    )
+    .bind(community_id)
+    .bind(team.organization_id)
+    .bind(team.channel_id)
+    .bind(event_id.as_slice())
+    .bind(i32::try_from(event_kind).map_err(|_| {
+        DbError::InvalidData(format!(
+            "Airhop Welcome event kind is too large: {event_kind}"
+        ))
+    })?)
+    .bind(author.as_slice())
+    .execute(&mut **tx)
+    .await?
+    .rows_affected()
+        == 1;
+
+    if !inserted {
+        let row = sqlx::query(
+            "SELECT active_role, last_question_event_id, handoff_role, version, updated_at
+             FROM airhop_welcome_conversation_state
+             WHERE community_id = $1 AND channel_id = $2",
+        )
+        .bind(community_id)
+        .bind(team.channel_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| {
+            DbError::InvalidData(
+                "Airhop Welcome turn receipt exists without conversation state".to_owned(),
+            )
+        })?;
+        return welcome_turn_state_from_row(&row);
+    }
+
+    if let WelcomeTurnUpdate::Clear(role) = update {
+        let current = sqlx::query(
+            "SELECT active_role, last_question_event_id, handoff_role, version, updated_at
+             FROM airhop_welcome_conversation_state
+             WHERE community_id = $1 AND channel_id = $2",
+        )
+        .bind(community_id)
+        .bind(team.channel_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if let Some(row) = current {
+            let active_role = row
+                .try_get::<Option<String>, _>("active_role")?
+                .map(|value| AirhopWelcomeRole::parse(&value))
+                .transpose()?;
+            let handoff_role = row
+                .try_get::<Option<String>, _>("handoff_role")?
+                .map(|value| AirhopWelcomeRole::parse(&value))
+                .transpose()?;
+            if active_role != Some(role) && handoff_role != Some(role) {
+                return welcome_turn_state_from_row(&row);
+            }
+        }
+    }
+
+    let (active_role, active_pubkey, question_event_id, handoff_role) = match update {
+        WelcomeTurnUpdate::Question(role) => (
+            Some(role.as_str()),
+            Some(team.members[&role].to_vec()),
+            Some(event_id.to_vec()),
+            None,
+        ),
+        WelcomeTurnUpdate::Handoff(role) => (None, None, None, Some(role.as_str())),
+        WelcomeTurnUpdate::Clear(_) => (None, None, None, None),
+    };
+    let row = sqlx::query(
+        "INSERT INTO airhop_welcome_conversation_state (
+            community_id, organization_id, channel_id, active_role,
+            active_agent_pubkey, last_question_event_id, handoff_role
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (community_id, channel_id) DO UPDATE SET
+            organization_id = EXCLUDED.organization_id,
+            active_role = EXCLUDED.active_role,
+            active_agent_pubkey = EXCLUDED.active_agent_pubkey,
+            last_question_event_id = EXCLUDED.last_question_event_id,
+            handoff_role = EXCLUDED.handoff_role,
+            version = CASE WHEN (
+                airhop_welcome_conversation_state.organization_id,
+                airhop_welcome_conversation_state.active_role,
+                airhop_welcome_conversation_state.active_agent_pubkey,
+                airhop_welcome_conversation_state.last_question_event_id,
+                airhop_welcome_conversation_state.handoff_role
+            ) IS DISTINCT FROM (
+                EXCLUDED.organization_id,
+                EXCLUDED.active_role,
+                EXCLUDED.active_agent_pubkey,
+                EXCLUDED.last_question_event_id,
+                EXCLUDED.handoff_role
+            ) THEN airhop_welcome_conversation_state.version + 1
+              ELSE airhop_welcome_conversation_state.version END,
+            updated_at = CASE WHEN (
+                airhop_welcome_conversation_state.organization_id,
+                airhop_welcome_conversation_state.active_role,
+                airhop_welcome_conversation_state.active_agent_pubkey,
+                airhop_welcome_conversation_state.last_question_event_id,
+                airhop_welcome_conversation_state.handoff_role
+            ) IS DISTINCT FROM (
+                EXCLUDED.organization_id,
+                EXCLUDED.active_role,
+                EXCLUDED.active_agent_pubkey,
+                EXCLUDED.last_question_event_id,
+                EXCLUDED.handoff_role
+            ) THEN now() ELSE airhop_welcome_conversation_state.updated_at END
+         RETURNING active_role, last_question_event_id, handoff_role, version, updated_at",
+    )
+    .bind(community_id)
+    .bind(team.organization_id)
+    .bind(team.channel_id)
+    .bind(active_role)
+    .bind(active_pubkey)
+    .bind(question_event_id)
+    .bind(handoff_role)
+    .fetch_one(&mut **tx)
+    .await?;
+    welcome_turn_state_from_row(&row)
+}
+
+fn welcome_turn_state_from_row(row: &sqlx::postgres::PgRow) -> Result<AirhopWelcomeTurnState> {
+    let active_role = row
+        .try_get::<Option<String>, _>("active_role")?
+        .map(|value| AirhopWelcomeRole::parse(&value))
+        .transpose()?;
+    let has_question = row
+        .try_get::<Option<Vec<u8>>, _>("last_question_event_id")?
+        .is_some();
+    let handoff_role = row
+        .try_get::<Option<String>, _>("handoff_role")?
+        .map(|value| AirhopWelcomeRole::parse(&value))
+        .transpose()?;
+    Ok(AirhopWelcomeTurnState {
+        last_question_role: active_role.filter(|_| has_question),
+        handoff_role,
+        version: row.try_get("version")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
 fn p_tag_pubkeys(tags: &serde_json::Value) -> Vec<[u8; 32]> {
     tags.as_array()
         .into_iter()
@@ -678,6 +1022,67 @@ mod tests {
     }
 
     #[test]
+    fn welcome_turn_state_accepts_only_registered_agent_tags() {
+        let members = input().members;
+        let analyst = members[&AirhopWelcomeRole::Analyst];
+        let question_tags = serde_json::json!([
+            ["h", Uuid::nil().to_string()],
+            ["airhop-agent-turn", "analyst"],
+            ["airhop-question", "analyst"],
+        ]);
+        assert_eq!(
+            classify_welcome_turn_event(
+                buzz_core::kind::KIND_STREAM_MESSAGE,
+                analyst,
+                &question_tags,
+                &members,
+            ),
+            Some(WelcomeTurnUpdate::Question(AirhopWelcomeRole::Analyst)),
+        );
+
+        let administrator = members[&AirhopWelcomeRole::Administrator];
+        let handoff_tags = serde_json::json!([
+            ["h", Uuid::nil().to_string()],
+            ["p", hex::encode(administrator)],
+            ["airhop-agent-turn", "fizz"],
+            ["airhop-handoff", "administrator"],
+        ]);
+        assert_eq!(
+            classify_welcome_turn_event(
+                buzz_core::kind::KIND_AIRHOP_AGENT_TASK,
+                members[&AirhopWelcomeRole::Fizz],
+                &handoff_tags,
+                &members,
+            ),
+            Some(WelcomeTurnUpdate::Handoff(AirhopWelcomeRole::Administrator)),
+        );
+
+        let answer_tags = serde_json::json!([
+            ["h", Uuid::nil().to_string()],
+            ["airhop-agent-turn", "administrator"],
+        ]);
+        assert_eq!(
+            classify_welcome_turn_event(
+                buzz_core::kind::KIND_STREAM_MESSAGE,
+                administrator,
+                &answer_tags,
+                &members,
+            ),
+            Some(WelcomeTurnUpdate::Clear(AirhopWelcomeRole::Administrator)),
+        );
+        assert_eq!(
+            classify_welcome_turn_event(
+                buzz_core::kind::KIND_STREAM_MESSAGE,
+                [42; 32],
+                &question_tags,
+                &members,
+            ),
+            None,
+            "a human copying trusted tags must not own the next turn",
+        );
+    }
+
+    #[test]
     fn welcome_route_precedence_is_deterministic_and_unicode_safe() {
         let members = input().members;
         let explicit = WelcomeRouteInput::new(
@@ -727,7 +1132,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires a dedicated migrated Postgres database"]
-    async fn welcome_route_claim_is_atomic_replay_safe_and_tenant_fenced() {
+    async fn welcome_turn_state_and_route_claim_are_replay_safe_and_tenant_fenced() {
         use buzz_core::{CommunityId, TenantContext};
         use nostr::{EventBuilder, Keys, Kind, Tag};
 
@@ -967,6 +1372,181 @@ mod tests {
             )
             .await
             .is_err());
+
+        let analyst_question = EventBuilder::new(Kind::Custom(9), "Уточните период")
+            .tags([
+                Tag::parse(["h", &channel.id.to_string()]).unwrap(),
+                Tag::parse(["airhop-agent-turn", "analyst"]).unwrap(),
+                Tag::parse(["airhop-question", "analyst"]).unwrap(),
+            ])
+            .sign_with_keys(&agent_keys[2])
+            .unwrap();
+        db.insert_event(tenant.community(), &analyst_question, Some(channel.id))
+            .await
+            .unwrap();
+        let question_state = db
+            .apply_airhop_welcome_stored_turn(&tenant, *analyst_question.id.as_bytes())
+            .await
+            .unwrap()
+            .expect("trusted Analyst question updates state");
+        assert_eq!(
+            question_state.last_question_role,
+            Some(AirhopWelcomeRole::Analyst)
+        );
+        let question_replay = db
+            .apply_airhop_welcome_stored_turn(&tenant, *analyst_question.id.as_bytes())
+            .await
+            .unwrap()
+            .expect("exact question replay returns current state");
+        assert_eq!(question_replay.version, question_state.version);
+
+        let unrelated_specialist_answer = EventBuilder::new(Kind::Custom(9), "Контент готов")
+            .tags([
+                Tag::parse(["h", &channel.id.to_string()]).unwrap(),
+                Tag::parse(["airhop-agent-turn", "content_marketer"]).unwrap(),
+            ])
+            .sign_with_keys(&agent_keys[3])
+            .unwrap();
+        db.insert_event(
+            tenant.community(),
+            &unrelated_specialist_answer,
+            Some(channel.id),
+        )
+        .await
+        .unwrap();
+        let unchanged_question = db
+            .apply_airhop_welcome_stored_turn(&tenant, *unrelated_specialist_answer.id.as_bytes())
+            .await
+            .unwrap()
+            .expect("unrelated specialist final answer is a trusted no-op");
+        assert_eq!(
+            unchanged_question.last_question_role,
+            Some(AirhopWelcomeRole::Analyst)
+        );
+        assert_eq!(unchanged_question.version, question_state.version);
+
+        let answer_to_analyst = EventBuilder::new(Kind::Custom(9), "За месяц")
+            .tags([Tag::parse(["h", &channel.id.to_string()]).unwrap()])
+            .sign_with_keys(&owner_keys)
+            .unwrap();
+        db.insert_event(tenant.community(), &answer_to_analyst, Some(channel.id))
+            .await
+            .unwrap();
+        let analyst_route = db
+            .claim_airhop_welcome_route(
+                &tenant,
+                *answer_to_analyst.id.as_bytes(),
+                members[&AirhopWelcomeRole::Fizz],
+            )
+            .await
+            .unwrap();
+        assert_eq!(analyst_route.target_role, AirhopWelcomeRole::Analyst);
+        assert_eq!(analyst_route.reason, WelcomeRouteReason::LastQuestion);
+
+        let administrator_pubkey = members[&AirhopWelcomeRole::Administrator];
+        let handoff = EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_AIRHOP_AGENT_TASK as u16),
+            "Проверьте расписание",
+        )
+        .tags([
+            Tag::parse(["h", &channel.id.to_string()]).unwrap(),
+            Tag::parse(["p", &hex::encode(administrator_pubkey)]).unwrap(),
+            Tag::parse(["airhop-agent-turn", "fizz"]).unwrap(),
+            Tag::parse(["airhop-handoff", "administrator"]).unwrap(),
+        ])
+        .sign_with_keys(&agent_keys[0])
+        .unwrap();
+        let handoff_state = db
+            .apply_airhop_welcome_ephemeral_turn(&tenant, &handoff, channel.id)
+            .await
+            .unwrap()
+            .expect("trusted Fizz handoff updates state");
+        assert_eq!(
+            handoff_state.handoff_role,
+            Some(AirhopWelcomeRole::Administrator)
+        );
+
+        let handoff_reply = EventBuilder::new(Kind::Custom(9), "Хорошо")
+            .tags([Tag::parse(["h", &channel.id.to_string()]).unwrap()])
+            .sign_with_keys(&owner_keys)
+            .unwrap();
+        db.insert_event(tenant.community(), &handoff_reply, Some(channel.id))
+            .await
+            .unwrap();
+        let administrator_route = db
+            .claim_airhop_welcome_route(
+                &tenant,
+                *handoff_reply.id.as_bytes(),
+                members[&AirhopWelcomeRole::Fizz],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            administrator_route.target_role,
+            AirhopWelcomeRole::Administrator
+        );
+        assert_eq!(administrator_route.reason, WelcomeRouteReason::Handoff);
+
+        let administrator_answer = EventBuilder::new(Kind::Custom(9), "Готово")
+            .tags([
+                Tag::parse(["h", &channel.id.to_string()]).unwrap(),
+                Tag::parse(["airhop-agent-turn", "administrator"]).unwrap(),
+            ])
+            .sign_with_keys(&agent_keys[1])
+            .unwrap();
+        db.insert_event(tenant.community(), &administrator_answer, Some(channel.id))
+            .await
+            .unwrap();
+        let cleared = db
+            .apply_airhop_welcome_stored_turn(&tenant, *administrator_answer.id.as_bytes())
+            .await
+            .unwrap()
+            .expect("trusted specialist answer clears state");
+        assert_eq!(cleared.last_question_role, None);
+        assert_eq!(cleared.handoff_role, None);
+        let stale_question_replay = db
+            .apply_airhop_welcome_stored_turn(&tenant, *analyst_question.id.as_bytes())
+            .await
+            .unwrap()
+            .expect("old receipt returns current state without reapplying");
+        assert_eq!(stale_question_replay.last_question_role, None);
+        assert_eq!(stale_question_replay.handoff_role, None);
+        assert_eq!(stale_question_replay.version, cleared.version);
+
+        let next_plain = EventBuilder::new(Kind::Custom(9), "А ещё второй филиал")
+            .tags([Tag::parse(["h", &channel.id.to_string()]).unwrap()])
+            .sign_with_keys(&owner_keys)
+            .unwrap();
+        db.insert_event(tenant.community(), &next_plain, Some(channel.id))
+            .await
+            .unwrap();
+        let fallback = db
+            .claim_airhop_welcome_route(
+                &tenant,
+                *next_plain.id.as_bytes(),
+                members[&AirhopWelcomeRole::Fizz],
+            )
+            .await
+            .unwrap();
+        assert_eq!(fallback.target_role, AirhopWelcomeRole::Fizz);
+        assert_eq!(fallback.reason, WelcomeRouteReason::Fallback);
+
+        let fake_question = EventBuilder::new(Kind::Custom(9), "Поддельный тег")
+            .tags([
+                Tag::parse(["h", &channel.id.to_string()]).unwrap(),
+                Tag::parse(["airhop-agent-turn", "analyst"]).unwrap(),
+                Tag::parse(["airhop-question", "analyst"]).unwrap(),
+            ])
+            .sign_with_keys(&owner_keys)
+            .unwrap();
+        db.insert_event(tenant.community(), &fake_question, Some(channel.id))
+            .await
+            .unwrap();
+        assert!(db
+            .apply_airhop_welcome_stored_turn(&tenant, *fake_question.id.as_bytes())
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

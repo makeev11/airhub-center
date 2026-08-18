@@ -10,6 +10,7 @@ import {
   executeAirhopAction,
   prepareAirhopAction,
 } from "./airhopActionService.ts";
+import { airhopActorSchema } from "./airhopActionSchemas.ts";
 
 const NOW = "2026-08-05T09:00:00.000Z";
 const LESSON_REF = {
@@ -17,12 +18,19 @@ const LESSON_REF = {
   originalDate: "2026-08-10",
 };
 const ACTOR = { userId: "owner-one", surface: "staff_ui" };
-const FIZZ_ACTOR = {
+const FIZZ_AGENT = {
   userId: "owner-one",
-  surface: "fizz",
+  surface: "buzz_agent",
   agentId: "fizz-one",
+  specialistRole: "fizz",
   channelId: "welcome",
-  threadId: "thread-one",
+};
+const ADMIN_ACTOR = {
+  userId: "owner-one",
+  surface: "buzz_agent",
+  agentId: "administrator-one",
+  specialistRole: "administrator",
+  channelId: "welcome",
 };
 const MONDAY_SELECTION = {
   recurrenceRuleId: "robotics-junior-weekly",
@@ -76,6 +84,36 @@ function existingStudentCommand(overrides = {}) {
 function savedWorkspace(draft, revision) {
   return parseBookingWorkspace({ ...draft, revision });
 }
+
+test("buzz_agent actor carries a stable specialist role", () => {
+  const actor = airhopActorSchema.parse(ADMIN_ACTOR);
+
+  assert.equal(actor.surface, "buzz_agent");
+  assert.equal(actor.agentId, "administrator-one");
+  assert.equal(actor.specialistRole, "administrator");
+});
+
+test("buzz_agent actor requires identity, role, and channel", () => {
+  assert.throws(() =>
+    airhopActorSchema.parse({
+      userId: "owner-one",
+      surface: "buzz_agent",
+      agentId: "administrator-one",
+      channelId: "welcome",
+    }),
+  );
+});
+
+test("legacy fizz is not a production actor surface", () => {
+  assert.throws(() =>
+    airhopActorSchema.parse({
+      userId: "owner-one",
+      surface: "fizz",
+      agentId: "fizz-one",
+      channelId: "welcome",
+    }),
+  );
+});
 
 test("CreateExistingStudent atomically creates client records and enrollment", () => {
   const result = executeAirhopAction(
@@ -279,7 +317,7 @@ test("Fizz cannot create a direct confirmed lesson participant", () => {
           visitKind: "trial",
           sourceChannel: "telegram",
         },
-        FIZZ_ACTOR,
+        FIZZ_AGENT,
         context("fizz-direct"),
       ),
     (error) =>
@@ -368,13 +406,7 @@ test("prepare stores only preview and commit applies it once", () => {
   const prepared = prepareAirhopAction(
     DEMO_BOOKING_WORKSPACE,
     command,
-    {
-      userId: "owner-one",
-      surface: "fizz",
-      agentId: "fizz-one",
-      channelId: "welcome",
-      threadId: "thread-one",
-    },
+    ADMIN_ACTOR,
     context("preview"),
   );
   const withPreview = savedWorkspace(prepared.draft, 1);
@@ -384,6 +416,17 @@ test("prepare stores only preview and commit applies it once", () => {
   assert.equal(withPreview.paymentExpectations.length, 0);
   assert.equal(withPreview.pendingActions.length, 1);
   assert.equal(withPreview.pendingActions[0].status, "pending");
+  assert.equal(withPreview.pendingActions[0].initiatedBy, "owner-one");
+  assert.equal(
+    withPreview.pendingActions[0].preparedByAgentId,
+    "administrator-one",
+  );
+  assert.equal(withPreview.pendingActions[0].specialistRole, "administrator");
+  assert.equal("requestedBy" in withPreview.pendingActions[0], false);
+  assert.equal(
+    "requestedThroughAgentId" in withPreview.pendingActions[0],
+    false,
+  );
   assert.ok(withPreview.pendingActions[0].preview.lines.length >= 3);
   assert.match(prepared.preview.lines.join("\n"), /2 раза в неделю/);
   assert.match(prepared.preview.lines.join("\n"), /Понедельник/i);
@@ -414,7 +457,67 @@ test("prepare stores only preview and commit applies it once", () => {
   assert.deepEqual(replay.result.entityIds, committed.result.entityIds);
 });
 
-test("Fizz preview and commit create a pending lesson request", () => {
+test("legacy Fizz pending action migrates to specialist attribution", () => {
+  const prepared = prepareAirhopAction(
+    DEMO_BOOKING_WORKSPACE,
+    existingStudentCommand(),
+    ADMIN_ACTOR,
+    context("legacy-pending"),
+  );
+  const legacy = structuredClone({ ...prepared.draft, revision: 1 });
+  const [legacyAction] = legacy.pendingActions;
+  legacyAction.requestedBy = legacyAction.initiatedBy;
+  legacyAction.requestedThroughAgentId = legacyAction.preparedByAgentId;
+  delete legacyAction.initiatedBy;
+  delete legacyAction.preparedByAgentId;
+  delete legacyAction.specialistRole;
+
+  const migrated = parseBookingWorkspace(legacy);
+
+  assert.equal(migrated.pendingActions[0].initiatedBy, "owner-one");
+  assert.equal(
+    migrated.pendingActions[0].preparedByAgentId,
+    "administrator-one",
+  );
+  assert.equal(migrated.pendingActions[0].specialistRole, "administrator");
+});
+
+test("legacy Fizz entity sources migrate to buzz_agent", () => {
+  const enrolled = executeAirhopAction(
+    DEMO_BOOKING_WORKSPACE,
+    existingStudentCommand(),
+    ACTOR,
+    context("legacy-enrollment-source"),
+  );
+  const legacyEnrollment = savedWorkspace(enrolled.draft, 1);
+  legacyEnrollment.enrollments[0].source = "fizz";
+  assert.equal(
+    parseBookingWorkspace(legacyEnrollment).enrollments[0].source,
+    "buzz_agent",
+  );
+
+  const booked = executeAirhopAction(
+    DEMO_BOOKING_WORKSPACE,
+    {
+      type: "AddLessonParticipant",
+      submissionMode: "direct",
+      client: newClient(),
+      lessonRef: LESSON_REF,
+      visitKind: "trial",
+      sourceChannel: "telegram",
+    },
+    ACTOR,
+    context("legacy-booking-source"),
+  );
+  const legacyBooking = savedWorkspace(booked.draft, 1);
+  legacyBooking.bookings[0].source.surface = "fizz";
+  assert.equal(
+    parseBookingWorkspace(legacyBooking).bookings[0].source.surface,
+    "buzz_agent",
+  );
+});
+
+test("Administrator preview and commit create a pending lesson request", () => {
   const prepared = prepareAirhopAction(
     DEMO_BOOKING_WORKSPACE,
     {
@@ -425,8 +528,8 @@ test("Fizz preview and commit create a pending lesson request", () => {
       visitKind: "trial",
       sourceChannel: "telegram",
     },
-    FIZZ_ACTOR,
-    context("fizz-request-preview"),
+    ADMIN_ACTOR,
+    context("administrator-request-preview"),
   );
   const withPreview = savedWorkspace(prepared.draft, 1);
 
@@ -439,28 +542,35 @@ test("Fizz preview and commit create a pending lesson request", () => {
     withPreview,
     prepared.action.id,
     "owner-one",
-    context("fizz-request-commit"),
+    context("administrator-request-commit"),
   );
   const workspace = savedWorkspace(committed.draft, 2);
 
   assert.equal(workspace.bookings.length, 1);
   assert.equal(workspace.bookings[0].status, "pending_confirmation");
-  assert.equal(workspace.bookings[0].source.surface, "fizz");
+  assert.equal(workspace.bookings[0].source.surface, "buzz_agent");
   assert.equal(workspace.bookings[0].source.workflow, "request");
   assert.equal(workspace.pendingActions[0].status, "committed");
+});
+
+test("Fizz cannot prepare domain mutations", () => {
+  assert.throws(
+    () =>
+      prepareAirhopAction(
+        DEMO_BOOKING_WORKSPACE,
+        existingStudentCommand(),
+        FIZZ_AGENT,
+        context("fizz-prepare"),
+      ),
+    /cannot prepare mutations/,
+  );
 });
 
 test("expired preview changes status without creating business records", () => {
   const prepared = prepareAirhopAction(
     DEMO_BOOKING_WORKSPACE,
     existingStudentCommand(),
-    {
-      userId: "owner-one",
-      surface: "fizz",
-      agentId: "fizz-one",
-      channelId: "welcome",
-      threadId: "thread-one",
-    },
+    ADMIN_ACTOR,
     context("expired-preview"),
   );
   const withPreview = savedWorkspace(prepared.draft, 1);
@@ -567,7 +677,7 @@ test("MarkAttendance rejects a child outside the lesson roster", () => {
   );
 });
 
-test("staff and Fizz commerce commands share previews and atomic mutations", () => {
+test("staff and Administrator commerce commands share previews and mutations", () => {
   const createdTariff = executeAirhopAction(
     DEMO_BOOKING_WORKSPACE,
     {
@@ -604,7 +714,7 @@ test("staff and Fizz commerce commands share previews and atomic mutations", () 
       paymentId,
       amountMinor: 300_000,
     },
-    FIZZ_ACTOR,
+    ADMIN_ACTOR,
     context("payment-amount-preview"),
   );
   const pendingAmount = savedWorkspace(amountPreview.draft, 3);
@@ -630,7 +740,7 @@ test("staff and Fizz commerce commands share previews and atomic mutations", () 
   assert.equal(paid.draft.paymentExpectations[0].paidBy, ACTOR.userId);
 });
 
-test("Fizz mutations cannot bypass preview and confirmation", () => {
+test("Buzz agents cannot bypass preview and confirmation", () => {
   assert.throws(
     () =>
       executeAirhopAction(
@@ -642,8 +752,8 @@ test("Fizz mutations cannot bypass preview and confirmation", () => {
           currency: "RUB",
           weeklyScheduleLimit: 1,
         },
-        FIZZ_ACTOR,
-        context("fizz-bypass"),
+        ADMIN_ACTOR,
+        context("buzz-agent-bypass"),
       ),
     (error) =>
       error instanceof AirhopActionError && error.code === "invalid_actor",

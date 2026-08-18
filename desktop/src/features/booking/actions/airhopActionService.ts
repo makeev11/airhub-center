@@ -729,9 +729,6 @@ function planAirhopAction(
 ): PlannedAction {
   const command = airhopActionCommandSchema.parse(commandInput);
   const actor = airhopActorSchema.parse(actorInput);
-  if (actor.surface === "fizz" && !actor.agentId) {
-    throw new AirhopActionError("invalid_actor", "Fizz actor needs agent id");
-  }
   if (command.type === "CreateExistingStudent") {
     return planEnrollment(workspace, command, actor, context);
   }
@@ -764,10 +761,10 @@ export function executeAirhopAction(
   context: AirhopActionContext,
 ): ExecutedAirhopAction {
   const parsedActor = airhopActorSchema.parse(actor);
-  if (parsedActor.surface === "fizz") {
+  if (parsedActor.surface !== "staff_ui") {
     throw new AirhopActionError(
       "invalid_actor",
-      "Fizz mutations require preview and confirmation",
+      "Buzz agent mutations require preview and confirmation",
     );
   }
   return {
@@ -798,15 +795,16 @@ export function prepareAirhopAction(
 ): PreparedAirhopAction {
   const command = airhopActionCommandSchema.parse(commandInput);
   const actor = airhopActorSchema.parse(actorInput);
-  if (
-    actor.surface !== "fizz" ||
-    !actor.agentId ||
-    !actor.channelId ||
-    !actor.threadId
-  ) {
+  if (actor.surface !== "buzz_agent") {
     throw new AirhopActionError(
       "invalid_actor",
-      "Prepared action needs Fizz thread metadata",
+      "Prepared action needs Buzz agent metadata",
+    );
+  }
+  if (actor.specialistRole !== "administrator") {
+    throw new AirhopActionError(
+      "invalid_actor",
+      `${actor.specialistRole} cannot prepare mutations`,
     );
   }
   const existing = workspace.pendingActions.find(
@@ -831,10 +829,11 @@ export function prepareAirhopAction(
     expectedRevision: workspace.revision + 1,
     checksum: requireDigest(context.digest(JSON.stringify(storedCommand))),
     idempotencyKey: context.idempotencyKey,
-    requestedBy: actor.userId,
-    requestedThroughAgentId: actor.agentId,
+    initiatedBy: actor.userId,
+    preparedByAgentId: actor.agentId,
+    specialistRole: actor.specialistRole,
     channelId: actor.channelId,
-    threadId: actor.threadId,
+    threadId: actor.threadId ?? actor.channelId,
     preview: plan.preview,
     status: "pending" as const,
     createdAt: context.now,
@@ -916,9 +915,10 @@ export function commitAirhopAction(
     workspace,
     command,
     {
-      userId: action.requestedBy,
-      surface: "fizz",
-      agentId: action.requestedThroughAgentId,
+      userId: action.initiatedBy,
+      surface: "buzz_agent",
+      agentId: action.preparedByAgentId,
+      specialistRole: action.specialistRole,
       channelId: action.channelId,
       threadId: action.threadId,
     },

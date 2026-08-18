@@ -342,5 +342,68 @@ export function migrateBookingWorkspace(input: unknown): unknown {
     };
   }
 
+  if (legacy.schemaVersion === 8) {
+    legacy = {
+      ...legacy,
+      bookings: Array.isArray(legacy.bookings)
+        ? legacy.bookings.map((booking) => {
+            if (
+              !booking ||
+              typeof booking !== "object" ||
+              Array.isArray(booking)
+            ) {
+              return booking;
+            }
+            const current = booking as Record<string, unknown>;
+            const source = current.source;
+            return source &&
+              typeof source === "object" &&
+              !Array.isArray(source)
+              ? {
+                  ...current,
+                  source: {
+                    ...source,
+                    surface:
+                      (source as Record<string, unknown>).surface === "fizz"
+                        ? "buzz_agent"
+                        : (source as Record<string, unknown>).surface,
+                  },
+                }
+              : booking;
+          })
+        : legacy.bookings,
+      enrollments: Array.isArray(legacy.enrollments)
+        ? legacy.enrollments.map((enrollment) =>
+            enrollment &&
+            typeof enrollment === "object" &&
+            !Array.isArray(enrollment) &&
+            (enrollment as Record<string, unknown>).source === "fizz"
+              ? { ...enrollment, source: "buzz_agent" }
+              : enrollment,
+          )
+        : legacy.enrollments,
+      pendingActions: Array.isArray(legacy.pendingActions)
+        ? legacy.pendingActions.map((action) => {
+            if (
+              !action ||
+              typeof action !== "object" ||
+              Array.isArray(action)
+            ) {
+              return action;
+            }
+            const current = action as Record<string, unknown>;
+            const { requestedBy, requestedThroughAgentId, ...rest } = current;
+            return {
+              ...rest,
+              initiatedBy: current.initiatedBy ?? requestedBy,
+              preparedByAgentId:
+                current.preparedByAgentId ?? requestedThroughAgentId,
+              specialistRole: current.specialistRole ?? "administrator",
+            };
+          })
+        : legacy.pendingActions,
+    };
+  }
+
   return legacy;
 }

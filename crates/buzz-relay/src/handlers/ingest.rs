@@ -2861,6 +2861,34 @@ async fn ingest_event_inner(
         });
     }
 
+    if super::airhop_welcome_turn_projection(kind_u32)
+        == Some(super::AirhopWelcomeTurnProjection::Stored)
+    {
+        match state
+            .db
+            .apply_airhop_welcome_stored_turn(tenant, *event.id.as_bytes())
+            .await
+        {
+            Ok(Some(turn_state)) => {
+                debug!(
+                    event_id = %event_id_hex,
+                    version = turn_state.version,
+                    last_question_role = ?turn_state.last_question_role,
+                    handoff_role = ?turn_state.handoff_role,
+                    "Airhop Welcome turn state projected from stored agent message"
+                );
+            }
+            Ok(None) => {}
+            Err(error) => {
+                error!(
+                    event_id = %event_id_hex,
+                    error = %error,
+                    "Airhop Welcome stored turn projection failed"
+                );
+            }
+        }
+    }
+
     if crate::handlers::side_effects::is_side_effect_kind(kind_u32) {
         if let Err(e) =
             crate::handlers::side_effects::handle_side_effects(tenant, kind_u32, &event, state)

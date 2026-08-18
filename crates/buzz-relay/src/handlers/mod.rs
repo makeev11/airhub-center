@@ -60,3 +60,45 @@ pub fn resolve_ttl(event: &nostr::Event, ephemeral_ttl_override: Option<i32>) ->
         (ttl, _) => ttl,
     }
 }
+
+/// Relay lifecycle seam that can mutate Airhop Welcome turn state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AirhopWelcomeTurnProjection {
+    /// Durable kind-9 agent answer or question, projected after insert.
+    Stored,
+    /// Ephemeral Fizz delegation, projected before channel fan-out.
+    Ephemeral,
+}
+
+/// Classifies only the two trusted Airhop Welcome protocol event kinds.
+pub(crate) const fn airhop_welcome_turn_projection(
+    kind: u32,
+) -> Option<AirhopWelcomeTurnProjection> {
+    match kind {
+        buzz_core::kind::KIND_STREAM_MESSAGE => Some(AirhopWelcomeTurnProjection::Stored),
+        buzz_core::kind::KIND_AIRHOP_AGENT_TASK => Some(AirhopWelcomeTurnProjection::Ephemeral),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn welcome_turn_state_projection_selects_only_agent_protocol_events() {
+        assert_eq!(
+            airhop_welcome_turn_projection(buzz_core::kind::KIND_STREAM_MESSAGE),
+            Some(AirhopWelcomeTurnProjection::Stored),
+        );
+        assert_eq!(
+            airhop_welcome_turn_projection(buzz_core::kind::KIND_AIRHOP_AGENT_TASK),
+            Some(AirhopWelcomeTurnProjection::Ephemeral),
+        );
+        assert_eq!(airhop_welcome_turn_projection(1), None);
+        assert_eq!(
+            airhop_welcome_turn_projection(buzz_core::kind::KIND_REACTION),
+            None,
+        );
+    }
+}

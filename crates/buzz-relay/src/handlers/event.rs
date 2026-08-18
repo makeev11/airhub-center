@@ -842,6 +842,39 @@ async fn handle_ephemeral_event(
             return;
         }
 
+        if super::airhop_welcome_turn_projection(event_kind_u32(&event))
+            == Some(super::AirhopWelcomeTurnProjection::Ephemeral)
+        {
+            match state
+                .db
+                .apply_airhop_welcome_ephemeral_turn(&conn.tenant, &event, ch_id)
+                .await
+            {
+                Ok(Some(turn_state)) => {
+                    debug!(
+                        event_id = %event_id_hex,
+                        version = turn_state.version,
+                        handoff_role = ?turn_state.handoff_role,
+                        "Airhop Welcome handoff projected before ephemeral fan-out"
+                    );
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    error!(
+                        event_id = %event_id_hex,
+                        error = %error,
+                        "Airhop Welcome ephemeral turn projection failed"
+                    );
+                    conn.send(RelayMessage::ok(
+                        event_id_hex,
+                        false,
+                        "error: internal error",
+                    ));
+                    return;
+                }
+            }
+        }
+
         // Mark as local before Redis publish to prevent double-delivery when
         // the event comes back through the Redis subscriber loop.
         state.mark_local_event(conn.tenant.community(), &event.id);

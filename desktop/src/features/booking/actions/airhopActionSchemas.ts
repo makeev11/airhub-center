@@ -119,13 +119,29 @@ export const airhopActionCommandSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-export const airhopActorSchema = z.object({
-  userId: z.string().trim().min(1).max(200),
-  surface: z.enum(["staff_ui", "fizz"]),
-  agentId: z.string().trim().min(1).max(200).optional(),
-  channelId: z.string().trim().min(1).max(200).optional(),
-  threadId: z.string().trim().min(1).max(200).optional(),
-});
+const actorUserIdSchema = z.string().trim().min(1).max(200);
+const actorMetadataSchema = z.string().trim().min(1).max(200);
+const airhopSpecialistRoleSchema = z.enum([
+  "fizz",
+  "administrator",
+  "analyst",
+  "content_marketer",
+]);
+
+export const airhopActorSchema = z.discriminatedUnion("surface", [
+  z.object({
+    userId: actorUserIdSchema,
+    surface: z.literal("staff_ui"),
+  }),
+  z.object({
+    userId: actorUserIdSchema,
+    surface: z.literal("buzz_agent"),
+    agentId: actorMetadataSchema,
+    specialistRole: airhopSpecialistRoleSchema,
+    channelId: actorMetadataSchema,
+    threadId: actorMetadataSchema.optional(),
+  }),
+]);
 
 export type AirhopClientSelector = z.infer<typeof airhopClientSelectorSchema>;
 export type AirhopActionCommand = z.infer<typeof airhopActionCommandSchema>;
