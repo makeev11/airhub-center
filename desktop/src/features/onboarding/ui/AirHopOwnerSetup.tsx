@@ -29,7 +29,7 @@ export function AirHopOwnerSetup({
   );
   const [code, setCode] = React.useState("");
   const [hasInvalidCode, setHasInvalidCode] = React.useState(false);
-  const copy = airHopOwnerCopy(locale ?? "ru-RU");
+  const copy = airHopOwnerCopy(locale ?? "en-US");
 
   const selectLocale = React.useCallback((nextLocale: AirHopOwnerLocale) => {
     persistAirHopOwnerLocale(nextLocale);

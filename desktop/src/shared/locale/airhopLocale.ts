@@ -19,7 +19,7 @@ export function loadAirHopLocale(
 }
 
 export function resolveAirHopLocale(): AirHopLocale {
-  return loadAirHopLocale() ?? "ru-RU";
+  return loadAirHopLocale() ?? "en-US";
 }
 
 export function persistAirHopLocale(

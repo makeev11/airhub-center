@@ -233,7 +233,10 @@ fn generated_passphrase_respects_word_count_and_separator() {
         WORDLIST.lines().filter(|l| !l.is_empty()).collect();
     assert_eq!(words.len(), 1296, "EFF short wordlist 2.0 has 1296 words");
 
-    for (count, separator) in [(3, "-"), (4, "-"), (6, " "), (5, "."), (10, "")] {
+    // Use separators that cannot occur inside a word when validating the
+    // number of generated words. The EFF list contains entries such as
+    // "yo-yo", so splitting a hyphen-joined phrase is inherently ambiguous.
+    for (count, separator) in [(3, "|"), (4, "|"), (6, " "), (5, "."), (10, "")] {
         let phrase = generate_passphrase(count, separator).unwrap();
         if separator.is_empty() {
             // No separator to split on; length gate below still applies.

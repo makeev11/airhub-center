@@ -7,6 +7,7 @@ import {
   isAirHopLocale,
   loadAirHopLocale,
   persistAirHopLocale,
+  resolveAirHopLocale,
 } from "./airhopLocale.ts";
 
 function storage(initial = {}) {
@@ -32,4 +33,10 @@ test("Airhop locale persists through the shared storage contract", () => {
   persistAirHopLocale("tr-TR", target);
   assert.equal(target.getItem(AIRHOP_LOCALE_STORAGE_KEY), "tr-TR");
   assert.equal(loadAirHopLocale(target), "tr-TR");
+});
+
+test("Airhop defaults to English until the user makes a choice", () => {
+  globalThis.localStorage = storage();
+  assert.equal(resolveAirHopLocale(), "en-US");
+  delete globalThis.localStorage;
 });

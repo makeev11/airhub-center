@@ -270,7 +270,7 @@ export function CommunityOnboardingFlow({
       setStarterChannelFailureCount((count) => count + 1);
       update({
         error: isAirHopOwnerFirstRun
-          ? airHopOwnerError(loadAirHopOwnerLocale() ?? "ru-RU", error)
+          ? airHopOwnerError(loadAirHopOwnerLocale() ?? "en-US", error)
           : error instanceof Error
             ? error.message
             : String(error),
@@ -361,7 +361,8 @@ export function CommunityOnboardingFlow({
   }, [isAvatarEditorOpen]);
 
   if (!transaction) return null;
-  const ownerCopy = airHopOwnerCopy(loadAirHopOwnerLocale() ?? "ru-RU");
+  const ownerLocale = loadAirHopOwnerLocale() ?? "en-US";
+  const ownerCopy = airHopOwnerCopy(ownerLocale);
 
   if (isMembershipDenied) {
     return (
@@ -459,7 +460,7 @@ export function CommunityOnboardingFlow({
       update({
         stage: "profile",
         error: isAirHopOwnerFirstRun
-          ? airHopOwnerError(loadAirHopOwnerLocale() ?? "ru-RU", error)
+          ? airHopOwnerError(ownerLocale, error)
           : error instanceof Error
             ? error.message
             : String(error),
@@ -563,7 +564,7 @@ export function CommunityOnboardingFlow({
               <div className="mt-6 flex justify-center gap-3">
                 {transaction.error ? (
                   <Button className="rounded-full px-6" onClick={retry}>
-                    Retry
+                    {isAirHopOwnerFirstRun ? ownerCopy.retry : "Retry"}
                   </Button>
                 ) : null}
                 <Button

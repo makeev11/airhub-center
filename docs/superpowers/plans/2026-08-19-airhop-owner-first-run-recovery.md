@@ -19,7 +19,7 @@
 - The first run is `language -> one code -> required name / optional avatar -> Welcome`.
 - The code uses the current signed owner claim; do not restore the obsolete separate activation backend.
 - The inherited `LandingBees`, community choice, BuilderLab sign-in, and generic Buzz machine onboarding must not be reachable in the owner first run.
-- Russian, English, Turkish, and Brazilian Portuguese are first-class selectable locales and must drive all first-run copy.
+- English and Russian are the visible first-run choices; Turkish and Brazilian Portuguese remain complete hidden dictionaries for a later launch. Before a choice, the surface is English, and every subsequent first-run message follows the explicit selection.
 - Agent introductions happen as short top-level Welcome messages. Do not add a separate completion wizard, progress percentage, or checklist.
 - Verification must include the real current native application path, not a detached legacy preview.
 

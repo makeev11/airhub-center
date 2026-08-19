@@ -1,5 +1,4 @@
 import {
-  AIRHOP_LOCALES,
   AIRHOP_LOCALE_STORAGE_KEY,
   isAirHopLocale,
   loadAirHopLocale,
@@ -7,8 +6,11 @@ import {
   type AirHopLocale,
 } from "@/shared/locale/airhopLocale";
 
-export const AIRHOP_OWNER_LOCALES = AIRHOP_LOCALES;
 export type AirHopOwnerLocale = AirHopLocale;
+export const AIRHOP_OWNER_LOCALES = [
+  "en-US",
+  "ru-RU",
+] as const satisfies readonly AirHopOwnerLocale[];
 export const AIRHOP_OWNER_LOCALE_STORAGE_KEY = AIRHOP_LOCALE_STORAGE_KEY;
 
 type AirHopOwnerCopy = Readonly<{
@@ -30,6 +32,7 @@ type AirHopOwnerCopy = Readonly<{
   next: string;
   back: string;
   retry: string;
+  connectionFailed: string;
   setupFailed: string;
 }>;
 
@@ -54,6 +57,8 @@ const COPY: Record<AirHopOwnerLocale, AirHopOwnerCopy> = {
     next: "Продолжить",
     back: "Назад",
     retry: "Повторить",
+    connectionFailed:
+      "Не удалось связаться с Airhop. Проверьте подключение и повторите.",
     setupFailed: "Не удалось подготовить команду. Попробуйте ещё раз.",
   },
   "en-US": {
@@ -76,6 +81,8 @@ const COPY: Record<AirHopOwnerLocale, AirHopOwnerCopy> = {
     next: "Continue",
     back: "Back",
     retry: "Try again",
+    connectionFailed:
+      "Could not reach Airhop. Check your connection and try again.",
     setupFailed: "Your team could not be prepared. Please try again.",
   },
   "tr-TR": {
@@ -98,6 +105,8 @@ const COPY: Record<AirHopOwnerLocale, AirHopOwnerCopy> = {
     next: "Devam et",
     back: "Geri",
     retry: "Tekrar dene",
+    connectionFailed:
+      "Airhop'a ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
     setupFailed: "Ekibiniz hazırlanamadı. Lütfen tekrar deneyin.",
   },
   "pt-BR": {
@@ -120,6 +129,8 @@ const COPY: Record<AirHopOwnerLocale, AirHopOwnerCopy> = {
     next: "Continuar",
     back: "Voltar",
     retry: "Tentar novamente",
+    connectionFailed:
+      "Não foi possível acessar a Airhop. Verifique a conexão e tente novamente.",
     setupFailed: "Não foi possível preparar sua equipe. Tente novamente.",
   },
 };
@@ -169,11 +180,18 @@ export function airHopOwnerError(
 ): string {
   const message = error instanceof Error ? error.message : String(error);
   if (
-    /invalid.*(?:code|invite)|invite.*(?:invalid|expired)|claim.*failed/i.test(
+    /invalid.*(?:code|invite)|invite.*(?:invalid|expired|use limit)|claim.*failed/i.test(
       message,
     )
   ) {
     return COPY[locale].invalidCode;
+  }
+  if (
+    /load failed|failed to fetch|network|relay unreachable|connection/i.test(
+      message,
+    )
+  ) {
+    return COPY[locale].connectionFailed;
   }
   return COPY[locale].setupFailed;
 }

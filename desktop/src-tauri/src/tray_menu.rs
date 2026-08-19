@@ -31,8 +31,10 @@ const NEW_CHANNEL_ID: &str = "tray-new-channel";
 const QUIT_ID: &str = "tray-quit";
 const OPEN_CHANNEL_PREFIX: &str = "tray-open-channel:";
 const OPEN_CHANNEL_ACTIVITY_SEPARATOR: char = '|';
+const AIRHOP_MARK_PNG: &[u8] = include_bytes!("../../public/airhop/mark.png");
 #[cfg(target_os = "macos")]
 const TRAY_MENU_MINIMUM_WIDTH: f64 = 320.0;
+const AIRHOP_TRAY_ICON_SIZE: u32 = 36;
 
 static PREVIEW_STARTED_AT: OnceLock<Instant> = OnceLock::new();
 
@@ -181,6 +183,32 @@ fn tray_bee_icon() -> Image<'static> {
     Image::new_owned(rgba, WIDTH, HEIGHT)
 }
 
+/// Uses the canonical Airhop mark for the native menu bar. Unlike a macOS
+/// template image, the full-color mark keeps the sunset and paper plane.
+fn tray_airhop_icon() -> Image<'static> {
+    let rgba = image::load_from_memory(AIRHOP_MARK_PNG)
+        .expect("embedded Airhop tray mark must decode")
+        .resize_exact(
+            AIRHOP_TRAY_ICON_SIZE,
+            AIRHOP_TRAY_ICON_SIZE,
+            image::imageops::FilterType::Lanczos3,
+        )
+        .to_rgba8();
+
+    Image::new_owned(
+        rgba.into_raw(),
+        AIRHOP_TRAY_ICON_SIZE,
+        AIRHOP_TRAY_ICON_SIZE,
+    )
+}
+
+fn is_airhop_product<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.config()
+        .product_name
+        .as_deref()
+        .is_some_and(|name| name.eq_ignore_ascii_case("airhop"))
+}
+
 /// A running agent and its current channel.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -302,6 +330,7 @@ fn build_menu<R: Runtime>(
     recent_activities: &[TrayAgentActivity],
 ) -> tauri::Result<(Menu<R>, Vec<TrayActivityMenuItem<R>>)> {
     let menu = Menu::new(app)?;
+    let product_name = app.config().product_name.as_deref().unwrap_or("Buzz");
     let mut activity_items =
         Vec::with_capacity(activities.len().saturating_add(recent_activities.len()));
 
@@ -334,7 +363,7 @@ fn build_menu<R: Runtime>(
     menu.append(&MenuItem::with_id(
         app,
         OPEN_BUZZ_ID,
-        "Open Buzz",
+        format!("Open {product_name}"),
         true,
         None::<&str>,
     )?)?;
@@ -342,7 +371,7 @@ fn build_menu<R: Runtime>(
     menu.append(&MenuItem::with_id(
         app,
         QUIT_ID,
-        "Quit Buzz",
+        format!("Quit {product_name}"),
         true,
         None::<&str>,
     )?)?;
@@ -484,10 +513,16 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             pending_actions: Vec::new(),
         }),
     });
+    let airhop_product = is_airhop_product(app);
+    let tray_icon = if airhop_product {
+        tray_airhop_icon()
+    } else {
+        tray_bee_icon()
+    };
     let tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
-        .icon(tray_bee_icon())
-        .icon_as_template(true)
+        .icon(tray_icon)
+        .icon_as_template(!airhop_product)
         .on_menu_event(|app, event| handle_menu_event(app, event.id.as_ref()))
         .build(app)?;
     if let Err(error) = apply_activity_presentation(&tray, activities, recent_activities) {
@@ -612,7 +647,29 @@ pub fn update_tray_agent_activity<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::{requeue_actions, TrayAction, TrayActionQueue};
+    use super::{
+        requeue_actions, tray_airhop_icon, TrayAction, TrayActionQueue, AIRHOP_TRAY_ICON_SIZE,
+    };
+
+    #[test]
+    fn airhop_tray_icon_keeps_the_canonical_mark_in_color() {
+        let icon = tray_airhop_icon();
+
+        assert_eq!(icon.width(), AIRHOP_TRAY_ICON_SIZE);
+        assert_eq!(icon.height(), AIRHOP_TRAY_ICON_SIZE);
+        assert!(icon.rgba().chunks_exact(4).any(|pixel| {
+            let [red, green, blue, alpha] = pixel else {
+                return false;
+            };
+            *alpha > 0 && *blue > *red && *blue > *green
+        }));
+        assert!(icon.rgba().chunks_exact(4).any(|pixel| {
+            let [red, green, blue, alpha] = pixel else {
+                return false;
+            };
+            *alpha > 0 && *red > *blue && *green > *blue
+        }));
+    }
 
     #[test]
     fn stale_channel_actions_are_not_requeued_after_community_change() {

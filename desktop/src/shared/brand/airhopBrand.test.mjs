@@ -47,8 +47,8 @@ test("generated Airhop artwork matches the browser and installer contract", () =
     height: 180,
   });
   assert.deepEqual(readPngDimensions("src-tauri/icons/dmg-background.png"), {
-    width: 660,
-    height: 532,
+    width: 801,
+    height: 491,
   });
 });
 

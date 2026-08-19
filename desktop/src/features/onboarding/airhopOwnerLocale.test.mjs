@@ -5,6 +5,7 @@ import {
   AIRHOP_OWNER_LOCALE_STORAGE_KEY,
   AIRHOP_OWNER_LOCALES,
   airHopOwnerCopy,
+  airHopOwnerError,
   airHopOwnerLanguageLabel,
   loadAirHopOwnerLocale,
   persistAirHopOwnerLocale,
@@ -22,13 +23,11 @@ function storage(initial = {}) {
   };
 }
 
-test("owner first run exposes every product locale in stable order", () => {
-  assert.deepEqual(AIRHOP_OWNER_LOCALES, ["ru-RU", "en-US", "tr-TR", "pt-BR"]);
+test("owner first run exposes only launched locales in stable order", () => {
+  assert.deepEqual(AIRHOP_OWNER_LOCALES, ["en-US", "ru-RU"]);
   assert.deepEqual(AIRHOP_OWNER_LOCALES.map(airHopOwnerLanguageLabel), [
-    "Русский",
     "English",
-    "Türkçe",
-    "Português (Brasil)",
+    "Русский",
   ]);
 });
 
@@ -45,8 +44,8 @@ test("owner locale persists once and rejects unknown stored values", () => {
   );
 });
 
-test("every locale owns compact language, code, and profile copy", () => {
-  for (const locale of AIRHOP_OWNER_LOCALES) {
+test("every supported locale owns compact language, code, and profile copy", () => {
+  for (const locale of ["ru-RU", "en-US", "tr-TR", "pt-BR"]) {
     const copy = airHopOwnerCopy(locale);
     for (const value of [
       copy.setupTitle,
@@ -77,5 +76,19 @@ test("every locale owns compact language, code, and profile copy", () => {
   assert.equal(
     airHopOwnerCopy("pt-BR").setupTitle,
     "Vamos configurar seu centro",
+  );
+});
+
+test("owner claim failures never leak raw transport errors", () => {
+  assert.equal(
+    airHopOwnerError("ru-RU", new TypeError("Load failed")),
+    "Не удалось связаться с Airhop. Проверьте подключение и повторите.",
+  );
+  assert.equal(
+    airHopOwnerError(
+      "ru-RU",
+      new Error("This invite has reached its use limit."),
+    ),
+    "Проверьте код и попробуйте ещё раз.",
   );
 });

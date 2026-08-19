@@ -2,6 +2,11 @@ import * as React from "react";
 
 import { useCommunityOnboarding } from "@/features/onboarding/communityOnboarding";
 import {
+  airHopOwnerError,
+  loadAirHopOwnerLocale,
+} from "@/features/onboarding/airhopOwnerLocale";
+import { shouldUseAirHopOwnerFirstRunSurface } from "@/features/onboarding/airhopOwnerJourney";
+import {
   inviteErrorMessage,
   isInviteExhaustedError,
   isInviteExpiredError,
@@ -38,11 +43,13 @@ export function useClaimInvite() {
       .catch((error: unknown) =>
         update(
           {
-            error: isInviteExpiredError(error)
-              ? "This invite code has expired — ask for a new one."
-              : isInviteExhaustedError(error)
-                ? "This invite has reached its use limit. Ask for a new invite."
-                : inviteErrorMessage(error),
+            error: shouldUseAirHopOwnerFirstRunSurface(transaction.source)
+              ? airHopOwnerError(loadAirHopOwnerLocale() ?? "en-US", error)
+              : isInviteExpiredError(error)
+                ? "This invite code has expired — ask for a new one."
+                : isInviteExhaustedError(error)
+                  ? "This invite has reached its use limit. Ask for a new invite."
+                  : inviteErrorMessage(error),
           },
           transaction.id,
         ),
