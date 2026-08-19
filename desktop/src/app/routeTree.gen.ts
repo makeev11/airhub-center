@@ -5,15 +5,10 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./routes/root";
-import { Route as workflowsRouteImport } from "./routes/workflows";
 import { Route as settingsRouteImport } from "./routes/settings";
 import { Route as remindersRouteImport } from "./routes/reminders";
-import { Route as pulseRouteImport } from "./routes/pulse";
-import { Route as projectsRouteImport } from "./routes/projects";
 import { Route as agentsRouteImport } from "./routes/agents";
 import { Route as indexRouteImport } from "./routes/index";
-import { Route as workflowsDotworkflowIdRouteImport } from "./routes/workflows.$workflowId";
-import { Route as projectsDotprojectIdRouteImport } from "./routes/projects.$projectId";
 import { Route as messagesDotnewRouteImport } from "./routes/messages.new";
 import { Route as channelsDotchannelIdRouteImport } from "./routes/channels.$channelId";
 import { Route as bookingDotteachersRouteImport } from "./routes/booking.teachers";
@@ -33,11 +28,6 @@ import { Route as bookingDotmanageDottokenRouteImport } from "./routes/booking.m
 import { Route as bookingDotclientsDotfamilyIdRouteImport } from "./routes/booking.clients.$familyId";
 import { Route as channelsDotchannelIdDotpostsDotpostIdRouteImport } from "./routes/channels.$channelId.posts.$postId";
 
-const workflowsRoute = workflowsRouteImport.update({
-  id: "/workflows",
-  path: "/workflows",
-  getParentRoute: () => rootRouteImport,
-} as any);
 const settingsRoute = settingsRouteImport.update({
   id: "/settings",
   path: "/settings",
@@ -48,16 +38,6 @@ const remindersRoute = remindersRouteImport.update({
   path: "/reminders",
   getParentRoute: () => rootRouteImport,
 } as any);
-const pulseRoute = pulseRouteImport.update({
-  id: "/pulse",
-  path: "/pulse",
-  getParentRoute: () => rootRouteImport,
-} as any);
-const projectsRoute = projectsRouteImport.update({
-  id: "/projects",
-  path: "/projects",
-  getParentRoute: () => rootRouteImport,
-} as any);
 const agentsRoute = agentsRouteImport.update({
   id: "/agents",
   path: "/agents",
@@ -66,16 +46,6 @@ const agentsRoute = agentsRouteImport.update({
 const indexRoute = indexRouteImport.update({
   id: "/",
   path: "/",
-  getParentRoute: () => rootRouteImport,
-} as any);
-const workflowsDotworkflowIdRoute = workflowsDotworkflowIdRouteImport.update({
-  id: "/workflows/$workflowId",
-  path: "/workflows/$workflowId",
-  getParentRoute: () => rootRouteImport,
-} as any);
-const projectsDotprojectIdRoute = projectsDotprojectIdRouteImport.update({
-  id: "/projects/$projectId",
-  path: "/projects/$projectId",
   getParentRoute: () => rootRouteImport,
 } as any);
 const messagesDotnewRoute = messagesDotnewRouteImport.update({
@@ -176,11 +146,8 @@ const channelsDotchannelIdDotpostsDotpostIdRoute =
 export interface FileRoutesByFullPath {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
-  "/projects": typeof projectsRoute;
-  "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
-  "/workflows": typeof workflowsRoute;
   "/booking/": typeof bookingDotpublicRoute;
   "/booking/analytics": typeof bookingDotanalyticsRoute;
   "/booking/branches": typeof bookingDotbranchesRoute;
@@ -195,8 +162,6 @@ export interface FileRoutesByFullPath {
   "/booking/teachers": typeof bookingDotteachersRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
-  "/projects/$projectId": typeof projectsDotprojectIdRoute;
-  "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
   "/booking/clients/$familyId": typeof bookingDotclientsDotfamilyIdRoute;
   "/booking/manage/$token": typeof bookingDotmanageDottokenRoute;
   "/booking/clients/": typeof bookingDotclientsDotindexRoute;
@@ -205,11 +170,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
-  "/projects": typeof projectsRoute;
-  "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
-  "/workflows": typeof workflowsRoute;
   "/booking": typeof bookingDotpublicRoute;
   "/booking/analytics": typeof bookingDotanalyticsRoute;
   "/booking/branches": typeof bookingDotbranchesRoute;
@@ -223,8 +185,6 @@ export interface FileRoutesByTo {
   "/booking/teachers": typeof bookingDotteachersRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
-  "/projects/$projectId": typeof projectsDotprojectIdRoute;
-  "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
   "/booking/clients/$familyId": typeof bookingDotclientsDotfamilyIdRoute;
   "/booking/manage/$token": typeof bookingDotmanageDottokenRoute;
   "/booking/clients": typeof bookingDotclientsDotindexRoute;
@@ -234,11 +194,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
-  "/projects": typeof projectsRoute;
-  "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
-  "/workflows": typeof workflowsRoute;
   "/booking/": typeof bookingDotpublicRoute;
   "/booking/analytics": typeof bookingDotanalyticsRoute;
   "/booking/branches": typeof bookingDotbranchesRoute;
@@ -253,8 +210,6 @@ export interface FileRoutesById {
   "/booking/teachers": typeof bookingDotteachersRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
-  "/projects/$projectId": typeof projectsDotprojectIdRoute;
-  "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
   "/booking/clients/$familyId": typeof bookingDotclientsDotfamilyIdRoute;
   "/booking/manage/$token": typeof bookingDotmanageDottokenRoute;
   "/booking/clients/": typeof bookingDotclientsDotindexRoute;
@@ -265,11 +220,8 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/agents"
-    | "/projects"
-    | "/pulse"
     | "/reminders"
     | "/settings"
-    | "/workflows"
     | "/booking/"
     | "/booking/analytics"
     | "/booking/branches"
@@ -284,8 +236,6 @@ export interface FileRouteTypes {
     | "/booking/teachers"
     | "/channels/$channelId"
     | "/messages/new"
-    | "/projects/$projectId"
-    | "/workflows/$workflowId"
     | "/booking/clients/$familyId"
     | "/booking/manage/$token"
     | "/booking/clients/"
@@ -294,11 +244,8 @@ export interface FileRouteTypes {
   to:
     | "/"
     | "/agents"
-    | "/projects"
-    | "/pulse"
     | "/reminders"
     | "/settings"
-    | "/workflows"
     | "/booking"
     | "/booking/analytics"
     | "/booking/branches"
@@ -312,8 +259,6 @@ export interface FileRouteTypes {
     | "/booking/teachers"
     | "/channels/$channelId"
     | "/messages/new"
-    | "/projects/$projectId"
-    | "/workflows/$workflowId"
     | "/booking/clients/$familyId"
     | "/booking/manage/$token"
     | "/booking/clients"
@@ -322,11 +267,8 @@ export interface FileRouteTypes {
     | "__root__"
     | "/"
     | "/agents"
-    | "/projects"
-    | "/pulse"
     | "/reminders"
     | "/settings"
-    | "/workflows"
     | "/booking/"
     | "/booking/analytics"
     | "/booking/branches"
@@ -341,8 +283,6 @@ export interface FileRouteTypes {
     | "/booking/teachers"
     | "/channels/$channelId"
     | "/messages/new"
-    | "/projects/$projectId"
-    | "/workflows/$workflowId"
     | "/booking/clients/$familyId"
     | "/booking/manage/$token"
     | "/booking/clients/"
@@ -352,11 +292,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   indexRoute: typeof indexRoute;
   agentsRoute: typeof agentsRoute;
-  projectsRoute: typeof projectsRoute;
-  pulseRoute: typeof pulseRoute;
   remindersRoute: typeof remindersRoute;
   settingsRoute: typeof settingsRoute;
-  workflowsRoute: typeof workflowsRoute;
   bookingDotpublicRoute: typeof bookingDotpublicRoute;
   bookingDotanalyticsRoute: typeof bookingDotanalyticsRoute;
   bookingDotbranchesRoute: typeof bookingDotbranchesRoute;
@@ -371,21 +308,12 @@ export interface RootRouteChildren {
   bookingDotteachersRoute: typeof bookingDotteachersRoute;
   channelsDotchannelIdRoute: typeof channelsDotchannelIdRoute;
   messagesDotnewRoute: typeof messagesDotnewRoute;
-  projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
-  workflowsDotworkflowIdRoute: typeof workflowsDotworkflowIdRoute;
   bookingDotmanageDottokenRoute: typeof bookingDotmanageDottokenRoute;
   channelsDotchannelIdDotpostsDotpostIdRoute: typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    "/workflows": {
-      id: "/workflows";
-      path: "/workflows";
-      fullPath: "/workflows";
-      preLoaderRoute: typeof workflowsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
     "/settings": {
       id: "/settings";
       path: "/settings";
@@ -400,20 +328,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof remindersRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/pulse": {
-      id: "/pulse";
-      path: "/pulse";
-      fullPath: "/pulse";
-      preLoaderRoute: typeof pulseRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/projects": {
-      id: "/projects";
-      path: "/projects";
-      fullPath: "/projects";
-      preLoaderRoute: typeof projectsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
     "/agents": {
       id: "/agents";
       path: "/agents";
@@ -426,20 +340,6 @@ declare module "@tanstack/react-router" {
       path: "/";
       fullPath: "/";
       preLoaderRoute: typeof indexRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/workflows/$workflowId": {
-      id: "/workflows/$workflowId";
-      path: "/workflows/$workflowId";
-      fullPath: "/workflows/$workflowId";
-      preLoaderRoute: typeof workflowsDotworkflowIdRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/projects/$projectId": {
-      id: "/projects/$projectId";
-      path: "/projects/$projectId";
-      fullPath: "/projects/$projectId";
-      preLoaderRoute: typeof projectsDotprojectIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/messages/new": {
@@ -587,11 +487,8 @@ const bookingDotclientsRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   indexRoute: indexRoute,
   agentsRoute: agentsRoute,
-  projectsRoute: projectsRoute,
-  pulseRoute: pulseRoute,
   remindersRoute: remindersRoute,
   settingsRoute: settingsRoute,
-  workflowsRoute: workflowsRoute,
   bookingDotpublicRoute: bookingDotpublicRoute,
   bookingDotanalyticsRoute: bookingDotanalyticsRoute,
   bookingDotbranchesRoute: bookingDotbranchesRoute,
@@ -606,8 +503,6 @@ const rootRouteChildren: RootRouteChildren = {
   bookingDotteachersRoute: bookingDotteachersRoute,
   channelsDotchannelIdRoute: channelsDotchannelIdRoute,
   messagesDotnewRoute: messagesDotnewRoute,
-  projectsDotprojectIdRoute: projectsDotprojectIdRoute,
-  workflowsDotworkflowIdRoute: workflowsDotworkflowIdRoute,
   bookingDotmanageDottokenRoute: bookingDotmanageDottokenRoute,
   channelsDotchannelIdDotpostsDotpostIdRoute:
     channelsDotchannelIdDotpostsDotpostIdRoute,

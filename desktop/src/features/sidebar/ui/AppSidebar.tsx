@@ -45,7 +45,6 @@ import {
 } from "@/features/sidebar/ui/CustomChannelSection";
 import { CreateChannelDialog } from "@/features/sidebar/ui/CreateChannelDialog";
 import { SidebarProfileCard } from "@/features/sidebar/ui/SidebarProfileCard";
-import { HuddleProfileControl } from "@/features/huddle";
 import type {
   CollapsibleSidebarGroup,
   CreateChannelKind,
@@ -95,8 +94,7 @@ type AppSidebarProps = {
   selfPresenceStatus: PresenceStatus;
   errorMessage?: string;
   selectedChannelId: string | null;
-  // biome-ignore format: keep compact to stay within file size limit
-  selectedView: "home" | "channel" | "messages" | "agents" | "workflows" | "pulse" | "projects" | "booking";
+  selectedView: "home" | "channel" | "messages" | "agents" | "booking";
   unreadChannelCounts: ReadonlyMap<string, number>;
   unreadChannelIds: ReadonlySet<string>;
   communities: Community[];
@@ -106,15 +104,11 @@ type AppSidebarProps = {
     name: string;
     description?: string;
     visibility: ChannelVisibility;
-    ttlSeconds?: number;
-    templateId?: string;
   }) => Promise<void>;
   onCreateForum: (input: {
     name: string;
     description?: string;
     visibility: ChannelVisibility;
-    ttlSeconds?: number;
-    templateId?: string;
   }) => Promise<void>;
   onOpenAddCommunity: () => void;
   onSendFeedback?: () => void;
@@ -134,9 +128,6 @@ type AppSidebarProps = {
   onRemoveCommunity: (id: string) => void;
   onCreateAgent: () => void;
   onSelectAgents: () => void;
-  onSelectProjects: () => void;
-  onSelectPulse: () => void;
-  onSelectWorkflows: () => void;
   onSelectHome: () => void;
   onSelectChannel: (channelId: string) => void;
   onOpenSearchResult: (hit: SearchHit) => void;
@@ -157,8 +148,6 @@ type AppSidebarProps = {
   onNewMessage: () => void;
   onBackgroundClick?: () => void;
   isCreateChannelOpen?: boolean;
-  isHuddleCompanionOpen?: boolean;
-  onHuddleEnded?: (ephemeralChannelId: string | null) => void;
   onCreateChannelOpenChange?: (open: boolean) => void;
   mutedChannelIds?: ReadonlySet<string>;
   onMuteChannel?: (channelId: string) => void;
@@ -205,9 +194,6 @@ export function AppSidebar({
   onRemoveCommunity,
   onCreateAgent,
   onSelectAgents,
-  onSelectProjects,
-  onSelectPulse,
-  onSelectWorkflows,
   onSelectHome,
   onSelectChannel,
   onOpenSearchResult,
@@ -222,8 +208,6 @@ export function AppSidebar({
   isPresencePending,
   onNewMessage,
   isCreateChannelOpen: isCreateChannelOpenProp,
-  isHuddleCompanionOpen = false,
-  onHuddleEnded,
   onCreateChannelOpenChange,
   mutedChannelIds,
   onMuteChannel,
@@ -516,8 +500,6 @@ export function AppSidebar({
       name: string;
       description?: string;
       visibility: ChannelVisibility;
-      ttlSeconds?: number;
-      templateId?: string;
     }) => {
       if (createDialogKind === "stream") {
         await onCreateChannel(input);
@@ -605,9 +587,6 @@ export function AppSidebar({
                 homeBadgeCount={homeBadgeCount}
                 onSelectAgents={onSelectAgents}
                 onSelectHome={onSelectHome}
-                onSelectProjects={onSelectProjects}
-                onSelectPulse={onSelectPulse}
-                onSelectWorkflows={onSelectWorkflows}
                 selectedView={selectedView}
               />
 
@@ -883,11 +862,6 @@ export function AppSidebar({
                 />
               </div>
             ) : null}
-            <HuddleProfileControl
-              channels={channels}
-              onHuddleEnded={onHuddleEnded}
-              visible={isHuddleCompanionOpen}
-            />
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarProfileCard

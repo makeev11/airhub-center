@@ -1,6 +1,7 @@
 import type { ChannelVisibility } from "@/shared/api/types";
 import { ChooserDialogContent } from "@/shared/ui/chooser-dialog-content";
 import { Dialog } from "@/shared/ui/dialog";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 
 import {
   type CreateChannelInput,
@@ -23,8 +24,6 @@ type CreateChannelDialogProps = {
     name: string;
     description?: string;
     visibility: ChannelVisibility;
-    ttlSeconds?: number;
-    templateId?: string;
   }) => Promise<void>;
 };
 
@@ -35,6 +34,7 @@ export function CreateChannelDialog({
   onCreate,
 }: CreateChannelDialogProps) {
   const open = channelKind !== null;
+  const isRussian = useAirHopLocale() === "ru-RU";
 
   const form = useCreateChannelForm({
     channelKind: channelKind ?? "stream",
@@ -60,11 +60,11 @@ export function CreateChannelDialog({
         data-testid="create-channel-dialog"
         footerClassName="border-t-0 pt-0"
         headerClassName="pb-2"
-        title={`Create a new ${kindLabel}`}
+        title={isRussian ? "Создать канал" : `Create a new ${kindLabel}`}
         description={
-          channelKind === "forum"
-            ? "Forums organize threaded discussions around a topic."
-            : "Channels are real-time streams for team conversation."
+          isRussian
+            ? "Канал объединяет рабочее общение сотрудников центра."
+            : "Channels organize the Center team’s day-to-day conversations."
         }
         footer={<CreateChannelFormFooter form={form} />}
       >

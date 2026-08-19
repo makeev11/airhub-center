@@ -3,9 +3,7 @@
     "externalBin": [
       "binaries/buzz-acp",
       "binaries/buzz-agent",
-      "binaries/buzz-dev-mcp",
       "binaries/airhop-agent-mcp",
-      "binaries/git-credential-nostr",
       "binaries/buzz"
     ]
   }

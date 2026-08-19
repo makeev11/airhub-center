@@ -479,15 +479,11 @@ fn deploy_payload_matches_the_shared_full_launch_fixture() {
 }
 
 #[test]
-fn tauri_platform_configs_bundle_kubernetes_only_on_supported_hosts() {
+fn tauri_platform_configs_never_bundle_kubernetes_for_airhop() {
     use tauri_utils::{config::parse::read_from, platform::Target};
 
     let config_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    for (target, expected) in [
-        (Target::MacOS, true),
-        (Target::Linux, true),
-        (Target::Windows, false),
-    ] {
+    for target in [Target::MacOS, Target::Linux, Target::Windows] {
         let (config, paths) = read_from(target, config_root).expect("read Tauri config");
         let external_bins = config["bundle"]["externalBin"]
             .as_array()
@@ -495,9 +491,9 @@ fn tauri_platform_configs_bundle_kubernetes_only_on_supported_hosts() {
         let has_kubernetes = external_bins
             .iter()
             .any(|value| value == "binaries/buzz-backend-kubernetes");
-        assert_eq!(
-            has_kubernetes, expected,
-            "unexpected Kubernetes externalBin for {target}; merged {paths:?}"
+        assert!(
+            !has_kubernetes,
+            "Airhop must not bundle Kubernetes for {target}; merged {paths:?}"
         );
     }
 }

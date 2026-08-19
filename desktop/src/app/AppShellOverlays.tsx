@@ -1,4 +1,3 @@
-export { TerminalBootstrap } from "@/features/terminal/TerminalBootstrap";
 import * as React from "react";
 
 import type { Channel } from "@/shared/api/types";

@@ -68,22 +68,11 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
-  const goPulse = React.useCallback(
-    (behavior?: NavigationBehavior) =>
-      commitNavigation(
-        {
-          to: "/pulse",
-        },
-        behavior,
-      ),
-    [commitNavigation],
-  );
-
   const goProfile = React.useCallback(
     (pubkey: string, behavior?: NavigationBehavior) =>
       commitNavigation(
         {
-          to: "/pulse",
+          to: "/",
           search: { profile: pubkey },
         },
         behavior,
@@ -91,17 +80,13 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  // Kept for source modules that are excluded from the Airhop route table.
+  // The root boundary redirects every attempt to open these legacy surfaces.
   const goProjects = React.useCallback(
     (behavior?: NavigationBehavior) =>
-      commitNavigation(
-        {
-          to: "/projects",
-        },
-        behavior,
-      ),
+      commitNavigation({ to: "/projects" }, behavior),
     [commitNavigation],
   );
-
   const goProject = React.useCallback(
     (
       projectId: string,
@@ -114,9 +99,7 @@ export function useAppNavigation() {
       commitNavigation(
         {
           to: "/projects/$projectId",
-          params: {
-            projectId,
-          },
+          params: { projectId },
           search: {
             ...(behavior?.commitHash
               ? { commitHash: behavior.commitHash }
@@ -131,27 +114,15 @@ export function useAppNavigation() {
       ),
     [commitNavigation],
   );
-
   const goWorkflows = React.useCallback(
     (behavior?: NavigationBehavior) =>
-      commitNavigation(
-        {
-          to: "/workflows",
-        },
-        behavior,
-      ),
+      commitNavigation({ to: "/workflows" }, behavior),
     [commitNavigation],
   );
-
   const goWorkflow = React.useCallback(
     (workflowId: string, behavior?: NavigationBehavior) =>
       commitNavigation(
-        {
-          to: "/workflows/$workflowId",
-          params: {
-            workflowId,
-          },
-        },
+        { to: "/workflows/$workflowId", params: { workflowId } },
         behavior,
       ),
     [commitNavigation],
@@ -267,7 +238,6 @@ export function useAppNavigation() {
       router.history.back();
       return;
     }
-
     void goWorkflows({ replace: true });
   }, [canGoBack, goWorkflows, router.history]);
 
@@ -317,7 +287,6 @@ export function useAppNavigation() {
     goNewMessage,
     goProject,
     goProjects,
-    goPulse,
     goProfile,
     goSettings,
     goWorkflow,

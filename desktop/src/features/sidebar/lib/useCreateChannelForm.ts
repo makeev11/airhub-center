@@ -1,8 +1,6 @@
 import * as React from "react";
 
-import { useChannelTemplatesQuery } from "@/features/channel-templates/hooks";
-import { DEFAULT_EPHEMERAL_TTL_SECONDS } from "@/features/channels/lib/ephemeralChannel";
-import type { ChannelTemplate, ChannelVisibility } from "@/shared/api/types";
+import type { ChannelVisibility } from "@/shared/api/types";
 
 export type CreateChannelKind = "stream" | "forum";
 
@@ -10,8 +8,6 @@ export type CreateChannelInput = {
   name: string;
   description?: string;
   visibility: ChannelVisibility;
-  ttlSeconds?: number;
-  templateId?: string;
 };
 
 type UseCreateChannelFormOptions = {
@@ -37,17 +33,7 @@ export type CreateChannelFormState = {
   setDescription: (value: string) => void;
   visibility: ChannelVisibility;
   setVisibility: (value: ChannelVisibility) => void;
-  ephemeral: boolean;
-  setEphemeral: (value: boolean) => void;
-  ttlSeconds: number;
-  setTtlSeconds: (value: number) => void;
-  typePopoverOpen: boolean;
-  setTypePopoverOpen: (open: boolean) => void;
   errorMessage: string | null;
-  selectedTemplateId: string | null;
-  handleTemplateChange: (templateId: string) => void;
-  handleTemplateCreated: (template: ChannelTemplate) => void;
-  templates: ChannelTemplate[];
   nameInputRef: React.RefObject<HTMLInputElement | null>;
   isCreating: boolean;
   canSubmit: boolean;
@@ -71,20 +57,9 @@ export function useCreateChannelForm({
   const [name, setName] = React.useState(initialName ?? "");
   const [description, setDescription] = React.useState("");
   const [visibility, setVisibility] = React.useState<ChannelVisibility>("open");
-  const [ephemeral, setEphemeral] = React.useState(false);
-  const [ttlSeconds, setTtlSeconds] = React.useState(
-    DEFAULT_EPHEMERAL_TTL_SECONDS,
-  );
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = React.useState<
-    string | null
-  >(null);
-  const [typePopoverOpen, setTypePopoverOpen] = React.useState(false);
   const nameInputRef = React.useRef<HTMLInputElement>(null);
   const visibilityTouchedRef = React.useRef(false);
-
-  const templatesQuery = useChannelTemplatesQuery();
-  const templates = templatesQuery.data ?? [];
 
   const kindLabel = channelKind === "forum" ? "forum" : "channel";
   React.useEffect(() => {
@@ -93,11 +68,7 @@ export function useCreateChannelForm({
     setName(initialName ?? "");
     setDescription("");
     setVisibility("open");
-    setEphemeral(false);
-    setTtlSeconds(DEFAULT_EPHEMERAL_TTL_SECONDS);
     setErrorMessage(null);
-    setSelectedTemplateId(null);
-    setTypePopoverOpen(false);
     visibilityTouchedRef.current = false;
 
     if (!autoFocusName) return;
@@ -121,33 +92,6 @@ export function useCreateChannelForm({
     return () => globalThis.clearTimeout(timerId);
   }, [active, autoFocusName, initialName]);
 
-  const applyTemplate = React.useCallback((template: ChannelTemplate) => {
-    setSelectedTemplateId(template.id);
-    setDescription(template.description ?? "");
-    if (!visibilityTouchedRef.current) setVisibility(template.visibility);
-    setErrorMessage(null);
-  }, []);
-
-  const handleTemplateChange = React.useCallback(
-    (templateId: string) => {
-      if (!templateId) {
-        setSelectedTemplateId(null);
-        setDescription("");
-        if (!visibilityTouchedRef.current) setVisibility("open");
-        setErrorMessage(null);
-        return;
-      }
-
-      const template = templates.find(
-        (t: ChannelTemplate) => t.id === templateId,
-      );
-      if (!template) return;
-
-      applyTemplate(template);
-    },
-    [applyTemplate, templates],
-  );
-
   const handleSubmit = React.useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -163,8 +107,6 @@ export function useCreateChannelForm({
             name: trimmedName,
             description: description.trim() || undefined,
             visibility,
-            ttlSeconds: ephemeral ? ttlSeconds : undefined,
-            templateId: selectedTemplateId ?? undefined,
           });
           onCreated?.();
         } catch (error) {
@@ -176,17 +118,7 @@ export function useCreateChannelForm({
         }
       })();
     },
-    [
-      description,
-      ephemeral,
-      kindLabel,
-      name,
-      onCreate,
-      onCreated,
-      selectedTemplateId,
-      ttlSeconds,
-      visibility,
-    ],
+    [description, kindLabel, name, onCreate, onCreated, visibility],
   );
 
   return {
@@ -207,17 +139,7 @@ export function useCreateChannelForm({
       visibilityTouchedRef.current = true;
       setVisibility(value);
     },
-    ephemeral,
-    setEphemeral,
-    ttlSeconds,
-    setTtlSeconds,
-    typePopoverOpen,
-    setTypePopoverOpen,
     errorMessage,
-    selectedTemplateId,
-    handleTemplateChange,
-    handleTemplateCreated: applyTemplate,
-    templates,
     nameInputRef,
     isCreating,
     canSubmit: name.trim().length > 0 && !isCreating,

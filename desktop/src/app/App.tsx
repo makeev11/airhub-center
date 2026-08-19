@@ -23,7 +23,6 @@ import { ThemeGrainientBackground } from "@/app/ThemeGrainientBackground";
 import { useReloadShortcut } from "@/app/useReloadShortcut";
 import { KnownAgentPubkeysProvider } from "@/features/agents/useKnownAgentPubkeys";
 import { BookingWorkspaceProvider } from "@/features/booking/data/BookingWorkspaceProvider";
-import { huddleWindowChannelId } from "@/features/huddle/lib/huddleWindow";
 import { useAppOnboardingState } from "@/features/onboarding/hooks";
 import { useMachineOnboardingState } from "@/features/onboarding/machineOnboarding";
 import {
@@ -643,13 +642,7 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
     [activeCommunity, communityOnboarding.start],
   );
 
-  // Community links are app-global work. A Huddle companion loads the same
-  // React tree, but must never race the main window for the native pending-link
-  // queue or replace its dedicated transcript surface with onboarding.
-  const acceptsCommunityDeepLinks = huddleWindowChannelId() === null;
   useEffect(() => {
-    if (!acceptsCommunityDeepLinks) return;
-
     const unlisten = listenForDeepLinks({
       startCommunityOnboarding: communityOnboarding.start,
       openAddCommunity,
@@ -658,7 +651,7 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
     return () => {
       void unlisten.then((fn) => fn());
     };
-  }, [acceptsCommunityDeepLinks, communityOnboarding.start, openAddCommunity]);
+  }, [communityOnboarding.start, openAddCommunity]);
 
   if (machine.stage === "reset-failed") return <ResetFailedScreen />;
   if (machine.stage === "keyring-locked") return <KeyringLockedScreen />;
