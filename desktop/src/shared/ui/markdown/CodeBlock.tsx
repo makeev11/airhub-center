@@ -10,7 +10,11 @@ import {
 } from "shiki";
 
 import { useTheme } from "@/shared/theme/ThemeProvider";
-import { resolveShikiThemeName } from "@/shared/theme/theme-loader";
+import { isOpenAITheme } from "@/shared/theme/openai-theme";
+import {
+  loadThemeData,
+  resolveShikiThemeName,
+} from "@/shared/theme/theme-loader";
 import { copyCodeBlockToClipboard } from "@/shared/lib/codeBlockClipboard";
 import { Button } from "@/shared/ui/button";
 import { useSmoothCorners } from "@/shared/ui/smoothCorners";
@@ -139,9 +143,9 @@ export function SyntaxHighlightedCode({
   language: string;
 } & React.ComponentProps<"code">) {
   const { themeName } = useTheme();
-  // Buzz aliases ("buzz" / "buzz-dark") are not bundled Shiki themes — resolve
-  // to the real bundle (github-light / github-dark) before touching Shiki, or
-  // it throws and code blocks fall back to plain text.
+  // Buzz resolves to a bundled GitHub theme. OpenAI keeps its own registration
+  // name and is loaded from theme-loader below; every other theme is bundled
+  // directly by Shiki.
   const shikiTheme = resolveShikiThemeName(themeName);
   const [loadedKey, setLoadedKey] = React.useState(0);
 
@@ -164,7 +168,10 @@ export function SyntaxHighlightedCode({
         }
         if (!loadedThemes.has(shikiTheme)) {
           try {
-            await shikiHighlighter.loadTheme(shikiTheme as BundledTheme);
+            const themeData = isOpenAITheme(shikiTheme)
+              ? await loadThemeData(shikiTheme)
+              : (shikiTheme as BundledTheme);
+            await shikiHighlighter.loadTheme(themeData);
             loadedThemes.add(shikiTheme);
             loaded = true;
           } catch {

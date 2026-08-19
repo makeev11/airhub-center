@@ -7,6 +7,11 @@
 
 import type { ThemeRegistrationRaw } from "shiki";
 import {
+  OPENAI_DARK_THEME_NAME,
+  OPENAI_LIGHT_THEME_NAME,
+  createOpenAIThemeData,
+} from "./openai-theme";
+import {
   type TerminalPalette,
   extractTerminalPalette,
 } from "./terminal-palette";
@@ -64,6 +69,8 @@ export function resolveShikiThemeName(name: string): SyntaxThemeName {
 export const SYNTAX_THEMES = [
   "buzz",
   "buzz-dark",
+  "openai-light",
+  "openai-dark",
   "andromeeda",
   "aurora-x",
   "ayu-dark",
@@ -132,6 +139,7 @@ export type SyntaxThemeName = (typeof SYNTAX_THEMES)[number];
 // for themes that haven't been loaded yet.
 export const LIGHT_THEMES: ReadonlySet<SyntaxThemeName> = new Set([
   "buzz",
+  "openai-light",
   "catppuccin-latte",
   "everforest-light",
   "github-light",
@@ -161,6 +169,20 @@ const themeImports: Record<
   buzz: () => import("shiki/themes/github-light.mjs"),
   // Buzz Dark reuses the github-dark palette; dark gradient applied separately.
   "buzz-dark": () => import("shiki/themes/github-dark.mjs"),
+  "openai-light": async () => {
+    const { default: baseTheme } = await import(
+      "shiki/themes/github-light.mjs"
+    );
+    return {
+      default: createOpenAIThemeData(OPENAI_LIGHT_THEME_NAME, baseTheme),
+    };
+  },
+  "openai-dark": async () => {
+    const { default: baseTheme } = await import("shiki/themes/github-dark.mjs");
+    return {
+      default: createOpenAIThemeData(OPENAI_DARK_THEME_NAME, baseTheme),
+    };
+  },
   andromeeda: () => import("shiki/themes/andromeeda.mjs"),
   "aurora-x": () => import("shiki/themes/aurora-x.mjs"),
   "ayu-dark": () => import("shiki/themes/ayu-dark.mjs"),
@@ -228,6 +250,17 @@ const themeImports: Record<
   "vitesse-light": () => import("shiki/themes/vitesse-light.mjs"),
 };
 
+export function formatThemeLabel(name: string): string {
+  return name
+    .split("-")
+    .map((part) =>
+      part.toLowerCase() === "openai"
+        ? "OpenAI"
+        : part.charAt(0).toUpperCase() + part.slice(1),
+    )
+    .join(" ");
+}
+
 export function isLightTheme(name: string): boolean {
   return LIGHT_THEMES.has(name as SyntaxThemeName);
 }
@@ -241,6 +274,7 @@ export const THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
     // Light → Dark
     // Buzz is the first-party pair; keep it first so it leads every category.
     ["buzz", "buzz-dark"],
+    ["openai-light", "openai-dark"],
     ["catppuccin-latte", "catppuccin-mocha"],
     ["everforest-light", "everforest-dark"],
     ["github-light", "github-dark"],
@@ -260,6 +294,7 @@ export const THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
     ["vitesse-light", "vitesse-dark"],
     // Dark → Light (reverse mappings)
     ["buzz-dark", "buzz"],
+    ["openai-dark", "openai-light"],
     ["catppuccin-mocha", "catppuccin-latte"],
     ["everforest-dark", "everforest-light"],
     ["github-dark", "github-light"],

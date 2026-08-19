@@ -65,7 +65,7 @@ const THEMES = await palettes();
 
 test("every shipped theme is censused", () => {
   assert.equal(THEMES.length, SYNTAX_THEMES.length);
-  assert.equal(THEMES.length, 62);
+  assert.equal(THEMES.length, 64);
 });
 
 test("wordmark holds contrast and chroma across the whole sweep, not just at the stops", () => {
@@ -114,7 +114,7 @@ test("the three stops are distinct by hue AND by sRGB distance", () => {
 });
 
 test("each half of the distinctness gate rejects what the other half admits", () => {
-  // Tested directly on synthetic triads, NOT via the 62-theme census, because
+  // Tested directly on synthetic triads, NOT via the 64-theme census, because
   // on the shipped themes the two halves mask each other: disabling either
   // alone changes no theme's stops. A census-only test lets a reviewer delete
   // one half and see all green.
@@ -207,7 +207,7 @@ test("every layer returns a colour", () => {
 });
 
 test("contrast is lifted to the floor, never pinned down to it", () => {
-  // A floor is not a target: pinning dimmed 30 of 62 themes and cost chroma.
+  // In the original 62-theme calibration, pinning dimmed 30 and cost chroma.
   const spread = THEMES.map(([, p]) => {
     const { stops } = bannerStops(p);
     return Math.max(...stops.map((s) => ratio(s, p.background)));
