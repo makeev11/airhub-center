@@ -93,7 +93,7 @@ const THEMES = await palettes();
  * Not interchangeable with sRGB distance, and the difference decided a verdict
  * here: euclidean sRGB scores a hue rotation at constant lightness as harshly as
  * a brightness cliff, and this animation is almost entirely hue rotation. See the
- * adjacent-cell gate for the measured 20-of-62 vs 2-of-62 reversal.
+ * adjacent-cell gate for the originally measured 20-of-62 vs 2-of-62 reversal.
  */
 const perceptualStep = (a, b) => de00(lab(a), lab(b));
 
@@ -569,7 +569,7 @@ test("bevels are phase-invariant", () => {
  * pixels that ship come from the LUT, and a bucket boundary is exactly where a
  * floor gets lost. This walks every table entry — which is every colour the
  * animation can ever produce at any phase, since the table is
- * phase-independent — on all 62 shipped themes.
+ * phase-independent — on all 64 shipped themes.
  */
 test("every colour the animation can produce holds its contrast floor", () => {
   const bad = [];
@@ -644,16 +644,16 @@ test("the field still fades monotonically outward at every phase", () => {
  *
  * 3. WRONG METRIC, and this one reversed the verdict. Euclidean sRGB distance
  *    counts a hue swing at constant lightness the same as a brightness cliff,
- *    and this animation is almost entirely the former. On raw sRGB, 20 of 62
- *    themes scored "worse than static" (max 47.1 vs 68.9); on CIEDE2000 — the
- *    perceptual metric this module already uses for its distinctness gate — it
- *    is 2 of 62, max 13.03 against a static 28.34. The eye is the thing being
+ *    and this animation is almost entirely the former. In the original 62-theme
+ *    calibration, raw sRGB scored 20 themes "worse than static" (max 47.1 vs
+ *    68.9); CIEDE2000 — the perceptual metric this module already uses for its
+ *    distinctness gate — scored 2, max 13.03 against a static 28.34. The eye is
  *    gated, so dE00 is the instrument.
  *
  * Tolerance is 1.0 dE00, one just-noticeable difference, over the theme's own
- * static worst. CALIBRATED, not guessed: at the default wavelength the worst
- * excess across 62 themes is 0.47, it stays under 0.62 through wavelength 2.0,
- * and at wavelength 4.0 it jumps to 8.92 and fails 24 themes. The gate
+ * static worst. CALIBRATED, not guessed: in that original calibration the worst
+ * excess was 0.47, stayed under 0.62 through wavelength 2.0, and jumped to 8.92
+ * at wavelength 4.0, failing 24 themes. The gate
  * discriminates a real stripe regression from measurement noise.
  *
  * Both axes are walked because the wave is now diagonal: aspect correction makes
@@ -706,7 +706,7 @@ test("adjacent-cell colour steps are no worse than the shipped static banner", (
  * wave could be a smooth gradient that strobes.
  *
  * Bound is 3 dE00 per frame, three JNDs. Measured worst on the defaults is 2.071
- * across all 62 themes, and a cell needs many frames to cross the ramp, so this
+ * across all 64 themes, and a cell needs many frames to cross the ramp, so this
  * is a drift rather than a flicker.
  */
 test("no cell's colour moves more than 3 dE00 in one 60Hz frame", () => {
@@ -1001,7 +1001,7 @@ test("contrast floors hold at every documented knob extreme", () => {
     "direction=(0,-1)": { direction: { x: 0, y: -1 } },
   };
   const offenders = [];
-  // Six themes, not all 62: this is the same colour surface the all-theme gates
+  // Six themes, not all 64: this is the same colour surface the all-theme gates
   // already cover, crossed against nine settings and a phase sweep. The extremes
   // question is whether a KNOB can reach an unproven colour, and the LUT is
   // shared across knobs, so theme breadth is covered elsewhere.

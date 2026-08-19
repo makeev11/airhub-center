@@ -53,9 +53,14 @@ import {
   useTheme,
 } from "@/shared/theme/ThemeProvider";
 import {
+  getOpenAIThemeAppearance,
+  isOpenAITheme,
+} from "@/shared/theme/openai-theme";
+import {
   LIGHT_THEMES,
   SYNTAX_THEMES,
   type SyntaxThemeName,
+  formatThemeLabel,
   getThemePair,
 } from "@/shared/theme/theme-loader";
 import {
@@ -241,13 +246,6 @@ export const settingsSections: SettingsSectionDescriptor[] = [
   },
 ];
 
-function formatThemeLabel(name: string): string {
-  return name
-    .split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
 /**
  * Derive a display label for a paired theme from its light variant name.
  * Strips mode-specific tokens (light, latte, dawn, lotus, ochin, lighter, plus)
@@ -429,10 +427,10 @@ function ThemeSettingsCard() {
     setFollowSystem,
   } = useTheme();
 
-  // Buzz themes pin a neutral accent (GitHub black in light, white in dark),
-  // so the accent picker is hidden while a Buzz theme is active. `themeName` is
-  // the effective theme, so this also covers System mode resolving to Buzz.
-  const accentPickerHidden = isBuzzTheme(themeName);
+  // First-party themes pin their own accent, so the picker is hidden while
+  // either Buzz or OpenAI is active. `themeName` is the effective theme, which
+  // also covers System mode resolving to either side of a pair.
+  const accentPickerHidden = isBuzzTheme(themeName) || isOpenAITheme(themeName);
   const shouldReduceMotion = useReducedMotion();
 
   const previewVarsByTheme = useThemePreviewVars();
@@ -447,11 +445,13 @@ function ThemeSettingsCard() {
 
   const [selectedMode, setSelectedMode] = useState<AppearanceMode>(activeMode);
 
-  const getVars = (name: SyntaxThemeName) =>
-    withAccentPreviewVars(
+  const getVars = (name: SyntaxThemeName) => {
+    const pinnedAccent = getOpenAIThemeAppearance(name)?.accent;
+    return withAccentPreviewVars(
       previewVarsByTheme[name] ?? getThemeFallbackPreviewVars(name),
-      accentColor,
+      pinnedAccent ?? accentColor,
     );
+  };
 
   // All light themes (paired light + light-only)
   const allLightThemes = useMemo(
@@ -622,9 +622,9 @@ function ThemeSettingsCard() {
         </div>
       </div>
 
-      {/* Accent color picker — hidden for Buzz themes (pinned neutral accent).
-          Reveal/hide with the translate-up + opacity fade defined by
-          ACCENT_PICKER_TRANSITION above. Reduced motion skips the transition
+      {/* Accent color picker — hidden for first-party themes with a pinned
+          accent. Reveal/hide with the translate-up + opacity fade defined by
+          ACCENT_PICKER_TRANSITION. Reduced motion skips the transition
           and just renders/unrenders. */}
       {shouldReduceMotion ? (
         accentPickerHidden ? null : (

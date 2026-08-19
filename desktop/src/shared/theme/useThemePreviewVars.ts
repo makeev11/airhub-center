@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createThemeVars } from "./adaptive-theme";
+import { getOpenAIThemeAppearance } from "./openai-theme";
 import {
   SYNTAX_THEMES,
   type SyntaxThemeName,
@@ -30,7 +31,8 @@ async function loadThemePreviewVars(name: SyntaxThemeName) {
     deleted: info.deleted,
     modified: info.modified,
   });
-  return [name, vars] as const;
+  const openAITheme = getOpenAIThemeAppearance(name);
+  return [name, openAITheme ? { ...vars, ...openAITheme.vars } : vars] as const;
 }
 
 export function preloadThemePreviewVars() {
@@ -86,6 +88,8 @@ export function useThemePreviewVars() {
 }
 
 export function getThemeFallbackPreviewVars(name: SyntaxThemeName) {
+  const openAITheme = getOpenAIThemeAppearance(name);
+  if (openAITheme) return { ...openAITheme.vars };
   return isLightTheme(name) ? LIGHT_PREVIEW_VARS : DARK_PREVIEW_VARS;
 }
 

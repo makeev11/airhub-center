@@ -18,7 +18,7 @@
  * external standard — sized by
  * sweep and stable across 8-25 chroma x 8-20 hue.
  *
- * Validated by terminalBannerColor.test.mjs: all 62 shipped themes pass every
+ * Validated by terminalBannerColor.test.mjs: all 64 shipped themes pass every
  * gate, and 8 mutants of this file are killed by those gates.
  */
 import type {
@@ -225,9 +225,9 @@ export const lift = (c: string, bg: string, floor: number) =>
 
 /**
  * The distinctness gate. Conjunction by design, and each half is tested
- * directly (terminalBannerColor.test.mjs) because on the 62 shipped themes the
- * two halves MASK EACH OTHER: disabling either alone changes no theme's stops,
- * only disabling both does. A census can therefore never justify keeping both.
+ * directly (terminalBannerColor.test.mjs) because in the original 62-theme
+ * calibration the two halves MASKED EACH OTHER: disabling either alone changed
+ * no theme's stops, and only disabling both did. A census cannot justify both.
  *
  * Neither half is sufficient. sRGB distance counts lightness, so white vs
  * #a0a0a0 scores 165 while being one hue. Hue alone admits stops that differ
