@@ -10,34 +10,37 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use buzz_auth::Scope;
+use buzz_core::event::StoredEvent;
 use buzz_core::kind::{
     event_kind_u32, is_identity_archive_request_kind, is_parameterized_replaceable,
     is_relay_admin_kind, KIND_AGENT_ENGRAM, KIND_AGENT_PROFILE, KIND_AGENT_TURN_METRIC,
-    KIND_APPROVAL_DENY, KIND_APPROVAL_GRANT, KIND_AUTH, KIND_BOOKMARK_LIST, KIND_BOOKMARK_SET,
-    KIND_CANVAS, KIND_CONTACT_LIST, KIND_DELETION, KIND_DM_ADD_MEMBER, KIND_DM_HIDE, KIND_DM_OPEN,
-    KIND_EMOJI_LIST, KIND_EMOJI_SET, KIND_EVENT_REMINDER, KIND_FOLLOW_SET, KIND_FORUM_COMMENT,
-    KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_GIFT_WRAP, KIND_GIT_ISSUE, KIND_GIT_PATCH,
-    KIND_GIT_PR_UPDATE, KIND_GIT_PULL_REQUEST, KIND_GIT_REPO_ANNOUNCEMENT, KIND_GIT_REPO_STATE,
-    KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT, KIND_GIT_STATUS_MERGED, KIND_GIT_STATUS_OPEN,
-    KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES, KIND_HUDDLE_PARTICIPANT_JOINED,
-    KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED, KIND_IA_ARCHIVE_REQUEST,
-    KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM, KIND_MANAGED_AGENT, KIND_MEMBER_ADDED_NOTIFICATION,
-    KIND_MEMBER_REMOVED_NOTIFICATION, KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT,
-    KIND_MODERATION_TIMEOUT, KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST,
-    KIND_NIP29_CREATE_GROUP, KIND_NIP29_DELETE_EVENT, KIND_NIP29_DELETE_GROUP,
-    KIND_NIP29_EDIT_METADATA, KIND_NIP29_JOIN_REQUEST, KIND_NIP29_LEAVE_REQUEST,
-    KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER, KIND_NIP43_LEAVE_REQUEST,
-    KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST, KIND_PRESENCE_UPDATE,
-    KIND_PRODUCT_FEEDBACK, KIND_PROFILE, KIND_PROJECT, KIND_REACTION, KIND_READ_STATE, KIND_REPORT,
-    KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_BOOKMARKED, KIND_STREAM_MESSAGE_DIFF,
-    KIND_STREAM_MESSAGE_EDIT, KIND_STREAM_MESSAGE_PINNED, KIND_STREAM_MESSAGE_SCHEDULED,
-    KIND_STREAM_MESSAGE_V2, KIND_STREAM_REMINDER, KIND_TEAM, KIND_TEAM_CATALOG, KIND_TEXT_NOTE,
-    KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER, RELAY_ADMIN_ADD_MEMBER,
-    RELAY_ADMIN_CHANGE_ROLE, RELAY_ADMIN_REMOVE_MEMBER, RELAY_ADMIN_SET_WORKSPACE_PROFILE,
+    KIND_AIRHOP_AGENT_TASK, KIND_APPROVAL_DENY, KIND_APPROVAL_GRANT, KIND_AUTH, KIND_BOOKMARK_LIST,
+    KIND_BOOKMARK_SET, KIND_CANVAS, KIND_CONTACT_LIST, KIND_DELETION, KIND_DM_ADD_MEMBER,
+    KIND_DM_HIDE, KIND_DM_OPEN, KIND_EMOJI_LIST, KIND_EMOJI_SET, KIND_EVENT_REMINDER,
+    KIND_FOLLOW_SET, KIND_FORUM_COMMENT, KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_GIFT_WRAP,
+    KIND_GIT_ISSUE, KIND_GIT_PATCH, KIND_GIT_PR_UPDATE, KIND_GIT_PULL_REQUEST,
+    KIND_GIT_REPO_ANNOUNCEMENT, KIND_GIT_REPO_STATE, KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT,
+    KIND_GIT_STATUS_MERGED, KIND_GIT_STATUS_OPEN, KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES,
+    KIND_HUDDLE_PARTICIPANT_JOINED, KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED,
+    KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM, KIND_MANAGED_AGENT,
+    KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION, KIND_MODERATION_BAN,
+    KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT, KIND_MODERATION_UNBAN,
+    KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP, KIND_NIP29_DELETE_EVENT,
+    KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA, KIND_NIP29_JOIN_REQUEST,
+    KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
+    KIND_NIP43_LEAVE_REQUEST, KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST,
+    KIND_PRESENCE_UPDATE, KIND_PRODUCT_FEEDBACK, KIND_PROFILE, KIND_PROJECT, KIND_REACTION,
+    KIND_READ_STATE, KIND_REPORT, KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_BOOKMARKED,
+    KIND_STREAM_MESSAGE_DIFF, KIND_STREAM_MESSAGE_EDIT, KIND_STREAM_MESSAGE_PINNED,
+    KIND_STREAM_MESSAGE_SCHEDULED, KIND_STREAM_MESSAGE_V2, KIND_STREAM_REMINDER, KIND_TEAM,
+    KIND_TEAM_CATALOG, KIND_TEXT_NOTE, KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
+    RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE, RELAY_ADMIN_REMOVE_MEMBER,
+    RELAY_ADMIN_SET_WORKSPACE_PROFILE,
 };
 use buzz_core::tenant::TenantContext;
 use buzz_core::verification::verify_event;
 use buzz_core::CommunityId;
+use buzz_pubsub::EventTopic;
 use nostr::Event;
 
 use crate::state::AppState;
@@ -226,7 +229,7 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         // Community moderation commands are direct, mod-authz-gated writes.
         // Scope only proves the transport can submit message writes; the
         // command handler owns role/capability authorization.
-        k if buzz_core::kind::is_moderation_command_kind(k) => Ok(Scope::MessagesWrite),
+        k if buzz_core::kind::is_moderation_command_kind(k) || k == KIND_AIRHOP_AGENT_TASK => Ok(Scope::MessagesWrite),
         // NIP-51 standard lists and NIP-65 relay list — user-owned global state,
         // same ownership shape as kind:3 (contacts) and kind:0 (profile).
         KIND_MUTE_LIST
@@ -485,6 +488,7 @@ pub(crate) fn requires_h_channel_scope(kind: u32) -> bool {
             | KIND_STREAM_MESSAGE_SCHEDULED
             | KIND_STREAM_REMINDER
             | KIND_STREAM_MESSAGE_DIFF
+            | KIND_AIRHOP_AGENT_TASK
             | KIND_CANVAS
             | KIND_FORUM_POST
             | KIND_FORUM_VOTE
@@ -1752,6 +1756,8 @@ pub async fn ingest_event(
     // Captured before `event` moves into the inner fn: the stored-events
     // counter below is emitted at this shared seam so WebSocket and HTTP
     // transports are counted identically.
+    let is_airhop_ephemeral = super::airhop_welcome_turn_projection(event_kind_u32(&event))
+        == Some(super::AirhopWelcomeTurnProjection::Ephemeral);
     let kind_label = super::event::bounded_kind_label(event_kind_u32(&event));
     // Classify the authenticated principal, not the event envelope signer:
     // NIP-59 gift wraps deliberately use an unrelated ephemeral pubkey.
@@ -1771,7 +1777,7 @@ pub async fn ingest_event(
     // author_type is a 2-value label so it merely doubles the kind series).
     // Emitted here rather than per-transport so HTTP bridge ingests count too.
     if let Ok(r) = &result {
-        if r.accepted {
+        if r.accepted && !is_airhop_ephemeral {
             let author_type = author_type_label(state, tenant, author_pubkey_bytes).await;
             metrics::counter!(
                 "buzz_events_stored_total",
@@ -2184,6 +2190,49 @@ async fn ingest_event_inner(
             );
             auth_result.map_err(IngestError::Rejected)?;
         }
+    }
+
+    // Desktop publishes owner-signed semantic tasks through POST /events.
+    // Keep this kind truly ephemeral while giving HTTP the same projection
+    // and live fan-out semantics as the WebSocket EVENT path.
+    if super::airhop_welcome_turn_projection(kind_u32)
+        == Some(super::AirhopWelcomeTurnProjection::Ephemeral)
+    {
+        let ch_id = channel_id.ok_or_else(|| {
+            IngestError::Rejected("invalid: Airhop agent tasks must include an h tag".to_string())
+        })?;
+        state
+            .db
+            .apply_airhop_welcome_ephemeral_turn(tenant, &event, ch_id)
+            .await
+            .map_err(|error| {
+                error!(
+                    event_id = %event_id_hex,
+                    error = %error,
+                    "Airhop Welcome HTTP ephemeral turn projection failed"
+                );
+                IngestError::Internal("error: internal error".to_string())
+            })?;
+
+        state.mark_local_event(tenant.community(), &event.id);
+        if let Err(error) = state
+            .pubsub
+            .publish_event(tenant, EventTopic::Channel(ch_id), &event)
+            .await
+        {
+            state
+                .local_event_ids
+                .invalidate(&(tenant.community(), event.id.to_bytes()));
+            warn!(event_id = %event_id_hex, "HTTP ephemeral publish failed: {error}");
+        }
+        let stored_event = StoredEvent::new(event, Some(ch_id));
+        super::event::fan_out_event_to_local_subscribers(state, tenant.community(), &stored_event)
+            .await;
+        return Ok(IngestResult {
+            event_id: event_id_hex,
+            accepted: true,
+            message: String::new(),
+        });
     }
 
     // Handled directly — these mutate relay_members and do NOT get stored.

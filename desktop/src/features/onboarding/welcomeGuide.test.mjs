@@ -433,6 +433,7 @@ test("Welcome starters are isolated Airhop role runtimes in the flat Welcome fee
   assert.equal(input.mcpCommand, "airhop-agent-mcp");
   assert.deepEqual(input.envVars, {
     BUZZ_AIRHOP_ROLE: "fizz",
+    BUZZ_ACP_KINDS: "9,46010,40007,21021",
     BUZZ_AIRHOP_WELCOME_CHANNEL_ID: "welcome-channel",
     BUZZ_ACP_FLAT_CHANNELS: "welcome-channel",
     BUZZ_ACP_ROUTE_GATE: "airhop",

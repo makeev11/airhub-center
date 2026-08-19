@@ -482,7 +482,7 @@ export function ProfileSettingsCard({
       <div>
         <SettingsSectionHeader
           title="Profile"
-          description="Update how your name, avatar, and bio appear across AirHop."
+          description="Update how your name, avatar, and bio appear across Airhop."
         />
 
         <div className="space-y-3">

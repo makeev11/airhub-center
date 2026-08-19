@@ -18,7 +18,8 @@
 #     relay metrics   : localhost:9202
 #
 # Usage:
-#   ./scripts/start-isolated-test-relay.sh [--profile <cargo-profile>]
+#   ./scripts/start-isolated-test-relay.sh [--profile <cargo-profile>] [--prepare-only]
+#   --prepare-only resets/seeds/builds but leaves relay lifecycle to the caller.
 #
 # Teardown (safe — scoped to our project only):
 #   docker compose -p buzz-harness -f docker-compose.harness.yml down -v
@@ -30,9 +31,11 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
 CARGO_PROFILE="${CARGO_PROFILE:-ci}"
+PREPARE_ONLY=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile) CARGO_PROFILE="$2"; shift 2 ;;
+    --prepare-only) PREPARE_ONLY=true; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -55,12 +58,12 @@ COMPOSE_FILE="docker-compose.harness.yml"
 
 # Isolated ports (distinct from :3000 team relay, default dev stack, and Eva's
 # evaperf :5470/:6470/:9470/:3170 stack).
-PG_PORT=5471
-REDIS_PORT=6471
-MINIO_PORT=9471
-RELAY_MAIN=3030
-RELAY_HEALTH=8088
-RELAY_METRICS=9202
+PG_PORT="${AIRHOP_HARNESS_PG_PORT:-5471}"
+REDIS_PORT="${AIRHOP_HARNESS_REDIS_PORT:-6471}"
+MINIO_PORT="${AIRHOP_HARNESS_MINIO_PORT:-9471}"
+RELAY_MAIN="${AIRHOP_HARNESS_RELAY_PORT:-3030}"
+RELAY_HEALTH="${AIRHOP_HARNESS_HEALTH_PORT:-8088}"
+RELAY_METRICS="${AIRHOP_HARNESS_METRICS_PORT:-9202}"
 COMMUNITY_HOST="localhost:${RELAY_MAIN}"
 
 BLUE='\033[0;34m'; GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
@@ -85,21 +88,22 @@ wait_pg() {
 wait_pg
 
 # ── Schema + partitions ──────────────────────────────────────────────────────
+# Prefer the rustup shim so the repository's pinned Rust toolchain is honored.
+if [[ -x "${HOME}/.cargo/bin/cargo" ]]; then
+  export PATH="${HOME}/.cargo/bin:${PATH}"
+fi
+
+# Apply the complete migration chain, including every additive AirHop table.
 export PGPASSWORD=buzz_dev
 psql_h() { docker compose -p "${PROJECT}" -f "${COMPOSE_FILE}" exec -T postgres \
   psql -U buzz -d buzz -v ON_ERROR_STOP=1 "$@"; }
 
-log "Resetting isolated database and applying schema..."
+log "Resetting isolated database and applying all checked-in migrations..."
 # This database belongs only to the buzz-harness Compose project. Reset it on
-# every launch so stale partitions/events from an earlier proof cannot alter
-# schema planning or test results.
+# every launch so stale events or migration state cannot alter test results.
 psql_h -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-export PGSCHEMA_PLAN_HOST=localhost PGSCHEMA_PLAN_PORT=${PG_PORT}
-export PGSCHEMA_PLAN_DB=buzz PGSCHEMA_PLAN_USER=buzz PGSCHEMA_PLAN_PASSWORD=buzz_dev
-export PGHOST=localhost PGPORT=${PG_PORT} PGUSER=buzz PGDATABASE=buzz
-./bin/pgschema apply --file schema/schema.sql --auto-approve
-psql_h < scripts/attach-schema-partitions.sql
-ok "Schema applied"
+DATABASE_URL="postgres://buzz:buzz_dev@localhost:${PG_PORT}/buzz" cargo run -p buzz-admin -- migrate
+ok "Complete migration chain applied"
 
 # ── Deployment community + channels + members ────────────────────────────────
 # setup-desktop-test-data.sh is the single writer of the dev community row and
@@ -116,15 +120,14 @@ BUZZ_COMMUNITY_HOST="${COMMUNITY_HOST}" \
 ok "Community + channels + members seeded"
 
 # ── Build relay from source (current branch) ─────────────────────────────────
-# The repo pins Rust via rust-toolchain.toml (1.95.0). Outside the hermit env a
-# stray Homebrew `cargo` (1.89) shadows the pin and fails on sqlx's MSRV, so
-# prefer the rustup shim, which honors the pin.
-if [[ -x "${HOME}/.cargo/bin/cargo" ]]; then
-  export PATH="${HOME}/.cargo/bin:${PATH}"
-fi
 log "Building relay (profile=${CARGO_BUILD_PROFILE}, cargo=$(command -v cargo), $(cargo --version))..."
 cargo build --profile "${CARGO_BUILD_PROFILE}" -p buzz-relay
 ok "Relay built"
+
+if [[ "${PREPARE_ONLY}" == "true" ]]; then
+  ok "Clean isolated database prepared; relay lifecycle belongs to the caller"
+  exit 0
+fi
 
 # ── Run relay (detached tmux session) ────────────────────────────────────────
 # Run inside tmux, NOT the foreground: this script is invoked from ephemeral

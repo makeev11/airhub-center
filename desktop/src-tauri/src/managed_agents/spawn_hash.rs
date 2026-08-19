@@ -29,9 +29,9 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use super::{
     effective_config::{resolve_effective_config, EffectiveConfigResult},
-    known_acp_runtime, normalize_agent_args,
+    normalize_agent_args,
     persona_events::preview_prospective_persona_snapshot,
-    runtime::{resolve_session_title, SESSION_TITLE_ENV_VAR},
+    runtime::{effective_mcp_command, resolve_session_title, SESSION_TITLE_ENV_VAR},
     types::{AgentDefinition, ManagedAgentRecord, TeamRecord},
     GlobalAgentConfig,
 };
@@ -86,18 +86,13 @@ pub(crate) fn spawn_config_hash(
                     env: Default::default(),
                 }
             });
-    let runtime_meta = known_acp_runtime(&descriptor.command);
-
     let mut hasher = DefaultHasher::new();
 
     // Harness identity and derivations (live-persona-resolved, like spawn).
     record.acp_command.hash(&mut hasher);
     descriptor.command.hash(&mut hasher);
     descriptor.args.hash(&mut hasher);
-    runtime_meta
-        .and_then(|r| r.mcp_command)
-        .unwrap_or("")
-        .hash(&mut hasher);
+    effective_mcp_command(record, &descriptor.command).hash(&mut hasher);
 
     // Effective env layering (baked floor → runtime metadata → definition env
     // → global → persona → agent). BTreeMap iteration is ordered, deterministic.

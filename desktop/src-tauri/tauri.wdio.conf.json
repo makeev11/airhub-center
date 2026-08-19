@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Airhop E2E",
+  "identifier": "ru.airhop.centers.e2e.task12",
+  "app": {
+    "security": {
+      "capabilities": [
+        "default",
+        {
+          "identifier": "wdio-native",
+          "description": "Embedded WebDriver access for the native E2E build only",
+          "windows": ["main"],
+          "permissions": ["wdio-webdriver:default"]
+        }
+      ]
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

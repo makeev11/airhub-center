@@ -4,6 +4,7 @@ import {
   useAcpRuntimesQuery,
   useManagedAgentsQuery,
 } from "@/features/agents/hooks";
+import { canonicalRelayUrl } from "@/features/agents/managedAgentRuntimeStatus";
 import { useManagedAgentRuntimesQuery } from "@/features/agents/managedAgentRuntimeHooks";
 import { useGlobalAgentConfig } from "@/features/agents/useGlobalAgentConfig";
 import { createHttpBookingSettingsRepository } from "@/features/booking/data/httpBookingSettingsRepository";
@@ -34,9 +35,13 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 
 export const ALL_WELCOME_KICKOFF_STAGES = [
   "fizz_intro",
+  "fizz_invite_administrator",
   "administrator_intro",
+  "fizz_invite_analyst",
   "analyst_intro",
+  "fizz_invite_content_marketer",
   "content_marketer_intro",
+  "fizz_explain_team",
   "fizz_first_question",
 ] as const satisfies readonly WelcomeKickoffStage[];
 
@@ -95,6 +100,10 @@ export function welcomeKickoffTargetRole(
     case "content_marketer_intro":
       return "content_marketer";
     case "fizz_intro":
+    case "fizz_invite_administrator":
+    case "fizz_invite_analyst":
+    case "fizz_invite_content_marketer":
+    case "fizz_explain_team":
     case "fizz_first_question":
       return "fizz";
   }
@@ -216,11 +225,12 @@ export function welcomeRuntimeIsReady(
   relayUrl: string,
 ) {
   const targetPubkey = normalizePubkey(agentPubkey);
-  const targetRelay = normalizeRelayUrl(relayUrl);
+  const targetRelay = canonicalRelayUrl(relayUrl);
+  if (!targetRelay) return false;
   return runtimes.some(
     (runtime) =>
       normalizePubkey(runtime.pubkey) === targetPubkey &&
-      normalizeRelayUrl(runtime.relayUrl) === targetRelay &&
+      canonicalRelayUrl(runtime.relayUrl) === targetRelay &&
       READY_RUNTIME_LIFECYCLES.has(runtime.lifecycle),
   );
 }

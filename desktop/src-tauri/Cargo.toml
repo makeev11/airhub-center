@@ -24,6 +24,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [features]
 default = ["system-keyring"]
 mesh-llm = ["dep:iroh", "dep:mesh-llm-sdk", "dep:mesh-llm-host-runtime", "dep:mesh-llm-client", "dep:mesh-llm-node", "dep:mesh-llm-system", "dep:mesh-llm-events"]
+wdio = ["dep:tauri-plugin-wdio-webdriver"]
 # OS keyring backing for desktop secret storage (nsec private keys). When
 # disabled, secrets fall back to 0o600 files. On by default for real builds.
 system-keyring = ["dep:keyring"]
@@ -123,6 +124,7 @@ bzip2 = "0.6"
 chrono = { version = "0.4", features = ["serde"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2.3.3"
+tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 uuid = { version = "1", features = ["v4", "v5"] }
 png = "0.18"
 # wayland-data-control: without it arboard is X11-only on Linux, so copies made

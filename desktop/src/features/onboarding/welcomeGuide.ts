@@ -42,7 +42,7 @@ const LEGACY_GENERIC_PERSONA_IDS = new Set([
 export const LEGACY_WELCOME_GUIDE_SYSTEM_PROMPT =
   "You are Kit, Sprout's friendly welcome guide. Help new users understand the community, channels, messages, and agents. Keep introductions concise, practical, and warm.";
 export const WELCOME_GUIDE_INTRO_MESSAGE =
-  "Hi, I'm Fizz. Welcome to AirHop.\n\nI can help you get oriented, answer questions, and make the first few steps feel less mysterious.\n\nFeel free to ask me what else you can do in AirHop, or just talk through what you want to build.";
+  "Hi, I'm Fizz. Welcome to Airhop.\n\nI can help you get oriented, answer questions, and make the first few steps feel less mysterious.\n\nFeel free to ask me what else you can do in Airhop, or just talk through what you want to build.";
 
 export type WelcomeTeamRole = AirhopWelcomeRole;
 
@@ -243,6 +243,7 @@ export async function buildWelcomeStarterCreateInput(
       ...(base.envVars ?? {}),
       BUZZ_AIRHOP_ROLE: starter.role,
       BUZZ_AIRHOP_WELCOME_CHANNEL_ID: channelId,
+      BUZZ_ACP_KINDS: "9,46010,40007,21021",
       BUZZ_ACP_FLAT_CHANNELS: channelId,
       BUZZ_ACP_ROUTE_GATE: "airhop",
     },

@@ -122,7 +122,7 @@ use crate::managed_agents::types::{ManagedAgentRecord, RespondTo};
 
 /// Construct a minimal record fixture for env-building tests. Only the
 /// fields read by `build_respond_to_env` matter here.
-fn fixture(
+pub(super) fn fixture(
     respond_to: RespondTo,
     allowlist: Vec<String>,
     auth_tag: Option<String>,

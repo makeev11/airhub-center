@@ -7,13 +7,9 @@ import {
   canManageCommunityMembers,
   shouldWarnMissingMembershipSnapshot,
 } from "@/shared/api/relayMembers";
-import { getFeature } from "@/shared/features/manifest";
-import {
-  resolveEnabled,
-  useFeatureSnapshot,
-} from "@/shared/features/useFeatureEnabled";
 import { topChromeBackdrop } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import {
   Sidebar,
   SidebarContent,
@@ -29,6 +25,7 @@ import {
   useSidebar,
 } from "@/shared/ui/sidebar";
 import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
+import { airHopSettingsCopy } from "./airhopSettings";
 import {
   renderSettingsSection,
   settingsSections,
@@ -49,29 +46,20 @@ type SettingsViewProps = SettingsPanelProps & {
 };
 
 const settingsNavGroups: Array<{
-  label: string;
+  label: "personal" | "center" | "app";
   sections: SettingsSection[];
 }> = [
   {
-    label: "Personal",
-    sections: [
-      "profile",
-      "appearance",
-      "notifications",
-      "voice",
-      "shortcuts",
-      "custom-emoji",
-      "local-archive",
-      "channel-templates",
-    ],
+    label: "personal",
+    sections: ["appearance", "profile", "notifications", "shortcuts"],
   },
   {
-    label: "Communities",
-    sections: ["hosted-communities", "community-members"],
+    label: "center",
+    sections: ["agents", "community-members", "custom-emoji"],
   },
   {
-    label: "App",
-    sections: ["agents", "compute", "experimental", "mobile", "updates"],
+    label: "app",
+    sections: ["mobile", "updates"],
   },
 ];
 
@@ -127,28 +115,22 @@ export function SettingsView({
   onSetSoundForSlot,
   section,
 }: SettingsViewProps) {
+  const locale = useAirHopLocale();
+  const copy = airHopSettingsCopy(locale);
   const { isMobile, open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
   const myMembershipQuery = useMyRelayMembershipLookupQuery();
-  const featureState = useFeatureSnapshot();
   const visibleSections = React.useMemo(() => {
-    return settingsSections.filter((s) => {
-      // Feature gate check. Manifest is preview-only — if the gate id is in
-      // the manifest, it's preview and needs an opt-in; if it's not, it's
-      // stable and renders unconditionally (fail-open).
-      if (s.featureGate) {
-        const feature = getFeature(s.featureGate);
-        if (feature && !resolveEnabled(s.featureGate, featureState)) {
-          return false;
-        }
-      }
-      // Invites and member management require a discovered owner/admin role.
-      // Open relays have no membership snapshot or invite controls.
-      if (s.value === "community-members") {
-        return canManageCommunityMembers(myMembershipQuery.data);
-      }
-      return true;
-    });
-  }, [myMembershipQuery.data, featureState]);
+    return settingsSections
+      .filter(
+        (section) =>
+          section.value !== "community-members" ||
+          canManageCommunityMembers(myMembershipQuery.data),
+      )
+      .map((section) => ({
+        ...section,
+        label: copy.labels[section.value],
+      }));
+  }, [copy.labels, myMembershipQuery.data]);
 
   const [isLoaded, setIsLoaded] = React.useState(false);
   const [appVersion, setAppVersion] = React.useState<string | null>(null);
@@ -195,6 +177,7 @@ export function SettingsView({
       settingsNavGroups
         .map((group) => ({
           ...group,
+          label: copy.groups[group.label],
           sections: group.sections
             .map((value) => visibleSectionByValue.get(value))
             .filter(
@@ -202,7 +185,7 @@ export function SettingsView({
             ),
         }))
         .filter((group) => group.sections.length > 0),
-    [visibleSectionByValue],
+    [copy.groups, visibleSectionByValue],
   );
 
   return (
@@ -227,11 +210,11 @@ export function SettingsView({
               <SidebarMenuButton
                 data-testid="settings-back-to-app"
                 onClick={onClose}
-                tooltip="Back to app"
+                tooltip={copy.back}
                 type="button"
               >
                 <ArrowLeft className="h-4 w-4" />
-                <span>Back to app</span>
+                <span>{copy.back}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -244,7 +227,7 @@ export function SettingsView({
               data-testid="community-access-loading"
             >
               <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-              Checking invite permissions…
+              {copy.checkingAccess}
             </div>
           ) : null}
           {myMembershipQuery.isError ? (
@@ -254,7 +237,7 @@ export function SettingsView({
             >
               <div className="flex items-center gap-2">
                 <AlertCircle className="h-3.5 w-3.5 text-destructive" />
-                Invite settings could not be checked.
+                {copy.accessError}
               </div>
               <button
                 className="flex items-center gap-1.5 font-medium text-sidebar-foreground underline-offset-2 hover:underline"
@@ -262,7 +245,7 @@ export function SettingsView({
                 type="button"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                Try again
+                {copy.retry}
               </button>
             </div>
           ) : null}
@@ -272,15 +255,14 @@ export function SettingsView({
               data-testid="community-access-snapshot-missing"
             >
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-              Invite settings are unavailable. Relay recovery may still be in
-              progress.
+              {copy.accessUnavailable}
             </div>
           ) : null}
           {visibleNavGroups.map((group) => (
             <SidebarGroup key={group.label}>
               <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
               <SidebarGroupContent>
-                <SidebarMenu aria-label={`${group.label} settings sections`}>
+                <SidebarMenu aria-label={copy.groupAria(group.label)}>
                   {group.sections.map((entry) => (
                     <SettingsSectionButton
                       active={entry.value === section}

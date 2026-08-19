@@ -6,9 +6,13 @@ export type AirhopWelcomeRole =
 
 export type WelcomeKickoffStage =
   | "fizz_intro"
+  | "fizz_invite_administrator"
   | "administrator_intro"
+  | "fizz_invite_analyst"
   | "analyst_intro"
+  | "fizz_invite_content_marketer"
   | "content_marketer_intro"
+  | "fizz_explain_team"
   | "fizz_first_question";
 
 export type WelcomeRoleDefinition = Readonly<{
@@ -19,8 +23,10 @@ export type WelcomeRoleDefinition = Readonly<{
   aliases: readonly string[];
 }>;
 
+type WelcomeLanguage = "ru" | "en" | "tr" | "pt";
+
 export type WelcomeLocalePack = Readonly<{
-  language: "ru" | "en" | "pt";
+  language: WelcomeLanguage;
   names: Record<AirhopWelcomeRole, string>;
   roleLabels: Record<AirhopWelcomeRole, string>;
   aliases: Record<AirhopWelcomeRole, readonly string[]>;
@@ -39,165 +45,226 @@ const PERSONA_IDS: Record<AirhopWelcomeRole, string> = {
   content_marketer: "builtin:airhop-content-marketer",
 };
 
-const RU_NAMES: Record<AirhopWelcomeRole, string> = {
-  fizz: "\u0424\u0438\u0437",
-  administrator:
-    "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440",
-  analyst: "\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a",
-  content_marketer:
-    "\u041a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433",
+const NAMES: Record<WelcomeLanguage, Record<AirhopWelcomeRole, string>> = {
+  ru: {
+    fizz: "Физ",
+    administrator: "Администратор",
+    analyst: "Аналитик",
+    content_marketer: "Контент-маркетолог",
+  },
+  en: {
+    fizz: "Fizz",
+    administrator: "Administrator",
+    analyst: "Analyst",
+    content_marketer: "Content Marketer",
+  },
+  tr: {
+    fizz: "Fizz",
+    administrator: "Yönetici",
+    analyst: "Analist",
+    content_marketer: "İçerik Pazarlamacısı",
+  },
+  pt: {
+    fizz: "Fizz",
+    administrator: "Administrador",
+    analyst: "Analista",
+    content_marketer: "Especialista de Conteúdo",
+  },
 };
 
-const EN_NAMES: Record<AirhopWelcomeRole, string> = {
-  fizz: "Fizz",
-  administrator: "Administrator",
-  analyst: "Analyst",
-  content_marketer: "Content Marketer",
+const INSTRUCTIONS: Record<
+  WelcomeLanguage,
+  Record<WelcomeKickoffStage, (ownerName?: string) => string>
+> = {
+  ru: {
+    fizz_intro: () =>
+      "Поздоровайся и коротко представься как Физ, руководитель команды Airhop. Скажи, что сейчас познакомишь владельца с командой и вместе начнёте настройку.",
+    fizz_invite_administrator: () =>
+      "Одним коротким сообщением пригласи Администратора представиться. Обратись к нему по имени.",
+    administrator_intro: () =>
+      "Коротко представься как Администратор. Скажи, что помогаешь с расписанием, детьми, родителями и оплатами, и приведи один пример запроса.",
+    fizz_invite_analyst: () =>
+      "Одним коротким сообщением пригласи Аналитика представиться. Обратись к нему по имени.",
+    analyst_intro: () =>
+      "Коротко представься как Аналитик. Скажи про данные, показатели и текстовые отчёты и приведи один пример запроса.",
+    fizz_invite_content_marketer: () =>
+      "Одним коротким сообщением пригласи Контент-маркетолога представиться. Обратись к нему по имени.",
+    content_marketer_intro: () =>
+      "Коротко представься как Контент-маркетолог. Скажи, что помогаешь готовить контент, но пока не публикуешь его, и приведи один пример запроса.",
+    fizz_explain_team: () =>
+      "Коротко объясни: владелец может обращаться к Физу, а может напрямую к любому специалисту; доступ сотрудникам можно настроить отдельно.",
+    fizz_first_question: (ownerName) =>
+      `${ownerName?.trim() || "Владелец"}, задай один короткий первый вопрос живого организационного брифа. Не объявляй онбординг завершённым.`,
+  },
+  en: {
+    fizz_intro: () =>
+      "Greet the owner and briefly introduce yourself as Fizz, the Airhop team lead. Say you will introduce the team and start setting things up together.",
+    fizz_invite_administrator: () =>
+      "In one short message, invite the Administrator to introduce themselves. Address them by name.",
+    administrator_intro: () =>
+      "Briefly introduce yourself as the Administrator. Mention schedules, children, parents, and payments, with one example request.",
+    fizz_invite_analyst: () =>
+      "In one short message, invite the Analyst to introduce themselves. Address them by name.",
+    analyst_intro: () =>
+      "Briefly introduce yourself as the Analyst. Mention data, metrics, and concise reports, with one example request.",
+    fizz_invite_content_marketer: () =>
+      "In one short message, invite the Content Marketer to introduce themselves. Address them by name.",
+    content_marketer_intro: () =>
+      "Briefly introduce yourself as the Content Marketer. You prepare content but do not publish it yet. Include one example request.",
+    fizz_explain_team: () =>
+      "Briefly explain that the owner can ask Fizz or address any specialist directly, and can configure employee access separately.",
+    fizz_first_question: (ownerName) =>
+      `${ownerName?.trim() || "Owner"}, ask one short first question for the live organizational brief. Do not announce completion.`,
+  },
+  tr: {
+    fizz_intro: () =>
+      "İşletme sahibini selamla ve Airhop ekip lideri Fizz olarak kısaca kendini tanıt. Ekibi tanıtacağını ve kuruluma birlikte başlayacağınızı söyle.",
+    fizz_invite_administrator: () =>
+      "Tek kısa mesajla Yönetici'yi kendini tanıtmaya davet et. Ona adıyla hitap et.",
+    administrator_intro: () =>
+      "Yönetici olarak kısaca kendini tanıt. Programlar, çocuklar, veliler ve ödemelerden söz et ve bir örnek istek ver.",
+    fizz_invite_analyst: () =>
+      "Tek kısa mesajla Analist'i kendini tanıtmaya davet et. Ona adıyla hitap et.",
+    analyst_intro: () =>
+      "Analist olarak kısaca kendini tanıt. Veriler, metrikler ve kısa raporlardan söz et ve bir örnek istek ver.",
+    fizz_invite_content_marketer: () =>
+      "Tek kısa mesajla İçerik Pazarlamacısı'nı kendini tanıtmaya davet et. Ona adıyla hitap et.",
+    content_marketer_intro: () =>
+      "İçerik Pazarlamacısı olarak kısaca kendini tanıt. İçerik hazırladığını ancak henüz yayınlamadığını söyle ve bir örnek istek ver.",
+    fizz_explain_team: () =>
+      "İşletme sahibinin Fizz'e veya doğrudan bir uzmana yazabileceğini ve çalışan erişimini ayrıca ayarlayabileceğini kısaca açıkla.",
+    fizz_first_question: (ownerName) =>
+      `${ownerName?.trim() || "İşletme sahibi"}, canlı organizasyon özeti için ilk kısa soruyu sor. Kurulumun tamamlandığını söyleme.`,
+  },
+  pt: {
+    fizz_intro: () =>
+      "Cumprimente o proprietário e apresente-se brevemente como Fizz, líder da equipe Airhop. Diga que apresentará a equipe e que começarão a configuração juntos.",
+    fizz_invite_administrator: () =>
+      "Em uma mensagem curta, convide o Administrador a se apresentar. Chame-o pelo nome.",
+    administrator_intro: () =>
+      "Apresente-se brevemente como Administrador. Mencione horários, crianças, responsáveis e pagamentos, com um exemplo de pedido.",
+    fizz_invite_analyst: () =>
+      "Em uma mensagem curta, convide o Analista a se apresentar. Chame-o pelo nome.",
+    analyst_intro: () =>
+      "Apresente-se brevemente como Analista. Mencione dados, métricas e relatórios objetivos, com um exemplo de pedido.",
+    fizz_invite_content_marketer: () =>
+      "Em uma mensagem curta, convide o Especialista de Conteúdo a se apresentar. Chame-o pelo nome.",
+    content_marketer_intro: () =>
+      "Apresente-se brevemente como Especialista de Conteúdo. Você prepara conteúdo, mas ainda não publica. Inclua um exemplo de pedido.",
+    fizz_explain_team: () =>
+      "Explique brevemente que o proprietário pode falar com Fizz ou diretamente com qualquer especialista e configurar o acesso da equipe separadamente.",
+    fizz_first_question: (ownerName) =>
+      `${ownerName?.trim() || "Proprietário"}, faça uma primeira pergunta curta para o briefing organizacional vivo. Não anuncie a conclusão.`,
+  },
 };
 
-const PT_NAMES: Record<AirhopWelcomeRole, string> = {
-  fizz: "Fizz",
-  administrator: "Administrador",
-  analyst: "Analista",
-  content_marketer: "Especialista de Conteudo",
-};
-
-const RU: WelcomeLocalePack = {
-  language: "ru",
-  names: RU_NAMES,
-  roleLabels: {
-    fizz: "\u0440\u0443\u043a\u043e\u0432\u043e\u0434\u0438\u0442\u0435\u043b\u044c \u043a\u043e\u043c\u0430\u043d\u0434\u044b",
-    administrator:
-      "\u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440",
-    analyst: "\u0430\u043d\u0430\u043b\u0438\u0442\u0438\u043a",
-    content_marketer:
-      "\u043a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433",
-  },
-  aliases: {
-    fizz: ["\u0424\u0438\u0437", "Fizz"],
-    administrator: [
-      "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440",
-      "\u0410\u0434\u043c\u0438\u043d",
-    ],
-    analyst: ["\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a"],
-    content_marketer: [
-      "\u041a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433",
-      "\u041a\u043e\u043d\u0442\u0435\u043d\u0442",
-    ],
-  },
-  providerRequired:
-    "\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u0435 AI-\u043f\u0440\u043e\u0432\u0430\u0439\u0434\u0435\u0440\u0430 \u0432 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u0445. \u041f\u043e\u0441\u043b\u0435 \u044d\u0442\u043e\u0433\u043e \u043a\u043e\u043c\u0430\u043d\u0434\u0430 Airhop \u0441\u043c\u043e\u0436\u0435\u0442 \u043d\u0430\u0447\u0430\u0442\u044c.",
-  specialistUnavailable: (role) =>
-    RU_NAMES[role] +
-    " \u0441\u0435\u0439\u0447\u0430\u0441 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u042f \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u043b \u0437\u0430\u0434\u0430\u0447\u0443 \u2014 \u043f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0447\u0443\u0442\u044c \u043f\u043e\u0437\u0436\u0435.",
-  kickoffInstruction: (stage, ownerName) => kickoff("ru", stage, ownerName),
-};
-
-const EN: WelcomeLocalePack = {
-  language: "en",
-  names: EN_NAMES,
-  roleLabels: {
-    fizz: "team lead",
-    administrator: "administrator",
-    analyst: "analyst",
-    content_marketer: "content marketer",
-  },
-  aliases: {
-    fizz: ["Fizz"],
-    administrator: ["Administrator", "Admin"],
-    analyst: ["Analyst"],
-    content_marketer: ["Content Marketer", "Content"],
-  },
-  providerRequired:
-    "Connect an AI provider in Settings first. Then the Airhop team can get started.",
-  specialistUnavailable: (role) =>
-    EN_NAMES[role] +
-    " is unavailable right now. I kept the task; please try again shortly.",
-  kickoffInstruction: (stage, ownerName) => kickoff("en", stage, ownerName),
-};
-
-const PT: WelcomeLocalePack = {
-  language: "pt",
-  names: PT_NAMES,
-  roleLabels: {
-    fizz: "lider da equipe",
-    administrator: "administrador",
-    analyst: "analista",
-    content_marketer: "especialista de conteudo",
-  },
-  aliases: {
-    fizz: ["Fizz"],
-    administrator: ["Administrador", "Admin"],
-    analyst: ["Analista"],
-    content_marketer: ["Especialista de Conteudo", "Conteudo"],
-  },
-  providerRequired:
-    "Conecte primeiro um provedor de IA nas Configuracoes. Depois, a equipe Airhop podera comecar.",
-  specialistUnavailable: (role) =>
-    PT_NAMES[role] +
-    " nao esta disponivel agora. Guardei a tarefa; tente novamente em breve.",
-  kickoffInstruction: (stage, ownerName) => kickoff("pt", stage, ownerName),
-};
-
-function kickoff(
-  language: "ru" | "en" | "pt",
+function kickoffInstruction(
+  language: WelcomeLanguage,
   stage: WelcomeKickoffStage,
   ownerName?: string,
 ): string {
-  const owner = ownerName?.trim();
-  const ru: Record<WelcomeKickoffStage, string> = {
-    fizz_intro:
-      "\u041a\u043e\u0440\u043e\u0442\u043a\u043e \u043f\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u044c\u0441\u044f \u043a\u0430\u043a \u0424\u0438\u0437, \u0440\u0443\u043a\u043e\u0432\u043e\u0434\u0438\u0442\u0435\u043b\u044c \u043a\u043e\u043c\u0430\u043d\u0434\u044b Airhop. \u041d\u0435 \u0431\u043e\u043b\u0435\u0435 \u0442\u0440\u0451\u0445 \u043a\u043e\u0440\u043e\u0442\u043a\u0438\u0445 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0439.",
-    administrator_intro:
-      "\u041f\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u044c\u0441\u044f \u043a\u0430\u043a \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440. \u041a\u043e\u0440\u043e\u0442\u043a\u043e \u0441\u043a\u0430\u0436\u0438 \u043f\u0440\u043e \u0440\u0430\u0441\u043f\u0438\u0441\u0430\u043d\u0438\u044f, \u0434\u0435\u0442\u0435\u0439, \u0440\u043e\u0434\u0438\u0442\u0435\u043b\u0435\u0439 \u0438 \u043e\u043f\u043b\u0430\u0442\u044b.",
-    analyst_intro:
-      "\u041f\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u044c\u0441\u044f \u043a\u0430\u043a \u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a. \u041a\u043e\u0440\u043e\u0442\u043a\u043e \u0441\u043a\u0430\u0436\u0438 \u043f\u0440\u043e \u0432\u043e\u043f\u0440\u043e\u0441\u044b \u043f\u043e \u0434\u0430\u043d\u043d\u044b\u043c \u0438 \u0442\u0435\u043a\u0441\u0442\u043e\u0432\u044b\u0435 \u043e\u0442\u0447\u0451\u0442\u044b.",
-    content_marketer_intro:
-      "\u041f\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u044c\u0441\u044f \u043a\u0430\u043a \u041a\u043e\u043d\u0442\u0435\u043d\u0442-\u043c\u0430\u0440\u043a\u0435\u0442\u043e\u043b\u043e\u0433. \u041a\u043e\u0440\u043e\u0442\u043a\u043e \u0441\u043a\u0430\u0436\u0438, \u0447\u0442\u043e \u043f\u043e\u043c\u043e\u0433\u0430\u0435\u0448\u044c \u0441 \u043a\u043e\u043d\u0442\u0435\u043d\u0442\u043e\u043c, \u043d\u043e \u043f\u043e\u043a\u0430 \u043d\u0435 \u043f\u0443\u0431\u043b\u0438\u043a\u0443\u0435\u0448\u044c \u0435\u0433\u043e.",
-    fizz_first_question:
-      (owner || "\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446") +
-      ", \u0437\u0430\u0434\u0430\u0439 \u043e\u0434\u0438\u043d \u043a\u043e\u0440\u043e\u0442\u043a\u0438\u0439 \u043f\u0435\u0440\u0432\u044b\u0439 \u0432\u043e\u043f\u0440\u043e\u0441 \u0434\u043b\u044f \u0436\u0438\u0432\u043e\u0433\u043e \u0431\u0440\u0438\u0444\u0430. \u041d\u0435 \u043e\u0431\u044a\u044f\u0432\u043b\u044f\u0439 \u043e\u043d\u0431\u043e\u0440\u0434\u0438\u043d\u0433 \u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043d\u043d\u044b\u043c.",
-  };
-  const en: Record<WelcomeKickoffStage, string> = {
-    fizz_intro:
-      "Briefly introduce yourself as Fizz, the Airhop team lead. Use at most three short messages.",
-    administrator_intro:
-      "Introduce yourself as the Administrator. Briefly mention schedules, children, parents, and payments.",
-    analyst_intro:
-      "Introduce yourself as the Analyst. Briefly mention data questions and concise text reports.",
-    content_marketer_intro:
-      "Introduce yourself as the Content Marketer. You help prepare content, but publishing is not available yet.",
-    fizz_first_question:
-      (owner || "Owner") +
-      ", ask one short first question for the live brief. Do not announce completion.",
-  };
-  const pt: Record<WelcomeKickoffStage, string> = {
-    fizz_intro:
-      "Apresente-se brevemente como Fizz, lider da equipe Airhop. Use no maximo tres mensagens curtas.",
-    administrator_intro:
-      "Apresente-se como administrador. Mencione brevemente horarios, criancas, pais e pagamentos.",
-    analyst_intro:
-      "Apresente-se como analista. Mencione perguntas sobre dados e relatorios curtos em texto.",
-    content_marketer_intro:
-      "Apresente-se como especialista de conteudo. Ajude a preparar conteudo; a publicacao ainda nao esta disponivel.",
-    fizz_first_question:
-      (owner || "Proprietario") +
-      ", faca uma primeira pergunta curta para o briefing vivo. Nao anuncie a conclusao.",
-  };
-  return language === "ru"
-    ? ru[stage]
-    : language === "pt"
-      ? pt[stage]
-      : en[stage];
+  return INSTRUCTIONS[language][stage](ownerName);
 }
+
+const PACKS: Record<WelcomeLanguage, WelcomeLocalePack> = {
+  ru: {
+    language: "ru",
+    names: NAMES.ru,
+    roleLabels: {
+      fizz: "руководитель команды",
+      administrator: "администратор",
+      analyst: "аналитик",
+      content_marketer: "контент-маркетолог",
+    },
+    aliases: {
+      fizz: ["Физ", "Fizz"],
+      administrator: ["Администратор", "Админ"],
+      analyst: ["Аналитик"],
+      content_marketer: ["Контент-маркетолог", "Контент"],
+    },
+    providerRequired:
+      "Сначала подключите AI-провайдера в настройках. После этого команда Airhop сможет начать.",
+    specialistUnavailable: (role) =>
+      `${NAMES.ru[role]} сейчас недоступен. Я сохранил задачу — попробуйте чуть позже.`,
+    kickoffInstruction: (stage, ownerName) =>
+      kickoffInstruction("ru", stage, ownerName),
+  },
+  en: {
+    language: "en",
+    names: NAMES.en,
+    roleLabels: {
+      fizz: "team lead",
+      administrator: "administrator",
+      analyst: "analyst",
+      content_marketer: "content marketer",
+    },
+    aliases: {
+      fizz: ["Fizz"],
+      administrator: ["Administrator", "Admin"],
+      analyst: ["Analyst"],
+      content_marketer: ["Content Marketer", "Content"],
+    },
+    providerRequired:
+      "Connect an AI provider in Settings first. Then the Airhop team can get started.",
+    specialistUnavailable: (role) =>
+      `${NAMES.en[role]} is unavailable right now. I kept the task; please try again shortly.`,
+    kickoffInstruction: (stage, ownerName) =>
+      kickoffInstruction("en", stage, ownerName),
+  },
+  tr: {
+    language: "tr",
+    names: NAMES.tr,
+    roleLabels: {
+      fizz: "ekip lideri",
+      administrator: "yönetici",
+      analyst: "analist",
+      content_marketer: "içerik pazarlamacısı",
+    },
+    aliases: {
+      fizz: ["Fizz"],
+      administrator: ["Yönetici", "Admin"],
+      analyst: ["Analist"],
+      content_marketer: ["İçerik Pazarlamacısı", "İçerik"],
+    },
+    providerRequired:
+      "Önce Ayarlar'dan bir AI sağlayıcısı bağlayın. Ardından Airhop ekibi başlayabilir.",
+    specialistUnavailable: (role) =>
+      `${NAMES.tr[role]} şu anda kullanılamıyor. Görevi sakladım; lütfen biraz sonra tekrar deneyin.`,
+    kickoffInstruction: (stage, ownerName) =>
+      kickoffInstruction("tr", stage, ownerName),
+  },
+  pt: {
+    language: "pt",
+    names: NAMES.pt,
+    roleLabels: {
+      fizz: "líder da equipe",
+      administrator: "administrador",
+      analyst: "analista",
+      content_marketer: "especialista de conteúdo",
+    },
+    aliases: {
+      fizz: ["Fizz"],
+      administrator: ["Administrador", "Admin"],
+      analyst: ["Analista"],
+      content_marketer: ["Especialista de Conteúdo", "Conteúdo"],
+    },
+    providerRequired:
+      "Conecte primeiro um provedor de IA nas Configurações. Depois, a equipe Airhop poderá começar.",
+    specialistUnavailable: (role) =>
+      `${NAMES.pt[role]} não está disponível agora. Guardei a tarefa; tente novamente em breve.`,
+    kickoffInstruction: (stage, ownerName) =>
+      kickoffInstruction("pt", stage, ownerName),
+  },
+};
 
 export function resolveWelcomeLocale(
   organizationLocale: string | null | undefined,
 ): WelcomeLocalePack {
   const normalized = organizationLocale?.trim().toLowerCase() ?? "";
-  if (normalized === "ru" || normalized.startsWith("ru-")) return RU;
-  if (normalized === "pt" || normalized.startsWith("pt-")) return PT;
-  return EN;
+  if (normalized === "ru" || normalized.startsWith("ru-")) return PACKS.ru;
+  if (normalized === "tr" || normalized.startsWith("tr-")) return PACKS.tr;
+  if (normalized === "pt" || normalized.startsWith("pt-")) return PACKS.pt;
+  return PACKS.en;
 }
 
 export function welcomeRoleDefinition(

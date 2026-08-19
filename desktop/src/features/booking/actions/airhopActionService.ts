@@ -114,7 +114,7 @@ function withDraft(
 
 function requireDigest(value: string): string {
   if (!/^[a-f0-9]{64}$/.test(value)) {
-    throw new Error("AirHop action digest must be 64 lowercase hex characters");
+    throw new Error("Airhop action digest must be 64 lowercase hex characters");
   }
   return value;
 }

@@ -1,27 +1,20 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
-  Archive,
   BellRing,
   Bot,
   Check,
   ChevronDown,
-  Cpu,
   Download,
-  FlaskConical,
   Keyboard,
-  LayoutTemplate,
-  MessagesSquare,
   MonitorCog,
   Moon,
-  ShieldAlert,
   Smartphone,
   Smile,
   Sun,
   SunMoon,
-  Ticket,
+  UsersRound,
   UserRound,
-  Volume2,
   type LucideIcon,
 } from "lucide-react";
 import type {
@@ -31,7 +24,6 @@ import type {
 import type { SoundName, SoundSlot } from "@/features/notifications/lib/sound";
 import { CommunityMembersSettingsCard } from "@/features/community-members/ui/CommunityMembersSettingsCard";
 import { CustomEmojiSettingsCard } from "@/features/custom-emoji/ui/CustomEmojiSettingsCard";
-import { LocalArchiveSettingsCard } from "@/features/local-archive/ui/LocalArchiveSettingsCard";
 import {
   setThreadViewMode,
   useThreadViewMode,
@@ -74,67 +66,28 @@ import {
   useThemePreviewVars,
   withAccentPreviewVars,
 } from "@/shared/theme/useThemePreviewVars";
-import { ChannelTemplatesSettingsCard } from "./ChannelTemplatesSettingsCard";
-import { HarnessesSettingsPanel } from "./HarnessesSettingsPanel";
-import { ExperimentalFeaturesCard } from "./ExperimentalFeaturesCard";
+import { AirhopAgentsScreen } from "@/features/airhop-agents/ui/AirhopAgentsScreen";
 import { KeyboardShortcutsCard } from "./KeyboardShortcutsCard";
-import { MeshComputeSettingsCard } from "@/features/mesh-compute/ui/MeshComputeSettingsCard";
 import { MobilePairingCard } from "./MobilePairingCard";
-import { ModerationQueueCard } from "./ModerationQueueCard";
 import { NotificationSettingsCard } from "./NotificationSettingsCard";
-import { PreventSleepSettingsCard } from "./PreventSleepSettingsCard";
-import { AgentDefaultsSettingsCard } from "./AgentDefaultsSettingsCard";
-import { HostedCommunitiesSettingsCard } from "./HostedCommunitiesSettingsCard";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
 import { UpdateChecker } from "../UpdateChecker";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
-import { VoiceSettingsCard } from "./VoiceSettingsCard";
+import {
+  AIRHOP_SETTING_IDS,
+  DEFAULT_AIRHOP_SETTINGS_SECTION,
+  isAirHopSettingsSection,
+  type AirHopSettingsSection,
+} from "./airhopSettings";
 
-export type SettingsSection =
-  | "profile"
-  | "notifications"
-  | "voice"
-  | "experimental"
-  | "agents"
-  | "channel-templates"
-  | "compute"
-  | "appearance"
-  | "shortcuts"
-  | "hosted-communities"
-  | "community-members"
-  | "moderation"
-  | "custom-emoji"
-  | "local-archive"
-  | "mobile"
-  | "updates";
+export type SettingsSection = AirHopSettingsSection;
 
-export const DEFAULT_SETTINGS_SECTION: SettingsSection = "profile";
-
-const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
-  "profile",
-  "notifications",
-  "voice",
-  "experimental",
-  "agents",
-  "channel-templates",
-  "compute",
-  "appearance",
-  "shortcuts",
-  "hosted-communities",
-  "community-members",
-  "moderation",
-  "custom-emoji",
-  "local-archive",
-  "mobile",
-  "updates",
-];
+export const DEFAULT_SETTINGS_SECTION: SettingsSection =
+  DEFAULT_AIRHOP_SETTINGS_SECTION;
 
 export function isSettingsSection(value: unknown): value is SettingsSection {
-  return (
-    typeof value === "string" &&
-    (SETTINGS_SECTION_VALUES as readonly string[]).includes(value)
-  );
+  return isAirHopSettingsSection(value);
 }
 
 export type SettingsSectionDescriptor = {
@@ -160,91 +113,24 @@ export type SettingsPanelProps = {
   onSetSoundForSlot: (slot: SoundSlot, name: SoundName) => void;
 };
 
-export const settingsSections: SettingsSectionDescriptor[] = [
-  {
-    value: "appearance",
-    label: "Appearance",
-    icon: MonitorCog,
-  },
-  {
-    value: "profile",
-    label: "Profile",
-    icon: UserRound,
-  },
-  {
-    value: "notifications",
-    label: "Notifications",
-    icon: BellRing,
-  },
-  {
-    value: "voice",
-    label: "Voice",
-    icon: Volume2,
-  },
-  {
-    value: "experimental",
-    label: "Experiments",
-    icon: FlaskConical,
-  },
-  {
-    value: "agents",
-    label: "Agents",
-    icon: Bot,
-    featureGate: "managed-agents",
-  },
-  {
-    value: "channel-templates",
-    label: "Channel templates",
-    icon: LayoutTemplate,
-    featureGate: "channel-templates",
-  },
-  {
-    value: "compute",
-    label: "Compute",
-    icon: Cpu,
-  },
-  {
-    value: "shortcuts",
-    label: "Shortcuts",
-    icon: Keyboard,
-  },
-  {
-    value: "hosted-communities",
-    label: "Hosted communities",
-    icon: MessagesSquare,
-  },
-  {
-    value: "community-members",
-    label: "Invites",
-    icon: Ticket,
-  },
-  {
-    value: "moderation",
-    label: "Moderation",
-    icon: ShieldAlert,
-  },
-  {
-    value: "custom-emoji",
-    label: "Custom emoji",
-    icon: Smile,
-    featureGate: "custom-emoji",
-  },
-  {
-    value: "local-archive",
-    label: "Local archive",
-    icon: Archive,
-  },
-  {
-    value: "mobile",
-    label: "Mobile",
-    icon: Smartphone,
-  },
-  {
-    value: "updates",
-    label: "Updates",
-    icon: Download,
-  },
-];
+const SETTINGS_SECTION_ICONS: Record<SettingsSection, LucideIcon> = {
+  appearance: MonitorCog,
+  profile: UserRound,
+  notifications: BellRing,
+  shortcuts: Keyboard,
+  agents: Bot,
+  "community-members": UsersRound,
+  "custom-emoji": Smile,
+  mobile: Smartphone,
+  updates: Download,
+};
+
+export const settingsSections: SettingsSectionDescriptor[] =
+  AIRHOP_SETTING_IDS.map((value) => ({
+    value,
+    label: value,
+    icon: SETTINGS_SECTION_ICONS[value],
+  }));
 
 /**
  * Derive a display label for a paired theme from its light variant name.
@@ -816,38 +702,18 @@ export function renderSettingsSection(
           onSetSoundForSlot={props.onSetSoundForSlot}
         />
       );
-    case "voice":
-      return <VoiceSettingsCard />;
-    case "experimental":
-      return <ExperimentalFeaturesCard />;
     case "agents":
-      return (
-        <div className="space-y-12">
-          <PreventSleepSettingsCard />
-          <HarnessesSettingsPanel />
-          <AgentDefaultsSettingsCard />
-        </div>
-      );
-    case "channel-templates":
-      return <ChannelTemplatesSettingsCard />;
-    case "compute":
-      return <MeshComputeSettingsCard />;
+      return <AirhopAgentsScreen embedded />;
     case "appearance":
       return <ThemeSettingsCard />;
     case "shortcuts":
       return <KeyboardShortcutsCard />;
-    case "hosted-communities":
-      return <HostedCommunitiesSettingsCard />;
     case "community-members":
       return (
         <CommunityMembersSettingsCard currentPubkey={props.currentPubkey} />
       );
-    case "moderation":
-      return <ModerationQueueCard />;
     case "custom-emoji":
       return <CustomEmojiSettingsCard />;
-    case "local-archive":
-      return <LocalArchiveSettingsCard />;
     case "mobile":
       return <MobilePairingCard currentPubkey={props.currentPubkey} />;
     case "updates":

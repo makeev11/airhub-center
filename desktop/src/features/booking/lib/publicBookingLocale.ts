@@ -118,8 +118,8 @@ export type PublicBookingMessages = {
 };
 
 const ruMessages: PublicBookingMessages = {
-  brand: "AirHop",
-  poweredByBrand: "Работает на AirHop",
+  brand: "Airhop",
+  poweredByBrand: "Работает на Airhop",
   standaloneEyebrow: (organizationName) =>
     `Онлайн-запись · ${organizationName}`,
   standaloneTitle: "Подберём пробное занятие",
@@ -279,7 +279,7 @@ const ruMessages: PublicBookingMessages = {
   demoHostDescription:
     "Пример страницы центра: выбранные филиал, направление и возраст уже переданы в форму.",
   demoHostButton: "Записаться",
-  widgetTitle: "Запись через AirHop",
+  widgetTitle: "Запись через Airhop",
   widgetDescription: "Та же форма работает внутри фирменного окна сайта.",
 };
 

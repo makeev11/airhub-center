@@ -3,6 +3,7 @@ import { Activity, Bot, FolderGit2, Inbox, Zap } from "lucide-react";
 import { BookingSidebarNav } from "@/features/booking/ui/BookingSidebarNav";
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import { FeatureGate } from "@/shared/features";
+import { AirHopWordmark } from "@/shared/ui/airhop-brand/AirHopBrand";
 import type { Channel, SearchHit } from "@/shared/api/types";
 import {
   SidebarHeader,
@@ -65,6 +66,13 @@ export function AppSidebarPinnedHeader({
       className="mx-[3px] shrink-0 px-2 pb-2 pt-3"
       data-testid="sidebar-pinned-header"
     >
+      <div
+        className="mb-2 flex h-8 items-center px-1 text-lg"
+        data-tauri-drag-region
+        data-testid="sidebar-airhop-wordmark"
+      >
+        <AirHopWordmark />
+      </div>
       <TopbarSearch
         channelLabels={channelLabels}
         channels={searchChannels}

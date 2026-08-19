@@ -27,13 +27,16 @@ test("Russian locale exposes the localized Airhop team and natural aliases", () 
   );
 });
 
-test("English and Portuguese locales keep the same stable roles", () => {
+test("English, Turkish, and Portuguese locales keep the same stable roles", () => {
   const english = resolveWelcomeLocale("en-US");
+  const turkish = resolveWelcomeLocale("tr-TR");
   const portuguese = resolveWelcomeLocale("pt-BR");
 
   assert.equal(english.language, "en");
   assert.equal(english.names.fizz, "Fizz");
   assert.equal(english.names.content_marketer, "Content Marketer");
+  assert.equal(turkish.language, "tr");
+  assert.equal(turkish.names.analyst, "Analist");
   assert.equal(portuguese.language, "pt");
   assert.equal(portuguese.names.administrator, "Administrador");
   assert.equal(portuguese.names.analyst, "Analista");
@@ -62,4 +65,19 @@ test("kickoff instructions stay semantic, localized, and short", () => {
   assert.match(portuguese, /administrador/i);
   assert.ok(russian.length < 320);
   assert.ok(portuguese.length < 320);
+});
+
+test("Fizz introduces each specialist and explains direct addressing", () => {
+  const locale = resolveWelcomeLocale("ru-RU");
+
+  assert.match(
+    locale.kickoffInstruction("fizz_invite_administrator"),
+    /Администратор/,
+  );
+  assert.match(locale.kickoffInstruction("fizz_invite_analyst"), /Аналитик/);
+  assert.match(
+    locale.kickoffInstruction("fizz_invite_content_marketer"),
+    /Контент-маркетолог/,
+  );
+  assert.match(locale.kickoffInstruction("fizz_explain_team"), /напрямую/);
 });

@@ -111,3 +111,26 @@ export function findManagedAgentRuntime(
         (canonical !== null && runtime.relayUrl === canonical)),
   );
 }
+
+/** Fold one owner-observed lifecycle frame into the runtime query cache. */
+export function upsertManagedAgentRuntimeStatus(
+  current: readonly ManagedAgentRuntimeStatus[],
+  captured: ManagedAgentRuntimeStatus,
+): ManagedAgentRuntimeStatus[] {
+  const capturedPubkey = captured.pubkey.toLowerCase();
+  const capturedRelay = canonicalRelayUrl(captured.relayUrl);
+  let replaced = false;
+  const next = current.map((runtime) => {
+    const samePubkey = runtime.pubkey.toLowerCase() === capturedPubkey;
+    const runtimeRelay = canonicalRelayUrl(runtime.relayUrl);
+    const sameRelay =
+      runtime.relayUrl === captured.relayUrl ||
+      (runtimeRelay !== null &&
+        capturedRelay !== null &&
+        runtimeRelay === capturedRelay);
+    if (!samePubkey || !sameRelay) return runtime;
+    replaced = true;
+    return captured;
+  });
+  return replaced ? next : [...next, captured];
+}

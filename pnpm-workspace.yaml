@@ -3,7 +3,9 @@ packages:
   - "web"
   - "admin-web"
 allowBuilds:
+  edgedriver: false
   esbuild: true
+  geckodriver: false
 overrides:
   # Force a single copy of the dismissable-layer. Radix packages otherwise
   # resolve different versions (react-menu pulled 1.1.11, react-dialog 1.1.15),

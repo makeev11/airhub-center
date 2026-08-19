@@ -72,7 +72,7 @@ import { cn } from "@/shared/lib/cn";
 import { AirHopLoadingMark } from "@/shared/ui/airhop-brand/AirHopBrand";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
-const LOADING_TEXT = "AirHop is starting...";
+const LOADING_TEXT = "Airhop is starting...";
 
 // Minimum time the cold-boot splash stays on screen. A real boot resolves the
 // community in well under 100ms, and the native window setup plus first paint
@@ -589,6 +589,7 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
     activeCommunityPubkey: activeCommunity
       ? (activeCommunity.pubkey ?? null)
       : undefined,
+    isAirHopOwnerFirstRun: activeCommunity === null,
     isSharedIdentity: sharedIdentity,
   });
   const [machineInitialPage, setMachineInitialPage] =

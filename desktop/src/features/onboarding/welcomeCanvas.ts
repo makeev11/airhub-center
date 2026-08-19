@@ -1,41 +1,72 @@
 import { getCanvas, setCanvas } from "@/shared/api/tauri";
+import type { AirHopLocale } from "@/shared/locale/airhopLocale";
 
-export const WELCOME_CANVAS_CONTENT = `# Welcome to AirHop
+const CONTENT: Record<AirHopLocale, string> = {
+  "ru-RU": `# Welcome
 
-This private channel is your home base for getting oriented. Fizz, Honey, and Bumble can help you learn the app, troubleshoot setup, and work through something you are building.
+Это приватное рабочее пространство владельца центра.
 
-## Work with your agents
+- Пишите Физу — он подключит нужного специалиста.
+- Или обращайтесь сразу к Администратору, Аналитику или Контент-маркетологу.
+- В Welcome общение идёт обычными сообщениями, без обязательных тредов.
+`,
+  "en-US": `# Welcome
 
-- Mention an agent when you want its help.
-- Bring multiple agents into the same conversation when you want different perspectives.
-- Keep decisions, progress, and results in the channel so everyone shares the same context.
+This is the center owner's private workspace.
 
-## Try something
+- Ask Fizz and he will involve the right specialist.
+- Or address the Administrator, Analyst, or Content Marketer directly.
+- Welcome uses ordinary top-level messages; threads are not required here.
+`,
+  "tr-TR": `# Welcome
 
-Bring the team something you are building, or give them a quick challenge to see how they work together.
+Burası merkez sahibinin özel çalışma alanıdır.
 
-## Get help
+- Fizz'e yazın; doğru uzmanı görevlendirsin.
+- Ya da doğrudan Yönetici, Analist veya İçerik Pazarlamacısı'na yazın.
+- Welcome kanalında zorunlu konu dizileri olmadan normal mesajlar kullanılır.
+`,
+  "pt-BR": `# Welcome
 
-Ask the team a question here, or read the [AirHop user guide](https://github.com/block/buzz#readme).
-`;
+Este é o espaço de trabalho privado do proprietário do centro.
+
+- Fale com Fizz e ele envolverá o especialista certo.
+- Ou fale diretamente com o Administrador, Analista ou Especialista de Conteúdo.
+- No Welcome, use mensagens normais; tópicos não são obrigatórios.
+`,
+};
+
+export function welcomeCanvasContent(locale: string | null | undefined) {
+  const normalized = locale?.trim().toLowerCase() ?? "";
+  if (normalized === "ru" || normalized.startsWith("ru-")) {
+    return CONTENT["ru-RU"];
+  }
+  if (normalized === "tr" || normalized.startsWith("tr-")) {
+    return CONTENT["tr-TR"];
+  }
+  if (normalized === "pt" || normalized.startsWith("pt-")) {
+    return CONTENT["pt-BR"];
+  }
+  return CONTENT["en-US"];
+}
 
 type WelcomeCanvasClient = {
   getCanvas: typeof getCanvas;
   setCanvas: typeof setCanvas;
 };
 
-/** Seed the Welcome canvas without overwriting anything the user has written. */
+/** Seed localized Welcome notes without overwriting anything the owner wrote. */
 export async function ensureWelcomeCanvas(
   channelId: string,
+  locale: string | null | undefined,
   client: WelcomeCanvasClient = { getCanvas, setCanvas },
 ) {
   const existing = await client.getCanvas(channelId);
-  // Nullish (not `!== null`) so an absent field can never masquerade as an
-  // existing canvas — that exact mismatch silently skipped seeding before.
-  if (existing.updatedAt != null || existing.author != null) {
-    return false;
-  }
+  if (existing.updatedAt != null || existing.author != null) return false;
 
-  await client.setCanvas({ channelId, content: WELCOME_CANVAS_CONTENT });
+  await client.setCanvas({
+    channelId,
+    content: welcomeCanvasContent(locale),
+  });
   return true;
 }

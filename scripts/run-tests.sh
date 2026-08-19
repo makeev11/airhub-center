@@ -40,13 +40,13 @@ if [[ -f ".env" ]]; then
   set +o allexport
 else
   # Use defaults matching docker-compose.yml
-  export DATABASE_URL="postgres://buzz:buzz_dev@localhost:5432/buzz" # sadscan:disable np.postgres.1
-  export PGHOST=localhost
-  export PGPORT=5432
-  export PGUSER=buzz
-  export PGPASSWORD=buzz_dev
-  export PGDATABASE=buzz
-  export REDIS_URL="redis://localhost:6379"
+  export DATABASE_URL="${DATABASE_URL:-postgres://buzz:buzz_dev@localhost:5432/buzz}" # sadscan:disable np.postgres.1
+  export PGHOST="${PGHOST:-localhost}"
+  export PGPORT="${PGPORT:-5432}"
+  export PGUSER="${PGUSER:-buzz}"
+  export PGPASSWORD="${PGPASSWORD:-buzz_dev}"
+  export PGDATABASE="${PGDATABASE:-buzz}"
+  export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 fi
 
 # ---- Track results ----------------------------------------------------------

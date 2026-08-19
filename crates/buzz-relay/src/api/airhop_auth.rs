@@ -34,6 +34,61 @@ pub(crate) async fn authenticate_airhop(
     path: &str,
     body: Option<&[u8]>,
 ) -> ApiResult<AirhopPrincipal> {
+    let (tenant, pubkey) = authenticate_airhop_identity(state, headers, method, path, body).await?;
+    let member_role = direct_member_role(state, &tenant, &pubkey)
+        .await?
+        .ok_or_else(workspace_membership_required)?;
+    Ok(AirhopPrincipal {
+        tenant,
+        pubkey,
+        member_role,
+    })
+}
+
+/// Agent-only Airhop endpoints also accept an owner's cryptographic NIP-OA
+/// delegation. This stays separate from `authenticate_airhop`: generic staff
+/// APIs must not become reachable to a delegated agent and bypass preview/✅.
+pub(crate) async fn authenticate_airhop_agent(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+    body: Option<&[u8]>,
+) -> ApiResult<AirhopPrincipal> {
+    let (tenant, pubkey) = authenticate_airhop_identity(state, headers, method, path, body).await?;
+    let member_role = match direct_member_role(state, &tenant, &pubkey).await? {
+        Some(role) => role,
+        None => {
+            let auth_tag = headers
+                .get("x-auth-tag")
+                .and_then(|value| value.to_str().ok());
+            let owner = state
+                .config
+                .allow_nip_oa_auth
+                .then(|| super::relay_members::extract_nip_oa_owner(pubkey.as_bytes(), auth_tag))
+                .flatten()
+                .ok_or_else(workspace_membership_required)?;
+            if direct_member_role(state, &tenant, &owner).await?.is_none() {
+                return Err(workspace_membership_required());
+            }
+            super::relay_members::materialize_nip_oa_owner(state, &tenant, &pubkey, &owner).await;
+            "agent".to_owned()
+        }
+    };
+    Ok(AirhopPrincipal {
+        tenant,
+        pubkey,
+        member_role,
+    })
+}
+
+async fn authenticate_airhop_identity(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+    body: Option<&[u8]>,
+) -> ApiResult<(TenantContext, nostr::PublicKey)> {
     let raw_host = headers
         .get(header::HOST)
         .and_then(|value| value.to_str().ok())
@@ -51,20 +106,25 @@ pub(crate) async fn authenticate_airhop(
         bridge::verify_bridge_auth_with_options(headers, method, &url, body, true, body.is_some())?;
     bridge::check_nip98_replay(state, &tenant, event_id).await?;
     bridge::enforce_http_admission(state, &tenant, &pubkey).await?;
-    let member = state
+    Ok((tenant, pubkey))
+}
+
+async fn direct_member_role(
+    state: &Arc<AppState>,
+    tenant: &TenantContext,
+    pubkey: &nostr::PublicKey,
+) -> ApiResult<Option<String>> {
+    state
         .db
         .get_relay_member(tenant.community(), &pubkey.to_hex())
         .await
-        .map_err(|error| internal_error(&format!("Airhop member lookup failed: {error}")))?
-        .ok_or_else(|| {
-            api_error(
-                StatusCode::FORBIDDEN,
-                "Airhop workspace membership required",
-            )
-        })?;
-    Ok(AirhopPrincipal {
-        tenant,
-        pubkey,
-        member_role: member.role,
-    })
+        .map(|member| member.map(|value| value.role))
+        .map_err(|error| internal_error(&format!("Airhop member lookup failed: {error}")))
+}
+
+fn workspace_membership_required() -> (StatusCode, Json<Value>) {
+    api_error(
+        StatusCode::FORBIDDEN,
+        "Airhop workspace membership required",
+    )
 }

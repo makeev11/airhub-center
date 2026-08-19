@@ -22,10 +22,19 @@ const OnboardingFooterTargetContext = React.createContext<HTMLElement | null>(
  */
 export function OnboardingFooterProvider({
   children,
+  docked = true,
 }: {
   children: React.ReactNode;
+  docked?: boolean;
 }) {
   const [target, setTarget] = React.useState<HTMLElement | null>(null);
+  if (!docked) {
+    return (
+      <OnboardingFooterTargetContext.Provider value={null}>
+        {children}
+      </OnboardingFooterTargetContext.Provider>
+    );
+  }
 
   return (
     <OnboardingFooterTargetContext.Provider value={target}>

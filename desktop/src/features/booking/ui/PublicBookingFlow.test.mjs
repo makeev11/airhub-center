@@ -86,11 +86,11 @@ test("public flow finishes its async initialization under React StrictMode", asy
   );
   assert.doesNotMatch(
     view.getByTestId("airhop-public-header").textContent,
-    /AirHop/,
+    /Airhop/,
   );
   assert.match(
     view.getByTestId("airhop-public-footer").textContent,
-    /Работает на AirHop/,
+    /Работает на Airhop/,
   );
   assert.equal(
     view
@@ -115,7 +115,7 @@ test("public flow finishes its async initialization under React StrictMode", asy
   );
   assert.equal(
     view.getByTestId("airhop-public-brand-mark").getAttribute("src"),
-    "/airhop/mark.svg",
+    "/airhop/mark.png",
   );
   cleanup();
 });

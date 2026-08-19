@@ -9,8 +9,8 @@ import {
 
 test("public booking copy uses Russian product branding and organization context", () => {
   const messages = getPublicBookingMessages("ru-RU");
-  assert.equal(messages.brand, "AirHop");
-  assert.equal(messages.poweredByBrand, "Работает на AirHop");
+  assert.equal(messages.brand, "Airhop");
+  assert.equal(messages.poweredByBrand, "Работает на Airhop");
   assert.equal(messages.ageYears(0), "Меньше года");
   assert.equal(messages.ageYears(1), "1 год");
   assert.equal(messages.ageYears(2), "2 года");

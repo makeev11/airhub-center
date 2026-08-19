@@ -95,7 +95,7 @@ export function HostedCommunitiesSettingsCard() {
         errorMessage(
           identityResponse.error,
           identityResponse.correlation_id,
-          "Could not load the connected AirHop identity.",
+          "Could not load the connected Airhop identity.",
         ),
       );
     }
@@ -165,7 +165,7 @@ export function HostedCommunitiesSettingsCard() {
     });
 
   const connectIdentity = () =>
-    run("Connecting AirHop identity…", async () => {
+    run("Connecting Airhop identity…", async () => {
       const response = await invoke<IdentityResponse>(
         "bind_builderlab_nostr_identity",
       );
@@ -174,7 +174,7 @@ export function HostedCommunitiesSettingsCard() {
           errorMessage(
             response.error,
             response.correlation_id,
-            "Could not connect the AirHop identity.",
+            "Could not connect the Airhop identity.",
           ),
         );
       }
@@ -192,7 +192,7 @@ export function HostedCommunitiesSettingsCard() {
           errorMessage(
             response.error,
             response.correlation_id,
-            "Could not unpair the AirHop identity.",
+            "Could not unpair the Airhop identity.",
           ),
         );
       }
@@ -230,7 +230,7 @@ export function HostedCommunitiesSettingsCard() {
           errorMessage(
             released.error,
             released.correlation_id,
-            "Could not release the previously connected AirHop identity.",
+            "Could not release the previously connected Airhop identity.",
           ),
         );
       }
@@ -243,11 +243,11 @@ export function HostedCommunitiesSettingsCard() {
         await loadAccount();
         throw new Error(
           bound.error.code === "pubkey_already_bound"
-            ? "This device's AirHop identity is already reserved by another Builderlab account, so it can't be connected here. Sign in with that account, or transfer the identity there first."
+            ? "This device's Airhop identity is already reserved by another Builderlab account, so it can't be connected here. Sign in with that account, or transfer the identity there first."
             : errorMessage(
                 bound.error,
                 bound.correlation_id,
-                "Could not connect this device's AirHop identity.",
+                "Could not connect this device's Airhop identity.",
               ),
         );
       }
@@ -492,7 +492,7 @@ export function HostedCommunitiesSettingsCard() {
                 {action ? (
                   <LoaderCircle className="h-4 w-4 animate-spin" />
                 ) : null}
-                {action ?? "Connect AirHop identity"}
+                {action ?? "Connect Airhop identity"}
               </Button>
             </div>
           ) : identityMismatch ? (

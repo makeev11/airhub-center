@@ -19,6 +19,18 @@ function completionKey(prefix: string, pubkey: string) {
   return `${prefix}:${pubkey}`;
 }
 
+export function markAirHopOwnerOnboardingComplete(pubkey: string): void {
+  if (typeof window === "undefined" || !pubkey) return;
+  window.localStorage.setItem(
+    completionKey(MACHINE_ONBOARDING_COMPLETION_STORAGE_KEY, pubkey),
+    "true",
+  );
+  window.localStorage.setItem(
+    completionKey(LEGACY_ONBOARDING_COMPLETION_STORAGE_KEY, pubkey),
+    "true",
+  );
+}
+
 export function readMachineOnboardingCompletion(pubkey: string | null) {
   if (typeof window === "undefined" || !pubkey) return false;
   return (
@@ -58,9 +70,15 @@ export function migrateMachineOnboardingCompletion(
    */
   activeCommunityPubkey: string | null | undefined,
   isSharedIdentity: boolean,
+  isAirHopOwnerFirstRun = false,
 ) {
   if (forceMachineOnboarding()) return false;
   if (readMachineOnboardingCompletion(pubkey)) return true;
+
+  if (isAirHopOwnerFirstRun && activeCommunityPubkey === undefined) {
+    markAirHopOwnerOnboardingComplete(pubkey);
+    return true;
+  }
 
   const completedLegacyOnboarding =
     window.localStorage.getItem(
@@ -98,9 +116,11 @@ function identitySettled(status: QueryStatus, isFetching: boolean) {
 
 export function useMachineOnboardingState({
   activeCommunityPubkey,
+  isAirHopOwnerFirstRun = false,
   isSharedIdentity,
 }: {
   activeCommunityPubkey: string | null | undefined;
+  isAirHopOwnerFirstRun?: boolean;
   isSharedIdentity: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -155,6 +175,7 @@ export function useMachineOnboardingState({
         currentPubkey,
         activeCommunityPubkey,
         isSharedIdentity,
+        isAirHopOwnerFirstRun,
       )
     ) {
       setCompletedPubkey(currentPubkey);
@@ -165,6 +186,7 @@ export function useMachineOnboardingState({
     activeCommunityPubkey,
     identityLost,
     identityQuery.status,
+    isAirHopOwnerFirstRun,
     isSharedIdentity,
   ]);
 

@@ -419,7 +419,7 @@ export type BookingAdminMessages = BookingPaymentMessages & {
 };
 
 const ru: BookingAdminMessages = {
-  productName: "AirHop",
+  productName: "Airhop",
   navSchedule: "Расписание",
   navRequests: "Заявки",
   navClients: "Клиенты",
@@ -430,14 +430,14 @@ const ru: BookingAdminMessages = {
   navAnalytics: "Аналитика",
   navTeachers: "Преподаватели",
   navSettings: "Настройки",
-  loadingTitle: "Загружаем AirHop",
+  loadingTitle: "Загружаем Airhop",
   loadingDescription: "Получаем актуальные настройки и филиалы.",
   unavailableTitle: "Booking Core ещё не подключён",
   unavailableDescription:
     "В production здесь будет серверный репозиторий. Локальные данные используются только на стенде разработки.",
-  loadErrorTitle: "Не удалось загрузить AirHop",
+  loadErrorTitle: "Не удалось загрузить Airhop",
   loadErrorDescription:
-    "Данные AirHop не загружены. Проверьте доступ к хранилищу и повторите попытку.",
+    "Данные Airhop не загружены. Проверьте доступ к хранилищу и повторите попытку.",
   saveErrorTitle: "Не удалось сохранить изменения",
   saveErrorDescription:
     "Изменения не сохранены. Проверьте доступ к хранилищу и повторите попытку.",
@@ -460,10 +460,10 @@ const ru: BookingAdminMessages = {
   active: "Активен",
   archived: "В архиве",
   nextStage: "Следующий этап",
-  settingsTitle: "Настройки AirHop",
+  settingsTitle: "Настройки Airhop",
   settingsDescription:
     "Основные параметры центра и значения по умолчанию для новых групп.",
-  settingsSectionsLabel: "Разделы настроек AirHop",
+  settingsSectionsLabel: "Разделы настроек Airhop",
   organizationCardTitle: "Организация",
   organizationName: "Название центра",
   locale: "Язык интерфейса",
@@ -496,11 +496,11 @@ const ru: BookingAdminMessages = {
   publicBookingPurposeHint:
     "Сценарий меняет заголовки и набор доступных занятий, а не только текст формы.",
   publicBookingAppearance: "Внешний вид",
-  publicBookingAppearanceAutomatic: "Как в AirHop",
+  publicBookingAppearanceAutomatic: "Как в Airhop",
   publicBookingAppearanceLight: "Светлый",
   publicBookingAppearanceDark: "Тёмный",
   publicBookingAppearanceHint:
-    "Фирменное оформление AirHop либо отдельный светлый или тёмный вариант для публичной формы.",
+    "Фирменное оформление Airhop либо отдельный светлый или тёмный вариант для публичной формы.",
   settingsSaved: "Настройки сохранены",
   requiredField: "Заполните обязательное поле.",
   invalidTimeZone: "Укажите корректный часовой пояс IANA.",
@@ -518,7 +518,7 @@ const ru: BookingAdminMessages = {
   branchAddress: "Адрес",
   buzzChannel: "Канал филиала",
   buzzChannelHint:
-    "Здесь команда будет получать новые записи, задачи и уведомления AirHop. Если канал уже есть, мы привяжем его; если нет — создадим при сохранении.",
+    "Здесь команда будет получать новые записи, задачи и уведомления Airhop. Если канал уже есть, мы привяжем его; если нет — создадим при сохранении.",
   buzzChannelPlaceholder: "например, курская",
   buzzChannelSearching: "Ищем канал в Buzz…",
   buzzChannelFound: (name) =>
@@ -541,7 +541,7 @@ const ru: BookingAdminMessages = {
   createBranchTitle: "Новый филиал",
   editBranchTitle: "Редактирование филиала",
   createBranchDescription: "Укажите адрес и недельное рабочее время.",
-  editBranchDescription: "Изменения сразу отразятся во всех разделах AirHop.",
+  editBranchDescription: "Изменения сразу отразятся во всех разделах Airhop.",
   branchCreated: "Филиал создан",
   branchUpdated: "Филиал обновлён",
   branchArchived: "Филиал перемещён в архив",

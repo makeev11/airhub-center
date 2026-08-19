@@ -95,9 +95,13 @@ impl AirhopRole {
 #[serde(rename_all = "snake_case")]
 pub enum WelcomeKickoffStage {
     FizzIntro,
+    FizzInviteAdministrator,
     AdministratorIntro,
+    FizzInviteAnalyst,
     AnalystIntro,
+    FizzInviteContentMarketer,
     ContentMarketerIntro,
+    FizzExplainTeam,
     FizzFirstQuestion,
 }
 
@@ -105,16 +109,25 @@ impl WelcomeKickoffStage {
     const fn as_str(self) -> &'static str {
         match self {
             Self::FizzIntro => "fizz_intro",
+            Self::FizzInviteAdministrator => "fizz_invite_administrator",
             Self::AdministratorIntro => "administrator_intro",
+            Self::FizzInviteAnalyst => "fizz_invite_analyst",
             Self::AnalystIntro => "analyst_intro",
+            Self::FizzInviteContentMarketer => "fizz_invite_content_marketer",
             Self::ContentMarketerIntro => "content_marketer_intro",
+            Self::FizzExplainTeam => "fizz_explain_team",
             Self::FizzFirstQuestion => "fizz_first_question",
         }
     }
 
     const fn role(self) -> AirhopRole {
         match self {
-            Self::FizzIntro | Self::FizzFirstQuestion => AirhopRole::Fizz,
+            Self::FizzIntro
+            | Self::FizzInviteAdministrator
+            | Self::FizzInviteAnalyst
+            | Self::FizzInviteContentMarketer
+            | Self::FizzExplainTeam
+            | Self::FizzFirstQuestion => AirhopRole::Fizz,
             Self::AdministratorIntro => AirhopRole::Administrator,
             Self::AnalystIntro => AirhopRole::Analyst,
             Self::ContentMarketerIntro => AirhopRole::ContentMarketer,

@@ -1,7 +1,12 @@
 import * as React from "react";
 
+import { upsertManagedAgentRuntimeStatus } from "@/features/agents/managedAgentRuntimeStatus";
 import { subscribeToAgentObserverFrames } from "@/shared/api/observerRelay";
-import type { RelayEvent, ManagedAgent } from "@/shared/api/types";
+import type {
+  ManagedAgent,
+  ManagedAgentRuntimeStatus,
+  RelayEvent,
+} from "@/shared/api/types";
 import type { ControlResultFrame } from "@/shared/api/types";
 import { putAgentSessionConfig } from "@/shared/api/tauri";
 import { putManagedAgentRuntimeLifecycle } from "@/shared/api/tauriManagedAgents";
@@ -126,6 +131,19 @@ export function setSessionConfigCapturedCallback(
   cb: ((pubkey: string) => void) | null,
 ) {
   onSessionConfigCaptured = cb;
+}
+
+const runtimeLifecycleListeners = new Set<
+  (runtime: ManagedAgentRuntimeStatus) => void
+>();
+
+function subscribeRuntimeLifecycle(
+  listener: (runtime: ManagedAgentRuntimeStatus) => void,
+) {
+  runtimeLifecycleListeners.add(listener);
+  return () => {
+    runtimeLifecycleListeners.delete(listener);
+  };
 }
 
 function recomputeKnownAgentPubkeys() {
@@ -404,11 +422,15 @@ async function handleRelayObserverEvent(
     } else if (parsed.kind === "control_result") {
       dispatchControlResult(agentPubkey, parsed.payload);
     } else if (parsed.kind === "managed_agent_runtime_lifecycle") {
-      void putManagedAgentRuntimeLifecycle(agentPubkey, parsed.payload).catch(
-        (error) => {
+      void putManagedAgentRuntimeLifecycle(agentPubkey, parsed.payload)
+        .then((runtime) => {
+          for (const listener of runtimeLifecycleListeners) {
+            listener(runtime);
+          }
+        })
+        .catch((error) => {
           console.debug("Late/untracked lifecycle frame dropped:", error);
-        },
-      );
+        });
     }
   } catch (error) {
     if (activeGeneration !== generation) {
@@ -627,12 +649,21 @@ export function useManagedAgentObserverBridge(
   // Wire up config-surface query invalidation when session_config_captured fires.
   const queryClient = useQueryClient();
   React.useEffect(() => {
+    const unsubscribeRuntimeLifecycle = subscribeRuntimeLifecycle((runtime) => {
+      queryClient.setQueryData<ManagedAgentRuntimeStatus[]>(
+        ["managed-agent-runtimes"],
+        (current = []) => upsertManagedAgentRuntimeStatus(current, runtime),
+      );
+    });
     setSessionConfigCapturedCallback((pubkey) => {
       void queryClient.invalidateQueries({
         queryKey: agentConfigSurfaceQueryKey(pubkey),
       });
     });
-    return () => setSessionConfigCapturedCallback(null);
+    return () => {
+      unsubscribeRuntimeLifecycle();
+      setSessionConfigCapturedCallback(null);
+    };
   }, [queryClient]);
 }
 
@@ -750,6 +781,7 @@ export function resetAgentObserverStore() {
   pendingUnknownAgentFrames.length = 0;
   latestLiveSessionByAgentChannel.clear();
   agentManagementListeners.clear();
+  runtimeLifecycleListeners.clear();
   onSessionConfigCaptured = null;
   connectionState = "idle";
   errorMessage = null;

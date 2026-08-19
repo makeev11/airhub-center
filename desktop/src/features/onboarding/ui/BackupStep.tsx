@@ -162,10 +162,10 @@ export function BackupStep({
   );
   const storageDescription =
     identityStorage === "system-keyring"
-      ? "AirHop keeps your identity key in your system keychain. Your computer may ask for your password when AirHop needs to read the key."
+      ? "Airhop keeps your identity key in your system keychain. Your computer may ask for your password when Airhop needs to read the key."
       : identityStorage === "local-file"
-        ? "Your system keychain wasn’t available, so AirHop keeps your identity key in a private file on this device."
-        : "AirHop keeps your identity key protected on this device. Make a separate backup in case you lose access.";
+        ? "Your system keychain wasn’t available, so Airhop keeps your identity key in a private file on this device."
+        : "Airhop keeps your identity key protected on this device. Make a separate backup in case you lose access.";
   const storageTitle =
     identityStorage === "system-keyring"
       ? "Protected by your system keychain"
@@ -174,9 +174,9 @@ export function BackupStep({
         : "Protected in private device storage";
   const introStorageDescription =
     identityStorage === "system-keyring"
-      ? "AirHop keeps your identity key in your system keychain."
+      ? "Airhop keeps your identity key in your system keychain."
       : identityStorage === "local-file"
-        ? "AirHop keeps your identity key in a private file on this device because the system keychain wasn’t available."
+        ? "Airhop keeps your identity key in a private file on this device because the system keychain wasn’t available."
         : "Your identity key is protected on this device.";
 
   if (optionsExpanded) {

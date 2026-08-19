@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AirHop",
+  "productName": "Airhop",
   "version": "0.5.4",
   "identifier": "ru.airhop.centers",
   "build": {

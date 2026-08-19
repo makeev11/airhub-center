@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::state::AppState;
 
-use super::airhop_auth::authenticate_airhop;
+use super::airhop_auth::{authenticate_airhop, authenticate_airhop_agent};
 use super::{api_error, internal_error};
 
 const WELCOME_TEAM_PATH: &str = "/api/airhop/agents/v1/welcome-team";
@@ -77,7 +77,7 @@ pub(crate) async fn claim_welcome_route(
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let path = welcome_route_claim_path(&event_id);
-    let principal = authenticate_airhop(&state, &headers, "POST", &path, None).await?;
+    let principal = authenticate_airhop_agent(&state, &headers, "POST", &path, None).await?;
     let event_id = parse_pubkey(&event_id).map_err(|_| {
         api_error(
             StatusCode::BAD_REQUEST,
@@ -101,7 +101,8 @@ pub(crate) async fn get_welcome_team(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let principal = authenticate_airhop(&state, &headers, "GET", WELCOME_TEAM_PATH, None).await?;
+    let principal =
+        authenticate_airhop_agent(&state, &headers, "GET", WELCOME_TEAM_PATH, None).await?;
     let manifest = state
         .db
         .get_airhop_welcome_team(&principal.tenant)

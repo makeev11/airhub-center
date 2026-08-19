@@ -2,6 +2,7 @@ import * as React from "react";
 import { useQueryClient, type QueryStatus } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+import { ensureRelayObserverSubscription } from "@/features/agents/observerRelayStore";
 import {
   managedAgentsQueryKey,
   relayAgentsQueryKey,
@@ -39,6 +40,12 @@ const STARTER_CHANNEL_SETUP_TOAST_ID = "starter-channel-setup-error";
 export type ChannelInitResult =
   | { ok: true; focusChannelId?: string }
   | { ok: false; reason: string; focusChannelId?: string };
+export type WelcomeProvisioningStage =
+  | "starter-channels"
+  | "organization"
+  | "welcome-channel"
+  | "welcome-team"
+  | "ready";
 
 export function welcomeProvisioningEligibility(
   lookup: RelayMembershipLookup | undefined,
@@ -53,6 +60,17 @@ export function welcomeProvisioningEligibility(
 
 const welcomeSeedPromises = new Map<string, Promise<void>>();
 
+export async function provisionWelcomeTeamAfterObserverReady<T>(
+  ensureObserverReady: () => Promise<unknown>,
+  provisionTeam: () => Promise<T>,
+): Promise<T> {
+  // Runtime lifecycle frames are ephemeral. Subscribe as the owner before
+  // provisioning starts the four child processes; unknown agent pubkeys are
+  // buffered until the managed-agent query refresh registers them.
+  await ensureObserverReady();
+  return provisionTeam();
+}
+
 function seedWelcomeExperience(
   queryClient: ReturnType<typeof useQueryClient>,
   channelId: string,
@@ -65,8 +83,11 @@ function seedWelcomeExperience(
   if (current) return current;
 
   const promise = (async () => {
-    await ensureWelcomeTeam(channelId, organization, pubkey, communityScope);
-    await ensureWelcomeCanvas(channelId);
+    await provisionWelcomeTeamAfterObserverReady(
+      ensureRelayObserverSubscription,
+      () => ensureWelcomeTeam(channelId, organization, pubkey, communityScope),
+    );
+    await ensureWelcomeCanvas(channelId, organization.locale);
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey }),
       queryClient.invalidateQueries({ queryKey: relayAgentsQueryKey }),
@@ -84,14 +105,17 @@ export async function initializeStarterChannels(
     pubkey,
     communityScope,
     eligibility,
+    onProgress,
   }: {
     focus: boolean;
     pubkey: string | null;
     communityScope: string | null;
     eligibility: ReturnType<typeof welcomeProvisioningEligibility>;
+    onProgress?: (stage: WelcomeProvisioningStage) => void;
   },
 ): Promise<ChannelInitResult> {
   try {
+    onProgress?.("starter-channels");
     let starterChannels: Awaited<
       ReturnType<typeof ensureStarterChannels>
     > | null = null;
@@ -133,11 +157,13 @@ export async function initializeStarterChannels(
     if (!pubkey || !communityScope) {
       throw new Error("Welcome provisioning requires an owner and community.");
     }
+    onProgress?.("organization");
     const workspace = await createHttpBookingSettingsRepository().load();
     const organization = {
       id: workspace.organization.id,
       locale: workspace.organization.locale,
     };
+    onProgress?.("welcome-channel");
     const welcomeChannel = await ensureWelcomeChannel(
       {
         createChannel,
@@ -166,6 +192,7 @@ export async function initializeStarterChannels(
         ...channels.filter((channel) => !ensuredIds.has(channel.id)),
       ];
     });
+    onProgress?.("welcome-team");
 
     await seedWelcomeExperience(
       queryClient,
@@ -175,6 +202,7 @@ export async function initializeStarterChannels(
       communityScope,
     );
     await queryClient.invalidateQueries({ queryKey: channelsQueryKey });
+    onProgress?.("ready");
 
     const shouldFocusWelcome = focus && eligibility.focusWelcome;
     if (shouldFocusWelcome) {

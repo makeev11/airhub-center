@@ -293,6 +293,9 @@ pub fn run() {
         builder.plugin(tauri_plugin_updater::Builder::new().build())
     };
 
+    #[cfg(feature = "wdio")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+
     let app = app_menu::install(builder)
         .register_asynchronous_uri_scheme_protocol("buzz-media", |ctx, request, responder| {
             let app = ctx.app_handle().clone();

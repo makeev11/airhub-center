@@ -7,6 +7,7 @@ import {
   canonicalRelayUrl,
   findManagedAgentRuntime,
   managedAgentRuntimeKey,
+  upsertManagedAgentRuntimeStatus,
 } from "./managedAgentRuntimeStatus.ts";
 
 const runtime = (overrides = {}) => ({
@@ -110,4 +111,30 @@ test("matches a stored community URL against canonical backend rows", () => {
     findManagedAgentRuntime(runtimes, "aa", "ws://localhost:3001"),
     undefined,
   );
+});
+
+test("captured lifecycle replaces the matching cached runtime pair", () => {
+  const current = [
+    runtime({
+      pubkey: "AA",
+      relayUrl: "ws://localhost:3000",
+      lifecycle: "starting",
+    }),
+    runtime({
+      pubkey: "bb",
+      relayUrl: "wss://other.example",
+      lifecycle: "ready",
+    }),
+  ];
+  const captured = runtime({
+    pubkey: "aa",
+    relayUrl: "ws://127.0.0.1:3000",
+    lifecycle: "listening",
+  });
+
+  assert.deepEqual(upsertManagedAgentRuntimeStatus(current, captured), [
+    captured,
+    current[1],
+  ]);
+  assert.deepEqual(upsertManagedAgentRuntimeStatus([], captured), [captured]);
 });

@@ -1,7 +1,7 @@
 # AirHop Centers Native Branding Design
 
 **Date:** 2026-08-06  
-**Scope:** `buzz-airhop` application for children's centers  
+**Scope:** `airhop-center` application for children's centers
 **Status:** Approved
 
 ## Goal

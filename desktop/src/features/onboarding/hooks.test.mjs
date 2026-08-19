@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { welcomeProvisioningEligibility } from "./hooks.ts";
+import {
+  provisionWelcomeTeamAfterObserverReady,
+  welcomeProvisioningEligibility,
+} from "./hooks.ts";
 
 test("only an authoritative claimed owner provisions and focuses Welcome", () => {
   assert.deepEqual(
@@ -35,4 +38,20 @@ test("missing or unsettled membership never guesses owner authority", () => {
     }),
     { provisionWelcome: false, focusWelcome: false },
   );
+});
+
+test("Welcome opens the owner observer subscription before agent runtimes start", async () => {
+  const calls = [];
+  const result = await provisionWelcomeTeamAfterObserverReady(
+    async () => {
+      calls.push("observer");
+    },
+    async () => {
+      calls.push("team");
+      return "ready";
+    },
+  );
+
+  assert.equal(result, "ready");
+  assert.deepEqual(calls, ["observer", "team"]);
 });

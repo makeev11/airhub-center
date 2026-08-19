@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  markAirHopOwnerOnboardingComplete,
   migrateMachineOnboardingCompletion,
   readMachineOnboardingCompletion,
 } from "./machineOnboarding.ts";
@@ -170,5 +171,41 @@ test("migrate_already_completed_pubkey_returns_true_immediately", () => {
     // Value was already there; the function should not have touched it
     // (but a redundant write is also acceptable — just verify it's still true).
     assert.equal(storage.getItem(V2_KEY), "true");
+  });
+});
+
+test("fresh AirHop owner reaches organization-code setup without Buzz onboarding", () => {
+  withFakeWindow({}, (storage) => {
+    const result = migrateMachineOnboardingCompletion(
+      PUBKEY_A,
+      undefined,
+      false,
+      true,
+    );
+    assert.equal(result, true);
+    assert.equal(storage.getItem(V2_KEY), "true");
+    assert.equal(storage.getItem(LEGACY_KEY), "true");
+  });
+});
+
+test("AirHop first-run bypass is opt-in and cannot vouch for an existing foreign community", () => {
+  withFakeWindow({}, (storage) => {
+    const result = migrateMachineOnboardingCompletion(
+      PUBKEY_A,
+      PUBKEY_B,
+      false,
+      false,
+    );
+    assert.equal(result, false);
+    assert.equal(storage.getItem(V2_KEY), null);
+  });
+});
+
+test("AirHop owner completion is idempotent and preserves both onboarding gates", () => {
+  withFakeWindow({}, (storage) => {
+    markAirHopOwnerOnboardingComplete(PUBKEY_A);
+    markAirHopOwnerOnboardingComplete(PUBKEY_A);
+    assert.equal(storage.getItem(V2_KEY), "true");
+    assert.equal(storage.getItem(LEGACY_KEY), "true");
   });
 });

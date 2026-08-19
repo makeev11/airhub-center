@@ -4300,12 +4300,14 @@ fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
     if config.mcp_command.is_empty() {
         return vec![];
     }
+    let name = std::path::Path::new(&config.mcp_command)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("mcp")
+        .to_string();
+    let is_airhop_agent_mcp = name == "airhop-agent-mcp";
     vec![McpServer {
-        name: std::path::Path::new(&config.mcp_command)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("mcp")
-            .to_string(),
+        name,
         command: config.mcp_command.clone(),
         args: vec![],
         env: {
@@ -4348,6 +4350,27 @@ fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
                     });
                 }
             }
+
+            // buzz-agent clears the inherited MCP environment. Give only the
+            // role-scoped Airhop sidecar the two already validated scope
+            // values it needs; generic MCP servers must not receive them.
+            if is_airhop_agent_mcp {
+                if let Some(role) = config.airhop_role {
+                    if config.flat_channel_ids.len() == 1 {
+                        if let Some(channel_id) = config.flat_channel_ids.iter().next() {
+                            env.push(EnvVar {
+                                name: "BUZZ_AIRHOP_ROLE".into(),
+                                value: role.as_str().into(),
+                            });
+                            env.push(EnvVar {
+                                name: "BUZZ_AIRHOP_WELCOME_CHANNEL_ID".into(),
+                                value: channel_id.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+
             env
         },
     }]
@@ -5179,6 +5202,46 @@ mod build_mcp_servers_tests {
             names.contains(&"BUZZ_PRIVATE_KEY"),
             "missing BUZZ_PRIVATE_KEY; got {names:?}"
         );
+    }
+
+    #[test]
+    fn airhop_mcp_receives_validated_role_and_welcome_channel() {
+        let mut config = test_config();
+        config.mcp_command = "/opt/bin/airhop-agent-mcp".into();
+        let channel_id = uuid::Uuid::new_v4();
+        config.airhop_role = Some(crate::airhop::AirhopRole::Fizz);
+        config.flat_channel_ids.insert(channel_id);
+        let channel_id_string = channel_id.to_string();
+
+        let servers = build_mcp_servers(&config);
+        let server = &servers[0];
+
+        let env: std::collections::HashMap<_, _> = server
+            .env
+            .iter()
+            .map(|entry| (entry.name.as_str(), entry.value.as_str()))
+            .collect();
+
+        assert_eq!(env.get("BUZZ_AIRHOP_ROLE"), Some(&"fizz"));
+        assert_eq!(
+            env.get("BUZZ_AIRHOP_WELCOME_CHANNEL_ID"),
+            Some(&channel_id_string.as_str())
+        );
+    }
+
+    #[test]
+    fn generic_mcp_does_not_receive_airhop_scope() {
+        let mut config = test_config();
+        config.airhop_role = Some(crate::airhop::AirhopRole::Fizz);
+        config.flat_channel_ids.insert(uuid::Uuid::new_v4());
+        let server = &build_mcp_servers(&config)[0];
+
+        assert!(!server.env.iter().any(|entry| {
+            matches!(
+                entry.name.as_str(),
+                "BUZZ_AIRHOP_ROLE" | "BUZZ_AIRHOP_WELCOME_CHANNEL_ID"
+            )
+        }));
     }
 
     #[test]

@@ -4,24 +4,13 @@ import {
   isWelcomeKickoffStageExiting,
   type WelcomeKickoffStagePhase,
 } from "@/features/onboarding/useWelcomeKickoffStage";
+import { WELCOME_TEAM_PRESENTATIONS } from "@/features/onboarding/welcomeTeamPresentation";
 import { cn } from "@/shared/lib/cn";
-
-type StageCharacter = {
-  name: string;
-  animationUrl: string;
-};
-
-/** Same animated APNGs the "Meet your starter team" onboarding step uses. */
-const STAGE_CHARACTERS: readonly StageCharacter[] = [
-  { name: "Fizz", animationUrl: "/onboarding/starter-team/fizz.png" },
-  { name: "Honey", animationUrl: "/onboarding/starter-team/honey.png" },
-  { name: "Bumble", animationUrl: "/onboarding/starter-team/bumble.png" },
-];
 
 const STAGE_EXIT_ANIMATION = "motion-kickoff-stage-exit";
 
 /**
- * The welcome team characters standing on top of the Welcome composer banner
+ * The four Airhop product-role characters above the Welcome composer banner
  * while the team is being set up. Positioned relative to the banner wrapper
  * (`bottom-full` = feet on the banner's top edge) and purely decorative —
  * the banner's own copy carries the setup status for screen readers.
@@ -61,12 +50,12 @@ export function WelcomeKickoffStage({
       data-testid="welcome-kickoff-stage"
       onAnimationEnd={handleAnimationEnd}
     >
-      {STAGE_CHARACTERS.map((character, index) => (
+      {WELCOME_TEAM_PRESENTATIONS.map((character, index) => (
         <img
           alt=""
           className="motion-kickoff-character-enter h-16 w-16 object-contain"
-          data-testid={`welcome-kickoff-stage-${character.name.toLowerCase()}`}
-          key={character.name}
+          data-testid={`welcome-kickoff-stage-${character.role.replaceAll("_", "-")}`}
+          key={character.role}
           src={character.animationUrl}
           style={{ "--stagger-index": index } as React.CSSProperties}
         />

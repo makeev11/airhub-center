@@ -23,7 +23,7 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::api::airhop_auth::authenticate_airhop;
+use crate::api::airhop_auth::authenticate_airhop_agent;
 use crate::api::airhop_staff::{
     CreateBranchBody, CreateFamilyBody, CreateGroupBody, CreateRoomBody, CreateTariffBody,
     CreateTeacherBody, EnrollStaffParticipantBody, MutatePaymentBody, PutOrganizationSettingsBody,
@@ -177,7 +177,7 @@ pub(crate) async fn prepare_agent_action(
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let principal =
-        authenticate_airhop(&state, &headers, "POST", PREPARE_PATH, Some(&body)).await?;
+        authenticate_airhop_agent(&state, &headers, "POST", PREPARE_PATH, Some(&body)).await?;
     let request: PrepareAgentActionBody = serde_json::from_slice(&body).map_err(|_| {
         api_error(
             StatusCode::BAD_REQUEST,

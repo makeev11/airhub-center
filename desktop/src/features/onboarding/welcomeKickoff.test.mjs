@@ -44,20 +44,25 @@ function event(pubkey, stage) {
 
 test("semantic kickoff advances exactly one durable stage at a time", () => {
   assert.deepEqual(nextKickoffStages([]), ["fizz_intro"]);
-  assert.deepEqual(nextKickoffStages(["fizz_intro"]), ["administrator_intro"]);
-  assert.deepEqual(nextKickoffStages(["fizz_intro", "administrator_intro"]), [
-    "analyst_intro",
+  assert.deepEqual(nextKickoffStages(["fizz_intro"]), [
+    "fizz_invite_administrator",
   ]);
+  assert.deepEqual(
+    nextKickoffStages(["fizz_intro", "fizz_invite_administrator"]),
+    ["administrator_intro"],
+  );
   assert.deepEqual(nextKickoffStages(ALL_WELCOME_KICKOFF_STAGES), []);
 });
 
 test("stage target roles cover Fizz and all three specialists", () => {
   assert.equal(welcomeKickoffTargetRole("fizz_intro"), "fizz");
+  assert.equal(welcomeKickoffTargetRole("fizz_invite_administrator"), "fizz");
   assert.equal(
     welcomeKickoffTargetRole("administrator_intro"),
     "administrator",
   );
   assert.equal(welcomeKickoffTargetRole("analyst_intro"), "analyst");
+  assert.equal(welcomeKickoffTargetRole("fizz_explain_team"), "fizz");
   assert.equal(
     welcomeKickoffTargetRole("content_marketer_intro"),
     "content_marketer",
@@ -158,7 +163,7 @@ test("runtime readiness is scoped to the exact agent and relay", () => {
   const runtimes = [
     {
       pubkey: FIZZ,
-      relayUrl: "ws://localhost:3000/",
+      relayUrl: "ws://127.0.0.1:3000",
       lifecycle: "ready",
     },
   ];
@@ -185,14 +190,14 @@ test("mock reload resumes after durable kickoff receipts without duplication", (
     pendingActions: [],
   });
 
-  assert.equal(fixture.nextKickoffStage?.(), "administrator_intro");
-  fixture.completeKickoffStage?.("administrator_intro");
+  assert.equal(fixture.nextKickoffStage?.(), "fizz_invite_administrator");
+  fixture.completeKickoffStage?.("fizz_invite_administrator");
 
   const reloaded = fixture.reload?.();
   assert.ok(reloaded);
-  assert.equal(reloaded.nextKickoffStage?.(), "analyst_intro");
+  assert.equal(reloaded.nextKickoffStage?.(), "administrator_intro");
   assert.deepEqual(reloaded.snapshot().completedKickoffStages, [
     "fizz_intro",
-    "administrator_intro",
+    "fizz_invite_administrator",
   ]);
 });
