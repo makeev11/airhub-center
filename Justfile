@@ -248,6 +248,54 @@ desktop-release-build target="aarch64-apple-darwin":
     pnpm install
     cd {{desktop_dir}} && pnpm tauri build --target {{target}}
 
+# Build, install, and open the canonical local AirHop Center release bundle
+# (never debug). The installed app is mirrored from the fresh bundle so a Dock
+# launch cannot silently reopen an older copy.
+# Debug and release use different macOS Keychain services; mixing them can
+# incorrectly route the owner into Buzz identity recovery.
+airhop-center-open: bootstrap
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PATH="{{justfile_directory()}}/bin:$PATH"
+    TARGET=$(rustc -vV | sed -n 's|host: ||p')
+    TARGET_DIR=$(cargo metadata --format-version 1 --no-deps | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).target_directory")
+    cargo build --release -p buzz-acp -p buzz-agent -p buzz-dev-mcp -p buzz-cli
+    mkdir -p desktop/src-tauri/binaries
+    cp "${TARGET_DIR}/release/buzz-acp" "desktop/src-tauri/binaries/buzz-acp-${TARGET}"
+    cp "${TARGET_DIR}/release/buzz-agent" "desktop/src-tauri/binaries/buzz-agent-${TARGET}"
+    cp "${TARGET_DIR}/release/buzz-dev-mcp" "desktop/src-tauri/binaries/airhop-agent-mcp-${TARGET}"
+    cp "${TARGET_DIR}/release/buzz" "desktop/src-tauri/binaries/buzz-${TARGET}"
+    chmod +x desktop/src-tauri/binaries/*-"${TARGET}"
+    cd {{desktop_dir}}
+    [[ -d node_modules ]] || pnpm install
+    pnpm exec tauri build --bundles app --config src-tauri/tauri.conf.json
+    APP_PATH="$PWD/src-tauri/target/release/bundle/macos/AirHop Center.app"
+    INSTALL_PATH="/Applications/AirHop Center.app"
+    PLIST="$APP_PATH/Contents/Info.plist"
+    [[ -d "$APP_PATH" ]] || { echo "Error: canonical release bundle was not created" >&2; exit 1; }
+    [[ "$APP_PATH" == */target/release/* ]] || { echo "Error: refusing to open a non-release bundle" >&2; exit 1; }
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$PLIST")" == "AirHop Center" ]] || { echo "Error: unexpected app display name" >&2; exit 1; }
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")" == "ru.airhop.centers" ]] || { echo "Error: unexpected app identifier" >&2; exit 1; }
+    osascript -e 'tell application id "ru.airhop.centers" to quit' >/dev/null 2>&1 || true
+    for _ in $(seq 1 20); do
+        pgrep -f '/AirHop Center.app/Contents/MacOS/buzz-desktop' >/dev/null 2>&1 || break
+        sleep 0.25
+    done
+    if pgrep -f '/AirHop Center.app/Contents/MacOS/buzz-desktop' >/dev/null 2>&1; then
+        echo "Error: the previous AirHop Center process did not exit" >&2
+        exit 1
+    fi
+    mkdir -p "$INSTALL_PATH"
+    rsync -a --delete "$APP_PATH/" "$INSTALL_PATH/"
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$INSTALL_PATH/Contents/Info.plist")" == "AirHop Center" ]] || { echo "Error: installed app has an unexpected display name" >&2; exit 1; }
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INSTALL_PATH/Contents/Info.plist")" == "ru.airhop.centers" ]] || { echo "Error: installed app has an unexpected bundle identifier" >&2; exit 1; }
+    # Keep only the installed bundle. Leaving another .app with the same bundle
+    # identifier under target makes LaunchServices treat the build artifact as
+    # a second launchable application.
+    rm -rf -- "$APP_PATH"
+    echo "Opening canonical installed release: $INSTALL_PATH"
+    open "$INSTALL_PATH"
+
 # Run desktop checks suitable for CI / pre-push
 desktop-ci: desktop-check desktop-test desktop-tauri-fmt-check desktop-build desktop-tauri-check desktop-tauri-test
 

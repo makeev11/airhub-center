@@ -16,6 +16,7 @@ test("public booking copy uses Russian product branding and organization context
   assert.equal(messages.ageYears(2), "2 года");
   assert.equal(messages.ageYears(5), "5 лет");
   assert.equal(messages.ageYears(11), "11 лет");
+  assert.equal(messages.loadErrorTitle, "Онлайн-запись пока недоступна");
   assert.equal(
     messages.standaloneEyebrow("Каляка Маляка"),
     "Онлайн-запись · Каляка Маляка",

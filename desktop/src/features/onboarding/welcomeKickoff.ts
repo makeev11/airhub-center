@@ -338,6 +338,7 @@ export function useWelcomeKickoff(
 
   React.useEffect(() => {
     if (inFlightStage && snapshot?.observedStages.has(inFlightStage)) {
+      dispatchingStageRef.current = null;
       setInFlightStage(null);
     }
   }, [inFlightStage, snapshot]);
@@ -355,14 +356,19 @@ export function useWelcomeKickoff(
     ) {
       return;
     }
+    const dispatchedStage = dispatchingStageRef.current;
+    if (dispatchedStage && snapshot.observedStages.has(dispatchedStage)) {
+      dispatchingStageRef.current = null;
+    }
+    const hasUnobservedInFlightStage =
+      inFlightStage !== null && !snapshot.observedStages.has(inFlightStage);
     if (
       snapshot.ownerHasSpoken ||
-      inFlightStage !== null ||
+      hasUnobservedInFlightStage ||
       dispatchingStageRef.current !== null
     )
       return;
 
-    let cancelled = false;
     const cacheKey = `${normalizeRelayUrl(relayUrl)}:${channelId}`;
 
     if (!providerReadiness.ready) {
@@ -371,7 +377,7 @@ export function useWelcomeKickoff(
       providerNoticeInFlightRef.current = true;
       void loadKickoffContext(cacheKey)
         .then((context) => {
-          if (cancelled) return;
+          if (activeChannelIdRef.current !== channelId) return;
           const fallback = buildWelcomeProviderFallback(context.locale);
           return sendManagedAgentChannelMessage({
             agentPubkey: welcomeAgents[fallback.targetRole].pubkey,
@@ -387,9 +393,7 @@ export function useWelcomeKickoff(
         .finally(() => {
           providerNoticeInFlightRef.current = false;
         });
-      return () => {
-        cancelled = true;
-      };
+      return;
     }
 
     const [stage] = nextKickoffStages(snapshot.observedStages);
@@ -407,15 +411,15 @@ export function useWelcomeKickoff(
     }
 
     dispatchingStageRef.current = stage;
+    setInFlightStage(stage);
     void loadKickoffContext(cacheKey)
       .then((context) => {
-        if (cancelled) return;
+        if (activeChannelIdRef.current !== channelId) return;
         const task = buildKickoffTask(stage, context.locale, {
           channelId,
           ownerName: context.ownerName,
           organization: context.organization,
         });
-        setInFlightStage(stage);
         return dispatchAirhopAgentTask({
           channelId,
           agentPubkey: targetAgent.pubkey,
@@ -431,13 +435,6 @@ export function useWelcomeKickoff(
           console.warn("Failed to dispatch the Welcome kickoff stage.", error);
         }
       });
-
-    return () => {
-      cancelled = true;
-      if (inFlightStage === null) {
-        dispatchingStageRef.current = null;
-      }
-    };
   }, [
     acpRuntimesQuery.isPending,
     channelId,

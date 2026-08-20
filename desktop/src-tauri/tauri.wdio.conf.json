@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Airhop E2E",
+  "productName": "AirHop Center E2E",
   "identifier": "ru.airhop.centers.e2e.task12",
   "app": {
     "security": {

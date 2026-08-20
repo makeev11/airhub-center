@@ -28,9 +28,9 @@ type AppTopChromeProps = {
 // the row must not grow or shrink with the rem scale. Deliberate exception
 // to the rem-first rule.
 const TOP_CHROME_ICON_BUTTON_CLASS =
-  "h-[28px] w-[28px] cursor-pointer rounded-[6px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[16px]";
+  "h-[28px] w-[28px] cursor-pointer rounded-[4px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[16px]";
 const HISTORY_ICON_BUTTON_CLASS =
-  "h-[28px] w-[28px] cursor-pointer rounded-[6px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[16px]";
+  "h-[28px] w-[24px] cursor-pointer rounded-[4px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[16px]";
 
 function TopChromeControlTooltip({
   children,
@@ -140,9 +140,9 @@ export function AppTopChrome({
   const navRowPaddingClass = macChrome
     ? hasCommunityRail
       ? "pl-[32px]"
-      : "pl-[88px]"
+      : "pl-[80px]"
     : "pl-3";
-  const navRowAlignmentClass = macChrome ? "translate-y-[3px]" : null;
+  const navRowAlignmentClass = macChrome ? "-translate-y-[6px]" : null;
 
   React.useEffect(() => {
     const topChrome = topChromeRef.current;
@@ -168,7 +168,7 @@ export function AppTopChrome({
       data-tauri-drag-region
       data-testid="app-top-chrome"
     >
-      <div className={cn("flex items-center gap-1", navRowAlignmentClass)}>
+      <div className={cn("flex items-center gap-0.5", navRowAlignmentClass)}>
         <TopChromeSidebarTrigger />
         <TopChromeControlTooltip
           label={isRussian ? "Назад в истории" : "Back in history"}

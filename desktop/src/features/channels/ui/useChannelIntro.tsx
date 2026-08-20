@@ -81,7 +81,7 @@ export function useChannelIntro({
         actions,
         channelKindLabel: isWelcomeChannel(activeChannel)
           ? isRussian
-            ? "закрытый приветственный канал"
+            ? "закрытого приветственного канала"
             : "private welcome channel"
           : getChannelIntroKind(activeChannel),
         channelName: activeChannel.name,
@@ -89,6 +89,7 @@ export function useChannelIntro({
           ? null
           : getChannelIntroDescription(activeChannel),
         icon: <Sparkles aria-hidden className="h-7 w-7" />,
+        leadIn: isRussian ? "Это начало" : undefined,
       };
     }
 

@@ -202,11 +202,16 @@ fn tray_airhop_icon() -> Image<'static> {
     )
 }
 
+fn is_airhop_brand(product_name: Option<&str>, identifier: &str) -> bool {
+    identifier.eq_ignore_ascii_case("ru.airhop.centers")
+        || product_name.is_some_and(|name| {
+            name.eq_ignore_ascii_case("airhop") || name.eq_ignore_ascii_case("airhop center")
+        })
+}
+
 fn is_airhop_product<R: Runtime>(app: &AppHandle<R>) -> bool {
-    app.config()
-        .product_name
-        .as_deref()
-        .is_some_and(|name| name.eq_ignore_ascii_case("airhop"))
+    let config = app.config();
+    is_airhop_brand(config.product_name.as_deref(), &config.identifier)
 }
 
 /// A running agent and its current channel.
@@ -648,8 +653,16 @@ pub fn update_tray_agent_activity<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::{
-        requeue_actions, tray_airhop_icon, TrayAction, TrayActionQueue, AIRHOP_TRAY_ICON_SIZE,
+        is_airhop_brand, requeue_actions, tray_airhop_icon, TrayAction, TrayActionQueue,
+        AIRHOP_TRAY_ICON_SIZE,
     };
+
+    #[test]
+    fn airhop_center_product_uses_airhop_tray_branding() {
+        assert!(is_airhop_brand(Some("AirHop Center"), "ru.airhop.centers"));
+        assert!(is_airhop_brand(Some("Airhop"), "com.example.preview"));
+        assert!(!is_airhop_brand(Some("Buzz"), "com.example.buzz"));
+    }
 
     #[test]
     fn airhop_tray_icon_keeps_the_canonical_mark_in_color() {

@@ -34,6 +34,32 @@ fn airhop_agent_task_has_exact_flat_targeting_tags() {
         .any(|tag| tag.as_slice().first().map(String::as_str) == Some("e")));
 }
 
+#[test]
+fn airhop_agent_task_accepts_the_complete_welcome_sequence() {
+    let channel_id = uuid::Uuid::new_v4();
+    let agent_pubkey = Keys::generate().public_key().to_hex();
+    for stage in [
+        "fizz_intro",
+        "fizz_invite_administrator",
+        "administrator_intro",
+        "fizz_invite_analyst",
+        "analyst_intro",
+        "fizz_invite_content_marketer",
+        "content_marketer_intro",
+        "fizz_explain_team",
+        "fizz_first_question",
+    ] {
+        airhop_agent_tasks::build_task(
+            channel_id,
+            &agent_pubkey,
+            &format!("airhop-welcome:test:{stage}"),
+            stage,
+            "Continue the Welcome sequence.",
+        )
+        .unwrap_or_else(|error| panic!("stage {stage} should build: {error}"));
+    }
+}
+
 use super::*;
 
 #[test]

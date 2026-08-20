@@ -19,7 +19,7 @@ pub use capacity::{
 };
 pub use organization::{
     ExistingStudentsOnboardingStatus, OrganizationSettings, OrganizationSettingsError,
-    PublicBookingAppearance, PublicBookingPurpose,
+    PublicBookingAppearance, PublicBookingPurpose, StaffWorkingPeriod, WeeklyStaffWorkingHours,
 };
 pub use schedule::{
     GroupSchedulePolicy, LessonException, LessonExceptionKind, LessonOriginal,

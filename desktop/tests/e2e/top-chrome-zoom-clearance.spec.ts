@@ -17,9 +17,9 @@ const tauriConfig = JSON.parse(
     "utf8",
   ),
 ) as TauriConfig;
-const EXPECTED_TRAFFIC_LIGHT_POSITION = { x: 16, y: 21 };
-const EXPECTED_NAV_CENTER_Y = 23;
-const EXPECTED_NAV_FIRST_X = 88;
+const EXPECTED_TRAFFIC_LIGHT_POSITION = { x: 16, y: 25 };
+const EXPECTED_NAV_CENTER_Y = 14;
+const EXPECTED_NAV_FIRST_X = 80;
 
 // The macOS traffic lights are native chrome: with `trafficLightPosition`
 // x:16 they occupy roughly x 16–68 regardless of the app's Cmd +/- text
@@ -43,9 +43,10 @@ async function firstNavButtonX(page: import("@playwright/test").Page) {
 
 // The chrome buttons are styled to visually match the fixed-size native
 // controls, so their box must not follow the rem text scale either. The
-// The sidebar and history controls share the same 28px box and 4px rhythm.
+// The sidebar toggle is 28px square; the history controls use the restored
+// 24px skin width and the row keeps its original 2px rhythm.
 const NAV_BUTTON_SIZE = 28;
-const HISTORY_BUTTON_WIDTH = 28;
+const HISTORY_BUTTON_WIDTH = 24;
 
 // The grabber/drag strip hosting the buttons must hold its height too —
 // otherwise Cmd+ balloons the bar around the fixed-size buttons and Cmd-
@@ -70,8 +71,9 @@ async function expectNavButtonsFixedSize(
   expect(count).toBeGreaterThan(0);
   for (let i = 0; i < count; i += 1) {
     const button = buttons.nth(i);
-    const label = await button.getAttribute("aria-label");
-    const isHistoryButton = label === "Go back" || label === "Go forward";
+    const testId = await button.getAttribute("data-testid");
+    const isHistoryButton =
+      testId === "global-back" || testId === "global-forward";
     const box = await button.boundingBox();
     expect(box).not.toBeNull();
     expect(box?.width ?? 0).toBe(
@@ -115,12 +117,12 @@ test.describe("top chrome macOS traffic-light clearance under text zoom", () => 
       EXPECTED_TRAFFIC_LIGHT_POSITION,
     );
     const toggleBox = await page
-      .getByRole("button", { name: "Toggle Sidebar", exact: true })
+      .locator('[data-testid="app-top-chrome"] [data-sidebar="trigger"]')
       .boundingBox();
     expect(toggleBox).not.toBeNull();
-    // Tauri interprets y:21 as a native titlebar inset, not the literal
-    // traffic-light center. The native controls use a small optical correction
-    // while the adjacent web controls remain centered at y:23.
+    // In the native overlay the web row receives the macOS titlebar inset.
+    // Its local center stays at y:14 so the rendered row aligns with the
+    // traffic lights instead of sitting roughly 9 CSS pixels below them.
     expect((toggleBox?.y ?? 0) + (toggleBox?.height ?? 0) / 2).toBe(
       EXPECTED_NAV_CENTER_Y,
     );

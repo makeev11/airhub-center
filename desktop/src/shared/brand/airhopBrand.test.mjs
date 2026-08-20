@@ -59,14 +59,14 @@ test("Tauri packages an independent Airhop application", () => {
   );
   const plist = readFileSync("src-tauri/Info.plist", "utf8");
 
-  assert.equal(release.productName, "Airhop");
+  assert.equal(release.productName, "AirHop Center");
   assert.equal(release.identifier, "ru.airhop.centers");
   assert.deepEqual(release.plugins["deep-link"].desktop.schemes, ["airhop"]);
-  assert.equal(development.productName, "Airhop Dev");
+  assert.equal(development.productName, "AirHop Center Dev");
   assert.equal(development.identifier, "ru.airhop.centers.dev");
   assert.match(
     plist,
-    /<key>CFBundleDisplayName<\/key>\s*<string>Airhop<\/string>/,
+    /<key>CFBundleDisplayName<\/key>\s*<string>AirHop Center<\/string>/,
   );
   assert.doesNotMatch(plist, /<string>Buzz<\/string>/);
 });

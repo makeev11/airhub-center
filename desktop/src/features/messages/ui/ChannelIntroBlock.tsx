@@ -17,6 +17,7 @@ export type ChannelIntro = {
   channelName: string;
   description?: string | null;
   icon?: React.ReactNode;
+  leadIn?: string;
 };
 
 /**
@@ -51,7 +52,7 @@ export function ChannelIntroBlock({
         #{intro.channelName}
       </p>
       <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
-        This is the beginning of the{" "}
+        {intro.leadIn ?? "This is the beginning of the"}{" "}
         <span className="font-medium text-foreground">
           {intro.channelKindLabel}
         </span>

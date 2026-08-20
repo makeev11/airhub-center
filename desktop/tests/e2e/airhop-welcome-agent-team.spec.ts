@@ -288,6 +288,8 @@ describe("Airhop Welcome agent team", () => {
     );
     await click(selectorForTestId("channel-Welcome"));
     await waitForHidden(selectorForTestId("community-onboarding-flow"));
+    await waitForText("Это начало закрытого приветственного канала.");
+    await waitForText("или другого коллегу, когда понадобится помощь.");
 
     const brand = await browser.execute(() => ({
       markCount: document.querySelectorAll(
@@ -297,7 +299,7 @@ describe("Airhop Welcome agent team", () => {
     }));
     assert.equal(
       brand.title,
-      "AirHop",
+      "Airhop",
       "native test must use the AirHop shell",
     );
     assert.ok(

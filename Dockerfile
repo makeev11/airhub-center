@@ -118,6 +118,39 @@ COPY web/ web/
 COPY admin-web/ admin-web/
 RUN pnpm -C web build && pnpm -C admin-web build
 
+# ─── Stage 4b: Airhop public booking bundle ─────────────────────────────────
+# This is intentionally a separate build from Buzz Web. It reuses the exact
+# React booking components shipped in the native app, but selects the
+# same-origin HTTP adapter and browser history for the relay-hosted /booking
+# surface. The employee application remains a native Tauri product.
+FROM node:${NODE_VERSION}-${DEBIAN_VERSION}-slim AS airhop-web-builder
+WORKDIR /build
+ARG EXTRA_CA_CERTS
+COPY --chmod=0644 ${EXTRA_CA_CERTS:-Dockerfile} /tmp/extra-ca/src
+RUN if [ -n "${EXTRA_CA_CERTS}" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+        && cp /tmp/extra-ca/src /usr/local/share/ca-certificates/extra-proxy-ca.crt \
+        && update-ca-certificates \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+ARG NPM_REGISTRY
+ENV COREPACK_NPM_REGISTRY=${NPM_REGISTRY}
+RUN if [ -n "${NPM_REGISTRY}" ]; then \
+        echo "registry=${NPM_REGISTRY}" > /build/.npmrc \
+        && echo "COREPACK_INTEGRITY_KEYS=0" >> /etc/environment; \
+    fi
+ENV COREPACK_INTEGRITY_KEYS=${NPM_REGISTRY:+0}
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml preview-features.json ./
+COPY patches/ patches/
+COPY desktop/package.json desktop/
+RUN pnpm install --frozen-lockfile --filter ./desktop
+COPY desktop/ desktop/
+ENV VITE_AIRHOP_PUBLIC_BOOKING_RUNTIME=server \
+    VITE_AIRHOP_PUBLIC_WEB=1
+RUN pnpm -C desktop build
+
 # ─── Stage 5: shared runtime ────────────────────────────────────────────────
 FROM debian:${DEBIAN_VERSION}-slim AS runtime-base
 
@@ -170,8 +203,25 @@ COPY --from=builder /build/target/release/buzz-relay /usr/local/bin/buzz-relay
 COPY --from=builder /build/target/release/buzz-admin /usr/local/bin/buzz-admin
 COPY --from=builder /build/target/release/buzz-pair-relay /usr/local/bin/buzz-pair-relay
 
-# Keep the stripped runtime as the final/default Dockerfile target so existing
-# `docker build .` callers and release tags retain their current behavior.
+# Airhop server image: Booking Core plus the public /booking surface. The
+# native employee app connects to this relay; it is not replaced by a browser
+# build. Select explicitly with `docker build --target runtime-airhop`.
+FROM runtime-base AS runtime-airhop-base
+LABEL org.opencontainers.image.title="AirHop Center" \
+      org.opencontainers.image.description="AirHop Booking Core and public booking web surface" \
+      org.opencontainers.image.source="https://github.com/makeev11/airhub-center"
+COPY --from=airhop-web-builder /build/desktop/dist /srv/airhop/public-web
+ENV BUZZ_WEB_DIR=/srv/airhop/public-web \
+    BUZZ_SERVE_AIRHOP_PUBLIC_WEB=true \
+    BUZZ_SERVE_GIT_WEB_GUI=false
+
+FROM runtime-airhop-base AS runtime-airhop
+COPY --from=stripped-binaries /build/target/release/buzz-relay /usr/local/bin/buzz-relay
+COPY --from=stripped-binaries /build/target/release/buzz-admin /usr/local/bin/buzz-admin
+COPY --from=stripped-binaries /build/target/release/buzz-pair-relay /usr/local/bin/buzz-pair-relay
+
+# Keep the stripped generic Buzz runtime as the final/default Dockerfile target
+# so existing `docker build .` callers and release tags retain their behavior.
 FROM runtime-base AS runtime
 COPY --from=stripped-binaries /build/target/release/buzz-relay /usr/local/bin/buzz-relay
 COPY --from=stripped-binaries /build/target/release/buzz-admin /usr/local/bin/buzz-admin

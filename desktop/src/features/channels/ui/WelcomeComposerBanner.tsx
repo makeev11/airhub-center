@@ -2,6 +2,7 @@ import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Bot, Check } from "lucide-react";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { cn } from "@/shared/lib/cn";
 
 const WELCOME_PERSONA_NAMES = ["Fizz"] as const;
@@ -301,6 +302,8 @@ export function WelcomeComposerBanner({
   settingUp = false,
   state,
 }: WelcomeComposerBannerProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
+
   if (state === "hidden") {
     return null;
   }
@@ -390,7 +393,7 @@ export function WelcomeComposerBanner({
                 key="complete-copy"
                 variants={welcomeComposerBannerSuccessCopyVariants}
               >
-                Nice work.
+                {isRussian ? "Отлично." : "Nice work."}
               </motion.span>
             ) : settingUp ? (
               <motion.span
@@ -402,7 +405,9 @@ export function WelcomeComposerBanner({
                 key="setting-up-copy"
                 variants={welcomeComposerBannerContentVariants}
               >
-                Setting up your welcome team…
+                {isRussian
+                  ? "Настраиваем вашу команду…"
+                  : "Setting up your welcome team…"}
               </motion.span>
             ) : (
               <motion.span
@@ -413,8 +418,11 @@ export function WelcomeComposerBanner({
                 key="prompt-copy"
                 variants={welcomeComposerBannerContentVariants}
               >
-                Mention <WelcomeComposerPersonaMention /> or another teammate
-                whenever you want their help.
+                {isRussian ? "Позовите " : "Mention "}
+                <WelcomeComposerPersonaMention />
+                {isRussian
+                  ? " или другого коллегу, когда понадобится помощь."
+                  : " or another teammate whenever you want their help."}
               </motion.span>
             )}
           </AnimatePresence>

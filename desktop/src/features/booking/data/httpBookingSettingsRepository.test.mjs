@@ -30,6 +30,10 @@ function organization(overrides = {}) {
     name: "Каляка Маляка",
     locale: "ru-RU",
     timeZone: "Europe/Moscow",
+    staffWorkingHours: {
+      monday: [{ startTime: "09:00", endTime: "18:00" }],
+      saturday: [],
+    },
     defaultTrialPolicy: { mode: "free" },
     trackAttendanceByDefault: true,
     allowSingleVisitsByDefault: false,
@@ -104,6 +108,9 @@ test("settings repository bootstraps an unconfigured Center with version zero", 
   assert.equal(body.existingStudentsOnboardingStatus, "not_started");
   assert.equal(body.paymentsBuzzChannelId, PAYMENTS_CHANNEL_ID);
   assert.equal(body.analyticsBuzzChannelId, ANALYTICS_CHANNEL_ID);
+  assert.deepEqual(body.staffWorkingHours.monday, [
+    { startTime: "09:00", endTime: "18:00" },
+  ]);
   assert.equal(saved.revision, 1);
   assert.deepEqual(signedInputs[0].tags.slice(0, 2), [
     ["u", "https://center.example/api/airhop/staff/v1/settings"],

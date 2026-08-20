@@ -128,6 +128,7 @@ impl Db {
                     "name",
                     "locale",
                     "time_zone",
+                    "staff_working_hours",
                     "payments_buzz_channel_id",
                     "analytics_buzz_channel_id",
                     "default_trial_policy",
@@ -332,6 +333,7 @@ pub(super) async fn put_airhop_organization_settings_in_transaction(
                 "name",
                 "locale",
                 "time_zone",
+                "staff_working_hours",
                 "payments_buzz_channel_id",
                 "analytics_buzz_channel_id",
                 "default_trial_policy",
@@ -460,7 +462,7 @@ async fn load_locked_organization(
 ) -> Result<Option<AirhopOrganization>> {
     let row = sqlx::query(
         "SELECT id, name, locale, time_zone, payments_buzz_channel_id, \
-                analytics_buzz_channel_id, default_trial_policy, \
+                analytics_buzz_channel_id, staff_working_hours, default_trial_policy, \
                 track_attendance_by_default, allow_single_visits_by_default, \
                 existing_students_onboarding_status, public_booking_purpose, \
                 public_booking_appearance, payment_day_of_month, status, version, \
@@ -485,11 +487,11 @@ async fn insert_organization(
     sqlx::query(
         "INSERT INTO airhop_organizations (\
              community_id, id, name, locale, time_zone, payments_buzz_channel_id, \
-             analytics_buzz_channel_id, default_trial_policy, \
+             analytics_buzz_channel_id, staff_working_hours, default_trial_policy, \
              track_attendance_by_default, allow_single_visits_by_default, \
              existing_students_onboarding_status, public_booking_purpose, \
              public_booking_appearance, payment_day_of_month, created_at, updated_at\
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)",
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)",
     )
     .bind(tenant.community().as_uuid())
     .bind(organization_id)
@@ -498,6 +500,7 @@ async fn insert_organization(
     .bind(input.time_zone.trim())
     .bind(input.payments_buzz_channel_id)
     .bind(input.analytics_buzz_channel_id)
+    .bind(serde_json::to_value(&input.settings.staff_working_hours)?)
     .bind(serde_json::to_value(&input.settings.default_trial_policy)?)
     .bind(input.settings.track_attendance_by_default)
     .bind(input.settings.allow_single_visits_by_default)
@@ -525,12 +528,12 @@ async fn update_organization(
     sqlx::query_scalar(
         "UPDATE airhop_organizations \
          SET name = $3, locale = $4, time_zone = $5, payments_buzz_channel_id = $6, \
-             analytics_buzz_channel_id = $7, default_trial_policy = $8, \
-             track_attendance_by_default = $9, allow_single_visits_by_default = $10, \
-             existing_students_onboarding_status = $11, public_booking_purpose = $12, \
-             public_booking_appearance = $13, payment_day_of_month = $14, \
-             version = version + 1, updated_at = $15 \
-         WHERE community_id = $1 AND id = $2 AND version = $16 AND status = 'active' \
+             analytics_buzz_channel_id = $7, staff_working_hours = $8, default_trial_policy = $9, \
+             track_attendance_by_default = $10, allow_single_visits_by_default = $11, \
+             existing_students_onboarding_status = $12, public_booking_purpose = $13, \
+             public_booking_appearance = $14, payment_day_of_month = $15, \
+             version = version + 1, updated_at = $16 \
+         WHERE community_id = $1 AND id = $2 AND version = $17 AND status = 'active' \
          RETURNING version",
     )
     .bind(tenant.community().as_uuid())
@@ -540,6 +543,7 @@ async fn update_organization(
     .bind(input.time_zone.trim())
     .bind(input.payments_buzz_channel_id)
     .bind(input.analytics_buzz_channel_id)
+    .bind(serde_json::to_value(&input.settings.staff_working_hours)?)
     .bind(serde_json::to_value(&input.settings.default_trial_policy)?)
     .bind(input.settings.track_attendance_by_default)
     .bind(input.settings.allow_single_visits_by_default)
@@ -571,6 +575,9 @@ fn changed_fields(
     }
     if current.time_zone != input.time_zone.trim() {
         fields.push("time_zone");
+    }
+    if current.settings.staff_working_hours != input.settings.staff_working_hours {
+        fields.push("staff_working_hours");
     }
     if current.payments_buzz_channel_id != input.payments_buzz_channel_id {
         fields.push("payments_buzz_channel_id");
@@ -714,6 +721,7 @@ mod tests {
             payments_buzz_channel_id: None,
             analytics_buzz_channel_id: None,
             settings: OrganizationSettings {
+                staff_working_hours: Default::default(),
                 default_trial_policy: TrialPolicy::Free,
                 track_attendance_by_default: true,
                 allow_single_visits_by_default: false,

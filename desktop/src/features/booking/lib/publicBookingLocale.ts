@@ -77,6 +77,8 @@ export type PublicBookingMessages = {
   slotUnavailableDescription: string;
   ageMismatchTitle: string;
   ageMismatchDescription: string;
+  loadErrorTitle: string;
+  loadErrorDescription: string;
   genericErrorTitle: string;
   genericErrorDescription: string;
   successTitle: string;
@@ -222,6 +224,9 @@ const ruMessages: PublicBookingMessages = {
   ageMismatchTitle: "Точная дата не подходит по возрасту",
   ageMismatchDescription:
     "Мы не создали заявку. Вернитесь к списку и выберите другое занятие.",
+  loadErrorTitle: "Онлайн-запись пока недоступна",
+  loadErrorDescription:
+    "Не удалось загрузить филиалы и расписание. Обновите страницу чуть позже.",
   genericErrorTitle: "Не удалось отправить заявку",
   genericErrorDescription: "Попробуйте ещё раз — введённые данные сохранены.",
   successTitle: "Заявка ожидает подтверждения",

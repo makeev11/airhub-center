@@ -12,12 +12,16 @@ import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
 
 export function WorkingHoursEditor({
+  label,
   messages,
   onChange,
+  testIdPrefix = "airhop-hours",
   value,
 }: {
+  label?: string;
   messages: BookingAdminMessages;
   onChange: (value: WeeklyWorkingHours) => void;
+  testIdPrefix?: string;
   value: WeeklyWorkingHours;
 }) {
   const invalid = invalidWorkingPeriods(value);
@@ -25,7 +29,7 @@ export function WorkingHoursEditor({
   return (
     <fieldset className="space-y-3">
       <legend className="mb-3 text-sm font-medium">
-        {messages.workingHours}
+        {label ?? messages.workingHours}
       </legend>
       {BOOKING_WEEKDAYS.map((weekday) => {
         const periods = value[weekday] ?? [];
@@ -33,7 +37,7 @@ export function WorkingHoursEditor({
         return (
           <div
             className="grid gap-3 rounded-xl border border-border/70 p-3 md:grid-cols-[10rem_1fr]"
-            data-testid={`airhop-hours-${weekday}`}
+            data-testid={`${testIdPrefix}-${weekday}`}
             key={weekday}
           >
             <div className="flex items-center gap-2 self-start pt-2 text-sm font-medium">

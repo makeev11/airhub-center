@@ -16,15 +16,40 @@ export function hashRouterPathname(hash: string): string {
   return pathname.startsWith("/") ? pathname : `/${pathname}`;
 }
 
-function subscribeHashChange(onStoreChange: () => void): () => void {
+function subscribeRouteChange(onStoreChange: () => void): () => void {
   window.addEventListener("hashchange", onStoreChange);
-  return () => window.removeEventListener("hashchange", onStoreChange);
+  window.addEventListener("popstate", onStoreChange);
+  return () => {
+    window.removeEventListener("hashchange", onStoreChange);
+    window.removeEventListener("popstate", onStoreChange);
+  };
+}
+
+export function publicBookingLocationPathname(
+  hash: string,
+  pathname: string,
+  publicWeb: boolean,
+): string {
+  return publicWeb ? pathname : hashRouterPathname(hash);
+}
+
+/** True only for the relay-hosted public-booking bundle, never native Tauri. */
+export function isAirhopPublicWebBuild(value: string | undefined): boolean {
+  return value === "1";
 }
 
 export function useIsPublicBookingLocation(): boolean {
+  const publicWeb = isAirhopPublicWebBuild(
+    import.meta.env.VITE_AIRHOP_PUBLIC_WEB,
+  );
   const pathname = React.useSyncExternalStore(
-    subscribeHashChange,
-    () => hashRouterPathname(window.location.hash),
+    subscribeRouteChange,
+    () =>
+      publicBookingLocationPathname(
+        window.location.hash,
+        window.location.pathname,
+        publicWeb,
+      ),
     () => "/",
   );
   return isPublicBookingPath(pathname);

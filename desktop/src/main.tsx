@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "@/app/App";
+import { isAirhopPublicWebBuild } from "@/app/publicBookingRoute";
 import { NostrBindConsentDialog } from "@/features/profile/ui/NostrBindConsentDialog";
 import "@fontsource-variable/inter/wght.css";
 import "@fontsource/jetbrains-mono/400.css";
@@ -26,6 +27,9 @@ const E2E_DEFAULT_PUBKEY = "deadbeef".repeat(8);
 const E2E_COMMUNITY_ID = "e2e-default-community";
 const ONBOARDING_COMPLETION_STORAGE_KEY_PREFIX = "buzz-onboarding-complete.v1:";
 const DEV_STATE_RESET_PARAM = "resetDevState";
+const AIRHOP_PUBLIC_WEB = isAirhopPublicWebBuild(
+  import.meta.env.VITE_AIRHOP_PUBLIC_WEB,
+);
 
 function resetDevWebviewStateFromUrl() {
   if (!import.meta.env.DEV) {
@@ -74,6 +78,20 @@ function configureDevE2eBridgeFromUrl() {
 }
 
 function renderApp() {
+  if (AIRHOP_PUBLIC_WEB) {
+    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+      <React.StrictMode>
+        <ThemeProvider defaultTheme="buzz">
+          <TooltipProvider delayDuration={300}>
+            <App />
+            <Toaster />
+          </TooltipProvider>
+        </ThemeProvider>
+      </React.StrictMode>,
+    );
+    return;
+  }
+
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <CommunitiesProvider>
@@ -116,7 +134,9 @@ async function bootstrap() {
   configureDevE2eBridgeFromUrl();
   recoverLocalStorageQuotaOnStartup();
   await installE2eBridgeIfConfigured();
-  await migrateLegacyCommunityStorageBeforeRender();
+  if (!AIRHOP_PUBLIC_WEB) {
+    await migrateLegacyCommunityStorageBeforeRender();
+  }
   renderApp();
 }
 

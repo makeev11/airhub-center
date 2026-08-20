@@ -7,10 +7,29 @@ import type { Options } from "@wdio/types";
 const appIdentifier = "ru.airhop.centers.e2e.task12";
 const userHome = homedir();
 const builtAppBinary = resolve("src-tauri/target/debug/buzz-desktop");
-const e2eAppBinary = resolve(
-  `src-tauri/target/debug/buzz-desktop-e2e-task12-${process.pid}`,
+// Keep a recognised executable basename. The managed-agent orphan reaper
+// deliberately recognises `buzz_desktop` as a live owner process; giving the
+// copied WebDriver binary an arbitrary name made another open AirHop instance
+// classify this perfectly healthy E2E app as dead and terminate all four
+// Welcome runtimes.
+// A per-run directory still gives WebDriver its own immutable binary copy.
+const e2eAppDirectory = resolve(
+  `src-tauri/target/debug/airhop-e2e-task12-${process.pid}`,
 );
+mkdirSync(e2eAppDirectory, { recursive: true });
+const e2eExecutableName = "buzz_desktop";
+const e2eAppBinary = join(e2eAppDirectory, e2eExecutableName);
 copyFileSync(builtAppBinary, e2eAppBinary);
+// Mirror the release layout: native command resolution intentionally looks
+// beside the desktop executable for bundled sidecars. Without these copies the
+// Welcome agents can connect to the relay but cannot load airhop-agent-mcp and
+// therefore cannot publish their stage messages.
+for (const sidecar of ["airhop-agent-mcp", "buzz", "buzz-acp", "buzz-agent"]) {
+  copyFileSync(
+    resolve(`src-tauri/target/debug/${sidecar}`),
+    join(e2eAppDirectory, sidecar),
+  );
+}
 const appDataDir = join(
   userHome,
   "Library",
@@ -20,7 +39,10 @@ const appDataDir = join(
 const appStatePaths = [
   appDataDir,
   join(userHome, "Library", "Caches", appIdentifier),
-  join(userHome, "Library", "WebKit", "buzz-desktop-e2e-task12"),
+  // WKWebView keys these stores by executable name rather than the Tauri
+  // identifier. Keep them E2E-only and reset the exact paths this binary uses.
+  join(userHome, "Library", "Caches", e2eExecutableName),
+  join(userHome, "Library", "WebKit", e2eExecutableName),
   join(userHome, "Library", "HTTPStorages", appIdentifier),
   join(
     userHome,
@@ -52,6 +74,10 @@ export const config: Options.Testrunner = {
     [
       "tauri",
       {
+        // The orphan reaper verifies a foreign desktop owner by finding its
+        // bundle identifier in argv/env. Production launchers already expose
+        // that metadata; the embedded WebDriver launcher needs it explicitly.
+        appArgs: [appIdentifier],
         appBinaryPath: e2eAppBinary,
         driverProvider: "embedded",
         embeddedPort: 4445,

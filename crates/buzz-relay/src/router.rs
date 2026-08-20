@@ -388,6 +388,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         let web_index = web_dir.as_ref().map(|dir| dir.join("index.html"));
         let web_files = web_dir.map(ServeDir::new);
         let serve_git_web_gui = state.config.serve_git_web_gui;
+        let serve_airhop_public_web = state.config.serve_airhop_public_web;
         let fallback_state = state.clone();
         let spa_fallback = tower::service_fn(move |req: axum::extract::Request| {
             let admin_index = admin_index.clone();
@@ -411,10 +412,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                 }
 
                 if let (Some(index), Some(files)) = (web_index, web_files) {
-                    if path.starts_with("/assets/") {
+                    if should_serve_web_asset(path, serve_airhop_public_web) {
                         return files.oneshot(req).await.map(IntoResponse::into_response);
                     }
-                    if should_serve_spa(path, serve_git_web_gui) {
+                    if should_serve_spa(path, serve_git_web_gui, serve_airhop_public_web) {
                         return Ok(read_spa_index(&index).await);
                     }
                 }
@@ -456,8 +457,23 @@ fn is_invite_landing_path(path: &str) -> bool {
         .is_some_and(|code| !code.is_empty() && !code.contains('/'))
 }
 
-fn should_serve_spa(path: &str, serve_git_web_gui: bool) -> bool {
-    is_invite_landing_path(path) || (serve_git_web_gui && is_git_web_gui_path(path))
+fn is_airhop_public_booking_path(path: &str) -> bool {
+    path == "/booking"
+        || path == "/booking/"
+        || path == "/booking/demo-host"
+        || path
+            .strip_prefix("/booking/manage/")
+            .is_some_and(|token| !token.is_empty() && !token.contains('/'))
+}
+
+fn should_serve_web_asset(path: &str, serve_airhop_public_web: bool) -> bool {
+    path.starts_with("/assets/") || (serve_airhop_public_web && path.starts_with("/airhop/"))
+}
+
+fn should_serve_spa(path: &str, serve_git_web_gui: bool, serve_airhop_public_web: bool) -> bool {
+    is_invite_landing_path(path)
+        || (serve_airhop_public_web && is_airhop_public_booking_path(path))
+        || (serve_git_web_gui && is_git_web_gui_path(path))
 }
 
 fn is_git_web_gui_path(path: &str) -> bool {
@@ -708,6 +724,29 @@ mod tests {
     }
 
     #[test]
+    fn airhop_public_booking_paths_are_narrow() {
+        assert!(is_airhop_public_booking_path("/booking"));
+        assert!(is_airhop_public_booking_path("/booking/"));
+        assert!(is_airhop_public_booking_path(
+            "/booking/manage/opaque-token"
+        ));
+        assert!(!is_airhop_public_booking_path("/booking/schedule"));
+        assert!(!is_airhop_public_booking_path("/booking/manage/"));
+        assert!(!is_airhop_public_booking_path(
+            "/booking/manage/token/extra"
+        ));
+    }
+
+    #[test]
+    fn airhop_public_assets_require_the_public_web_bundle() {
+        assert!(should_serve_web_asset("/assets/app.js", false));
+        assert!(should_serve_web_asset("/assets/app.js", true));
+        assert!(!should_serve_web_asset("/airhop/mark.png", false));
+        assert!(should_serve_web_asset("/airhop/mark.png", true));
+        assert!(!should_serve_web_asset("/agents/fizz.png", true));
+    }
+
+    #[test]
     fn git_web_gui_paths_are_explicit() {
         assert!(is_git_web_gui_path("/"));
         assert!(is_git_web_gui_path("/repos"));
@@ -719,13 +758,20 @@ mod tests {
 
     #[test]
     fn invite_is_always_served_but_git_gui_requires_opt_in() {
-        assert!(should_serve_spa("/invite/payload.mac", false));
-        assert!(should_serve_spa("/invite/payload.mac", true));
-        assert!(!should_serve_spa("/", false));
-        assert!(!should_serve_spa("/repos/example", false));
-        assert!(should_serve_spa("/", true));
-        assert!(should_serve_spa("/repos/example", true));
-        assert!(!should_serve_spa("/arbitrary", true));
+        assert!(should_serve_spa("/invite/payload.mac", false, false));
+        assert!(should_serve_spa("/invite/payload.mac", true, false));
+        assert!(!should_serve_spa("/booking", false, false));
+        assert!(should_serve_spa("/booking", false, true));
+        assert!(should_serve_spa(
+            "/booking/manage/opaque-token",
+            false,
+            true
+        ));
+        assert!(!should_serve_spa("/", false, false));
+        assert!(!should_serve_spa("/repos/example", false, false));
+        assert!(should_serve_spa("/", true, false));
+        assert!(should_serve_spa("/repos/example", true, false));
+        assert!(!should_serve_spa("/arbitrary", true, true));
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -52,7 +52,12 @@ import {
 import { PublicBookingSuccess } from "@/features/booking/ui/PublicBookingSuccess";
 
 type FlowStep = "basics" | "groups" | "occurrences" | "contact" | "preview";
-type FlowError = "slot_unavailable" | "age_mismatch" | "generic" | null;
+type FlowError =
+  | "slot_unavailable"
+  | "age_mismatch"
+  | "load_failed"
+  | "generic"
+  | null;
 
 export type PublicBookingInitialContext = {
   branchId?: string;
@@ -223,7 +228,7 @@ export function PublicBookingFlow({
           setStep("groups");
         }
       } catch {
-        if (!cancelled) setFlowError("generic");
+        if (!cancelled) setFlowError("load_failed");
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -494,14 +499,18 @@ export function PublicBookingFlow({
                 ? messages.slotUnavailableTitle
                 : flowError === "age_mismatch"
                   ? messages.ageMismatchTitle
-                  : messages.genericErrorTitle}
+                  : flowError === "load_failed"
+                    ? messages.loadErrorTitle
+                    : messages.genericErrorTitle}
             </AlertTitle>
             <AlertDescription>
               {flowError === "slot_unavailable"
                 ? messages.slotUnavailableDescription
                 : flowError === "age_mismatch"
                   ? messages.ageMismatchDescription
-                  : messages.genericErrorDescription}
+                  : flowError === "load_failed"
+                    ? messages.loadErrorDescription
+                    : messages.genericErrorDescription}
             </AlertDescription>
           </Alert>
         ) : null}

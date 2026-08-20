@@ -69,11 +69,17 @@ export async function startManagedAgentRuntimesForRelay(
   agents: readonly ManagedAgent[],
   relayUrl: string,
 ): Promise<ManagedAgentRuntimeStatus[]> {
-  return Promise.all(
-    agents.map((agent) =>
-      startManagedAgentRuntime(agent.pubkey, agent.relayUrl ?? relayUrl),
-    ),
-  );
+  // Native runtime transitions touch a shared process registry and receipt
+  // directory. Keep the four-role Welcome startup deterministic instead of
+  // queueing concurrent Tauri commands that can observe partially persisted
+  // process state.
+  const statuses: ManagedAgentRuntimeStatus[] = [];
+  for (const agent of agents) {
+    statuses.push(
+      await startManagedAgentRuntime(agent.pubkey, agent.relayUrl ?? relayUrl),
+    );
+  }
+  return statuses;
 }
 
 export async function stopManagedAgentRuntime(

@@ -8,7 +8,9 @@ import {
 import { createHttpBookingSettingsRepository } from "@/features/booking/data/httpBookingSettingsRepository";
 import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import {
+  cloneWorkingHours,
   currencyMinorUnitExponent,
+  invalidWorkingPeriods,
   majorMoneyInput,
   parseMajorMoneyInput,
 } from "@/features/booking/lib/bookingAdmin";
@@ -22,6 +24,7 @@ import { organizationSchema } from "@/features/booking/model/bookingCore";
 import type {
   PublicBookingAppearance,
   PublicBookingPurpose,
+  WeeklyWorkingHours,
 } from "@/features/booking/model/bookingCore";
 import {
   BookingFeedbackBanners,
@@ -29,6 +32,7 @@ import {
 } from "@/features/booking/ui/BookingWorkspaceState";
 import { BookingSelect } from "@/features/booking/ui/BookingSelect";
 import { BookingSettingsNav } from "@/features/booking/ui/BookingSettingsNav";
+import { WorkingHoursEditor } from "@/features/booking/ui/WorkingHoursEditor";
 import { useBookingUnsavedChangesGuard } from "@/features/booking/ui/useBookingUnsavedChangesGuard";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
@@ -49,6 +53,7 @@ type SettingsForm = {
   paymentDay: string;
   paymentsBuzzChannelId: string;
   analyticsBuzzChannelId: string;
+  staffWorkingHours: WeeklyWorkingHours;
   attendance: boolean;
   singleVisits: boolean;
   publicBookingPurpose: PublicBookingPurpose;
@@ -56,7 +61,10 @@ type SettingsForm = {
 };
 
 type SettingsErrors = Partial<
-  Record<"name" | "timeZone" | "currency" | "price" | "paymentDay", string>
+  Record<
+    "name" | "timeZone" | "currency" | "price" | "paymentDay" | "hours",
+    string
+  >
 >;
 
 function formFromOrganization(
@@ -77,6 +85,7 @@ function formFromOrganization(
     paymentDay: String(organization.paymentDayOfMonth),
     paymentsBuzzChannelId: organization.paymentsBuzzChannelId ?? "",
     analyticsBuzzChannelId: organization.analyticsBuzzChannelId ?? "",
+    staffWorkingHours: cloneWorkingHours(organization.staffWorkingHours),
     attendance: organization.trackAttendanceByDefault,
     singleVisits: organization.allowSingleVisitsByDefault,
     publicBookingPurpose: organization.publicBooking.purpose,
@@ -173,11 +182,15 @@ function SettingsFormContent({
     if (!Number.isInteger(paymentDay) || paymentDay < 1 || paymentDay > 28) {
       nextErrors.paymentDay = messages.invalidPaymentDay;
     }
+    if (invalidWorkingPeriods(form.staffWorkingHours).length) {
+      nextErrors.hours = messages.invalidWorkingPeriod;
+    }
     const organization = {
       ...workspace.organization,
       name: form.name,
       locale: form.locale,
       timeZone: form.timeZone,
+      staffWorkingHours: form.staffWorkingHours,
       paymentDayOfMonth: paymentDay,
       paymentsBuzzChannelId: form.paymentsBuzzChannelId || undefined,
       analyticsBuzzChannelId: form.analyticsBuzzChannelId || undefined,
@@ -298,6 +311,26 @@ function SettingsFormContent({
                 ))}
               </BookingSelect>
             </Field>
+            <div className="space-y-2 rounded-xl border border-border/70 p-4 lg:col-span-2">
+              <p className="text-xs text-muted-foreground">
+                {messages.staffWorkingHoursHint}
+              </p>
+              <WorkingHoursEditor
+                label={messages.staffWorkingHours}
+                messages={messages}
+                onChange={(staffWorkingHours) =>
+                  setForm((current) => ({
+                    ...current,
+                    staffWorkingHours,
+                  }))
+                }
+                testIdPrefix="airhop-staff-hours"
+                value={form.staffWorkingHours}
+              />
+              {errors.hours ? (
+                <p className="text-xs text-destructive">{errors.hours}</p>
+              ) : null}
+            </div>
             <Field
               error={errors.paymentDay}
               hint={messages.centerPaymentDayHint}

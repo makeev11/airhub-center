@@ -3,11 +3,15 @@ use tauri::State;
 
 use crate::{app_state::AppState, relay::submit_event};
 
-const KICKOFF_STAGES: [&str; 5] = [
+const KICKOFF_STAGES: [&str; 9] = [
     "fizz_intro",
+    "fizz_invite_administrator",
     "administrator_intro",
+    "fizz_invite_analyst",
     "analyst_intro",
+    "fizz_invite_content_marketer",
     "content_marketer_intro",
+    "fizz_explain_team",
     "fizz_first_question",
 ];
 

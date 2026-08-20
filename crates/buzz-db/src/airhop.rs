@@ -354,7 +354,7 @@ impl Db {
     ) -> Result<Option<AirhopOrganization>> {
         let row = sqlx::query(
             "SELECT id, name, locale, time_zone, payments_buzz_channel_id, \
-                    analytics_buzz_channel_id, default_trial_policy, \
+                    analytics_buzz_channel_id, staff_working_hours, default_trial_policy, \
                     track_attendance_by_default, allow_single_visits_by_default, \
                     existing_students_onboarding_status, public_booking_purpose, \
                     public_booking_appearance, payment_day_of_month, status, version, \
@@ -381,13 +381,13 @@ impl Db {
         let trial_policy = serde_json::to_value(&input.settings.default_trial_policy)?;
         let row = sqlx::query(
             "INSERT INTO airhop_organizations (\
-                 community_id, id, name, locale, time_zone, default_trial_policy, \
+                 community_id, id, name, locale, time_zone, staff_working_hours, default_trial_policy, \
                  track_attendance_by_default, allow_single_visits_by_default, \
                  existing_students_onboarding_status, public_booking_purpose, \
                  public_booking_appearance, payment_day_of_month\
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) \
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
              RETURNING id, name, locale, time_zone, payments_buzz_channel_id, \
-                 analytics_buzz_channel_id, default_trial_policy, \
+                 analytics_buzz_channel_id, staff_working_hours, default_trial_policy, \
                  track_attendance_by_default, allow_single_visits_by_default, \
                  existing_students_onboarding_status, public_booking_purpose, \
                  public_booking_appearance, payment_day_of_month, status, version, \
@@ -398,6 +398,9 @@ impl Db {
         .bind(&input.name)
         .bind(&input.locale)
         .bind(&input.time_zone)
+        .bind(serde_json::to_value(
+            &input.settings.staff_working_hours,
+        )?)
         .bind(trial_policy)
         .bind(input.settings.track_attendance_by_default)
         .bind(input.settings.allow_single_visits_by_default)
@@ -632,6 +635,7 @@ fn parse_organization_row(row: sqlx::postgres::PgRow) -> Result<AirhopOrganizati
     let payment_day_of_month = u8::try_from(payment_day)
         .map_err(|_| DbError::InvalidData(format!("invalid AirHub payment day {payment_day}")))?;
     let settings = OrganizationSettings {
+        staff_working_hours: serde_json::from_value(row.try_get("staff_working_hours")?)?,
         default_trial_policy,
         track_attendance_by_default: row.try_get("track_attendance_by_default")?,
         allow_single_visits_by_default: row.try_get("allow_single_visits_by_default")?,
