@@ -569,7 +569,7 @@ test("bevels are phase-invariant", () => {
  * pixels that ship come from the LUT, and a bucket boundary is exactly where a
  * floor gets lost. This walks every table entry — which is every colour the
  * animation can ever produce at any phase, since the table is
- * phase-independent — on all 64 shipped themes.
+ * phase-independent — on all 66 shipped themes.
  */
 test("every colour the animation can produce holds its contrast floor", () => {
   const bad = [];
@@ -706,7 +706,7 @@ test("adjacent-cell colour steps are no worse than the shipped static banner", (
  * wave could be a smooth gradient that strobes.
  *
  * Bound is 3 dE00 per frame, three JNDs. Measured worst on the defaults is 2.071
- * across all 64 themes, and a cell needs many frames to cross the ramp, so this
+ * across all 66 themes, and a cell needs many frames to cross the ramp, so this
  * is a drift rather than a flicker.
  */
 test("no cell's colour moves more than 3 dE00 in one 60Hz frame", () => {
@@ -1001,7 +1001,7 @@ test("contrast floors hold at every documented knob extreme", () => {
     "direction=(0,-1)": { direction: { x: 0, y: -1 } },
   };
   const offenders = [];
-  // Six themes, not all 64: this is the same colour surface the all-theme gates
+  // Six themes, not all 66: this is the same colour surface the all-theme gates
   // already cover, crossed against nine settings and a phase sweep. The extremes
   // question is whether a KNOB can reach an unproven colour, and the LUT is
   // shared across knobs, so theme breadth is covered elsewhere.

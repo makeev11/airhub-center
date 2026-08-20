@@ -19,6 +19,7 @@ import type {
   UserProfileSummary,
 } from "@/shared/api/types";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -30,7 +31,11 @@ import {
 import { VirtualizedList } from "@/shared/ui/VirtualizedList";
 import { CommunityInviteDialog } from "./CommunityInviteDialog";
 
-function formatDisplayName(member: RelayMember, displayName?: string | null) {
+function formatDisplayName(
+  member: RelayMember,
+  displayName: string | null | undefined,
+  russian: boolean,
+) {
   const trimmedDisplayName = displayName?.trim();
   if (
     trimmedDisplayName &&
@@ -38,7 +43,13 @@ function formatDisplayName(member: RelayMember, displayName?: string | null) {
   ) {
     return trimmedDisplayName;
   }
-  return member.role === "owner" ? "Community owner" : "Unnamed member";
+  return member.role === "owner"
+    ? russian
+      ? "Владелец центра"
+      : "Community owner"
+    : russian
+      ? "Без имени"
+      : "Unnamed member";
 }
 
 function npubFromPubkey(pubkey: string): string | null {
@@ -49,8 +60,8 @@ function npubFromPubkey(pubkey: string): string | null {
   }
 }
 
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString(undefined, {
+function formatDate(dateString: string, locale: string): string {
+  return new Date(dateString).toLocaleDateString(locale, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -94,6 +105,8 @@ function RelayMemberRow({
   profile?: UserProfileSummary;
   member: RelayMember;
 }) {
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   const removeMutation = useRemoveRelayMemberMutation();
   const changeRoleMutation = useChangeRelayMemberRoleMutation();
   const isSelf = currentPubkey
@@ -107,7 +120,23 @@ function RelayMemberRow({
   const canPromote = currentRole === "owner" && member.role === "member";
   const canDemote = currentRole === "owner" && member.role === "admin";
   const hasActions = canRemove || canPromote || canDemote;
-  const displayName = formatDisplayName(member, profile?.displayName);
+  const displayName = formatDisplayName(
+    member,
+    profile?.displayName,
+    isRussian,
+  );
+  const roleLabel =
+    member.role === "owner"
+      ? isRussian
+        ? "Владелец"
+        : "Owner"
+      : member.role === "admin"
+        ? isRussian
+          ? "Администратор"
+          : "Admin"
+        : isRussian
+          ? "Сотрудник"
+          : "Member";
 
   async function mutateWithToast(
     action: () => Promise<unknown>,
@@ -120,7 +149,9 @@ function RelayMemberRow({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Couldn’t update this community member.",
+          : isRussian
+            ? "Не удалось изменить данные сотрудника."
+            : "Couldn’t update this community member.",
       );
     }
   }
@@ -132,7 +163,11 @@ function RelayMemberRow({
     >
       <UserProfilePopover
         pubkey={member.pubkey}
-        triggerAriaLabel={`Open profile for ${displayName}`}
+        triggerAriaLabel={
+          isRussian
+            ? `Открыть профиль: ${displayName}`
+            : `Open profile for ${displayName}`
+        }
         triggerElement="span"
       >
         <ProfileAvatar
@@ -155,17 +190,20 @@ function RelayMemberRow({
           ) : null}
         </div>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="shrink-0 capitalize">{member.role}</span>
+          <span className="shrink-0">{roleLabel}</span>
           <span aria-hidden="true" className="shrink-0">
             ·
           </span>
-          <span className="shrink-0">Added {formatDate(member.createdAt)}</span>
+          <span className="shrink-0">
+            {isRussian ? "Добавлен" : "Added"}{" "}
+            {formatDate(member.createdAt, locale)}
+          </span>
           {isSelf ? (
             <>
               <span aria-hidden="true" className="shrink-0">
                 ·
               </span>
-              <span className="shrink-0">You</span>
+              <span className="shrink-0">{isRussian ? "Вы" : "You"}</span>
             </>
           ) : null}
         </div>
@@ -175,7 +213,11 @@ function RelayMemberRow({
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button
-              aria-label={`Actions for ${displayName}`}
+              aria-label={
+                isRussian
+                  ? `Действия: ${displayName}`
+                  : `Actions for ${displayName}`
+              }
               data-testid={`relay-member-actions-${member.pubkey}`}
               disabled={isBusy}
               size="icon"
@@ -194,11 +236,13 @@ function RelayMemberRow({
                         pubkey: member.pubkey,
                         role: "admin",
                       }),
-                    "Made community admin",
+                    isRussian
+                      ? "Назначен администратором"
+                      : "Made community admin",
                   )
                 }
               >
-                Make admin
+                {isRussian ? "Сделать администратором" : "Make admin"}
               </DropdownMenuItem>
             ) : null}
             {canDemote ? (
@@ -210,11 +254,13 @@ function RelayMemberRow({
                         pubkey: member.pubkey,
                         role: "member",
                       }),
-                    "Made community member",
+                    isRussian
+                      ? "Назначен сотрудником"
+                      : "Made community member",
                   )
                 }
               >
-                Make member
+                {isRussian ? "Сделать сотрудником" : "Make member"}
               </DropdownMenuItem>
             ) : null}
             {canRemove && (canPromote || canDemote) ? (
@@ -226,11 +272,11 @@ function RelayMemberRow({
                 onClick={() =>
                   void mutateWithToast(
                     () => removeMutation.mutateAsync(member.pubkey),
-                    "Removed community member",
+                    isRussian ? "Сотрудник удалён" : "Removed community member",
                   )
                 }
               >
-                Remove from community
+                {isRussian ? "Удалить из центра" : "Remove from community"}
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuContent>
@@ -245,6 +291,7 @@ export function CommunityMembersSettingsCard({
 }: {
   currentPubkey?: string;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const myMembershipQuery = useMyRelayMembershipLookupQuery();
   const currentRole = myMembershipQuery.data?.membership?.role ?? null;
   const canManageRelay = currentRole === "owner" || currentRole === "admin";
@@ -286,7 +333,9 @@ export function CommunityMembersSettingsCard({
     return (
       <section className="min-w-0" data-testid="settings-community-members">
         <p className="text-sm text-muted-foreground">
-          Checking invite permissions…
+          {isRussian
+            ? "Проверяем права на приглашения…"
+            : "Checking invite permissions…"}
         </p>
       </section>
     );
@@ -304,18 +353,22 @@ export function CommunityMembersSettingsCard({
             data-testid="community-invite-dialog-trigger"
             onClick={() => setInviteDialogOpen(true)}
           >
-            Invite to community
+            {isRussian ? "Пригласить сотрудника" : "Invite to community"}
           </Button>
         }
-        title="Invites"
-        description="Manage members and community access."
+        title={isRussian ? "Сотрудники" : "Employees"}
+        description={
+          isRussian
+            ? "Управляйте сотрудниками и их доступом к центру."
+            : "Manage employees and their access to the center."
+        }
       />
 
       <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/70 shadow-xs">
         <div className="space-y-3 p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-medium">
-              Members
+              {isRussian ? "Сотрудники" : "Employees"}
               {members.length > 0 ? (
                 <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                   {members.length}
@@ -332,7 +385,7 @@ export function CommunityMembersSettingsCard({
               className="w-full rounded-lg border border-border/70 bg-background py-2 pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               data-testid="community-members-search"
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search members"
+              placeholder={isRussian ? "Найти сотрудника" : "Search employees"}
               spellCheck={false}
               type="text"
               value={search}
@@ -347,15 +400,17 @@ export function CommunityMembersSettingsCard({
 
           {membersQuery.isLoading ? (
             <p className="py-3 text-sm text-muted-foreground">
-              Loading community members…
+              {isRussian ? "Загружаем сотрудников…" : "Loading employees…"}
             </p>
           ) : members.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/70 px-3 py-6 text-center text-sm text-muted-foreground">
-              No community members yet.
+              {isRussian ? "Сотрудников пока нет." : "No employees yet."}
             </p>
           ) : filteredMembers.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/70 px-3 py-6 text-center text-sm text-muted-foreground">
-              No members match your search.
+              {isRussian
+                ? "По вашему запросу ничего не найдено."
+                : "No employees match your search."}
             </p>
           ) : (
             <VirtualizedList

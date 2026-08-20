@@ -62,3 +62,18 @@ test("native bundles expose exactly the product sidecars", () => {
     assert.deepEqual(config.bundle.externalBin, expected, configPath);
   }
 });
+
+test("Airhop profile surfaces do not pull excluded Huddle actions back in", () => {
+  for (const sourcePath of [
+    "../../features/profile/ui/UserProfilePopover.tsx",
+    "../../features/channels/ui/ChannelMembersBar.tsx",
+    "../../features/channels/ui/useHuddleChannelMessages.ts",
+    "../../features/messages/ui/WaveMessageAttachment.tsx",
+  ]) {
+    const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
+    assert.doesNotMatch(
+      source,
+      /features\/huddle|\buseHuddle\s*\(|HuddleProvider/,
+    );
+  }
+});

@@ -95,7 +95,7 @@ export type BannerWaveConfig = {
    *
    * CONTRAST-SAFE OVER ITS WHOLE RANGE, and that is a property of the design
    * rather than of the default: intensity only narrows which part of the hue
-   * axis gets used, and the contrast gate covers the ENTIRE hue axis on all 64
+   * axis gets used, and the contrast gate covers the ENTIRE hue axis on all 66
    * themes. So no value in [0,1] can reach an unsampled, unproven colour.
    * Values outside [0,1] are clamped for the same reason.
    */
@@ -410,7 +410,7 @@ export function buildBannerColorTable(
   // change output bytes — and the WCAG floor and dE00 certificates were measured
   // against the old bytes. So this reproduces `rgb2hex`'s rounding exactly at the
   // same point the old path applied it, and byte equality is verified by an
-  // oracle over roughly 21.1M lookups x 64 themes rather than assumed.
+  // oracle over roughly 21.1M lookups x 66 themes rather than assumed.
   const quantize = (value: number) =>
     Math.max(0, Math.min(255, Math.round(value)));
   const mixRgb = (a: readonly number[], b: readonly number[], u: number) => [

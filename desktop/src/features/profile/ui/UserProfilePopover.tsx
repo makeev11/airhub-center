@@ -1,16 +1,10 @@
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Activity, Headphones, MessageSquare } from "lucide-react";
+import { Activity, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
-import { useHuddle } from "@/features/huddle";
-import { formatHuddleActionError } from "@/features/huddle/lib/huddleError";
-import {
-  channelsQueryKey,
-  useChannelsQuery,
-  useOpenDmMutation,
-} from "@/features/channels/hooks";
+import { useChannelsQuery, useOpenDmMutation } from "@/features/channels/hooks";
 import {
   useProfileQuery,
   useUserProfileQuery,
@@ -179,7 +173,7 @@ export function UserProfilePopover({
 }: UserProfilePopoverProps) {
   const [open, setOpen] = React.useState(false);
   const [pendingAction, setPendingAction] = React.useState<
-    "message" | "huddle" | "wave" | null
+    "message" | "wave" | null
   >(null);
   const isMountedRef = React.useRef(false);
   const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
@@ -188,7 +182,6 @@ export function UserProfilePopover({
   const queryClient = useQueryClient();
   const { goChannel } = useAppNavigation();
   const openDmMutation = useOpenDmMutation();
-  const { isStarting: isStartingHuddle, startHuddle } = useHuddle();
   const profileQuery = useUserProfileQuery(open ? pubkey : undefined);
   const usersBatchQuery = useUsersBatchQuery(open ? [pubkey] : [], {
     enabled: open,
@@ -260,18 +253,11 @@ export function UserProfilePopover({
   const selfProfileQuery = useProfileQuery(open && showProfileActions);
   const isCurrentUserOwner = ownsAuthorAgent(profile, currentPubkey);
   const viewerIsOwner = isCurrentUserOwner || isOwner === true;
-  const showHuddleAction =
-    showHumanProfileActions ||
-    (showProfileActions &&
-      isBotProfile &&
-      viewerIsOwner &&
-      !isAgentClassificationPending);
   const showMessageAction =
     showProfileActions &&
     !isAgentClassificationPending &&
     (!isBotProfile || viewerIsOwner);
-  const showAnyProfileActions =
-    showHumanProfileActions || showMessageAction || showHuddleAction;
+  const showAnyProfileActions = showHumanProfileActions || showMessageAction;
   const canViewActivity =
     isBotProfile && viewerIsOwner && canOpenAgentActivity(pubkey);
   const presenceStatus = presenceQuery.data?.[pubkey.toLowerCase()];
@@ -358,48 +344,6 @@ export function UserProfilePopover({
     pendingAction,
     pubkey,
     showMessageAction,
-  ]);
-
-  const handleHuddle = React.useCallback(async () => {
-    if (
-      !showProfileActions ||
-      !showHuddleAction ||
-      pendingAction !== null ||
-      isStartingHuddle
-    ) {
-      return;
-    }
-
-    clearHoverTimer();
-    setPendingAction("huddle");
-
-    try {
-      const dm = await openDmMutation.mutateAsync({ pubkeys: [pubkey] });
-      await goChannel(dm.id);
-      await startHuddle(dm.id, isBotProfile ? [pubkey] : []);
-      await queryClient.invalidateQueries({ queryKey: channelsQueryKey });
-      if (isMountedRef.current) {
-        setOpen(false);
-      }
-    } catch (error) {
-      toast.error(formatHuddleActionError(error, "start"));
-    } finally {
-      if (isMountedRef.current) {
-        setPendingAction(null);
-      }
-    }
-  }, [
-    clearHoverTimer,
-    goChannel,
-    isStartingHuddle,
-    openDmMutation,
-    pendingAction,
-    pubkey,
-    queryClient,
-    isBotProfile,
-    showHuddleAction,
-    showProfileActions,
-    startHuddle,
   ]);
 
   const handleWave = React.useCallback(async () => {
@@ -728,33 +672,6 @@ export function UserProfilePopover({
                         <MessageSquare />
                       )}
                       Message
-                    </Button>
-                  ) : null}
-                  {showHuddleAction ? (
-                    <Button
-                      className="min-w-0 flex-1"
-                      data-testid={`user-profile-popover-huddle-${pubkey}`}
-                      disabled={
-                        pendingAction !== null ||
-                        openDmMutation.isPending ||
-                        isStartingHuddle
-                      }
-                      onClick={() => {
-                        void handleHuddle();
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      {pendingAction === "huddle" ? (
-                        <Spinner
-                          aria-hidden="true"
-                          className="h-3.5 w-3.5 border-2"
-                        />
-                      ) : (
-                        <Headphones />
-                      )}
-                      Huddle
                     </Button>
                   ) : null}
                 </div>

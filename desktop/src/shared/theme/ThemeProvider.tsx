@@ -222,6 +222,15 @@ function applyAccentColor(value: string) {
  * untouched in storage so it returns when they switch back to another theme.
  */
 export function isBuzzTheme(themeName: string): boolean {
+  return (
+    themeName === "buzz" ||
+    themeName === "buzz-dark" ||
+    themeName === "new-slack" ||
+    themeName === "new-slack-dark"
+  );
+}
+
+export function usesBuzzVibrancy(themeName: string): boolean {
   return themeName === "buzz" || themeName === "buzz-dark";
 }
 
@@ -271,6 +280,8 @@ function applyBuzzSidebar(themeName: string) {
     // makes WKWebView invalidate the painted background when light/dark mode
     // changes instead of relying only on a custom-property dependency update.
     root.setAttribute("data-buzz-theme", themeName);
+    // New Slack uses the shared chrome markup but remains fully opaque.
+    if (!usesBuzzVibrancy(themeName)) setBuzzTranslucent(false);
   } else {
     root.removeAttribute("data-buzz-sidebar");
     root.removeAttribute("data-buzz-theme");
@@ -342,7 +353,7 @@ let buzzVibrancyEnabled = false;
  */
 function maybeEnableBuzzTranslucent(themeName: string, requestToken: number) {
   if (requestToken !== buzzVibrancyRequest) return;
-  if (!isBuzzTheme(themeName) || !isMacPlatform()) return;
+  if (!usesBuzzVibrancy(themeName) || !isMacPlatform()) return;
   if (!buzzVibrancyReady) return;
   if (!document.documentElement.hasAttribute("data-buzz-sidebar")) return;
   setBuzzTranslucent(true);
@@ -367,8 +378,10 @@ function maybeEnableBuzzTranslucent(themeName: string, requestToken: number) {
  * continuation can't re-enable translucency after a newer theme superseded it.
  */
 async function applyBuzzVibrancy(themeName: string) {
-  const buzz = isBuzzTheme(themeName);
+  const buzz = usesBuzzVibrancy(themeName);
   const requestToken = ++buzzVibrancyRequest;
+
+  if (!buzz) setBuzzTranslucent(false);
 
   // Buzz Light and Buzz Dark use the same native material. Rebuilding the
   // NSVisualEffectView on every mode change briefly clears the layer behind

@@ -6,8 +6,6 @@
 	<string>Airhop</string>
     <key>CFBundleName</key>
     <string>Airhop</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Airhop needs microphone access for voice huddles.</string>
     <key>NSCameraUsageDescription</key>
     <string>Airhop needs camera access to record animated avatars.</string>
     <key>NSLocalNetworkUsageDescription</key>

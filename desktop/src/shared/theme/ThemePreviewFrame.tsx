@@ -20,6 +20,14 @@ export const BUZZ_GRADIENT_STOPS: Record<
     top: "var(--buzz-gradient-dark-top)",
     bottom: "var(--buzz-gradient-dark-bottom)",
   },
+  "new-slack": {
+    top: "var(--new-slack-gradient-top)",
+    bottom: "var(--new-slack-gradient-bottom)",
+  },
+  "new-slack-dark": {
+    top: "var(--new-slack-dark-gradient-top)",
+    bottom: "var(--new-slack-dark-gradient-bottom)",
+  },
 };
 
 export const LIGHT_PREVIEW_VARS: ThemePreviewVars = {

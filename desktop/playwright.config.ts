@@ -26,6 +26,7 @@ export default defineConfig({
         "**/navigation.spec.ts",
         "**/airhop-schedule.spec.ts",
         "**/airhop-public-booking.spec.ts",
+        "**/airhop-settings-localization.spec.ts",
         "**/airhop-clients.spec.ts",
         "**/airhop-lesson-participants.spec.ts",
         "**/channels.spec.ts",

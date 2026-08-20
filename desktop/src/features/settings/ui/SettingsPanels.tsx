@@ -24,12 +24,14 @@ import type {
 import type { SoundName, SoundSlot } from "@/features/notifications/lib/sound";
 import { CommunityMembersSettingsCard } from "@/features/community-members/ui/CommunityMembersSettingsCard";
 import { CustomEmojiSettingsCard } from "@/features/custom-emoji/ui/CustomEmojiSettingsCard";
+import { getAppearanceMessages } from "@/features/settings/lib/appearanceLocale";
 import {
   setThreadViewMode,
   useThreadViewMode,
   type ThreadViewMode,
 } from "@/features/channels/lib/threadViewModePreference";
 import { cn } from "@/shared/lib/cn";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -67,6 +69,7 @@ import {
   withAccentPreviewVars,
 } from "@/shared/theme/useThemePreviewVars";
 import { AirhopAgentsScreen } from "@/features/airhop-agents/ui/AirhopAgentsScreen";
+import { BookingWidgetAppearanceSettings } from "./BookingWidgetAppearanceSettings";
 import { KeyboardShortcutsCard } from "./KeyboardShortcutsCard";
 import { MobilePairingCard } from "./MobilePairingCard";
 import { NotificationSettingsCard } from "./NotificationSettingsCard";
@@ -301,7 +304,51 @@ const ACCENT_PICKER_TRANSITION = {
   ease: [0.23, 1, 0.32, 1] as const,
 };
 
+type AppearanceTarget = "center" | "widget";
+
+function AppearanceTargetTabs({
+  active,
+  centerLabel,
+  onChange,
+  widgetLabel,
+}: {
+  active: AppearanceTarget;
+  centerLabel: string;
+  onChange: (target: AppearanceTarget) => void;
+  widgetLabel: string;
+}) {
+  return (
+    <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl border border-border/70 bg-muted/25 p-1">
+      {(
+        [
+          { value: "center" as const, label: centerLabel },
+          { value: "widget" as const, label: widgetLabel },
+        ] as const
+      ).map((option) => (
+        <button
+          aria-pressed={active === option.value}
+          className={cn(
+            "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+            active === option.value
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          data-testid={`appearance-target-${option.value}`}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          type="button"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ThemeSettingsCard() {
+  const locale = useAirHopLocale();
+  const messages = getAppearanceMessages(locale);
+  const [target, setTarget] = useState<AppearanceTarget>("center");
   const {
     setTheme,
     selectedThemeName,
@@ -405,23 +452,63 @@ function ThemeSettingsCard() {
     return selectedThemeName === lightName || selectedThemeName === darkName;
   };
 
+  if (target === "widget") {
+    return (
+      <section
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+        data-testid="settings-theme"
+      >
+        <SettingsSectionHeader
+          title={messages.title}
+          description={messages.description}
+        />
+        <AppearanceTargetTabs
+          active={target}
+          centerLabel={messages.centerTarget}
+          onChange={setTarget}
+          widgetLabel={messages.widgetTarget}
+        />
+        <BookingWidgetAppearanceSettings messages={messages} />
+      </section>
+    );
+  }
+
   return (
     <section
       className="flex min-h-0 flex-1 flex-col overflow-y-auto"
       data-testid="settings-theme"
     >
       <SettingsSectionHeader
-        title="Appearance"
-        description="Choose a theme for Buzz."
+        title={messages.title}
+        description={messages.description}
+      />
+
+      <AppearanceTargetTabs
+        active={target}
+        centerLabel={messages.centerTarget}
+        onChange={setTarget}
+        widgetLabel={messages.widgetTarget}
       />
 
       {/* Mode selector: System / Light / Dark */}
       <div className="mb-4 flex gap-2">
         {(
           [
-            { mode: "system" as const, label: "System", Icon: SunMoon },
-            { mode: "light" as const, label: "Light", Icon: Sun },
-            { mode: "dark" as const, label: "Dark", Icon: Moon },
+            {
+              mode: "system" as const,
+              label: messages.systemMode,
+              Icon: SunMoon,
+            },
+            {
+              mode: "light" as const,
+              label: messages.lightMode,
+              Icon: Sun,
+            },
+            {
+              mode: "dark" as const,
+              label: messages.darkMode,
+              Icon: Moon,
+            },
           ] as const
         ).map(({ mode, label, Icon }) => (
           <button
@@ -517,6 +604,7 @@ function ThemeSettingsCard() {
           <AccentPickerContent
             accentColor={accentColor}
             isDark={isDark}
+            label={messages.accentColor}
             setAccentColor={setAccentColor}
           />
         )
@@ -534,6 +622,7 @@ function ThemeSettingsCard() {
               <AccentPickerContent
                 accentColor={accentColor}
                 isDark={isDark}
+                label={messages.accentColor}
                 setAccentColor={setAccentColor}
               />
             </motion.div>
@@ -541,45 +630,46 @@ function ThemeSettingsCard() {
         </AnimatePresence>
       )}
 
-      <ThreadLayoutSetting />
+      <ThreadLayoutSetting messages={messages} />
     </section>
   );
 }
-
-const THREAD_VIEW_MODE_OPTIONS: {
-  value: ThreadViewMode;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: "focus",
-    label: "Focus",
-    description: "Threads open over the channel, full width",
-  },
-  {
-    value: "split",
-    label: "Split",
-    description: "Threads open in a side panel next to the channel",
-  },
-];
 
 /**
  * Thread layout picker. Uses the same dropdown radio group vocabulary as the
  * other enumerated Settings rows (e.g. {@link SoundPicker}) so each option can
  * carry its own description.
  */
-function ThreadLayoutSetting() {
+function ThreadLayoutSetting({
+  messages,
+}: {
+  messages: ReturnType<typeof getAppearanceMessages>;
+}) {
+  const options: Array<{
+    value: ThreadViewMode;
+    label: string;
+    description: string;
+  }> = [
+    {
+      value: "focus",
+      label: messages.threadFocus,
+      description: messages.threadFocusDescription,
+    },
+    {
+      value: "split",
+      label: messages.threadSplit,
+      description: messages.threadSplitDescription,
+    },
+  ];
   const threadViewMode = useThreadViewMode();
   const activeOption =
-    THREAD_VIEW_MODE_OPTIONS.find(
-      (option) => option.value === threadViewMode,
-    ) ?? THREAD_VIEW_MODE_OPTIONS[0];
+    options.find((option) => option.value === threadViewMode) ?? options[0];
 
   return (
     <SettingsOptionGroup className="mt-8">
       <SettingsOptionRow>
         <div className="min-w-0">
-          <p className="text-sm font-medium">Thread layout</p>
+          <p className="text-sm font-medium">{messages.threadLayout}</p>
           <p className="text-sm font-normal text-muted-foreground">
             {activeOption.description}
           </p>
@@ -604,7 +694,7 @@ function ThreadLayoutSetting() {
               }
               value={threadViewMode}
             >
-              {THREAD_VIEW_MODE_OPTIONS.map((option) => (
+              {options.map((option) => (
                 <DropdownMenuRadioItem
                   data-testid={`thread-layout-${option.value}`}
                   key={option.value}
@@ -630,15 +720,17 @@ function ThreadLayoutSetting() {
 function AccentPickerContent({
   accentColor,
   isDark,
+  label,
   setAccentColor,
 }: {
   accentColor: string;
   isDark: boolean;
+  label: string;
   setAccentColor: (value: string) => void;
 }) {
   return (
     <div className="shrink-0 px-1 pb-2 pt-1">
-      <h3 className="mb-2 text-sm font-medium">Accent color</h3>
+      <h3 className="mb-2 text-sm font-medium">{label}</h3>
       <div className="flex flex-wrap gap-2 p-1">
         {ACCENT_COLORS.map((color) => {
           const isNeutral = color.value === NEUTRAL_ACCENT;

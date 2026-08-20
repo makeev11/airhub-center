@@ -52,6 +52,10 @@
     --buzz-gradient-light-bottom: #c4d0da;
     --buzz-gradient-dark-top: #4a4616;
     --buzz-gradient-dark-bottom: #0a1423;
+    --new-slack-gradient-top: #3f0e40;
+    --new-slack-gradient-bottom: #5b2c5d;
+    --new-slack-dark-gradient-top: #241026;
+    --new-slack-dark-gradient-bottom: #3f1742;
     --buzz-content-dark: 0 0% 10.1960784314%;
     /* Hosted-community onboarding intentionally keeps this light palette in
        both app themes; semantic tokens keep component code color-agnostic. */
@@ -245,6 +249,56 @@
   --buzz-active-foreground: 0 0% 100%;
 }
 
+/* New Slack changes only the surrounding Airhop chrome. The content canvas
+ * keeps the selected light or dark semantic palette. */
+:root[data-buzz-theme="new-slack"] {
+  --buzz-gradient-light-top: var(--new-slack-gradient-top);
+  --buzz-gradient-light-bottom: var(--new-slack-gradient-bottom);
+  --buzz-gradient-top: var(--new-slack-gradient-top);
+  --buzz-gradient-bottom: var(--new-slack-gradient-bottom);
+  --buzz-muted-foreground: rgb(255 255 255 / 62%);
+  --buzz-search-surface: rgb(255 255 255 / 14%);
+  --buzz-chrome-foreground: rgb(255 255 255 / 78%);
+  --buzz-channel-fg: rgb(255 255 255 / 86%);
+  --buzz-dm-fg: rgb(255 255 255 / 86%);
+  --buzz-nav-fg: rgb(255 255 255 / 92%);
+  --buzz-hover-surface: rgb(255 255 255 / 8%);
+  --buzz-sidebar-scrollbar-thumb: rgb(255 255 255 / 16%);
+  --buzz-active-fill: 0 0% 100%;
+  --buzz-active-surface: rgb(255 255 255 / 16%);
+  --buzz-active-foreground: 0 0% 100%;
+}
+
+:root[data-buzz-theme="new-slack-dark"].dark {
+  --buzz-gradient-dark-top: var(--new-slack-dark-gradient-top);
+  --buzz-gradient-dark-bottom: var(--new-slack-dark-gradient-bottom);
+  --buzz-gradient-top: var(--new-slack-dark-gradient-top);
+  --buzz-gradient-bottom: var(--new-slack-dark-gradient-bottom);
+  --buzz-muted-foreground: rgb(255 255 255 / 60%);
+  --buzz-search-surface: rgb(255 255 255 / 12%);
+  --buzz-chrome-foreground: rgb(255 255 255 / 76%);
+  --buzz-channel-fg: rgb(255 255 255 / 84%);
+  --buzz-dm-fg: rgb(255 255 255 / 84%);
+  --buzz-nav-fg: rgb(255 255 255 / 90%);
+  --buzz-hover-surface: rgb(255 255 255 / 8%);
+  --buzz-sidebar-scrollbar-thumb: rgb(255 255 255 / 15%);
+  --buzz-active-fill: 0 0% 100%;
+  --buzz-active-surface: rgb(255 255 255 / 15%);
+  --buzz-active-foreground: 0 0% 100%;
+}
+
+:root[data-buzz-theme^="new-slack"] [data-testid="app-sidebar"],
+:root[data-buzz-theme^="new-slack"] [data-testid="settings-sidebar"],
+:root[data-buzz-theme^="new-slack"] [data-testid="app-top-chrome"] {
+  --sidebar-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 100%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-active: 0 0% 100%;
+  --sidebar-active-foreground: 0 0% 100%;
+  --sidebar-border: 0 0% 100%;
+  --sidebar-ring: 0 0% 100%;
+}
+
 /*
  * Use the Buzz primary color for the floating selection-formatting tray.
  * Other themes retain the standard popover treatment.
@@ -434,6 +488,21 @@
 :root[data-buzz-sidebar] [data-testid="settings-sidebar"] [data-active="true"] {
   background-color: var(--buzz-active-surface);
   box-shadow: none;
+}
+
+/* New Slack is opaque and does not rely on native macOS vibrancy. */
+:root[data-buzz-theme^="new-slack"]
+  .group\/sidebar-wrapper
+  [data-testid="app-top-chrome"].bg-sidebar,
+:root[data-buzz-theme^="new-slack"] [data-testid="app-sidebar"],
+:root[data-buzz-theme^="new-slack"] [data-testid="settings-sidebar"] {
+  background-color: var(--buzz-gradient-top);
+  background-image: linear-gradient(
+    to bottom,
+    var(--buzz-gradient-top),
+    var(--buzz-gradient-bottom)
+  );
+  color: hsl(var(--sidebar-foreground));
 }
 
 /*

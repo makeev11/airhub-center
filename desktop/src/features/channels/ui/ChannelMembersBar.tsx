@@ -1,27 +1,10 @@
 import { EllipsisVertical, Settings2, Users } from "lucide-react";
 import * as React from "react";
-import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
-import { useHuddle } from "@/features/huddle";
-import { HuddleIndicator } from "@/features/huddle/components/HuddleIndicator";
-import { formatHuddleActionError } from "@/features/huddle/lib/huddleError";
-import { buildHuddleChannelName } from "@/features/huddle/lib/huddleChannelName";
-import {
-  useAvailableAcpRuntimes,
-  useManagedAgentsQuery,
-  useRelayAgentsQuery,
-} from "@/features/agents/hooks";
-import { mergeChannelKnownAgentPubkeys } from "@/features/agents/knownAgentPubkeys";
+import { useAvailableAcpRuntimes } from "@/features/agents/hooks";
 import { requestOpenCreateAgent } from "@/features/agents/openCreateAgentEvent";
 import { useChannelMembersQuery } from "@/features/channels/hooks";
-import {
-  getDmHuddleMemberPubkeys,
-  hasOtherDmParticipant,
-} from "@/features/channels/lib/dmHuddleMembers";
-import { canStartHuddleInChannel } from "@/features/channels/lib/huddleAvailability";
-import { useUsersBatchQuery } from "@/features/profile/hooks";
 import type { Channel } from "@/shared/api/types";
-import { normalizePubkey } from "@/shared/lib/pubkey";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import {
@@ -44,13 +27,13 @@ type ChannelMembersBarProps = {
 
 export function ChannelMembersBar({
   channel,
-  currentPubkey,
   isAddBotOpen: isAddBotOpenProp,
   onAddBotOpenChange,
   onManageChannel,
   onToggleMembers,
   variant = "inline",
 }: ChannelMembersBarProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const [uncontrolledAddBotOpen, setUncontrolledAddBotOpen] =
     React.useState(false);
   const isAddBotOpen = isAddBotOpenProp ?? uncontrolledAddBotOpen;
@@ -63,48 +46,8 @@ export function ChannelMembersBar({
     },
     [isAddBotOpenProp, onAddBotOpenChange],
   );
-  const { startHuddle, isStarting: isStartingHuddle } = useHuddle();
-  const queryClient = useQueryClient();
   const membersQuery = useChannelMembersQuery(channel.id);
   const providersQuery = useAvailableAcpRuntimes();
-  const managedAgentsQuery = useManagedAgentsQuery();
-  const relayAgentsQuery = useRelayAgentsQuery();
-  const members = membersQuery.data ?? [];
-  const dmProfilesQuery = useUsersBatchQuery(
-    channel.channelType === "dm" ? channel.participantPubkeys : [],
-    { enabled: channel.channelType === "dm" },
-  );
-  const huddleAgentPubkeys = React.useMemo(() => {
-    const pubkeys = new Set(
-      mergeChannelKnownAgentPubkeys(
-        membersQuery.data,
-        managedAgentsQuery.data,
-        relayAgentsQuery.data,
-      ),
-    );
-    for (const [pubkey, profile] of Object.entries(
-      dmProfilesQuery.data?.profiles ?? {},
-    )) {
-      if (profile.isAgent) pubkeys.add(normalizePubkey(pubkey));
-    }
-    return pubkeys;
-  }, [
-    dmProfilesQuery.data?.profiles,
-    managedAgentsQuery.data,
-    membersQuery.data,
-    relayAgentsQuery.data,
-  ]);
-  const huddleMemberPubkeys = React.useMemo(
-    () => getDmHuddleMemberPubkeys(channel, huddleAgentPubkeys, currentPubkey),
-    [channel, currentPubkey, huddleAgentPubkeys],
-  );
-  const huddleMemberPubkeysPending =
-    hasOtherDmParticipant(channel, currentPubkey) &&
-    (membersQuery.isPending ||
-      managedAgentsQuery.isPending ||
-      relayAgentsQuery.isPending ||
-      dmProfilesQuery.isPending ||
-      dmProfilesQuery.isPlaceholderData);
   const memberCount = membersQuery.data?.length ?? channel.memberCount;
   const providers = React.useMemo(
     () =>
@@ -119,18 +62,6 @@ export function ChannelMembersBar({
       }),
     [providersQuery.data],
   );
-  const normalizedCurrentPubkey = currentPubkey
-    ? normalizePubkey(currentPubkey)
-    : null;
-  const selfMember =
-    members.find(
-      (member) => normalizePubkey(member.pubkey) === normalizedCurrentPubkey,
-    ) ?? null;
-  const canStartHuddle = canStartHuddleInChannel({
-    channel,
-    currentPubkey,
-    selfMember,
-  });
   const previousChannelIdRef = React.useRef(channel.id);
 
   React.useEffect(() => {
@@ -143,49 +74,14 @@ export function ChannelMembersBar({
   }, [channel.id, setIsAddBotOpen]);
 
   const dialogErrorMessage =
-    providersQuery.error instanceof Error
-      ? providersQuery.error.message
-      : managedAgentsQuery.error instanceof Error
-        ? managedAgentsQuery.error.message
-        : relayAgentsQuery.error instanceof Error
-          ? relayAgentsQuery.error.message
-          : null;
-
-  const huddleIndicator = (
-    <HuddleIndicator
-      channelId={channel.id}
-      onStart={async () => {
-        try {
-          await startHuddle(
-            channel.id,
-            [...huddleMemberPubkeys],
-            buildHuddleChannelName({
-              channel,
-              currentPubkey,
-              members,
-            }),
-          );
-          // Keep the channel cache current so the ephemeral transcript is
-          // available immediately if the huddle returns to the in-app drawer.
-          void queryClient.invalidateQueries({ queryKey: ["channels"] });
-        } catch (e) {
-          console.error("Failed to start huddle:", e);
-          toast.error(formatHuddleActionError(e, "start"));
-        }
-      }}
-      renderMode={variant === "compact" ? "menu-item" : "button"}
-      startDisabled={
-        !canStartHuddle || isStartingHuddle || huddleMemberPubkeysPending
-      }
-    />
-  );
+    providersQuery.error instanceof Error ? providersQuery.error.message : null;
 
   const controls =
     variant === "compact" ? (
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
-            aria-label="Channel actions"
+            aria-label={isRussian ? "Действия с каналом" : "Channel actions"}
             data-testid="channel-actions-menu-trigger"
             size="icon"
             type="button"
@@ -200,18 +96,17 @@ export function ChannelMembersBar({
             onSelect={onToggleMembers}
           >
             <Users />
-            <span>Members</span>
+            <span>{isRussian ? "Участники" : "Members"}</span>
             <span className="ml-auto text-xs text-muted-foreground">
               {memberCount}
             </span>
           </DropdownMenuItem>
-          {huddleIndicator}
           <DropdownMenuItem
             data-testid="channel-management-trigger"
             onSelect={onManageChannel}
           >
             <Settings2 />
-            <span>Manage channel</span>
+            <span>{isRussian ? "Настроить канал" : "Manage channel"}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -220,7 +115,11 @@ export function ChannelMembersBar({
         <Tooltip disableHoverableContent>
           <TooltipTrigger asChild>
             <Button
-              aria-label={`View channel members (${memberCount})`}
+              aria-label={
+                isRussian
+                  ? `Участники канала (${memberCount})`
+                  : `View channel members (${memberCount})`
+              }
               className="h-8 px-2.5"
               data-testid="channel-members-trigger"
               onClick={onToggleMembers}
@@ -233,15 +132,15 @@ export function ChannelMembersBar({
               </span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Channel members</TooltipContent>
+          <TooltipContent>
+            {isRussian ? "Участники канала" : "Channel members"}
+          </TooltipContent>
         </Tooltip>
-
-        {huddleIndicator}
 
         <Tooltip disableHoverableContent>
           <TooltipTrigger asChild>
             <Button
-              aria-label="Manage channel"
+              aria-label={isRussian ? "Настроить канал" : "Manage channel"}
               data-testid="channel-management-trigger"
               onClick={onManageChannel}
               size="icon"
@@ -251,7 +150,9 @@ export function ChannelMembersBar({
               <EllipsisVertical />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Channel settings</TooltipContent>
+          <TooltipContent>
+            {isRussian ? "Настройки канала" : "Channel settings"}
+          </TooltipContent>
         </Tooltip>
       </div>
     );

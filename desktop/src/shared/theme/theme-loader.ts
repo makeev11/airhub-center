@@ -40,6 +40,12 @@ export const BUZZ_THEME_NAME = "buzz";
  */
 export const BUZZ_DARK_THEME_NAME = "buzz-dark";
 
+/** Slack-inspired Airhop chrome with a light content canvas. */
+export const NEW_SLACK_THEME_NAME = "new-slack";
+
+/** Dark-content counterpart used when New Slack follows the system. */
+export const NEW_SLACK_DARK_THEME_NAME = "new-slack-dark";
+
 /** The Shiki bundle Buzz borrows its base palette from. */
 export const BUZZ_BASE_THEME: SyntaxThemeName = "github-light";
 
@@ -60,6 +66,8 @@ export const BUZZ_DARK_BASE_THEME: SyntaxThemeName = "github-dark";
 export function resolveShikiThemeName(name: string): SyntaxThemeName {
   if (name === BUZZ_THEME_NAME) return BUZZ_BASE_THEME;
   if (name === BUZZ_DARK_THEME_NAME) return BUZZ_DARK_BASE_THEME;
+  if (name === NEW_SLACK_THEME_NAME) return "slack-ochin";
+  if (name === NEW_SLACK_DARK_THEME_NAME) return "slack-dark";
   return name as SyntaxThemeName;
 }
 
@@ -69,6 +77,8 @@ export function resolveShikiThemeName(name: string): SyntaxThemeName {
 export const SYNTAX_THEMES = [
   "buzz",
   "buzz-dark",
+  "new-slack",
+  "new-slack-dark",
   "openai-light",
   "openai-dark",
   "andromeeda",
@@ -139,6 +149,7 @@ export type SyntaxThemeName = (typeof SYNTAX_THEMES)[number];
 // for themes that haven't been loaded yet.
 export const LIGHT_THEMES: ReadonlySet<SyntaxThemeName> = new Set([
   "buzz",
+  "new-slack",
   "openai-light",
   "catppuccin-latte",
   "everforest-light",
@@ -169,6 +180,8 @@ const themeImports: Record<
   buzz: () => import("shiki/themes/github-light.mjs"),
   // Buzz Dark reuses the github-dark palette; dark gradient applied separately.
   "buzz-dark": () => import("shiki/themes/github-dark.mjs"),
+  "new-slack": () => import("shiki/themes/slack-ochin.mjs"),
+  "new-slack-dark": () => import("shiki/themes/slack-dark.mjs"),
   "openai-light": async () => {
     const { default: baseTheme } = await import(
       "shiki/themes/github-light.mjs"
@@ -274,6 +287,7 @@ export const THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
     // Light → Dark
     // Buzz is the first-party pair; keep it first so it leads every category.
     ["buzz", "buzz-dark"],
+    ["new-slack", "new-slack-dark"],
     ["openai-light", "openai-dark"],
     ["catppuccin-latte", "catppuccin-mocha"],
     ["everforest-light", "everforest-dark"],
@@ -294,6 +308,7 @@ export const THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
     ["vitesse-light", "vitesse-dark"],
     // Dark → Light (reverse mappings)
     ["buzz-dark", "buzz"],
+    ["new-slack-dark", "new-slack"],
     ["openai-dark", "openai-light"],
     ["catppuccin-mocha", "catppuccin-latte"],
     ["everforest-dark", "everforest-light"],

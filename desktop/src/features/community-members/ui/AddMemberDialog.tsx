@@ -14,6 +14,7 @@ import { SelectedRecipientChip } from "@/features/profile/ui/SelectedRecipientCh
 import type { RelayMemberRole, UserSearchResult } from "@/shared/api/types";
 import { parsePubkeyInput } from "@/shared/lib/nostrUtils";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -65,6 +66,7 @@ export function DirectAddMemberForm({
   showLabel?: boolean;
   submitLabel?: string;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const addMutation = useAddRelayMemberMutation();
   const membersQuery = useRelayMembersQuery();
   const [query, setQuery] = React.useState("");
@@ -127,11 +129,27 @@ export function DirectAddMemberForm({
     };
   }, [isAlreadyMember, parsedPubkey, searchResults, selectedPubkeys]);
   const roleOptions = React.useMemo(
-    () => ROLE_OPTIONS.filter((option) => isOwner || option.value === "member"),
-    [isOwner],
+    () =>
+      ROLE_OPTIONS.filter((option) => isOwner || option.value === "member").map(
+        (option) => ({
+          ...option,
+          label:
+            option.value === "admin"
+              ? isRussian
+                ? "Администратор"
+                : "Admin"
+              : isRussian
+                ? "Сотрудник"
+                : "Member",
+        }),
+      ),
+    [isOwner, isRussian],
   );
   const selectedRoleLabel =
-    roleOptions.find((option) => option.value === role)?.label ?? "Member";
+    roleOptions.find((option) => option.value === role)?.label ??
+    (isRussian ? "Сотрудник" : "Member");
+  const effectiveSubmitLabel =
+    isRussian && submitLabel === "Add member" ? "Добавить" : submitLabel;
   const actionTransition = shouldReduceMotion
     ? { duration: 0 }
     : { duration: 0.18, ease: [0.23, 1, 0.32, 1] as const };
@@ -179,11 +197,19 @@ export function DirectAddMemberForm({
       toast.success(
         selectedUsers.length === 1
           ? role === "admin"
-            ? "Admin added"
-            : "Member added"
+            ? isRussian
+              ? "Администратор добавлен"
+              : "Admin added"
+            : isRussian
+              ? "Сотрудник добавлен"
+              : "Member added"
           : role === "admin"
-            ? "Admins added"
-            : "Members added",
+            ? isRussian
+              ? "Администраторы добавлены"
+              : "Admins added"
+            : isRussian
+              ? "Сотрудники добавлены"
+              : "Members added",
       );
       reset();
       onAdded?.();
@@ -204,7 +230,7 @@ export function DirectAddMemberForm({
       <div className="space-y-1.5">
         {showLabel ? (
           <label className="text-sm font-medium" htmlFor="member-search">
-            Person
+            {isRussian ? "Человек" : "Person"}
           </label>
         ) : null}
         <div className="flex gap-2">
@@ -272,7 +298,9 @@ export function DirectAddMemberForm({
                       }}
                       placeholder={
                         selectedUsers.length === 0
-                          ? "Search people or paste an npub"
+                          ? isRussian
+                            ? "Найдите человека или вставьте npub"
+                            : "Search people or paste an npub"
                           : ""
                       }
                       ref={searchInputRef}
@@ -293,7 +321,11 @@ export function DirectAddMemberForm({
                         <DropdownMenu modal={false}>
                           <DropdownMenuTrigger asChild>
                             <button
-                              aria-label="Choose member role"
+                              aria-label={
+                                isRussian
+                                  ? "Выбрать роль сотрудника"
+                                  : "Choose member role"
+                              }
                               className="inline-flex items-center gap-1.5 bg-transparent text-sm text-muted-foreground outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                               data-testid="member-role"
                               disabled={addMutation.isPending}
@@ -348,7 +380,7 @@ export function DirectAddMemberForm({
               >
                 {userSearchQuery.isLoading ? (
                   <p className="px-3 py-3 text-sm text-muted-foreground">
-                    Searching…
+                    {isRussian ? "Ищем…" : "Searching…"}
                   </p>
                 ) : searchResults.length > 0 || directResult ? (
                   <>
@@ -368,8 +400,9 @@ export function DirectAddMemberForm({
                   </>
                 ) : (
                   <p className="px-3 py-3 text-sm text-muted-foreground">
-                    No people found. Paste a full npub or hex public key to add
-                    someone directly.
+                    {isRussian
+                      ? "Никого не нашли. Вставьте полный npub или открытый ключ, чтобы добавить человека напрямую."
+                      : "No people found. Paste a full npub or hex public key to add someone directly."}
                   </p>
                 )}
               </div>
@@ -391,7 +424,11 @@ export function DirectAddMemberForm({
                   size="sm"
                   type="submit"
                 >
-                  {addMutation.isPending ? "Inviting…" : submitLabel}
+                  {addMutation.isPending
+                    ? isRussian
+                      ? "Приглашаем…"
+                      : "Inviting…"
+                    : effectiveSubmitLabel}
                 </Button>
               </motion.div>
             ) : null}
@@ -399,7 +436,9 @@ export function DirectAddMemberForm({
         </div>
         {isAlreadyMember ? (
           <p className="text-xs text-destructive">
-            This person is already a community member.
+            {isRussian
+              ? "Этот человек уже добавлен в центр."
+              : "This person is already a community member."}
           </p>
         ) : null}
         {userSearchQuery.error instanceof Error ? (

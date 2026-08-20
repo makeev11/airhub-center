@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import type {
   DesktopNotificationPermissionState,
   NotificationSettings,
@@ -44,6 +45,91 @@ export function NotificationSettingsCard({
   onSetNotifyWhileViewing: (enabled: boolean) => void;
   onSetSoundForSlot: (slot: SoundSlot, name: SoundName) => void;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const copy = isRussian
+    ? {
+        title: "Уведомления",
+        description:
+          "Уведомления на компьютере включены по умолчанию. Ниже можно выбрать, о чём сообщать.",
+        unavailable: "Недоступно",
+        blocked: "Заблокировано",
+        on: "Включено",
+        off: "Выключено",
+        requesting: "Запрашиваем доступ…",
+        desktopAlerts: "Уведомления на компьютере",
+        desktopEnabled:
+          "Системные уведомления включены для выбранных ниже событий.",
+        desktopDisabled:
+          "Разрешите системные уведомления, чтобы видеть новые упоминания и важные действия вне приложения.",
+        notifyWhileViewing: "Уведомлять в открытом диалоге",
+        notifyWhileViewingDescription:
+          "Показывать уведомления и для личных сообщений в переписке, которая сейчас открыта.",
+        sound: "Звук",
+        soundDescription: "Воспроизводить звук для выбранных ниже событий.",
+        comingSoon: "Скоро",
+        showLess: "Свернуть",
+        viewAll: "Показать все",
+        homeBadge: "Счётчик во входящих",
+        homeBadgeDescription:
+          "Показывать в боковой панели количество упоминаний и действий, которые ждут ответа.",
+        unsupported: "Системные уведомления недоступны в этой среде.",
+        denied:
+          "Системные уведомления заблокированы. Разрешите их в настройках компьютера.",
+      }
+    : {
+        title: "Notifications",
+        description:
+          "Desktop alerts are on by default. Fine-tune what gets through below.",
+        unavailable: "Unavailable",
+        blocked: "Blocked",
+        on: "On",
+        off: "Off",
+        requesting: "Requesting…",
+        desktopAlerts: "Desktop alerts",
+        desktopEnabled:
+          "Native desktop alerts are enabled for the categories you have armed below.",
+        desktopDisabled:
+          "Request OS permission and surface new mentions or needs-action items outside the app.",
+        notifyWhileViewing: "Notify while viewing",
+        notifyWhileViewingDescription:
+          "Also alert for direct messages in the conversation you have open.",
+        sound: "Sound",
+        soundDescription: "Alert with a sound for the events below.",
+        comingSoon: "Coming soon",
+        showLess: "Show less",
+        viewAll: "View all",
+        homeBadge: "Inbox badge",
+        homeBadgeDescription:
+          "Show an Inbox badge for mentions and needs-action items in the sidebar.",
+        unsupported:
+          "Desktop notifications are not supported in this environment.",
+        denied:
+          "Desktop notifications are blocked. Enable them in your system settings.",
+      };
+  const slotLabels: Record<SoundSlot, string> = isRussian
+    ? {
+        dm: "Личные сообщения",
+        mention: "@Упоминания",
+        thread_reply: "Ответы в обсуждениях",
+        needs_action: "Нужны действия",
+        job_accepted: "Агент принял задачу",
+        job_progress: "Агент сообщил о ходе работы",
+        job_result: "Агент завершил задачу",
+        job_error: "Ошибка задачи агента",
+      }
+    : SLOT_LABELS;
+  const slotDescriptions: Record<SoundSlot, string> = isRussian
+    ? {
+        dm: "Когда вам пишут личное сообщение.",
+        mention: "Когда вас упоминают в канале.",
+        thread_reply: "Когда отвечают в обсуждении, за которым вы следите.",
+        needs_action: "Когда вас ждёт подтверждение или напоминание.",
+        job_accepted: "Когда агент принимает задачу.",
+        job_progress: "Когда агент сообщает о ходе работы.",
+        job_result: "Когда агент завершает задачу.",
+        job_error: "Когда задача агента завершается с ошибкой.",
+      }
+    : SLOT_DESCRIPTIONS;
   const permissionBlocked =
     notificationPermission === "denied" ||
     notificationPermission === "unsupported";
@@ -62,18 +148,18 @@ export function NotificationSettingsCard({
   return (
     <section className="min-w-0" data-testid="settings-notifications">
       <SettingsSectionHeader
-        title="Notifications"
-        description="Desktop alerts are on by default. Fine-tune what gets through below."
+        title={copy.title}
+        description={copy.description}
       />
 
       <span className="sr-only" data-testid="notifications-desktop-state">
         {notificationPermission === "unsupported"
-          ? "Unavailable"
+          ? copy.unavailable
           : notificationPermission === "denied"
-            ? "Blocked"
+            ? copy.blocked
             : notificationSettings.desktopEnabled
-              ? "On"
-              : "Off"}
+              ? copy.on
+              : copy.off}
       </span>
 
       <div className="flex flex-col gap-4">
@@ -85,13 +171,13 @@ export function NotificationSettingsCard({
                 htmlFor="desktop-alerts-switch"
               >
                 {isUpdatingDesktopNotifications
-                  ? "Requesting..."
-                  : "Desktop alerts"}
+                  ? copy.requesting
+                  : copy.desktopAlerts}
               </label>
               <p className="text-sm font-normal text-muted-foreground">
                 {notificationSettings.desktopEnabled
-                  ? "Native desktop alerts are enabled for the categories you have armed below."
-                  : "Request OS permission and surface new mentions or needs-action items outside the app."}
+                  ? copy.desktopEnabled
+                  : copy.desktopDisabled}
               </p>
             </div>
             <Switch
@@ -111,11 +197,10 @@ export function NotificationSettingsCard({
                 className="text-sm font-medium"
                 htmlFor="notify-while-viewing-switch"
               >
-                Notify while viewing
+                {copy.notifyWhileViewing}
               </label>
               <p className="text-sm font-normal text-muted-foreground">
-                Also alert for direct messages in the conversation you have
-                open.
+                {copy.notifyWhileViewingDescription}
               </p>
             </div>
             <Switch
@@ -142,10 +227,10 @@ export function NotificationSettingsCard({
                     className="text-sm font-medium"
                     htmlFor="notification-sound-switch"
                   >
-                    Sound
+                    {copy.sound}
                   </label>
                   <p className="text-sm font-normal text-muted-foreground">
-                    Alert with a sound for the events below.
+                    {copy.soundDescription}
                   </p>
                 </div>
                 <Switch
@@ -176,15 +261,15 @@ export function NotificationSettingsCard({
                       >
                         <div className="min-w-0">
                           <span className="flex items-center gap-2 text-sm font-medium">
-                            {SLOT_LABELS[slot]}
+                            {slotLabels[slot]}
                             {comingSoon ? (
                               <span className="rounded-full bg-muted/70 px-2 py-0.5 text-2xs font-normal uppercase tracking-wide text-muted-foreground">
-                                Coming soon
+                                {copy.comingSoon}
                               </span>
                             ) : null}
                           </span>
                           <p className="text-sm font-normal text-muted-foreground">
-                            {SLOT_DESCRIPTIONS[slot]}
+                            {slotDescriptions[slot]}
                           </p>
                         </div>
                         <span className="flex items-center gap-3">
@@ -227,12 +312,12 @@ export function NotificationSettingsCard({
                     {showComingSoon ? (
                       <>
                         <ChevronUp className="h-4 w-4" />
-                        Show less
+                        {copy.showLess}
                       </>
                     ) : (
                       <>
                         <ChevronDown className="h-4 w-4" />
-                        View all
+                        {copy.viewAll}
                       </>
                     )}
                   </Button>
@@ -249,11 +334,10 @@ export function NotificationSettingsCard({
                 className="text-sm font-medium"
                 htmlFor="home-badge-switch"
               >
-                Home badge
+                {copy.homeBadge}
               </label>
               <p className="text-sm font-normal text-muted-foreground">
-                Show a Home badge for mentions and needs-action items in the
-                sidebar.
+                {copy.homeBadgeDescription}
               </p>
             </div>
             <Switch
@@ -271,8 +355,8 @@ export function NotificationSettingsCard({
       {permissionBlocked && (
         <p className="mt-4 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {notificationPermission === "unsupported"
-            ? "Desktop notifications are not supported in this environment."
-            : "Desktop notifications are blocked. Enable them in your system settings."}
+            ? copy.unsupported
+            : copy.denied}
         </p>
       )}
 

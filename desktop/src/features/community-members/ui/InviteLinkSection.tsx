@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { mintInvite } from "@/shared/api/invites";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -49,19 +50,45 @@ export function InviteLinkSection({
   onTtlSecsChange: (ttlSecs: number) => void;
   ttlSecs: number;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const [copyStatus, setCopyStatus] = React.useState<CopyStatus>("idle");
   const [maxUses, setMaxUses] = React.useState<number | null>(null);
+  const ttlOptions = isRussian
+    ? [
+        { label: "1 день", value: 24 * 60 * 60 },
+        { label: "3 дня", value: 3 * 24 * 60 * 60 },
+        { label: "7 дней", value: 7 * 24 * 60 * 60 },
+        { label: "30 дней", value: 30 * 24 * 60 * 60 },
+      ]
+    : TTL_OPTIONS;
+  const maxUseOptions = isRussian
+    ? [
+        { label: "Без ограничений", value: null },
+        { label: "1 вход", value: 1 },
+        { label: "3 входа", value: 3 },
+        { label: "5 входов", value: 5 },
+        { label: "10 входов", value: 10 },
+        { label: "25 входов", value: 25 },
+      ]
+    : MAX_USE_OPTIONS;
   const ttlLabel =
-    TTL_OPTIONS.find((option) => option.value === ttlSecs)?.label ?? "3 days";
+    ttlOptions.find((option) => option.value === ttlSecs)?.label ??
+    (isRussian ? "3 дня" : "3 days");
   const maxUsesLabel =
-    MAX_USE_OPTIONS.find((option) => option.value === maxUses)?.label ??
-    "No limit";
+    maxUseOptions.find((option) => option.value === maxUses)?.label ??
+    (isRussian ? "Без ограничений" : "No limit");
   const copyLabel =
     copyStatus === "copying"
-      ? "Copying…"
+      ? isRussian
+        ? "Копируем…"
+        : "Copying…"
       : copyStatus === "copied"
-        ? "Copied"
-        : "Copy link";
+        ? isRussian
+          ? "Скопировано"
+          : "Copied"
+        : isRussian
+          ? "Скопировать ссылку"
+          : "Copy link";
 
   React.useEffect(() => {
     if (copyStatus !== "copied") return;
@@ -76,10 +103,14 @@ export function InviteLinkSection({
       const invite = await mintInvite({ ttlSecs, maxUses });
       await writeTextToClipboard(invite.url);
       setCopyStatus("copied");
-      toast.success("Invite link copied");
+      toast.success(isRussian ? "Ссылка скопирована" : "Invite link copied");
     } catch {
       setCopyStatus("idle");
-      toast.error("Couldn’t copy the invite link. Try again.");
+      toast.error(
+        isRussian
+          ? "Не удалось скопировать ссылку. Попробуйте ещё раз."
+          : "Couldn’t copy the invite link. Try again.",
+      );
     }
   }
 
@@ -87,11 +118,17 @@ export function InviteLinkSection({
     <section data-testid="community-invite-link-section">
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-4">
-          <span className="text-sm font-medium">Expires after</span>
+          <span className="text-sm font-medium">
+            {isRussian ? "Срок действия" : "Expires after"}
+          </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                aria-label="Choose invite expiry"
+                aria-label={
+                  isRussian
+                    ? "Выбрать срок действия приглашения"
+                    : "Choose invite expiry"
+                }
                 className="h-8 shrink-0 gap-1.5 px-2 text-sm text-muted-foreground"
                 data-testid="invite-link-ttl-trigger"
                 disabled={copyStatus === "copying"}
@@ -108,7 +145,7 @@ export function InviteLinkSection({
                 onValueChange={(value) => onTtlSecsChange(Number(value))}
                 value={String(ttlSecs)}
               >
-                {TTL_OPTIONS.map((option) => (
+                {ttlOptions.map((option) => (
                   <DropdownMenuRadioItem
                     data-testid={`invite-link-ttl-${option.value}`}
                     key={option.value}
@@ -122,11 +159,17 @@ export function InviteLinkSection({
           </DropdownMenu>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <span className="text-sm font-medium">Limit number of uses</span>
+          <span className="text-sm font-medium">
+            {isRussian ? "Ограничить число входов" : "Limit number of uses"}
+          </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                aria-label="Choose maximum invite uses"
+                aria-label={
+                  isRussian
+                    ? "Выбрать число входов по приглашению"
+                    : "Choose maximum invite uses"
+                }
                 className="h-8 shrink-0 gap-1.5 px-2 text-sm text-muted-foreground"
                 data-testid="invite-link-max-uses-trigger"
                 disabled={copyStatus === "copying"}
@@ -145,7 +188,7 @@ export function InviteLinkSection({
                 }
                 value={String(maxUses ?? "no-limit")}
               >
-                {MAX_USE_OPTIONS.map((option) => (
+                {maxUseOptions.map((option) => (
                   <DropdownMenuRadioItem
                     data-testid={`invite-link-max-uses-${option.value ?? "no-limit"}`}
                     key={option.value ?? "no-limit"}

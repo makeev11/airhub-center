@@ -9,7 +9,6 @@ import {
 } from "@/features/messages/lib/messageRowEquality";
 import type { TimelineMessage } from "@/features/messages/types";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
-import { HuddleAttachment } from "@/features/huddle/components/HuddleAttachment";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
 import { useReactionHandler } from "@/features/messages/ui/useReactionHandler";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
@@ -24,10 +23,7 @@ import {
   threadReplyLength,
   THREAD_REPLY_LINE_WIDTH_REM,
 } from "@/features/messages/lib/threadTreeLayout";
-import {
-  KIND_HUDDLE_STARTED,
-  KIND_STREAM_MESSAGE_DIFF,
-} from "@/shared/constants/kinds";
+import { KIND_STREAM_MESSAGE_DIFF } from "@/shared/constants/kinds";
 import { getConfigNudgeAuthorPubkey } from "@/features/messages/ui/configNudgeAuthPubkey";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
@@ -331,14 +327,6 @@ export const MessageRow = React.memo(
                 truncated={getTag("truncated") === "true"}
               />
             </React.Suspense>
-          );
-        case KIND_HUDDLE_STARTED:
-          return (
-            <HuddleAttachment
-              channelId={channelId}
-              className="mt-2"
-              message={message}
-            />
           );
         default:
           {

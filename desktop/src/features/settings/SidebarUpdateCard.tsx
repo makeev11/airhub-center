@@ -2,6 +2,7 @@ import * as React from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { CircleArrowUp, ExternalLink } from "lucide-react";
 
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { useUpdaterContext } from "./hooks/UpdaterProvider";
 import { shouldShowSidebarUpdateCard } from "./sidebarUpdateCardVisibility";
 import { SidebarCompactActionCard } from "@/shared/ui/sidebar-action-card";
@@ -21,6 +22,7 @@ export function SidebarUpdateCompactCard({
   onDismiss,
   testId = "sidebar-update-card-compact",
 }: SidebarUpdateCompactCardProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const { installAndRelaunch, status } = useUpdaterContext();
   const [isUpdatePending, setIsUpdatePending] = React.useState(false);
   const updatePendingRef = React.useRef(false);
@@ -66,11 +68,23 @@ export function SidebarUpdateCompactCard({
 
   return (
     <SidebarCompactActionCard
-      actionAriaLabel="Update now"
+      actionAriaLabel={isRussian ? "Обновить сейчас" : "Update now"}
       actionDisabled={pending}
       actionTestId={actionTestId}
-      description={pending ? "Updating" : "Click to update"}
-      dismissLabel="Dismiss update notification"
+      description={
+        pending
+          ? isRussian
+            ? "Обновляем"
+            : "Updating"
+          : isRussian
+            ? "Нажмите, чтобы обновить"
+            : "Click to update"
+      }
+      dismissLabel={
+        isRussian
+          ? "Скрыть уведомление об обновлении"
+          : "Dismiss update notification"
+      }
       icon={
         pending ? (
           <Spinner aria-hidden="true" className="h-5 w-5 border-2" />
@@ -82,12 +96,13 @@ export function SidebarUpdateCompactCard({
       onAction={handleUpdate}
       onDismiss={onDismiss}
       testId={testId}
-      title="Ready to update!"
+      title={isRussian ? "Обновление готово" : "Ready to update!"}
     />
   );
 }
 
 export function SidebarUpdateCard({ onDismiss }: SidebarUpdateCardProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const { status } = useUpdaterContext();
 
   if (!shouldShowSidebarUpdateCard(status)) {
@@ -97,16 +112,28 @@ export function SidebarUpdateCard({ onDismiss }: SidebarUpdateCardProps) {
   if (status.state === "manual-required") {
     return (
       <SidebarCompactActionCard
-        actionAriaLabel="Download update from GitHub"
+        actionAriaLabel={
+          isRussian
+            ? "Скачать обновление с GitHub"
+            : "Download update from GitHub"
+        }
         actionTestId="sidebar-update-download-github"
-        description={`v${status.version} available — download from GitHub. Switch to AppImage for automatic updates.`}
-        dismissLabel="Dismiss update notification"
+        description={
+          isRussian
+            ? `Доступна версия ${status.version}. Скачайте её с GitHub. Для автоматических обновлений используйте AppImage.`
+            : `v${status.version} available — download from GitHub. Switch to AppImage for automatic updates.`
+        }
+        dismissLabel={
+          isRussian
+            ? "Скрыть уведомление об обновлении"
+            : "Dismiss update notification"
+        }
         icon={<ExternalLink aria-hidden="true" className="h-5 w-5" />}
         iconKey="manual"
         onAction={() => void openUrl(status.releaseUrl)}
         onDismiss={onDismiss}
         testId="sidebar-update-card-manual"
-        title="Update available"
+        title={isRussian ? "Доступно обновление" : "Update available"}
       />
     );
   }

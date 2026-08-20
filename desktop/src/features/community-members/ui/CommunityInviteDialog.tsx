@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { DirectAddMemberForm } from "./AddMemberDialog";
 import {
   DEFAULT_INVITE_TTL_SECS,
@@ -22,6 +23,7 @@ export function CommunityInviteDialog({
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const [ttlSecs, setTtlSecs] = React.useState(DEFAULT_INVITE_TTL_SECS);
 
   React.useEffect(() => {
@@ -35,9 +37,13 @@ export function CommunityInviteDialog({
         data-testid="community-invite-dialog"
       >
         <DialogHeader>
-          <DialogTitle>Invite to community</DialogTitle>
+          <DialogTitle>
+            {isRussian ? "Пригласить сотрудника" : "Invite employee"}
+          </DialogTitle>
           <DialogDescription>
-            Add someone directly or share a link they can use to join.
+            {isRussian
+              ? "Добавьте человека напрямую или отправьте ему ссылку для входа."
+              : "Add someone directly or share a link they can use to join."}
           </DialogDescription>
         </DialogHeader>
 
@@ -45,13 +51,13 @@ export function CommunityInviteDialog({
           <DirectAddMemberForm
             isOwner={isOwner}
             showLabel={false}
-            submitLabel="Invite"
+            submitLabel={isRussian ? "Пригласить" : "Invite"}
           />
         </section>
 
         <section className="space-y-3">
           <p className="text-2xs font-medium text-secondary-foreground/75">
-            Link settings
+            {isRussian ? "Настройки ссылки" : "Link settings"}
           </p>
           <InviteLinkSection onTtlSecsChange={setTtlSecs} ttlSecs={ttlSecs} />
         </section>

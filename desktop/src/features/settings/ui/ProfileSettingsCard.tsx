@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Copy, Pencil } from "lucide-react";
+import { Check, Pencil } from "lucide-react";
 import {
   AnimatePresence,
   LayoutGroup,
@@ -8,6 +8,7 @@ import {
 import * as React from "react";
 import { toast } from "sonner";
 
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import {
   useProfileQuery,
   useUpdateProfileMutation,
@@ -22,10 +23,8 @@ import { cn } from "@/shared/lib/cn";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
 import { Textarea } from "@/shared/ui/textarea";
-import { PrivateKeyBackupRow } from "./PrivateKeyBackupRow";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { SignOutSection } from "./SignOutSection";
-import { writeTextToClipboard } from "@/shared/lib/clipboard";
 
 type ProfileSettingsCardProps = {
   currentPubkey?: string;
@@ -46,65 +45,26 @@ const AVATAR_EDITOR_LAYOUT_TRANSITION = {
   ease: [0.23, 1, 0.32, 1],
 } as const;
 
-function IdentityRow({
-  label,
-  value,
-  testId,
-  copyValue,
-}: {
-  label: string;
-  value: string;
-  testId: string;
-  copyValue?: string;
-}) {
-  return (
-    <div className="flex min-h-16 items-center justify-between gap-4 px-4 py-3">
-      <div className="min-w-0 space-y-1">
-        <p className="text-sm font-medium">{label}</p>
-        <p
-          className="min-w-0 truncate text-sm text-muted-foreground"
-          data-testid={testId}
-          title={value}
-        >
-          {value}
-        </p>
-      </div>
-      {copyValue ? (
-        <button
-          aria-label={`Copy ${label}`}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          data-testid={`copy-${testId}`}
-          onClick={async () => {
-            await writeTextToClipboard(copyValue);
-            toast.success("Copied to clipboard");
-          }}
-          title={`Copy ${label}`}
-          type="button"
-        >
-          <Copy className="h-4 w-4 shrink-0" />
-          Copy
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 function EditProfileMetadataButton({
   label,
   testId,
   onClick,
   disabled,
   isEditing,
+  editText,
+  doneText,
 }: {
   label: string;
   testId: string;
   onClick: () => void;
   disabled: boolean;
   isEditing: boolean;
+  editText: string;
+  doneText: string;
 }) {
   const Icon = isEditing ? Check : Pencil;
-  const actionLabel = isEditing ? "Done" : "Edit";
-  const accessibleLabel = isEditing ? `Done editing ${label}` : `Edit ${label}`;
+  const actionLabel = isEditing ? doneText : editText;
+  const accessibleLabel = `${actionLabel}: ${label}`;
 
   return (
     <button
@@ -127,10 +87,36 @@ function EditProfileMetadataButton({
   );
 }
 
+const PROFILE_COPY = {
+  en: {
+    title: "Profile",
+    description: "Update how your name, avatar, and bio appear across AirHop.",
+    profileInfo: "Profile info",
+    displayName: "Display name",
+    descriptionLabel: "Profile description",
+    notSet: "Not set",
+    edit: "Edit",
+    done: "Done",
+    saved: "Profile saved",
+  },
+  ru: {
+    title: "Профиль",
+    description: "Настройте имя, фотографию и описание профиля в AirHop.",
+    profileInfo: "Информация профиля",
+    displayName: "Отображаемое имя",
+    descriptionLabel: "Описание профиля",
+    notSet: "Не указано",
+    edit: "Изменить",
+    done: "Готово",
+    saved: "Профиль сохранён",
+  },
+} as const;
+
 export function ProfileSettingsCard({
-  currentPubkey,
   fallbackDisplayName,
 }: ProfileSettingsCardProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const copy = isRussian ? PROFILE_COPY.ru : PROFILE_COPY.en;
   const shouldReduceMotion = useReducedMotion();
   const profileQuery = useProfileQuery();
   const updateProfileMutation = useUpdateProfileMutation();
@@ -297,9 +283,7 @@ export function ProfileSettingsCard({
     nextDisplayName ||
     profile?.displayName ||
     fallbackDisplayName ||
-    "Your profile";
-  const resolvedPubkey = profile?.pubkey ?? currentPubkey ?? "Unavailable";
-  const nip05Handle = profile?.nip05Handle ?? "Not set";
+    copy.title;
   const emojiAvatarPreview = React.useMemo(
     () => parseEmojiAvatarDataUrl(avatarUrlDraft),
     [avatarUrlDraft],
@@ -398,7 +382,7 @@ export function ProfileSettingsCard({
     setDisplayNameDraft(updatePayload.displayName ?? currentDisplayName);
     setAvatarUrlDraft(updatePayload.avatarUrl ?? currentAvatarUrl);
     setAboutDraft(updatePayload.about ?? currentAbout);
-    toast.success("Profile saved");
+    toast.success(copy.saved);
     return true;
   }, [
     canSave,
@@ -407,6 +391,7 @@ export function ProfileSettingsCard({
     currentDisplayName,
     updatePayload,
     updateProfileMutation,
+    copy.saved,
   ]);
 
   const handleProfileMetadataEdit = React.useCallback(() => {
@@ -481,8 +466,8 @@ export function ProfileSettingsCard({
     >
       <div>
         <SettingsSectionHeader
-          title="Profile"
-          description="Update how your name, avatar, and bio appear across Airhop."
+          title={copy.title}
+          description={copy.description}
         />
 
         <div className="space-y-3">
@@ -557,8 +542,12 @@ export function ProfileSettingsCard({
                                 aria-expanded={isAvatarEditorOpen}
                                 aria-label={
                                   isAvatarEditorSaving
-                                    ? "Saving profile photo"
-                                    : "Edit profile photo"
+                                    ? isRussian
+                                      ? "Сохраняем фото профиля"
+                                      : "Saving profile photo"
+                                    : isRussian
+                                      ? "Изменить фото профиля"
+                                      : "Edit profile photo"
                                 }
                                 className={avatarEditButtonClassName}
                                 data-testid="profile-avatar-edit"
@@ -566,14 +555,22 @@ export function ProfileSettingsCard({
                                 onClick={openAvatarEditor}
                                 title={
                                   isAvatarEditorSaving
-                                    ? "Saving profile photo"
-                                    : "Edit profile photo"
+                                    ? isRussian
+                                      ? "Сохраняем фото профиля"
+                                      : "Saving profile photo"
+                                    : isRussian
+                                      ? "Изменить фото профиля"
+                                      : "Edit profile photo"
                                 }
                                 type="button"
                               >
                                 {isAvatarEditorSaving && !isAvatarEditorOpen ? (
                                   <Spinner
-                                    aria-label="Saving avatar"
+                                    aria-label={
+                                      isRussian
+                                        ? "Сохраняем аватар"
+                                        : "Saving avatar"
+                                    }
                                     className="h-4 w-4 border-2"
                                   />
                                 ) : (
@@ -675,12 +672,14 @@ export function ProfileSettingsCard({
                         >
                           <div className="flex min-h-14 items-center justify-between gap-4 px-4 py-3">
                             <h2 className="text-lg font-semibold tracking-tight">
-                              Profile info
+                              {copy.profileInfo}
                             </h2>
                             <EditProfileMetadataButton
                               disabled={updateProfileMutation.isPending}
+                              doneText={copy.done}
+                              editText={copy.edit}
                               isEditing={isEditingProfileMetadata}
-                              label="profile info"
+                              label={copy.profileInfo}
                               onClick={handleProfileMetadataEdit}
                               testId="profile-metadata-edit"
                             />
@@ -692,7 +691,7 @@ export function ProfileSettingsCard({
                                 className="block text-sm font-medium"
                                 htmlFor="profile-display-name"
                               >
-                                Display name
+                                {copy.displayName}
                               </label>
                               {isEditingProfileMetadata ? (
                                 <Input
@@ -703,7 +702,7 @@ export function ProfileSettingsCard({
                                   onChange={(event) =>
                                     setDisplayNameDraft(event.target.value)
                                   }
-                                  placeholder="Display name"
+                                  placeholder={copy.displayName}
                                   ref={displayNameInputRef}
                                   value={displayNameDraft}
                                 />
@@ -711,9 +710,9 @@ export function ProfileSettingsCard({
                                 <p
                                   className="min-w-0 truncate text-sm text-muted-foreground"
                                   data-testid="profile-display-name-value"
-                                  title={displayNameDraft || "Not set"}
+                                  title={displayNameDraft || copy.notSet}
                                 >
-                                  {displayNameDraft || "Not set"}
+                                  {displayNameDraft || copy.notSet}
                                 </p>
                               )}
                             </div>
@@ -725,7 +724,7 @@ export function ProfileSettingsCard({
                                 className="block text-sm font-medium"
                                 htmlFor="profile-about"
                               >
-                                Profile description
+                                {copy.descriptionLabel}
                               </label>
                               {isEditingProfileMetadata ? (
                                 <Textarea
@@ -736,7 +735,7 @@ export function ProfileSettingsCard({
                                   onChange={(event) =>
                                     setAboutDraft(event.target.value)
                                   }
-                                  placeholder="Profile description"
+                                  placeholder={copy.descriptionLabel}
                                   ref={aboutTextareaRef}
                                   value={aboutDraft}
                                 />
@@ -749,56 +748,13 @@ export function ProfileSettingsCard({
                                       : "text-muted-foreground/55",
                                   )}
                                   data-testid="profile-about-value"
-                                  title={aboutDraft || "Not set"}
+                                  title={aboutDraft || copy.notSet}
                                 >
-                                  {aboutDraft || "Not set"}
+                                  {aboutDraft || copy.notSet}
                                 </p>
                               )}
                             </div>
                           </div>
-                        </div>
-
-                        <div>
-                          <details
-                            className="group overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-xs"
-                            data-testid="profile-identity-card"
-                          >
-                            <summary
-                              className="group/identity flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 text-sm transition-colors duration-150 ease-out hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden"
-                              data-testid="profile-identity-toggle"
-                            >
-                              <div className="min-w-0">
-                                <h2 className="text-lg font-semibold tracking-tight">
-                                  Identity
-                                </h2>
-                                <p className="mt-1 text-sm font-normal text-muted-foreground">
-                                  Your keypair and NIP-05 handle are fixed for
-                                  this device.
-                                </p>
-                              </div>
-                              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-[color,transform] duration-150 ease-out group-open:rotate-180 group-hover/identity:text-foreground group-focus-visible/identity:text-foreground" />
-                            </summary>
-                            <div
-                              className="border-t border-border/55 divide-y divide-border/55"
-                              data-testid="profile-identity-details"
-                            >
-                              <IdentityRow
-                                copyValue={
-                                  profile?.pubkey ?? currentPubkey ?? undefined
-                                }
-                                label="Public key"
-                                testId="profile-pubkey"
-                                value={resolvedPubkey}
-                              />
-                              <IdentityRow
-                                copyValue={profile?.nip05Handle ?? undefined}
-                                label="NIP-05 handle"
-                                testId="profile-nip05"
-                                value={nip05Handle}
-                              />
-                              <PrivateKeyBackupRow />
-                            </div>
-                          </details>
                         </div>
                       </div>
                     </div>

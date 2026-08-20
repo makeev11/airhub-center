@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ChevronDown, Pause, Play } from "lucide-react";
 
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import {
   playNotificationSound,
   SOUND_NAMES,
@@ -62,6 +63,7 @@ export function SoundPicker({
   disabled?: boolean;
   onChange: (next: SoundName) => void;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const items = sortedSounds(recommended);
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -114,7 +116,7 @@ export function SoundPicker({
                   <span className="flex items-center gap-2">
                     {name === recommended ? (
                       <span className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        rec.
+                        {isRussian ? "рек." : "rec."}
                       </span>
                     ) : null}
                     <Waveform className="h-6 w-15 opacity-70" name={name} />
@@ -126,7 +128,15 @@ export function SoundPicker({
         </DropdownMenuContent>
       </DropdownMenu>
       <Button
-        aria-label={isPlaying ? `Pause ${value}` : `Preview ${value}`}
+        aria-label={
+          isPlaying
+            ? isRussian
+              ? `Остановить ${value}`
+              : `Pause ${value}`
+            : isRussian
+              ? `Прослушать ${value}`
+              : `Preview ${value}`
+        }
         className="h-7 w-7 rounded-full border border-border/50 bg-muted/45 p-0 text-foreground shadow-none hover:bg-muted/70"
         disabled={disabled}
         onClick={togglePreview}

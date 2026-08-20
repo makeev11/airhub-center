@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { PubKey } from "@/shared/ui/PubKey";
 import { useRemoveRelayMemberMutation } from "@/features/community-members/hooks";
 import type { RelayMember } from "@/shared/api/types";
@@ -24,6 +25,7 @@ export function ConfirmRemoveDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const removeMutation = useRemoveRelayMemberMutation();
   const label = displayName || (member ? truncatePubkey(member.pubkey) : "");
 
@@ -41,9 +43,13 @@ export function ConfirmRemoveDialog({
         data-testid="confirm-remove-member-dialog"
       >
         <DialogHeader>
-          <DialogTitle>Remove {label}?</DialogTitle>
+          <DialogTitle>
+            {isRussian ? `Удалить ${label}?` : `Remove ${label}?`}
+          </DialogTitle>
           <DialogDescription>
-            This will immediately revoke their access to the relay.
+            {isRussian
+              ? "Доступ этого сотрудника к центру будет немедленно отозван."
+              : "This will immediately revoke their access to the center."}
           </DialogDescription>
           {member ? (
             <PubKey
@@ -59,7 +65,7 @@ export function ConfirmRemoveDialog({
             size="sm"
             variant="outline"
           >
-            Cancel
+            {isRussian ? "Отмена" : "Cancel"}
           </Button>
           <Button
             data-testid="confirm-remove-member"
@@ -68,14 +74,18 @@ export function ConfirmRemoveDialog({
               if (!member) return;
               removeMutation.mutate(member.pubkey, {
                 onSuccess: () => {
-                  toast.success("Member removed");
+                  toast.success(
+                    isRussian ? "Сотрудник удалён" : "Member removed",
+                  );
                   handleOpenChange(false);
                 },
                 onError: (error) => {
                   toast.error(
                     error instanceof Error
                       ? error.message
-                      : "Failed to remove member",
+                      : isRussian
+                        ? "Не удалось удалить сотрудника"
+                        : "Failed to remove member",
                   );
                 },
               });
@@ -83,7 +93,13 @@ export function ConfirmRemoveDialog({
             size="sm"
             variant="destructive"
           >
-            {removeMutation.isPending ? "Removing..." : "Remove"}
+            {removeMutation.isPending
+              ? isRussian
+                ? "Удаляем…"
+                : "Removing…"
+              : isRussian
+                ? "Удалить"
+                : "Remove"}
           </Button>
         </div>
       </DialogContent>

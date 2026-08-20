@@ -1,6 +1,4 @@
 import * as React from "react";
-import { useHuddle } from "@/features/huddle/HuddleContext";
-import { huddleWindowChannelId } from "@/features/huddle/lib/huddleWindow";
 import { mergeMessages } from "@/features/messages/hooks";
 import {
   channelWindowThreadSummaries,
@@ -9,12 +7,11 @@ import {
 import { useThreadRepliesForRoots } from "@/features/messages/useThreadReplies";
 import type { Channel, RelayEvent } from "@/shared/api/types";
 
-export function useIsHuddleTranscript(activeChannelId: string | null) {
-  const { activeEphemeralChannelId } = useHuddle();
-  return (
-    huddleWindowChannelId() !== null ||
-    (activeChannelId !== null && activeChannelId === activeEphemeralChannelId)
-  );
+export function useIsHuddleTranscript(_activeChannelId: string | null) {
+  // Huddle is outside the Airhop product boundary. Keeping the transcript
+  // adapter inert lets ordinary channel history reuse the upstream pipeline
+  // without mounting the excluded audio runtime.
+  return false;
 }
 
 type HuddleChannelMessagesOptions = {

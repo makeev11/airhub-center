@@ -65,7 +65,7 @@ const THEMES = await palettes();
 
 test("every shipped theme is censused", () => {
   assert.equal(THEMES.length, SYNTAX_THEMES.length);
-  assert.equal(THEMES.length, 64);
+  assert.equal(THEMES.length, 66);
 });
 
 test("wordmark holds contrast and chroma across the whole sweep, not just at the stops", () => {
@@ -114,7 +114,7 @@ test("the three stops are distinct by hue AND by sRGB distance", () => {
 });
 
 test("each half of the distinctness gate rejects what the other half admits", () => {
-  // Tested directly on synthetic triads, NOT via the 64-theme census, because
+  // Tested directly on synthetic triads, NOT via the 66-theme census, because
   // on the shipped themes the two halves mask each other: disabling either
   // alone changes no theme's stops. A census-only test lets a reviewer delete
   // one half and see all green.

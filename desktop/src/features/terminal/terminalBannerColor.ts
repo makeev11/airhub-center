@@ -18,7 +18,7 @@
  * external standard — sized by
  * sweep and stable across 8-25 chroma x 8-20 hue.
  *
- * Validated by terminalBannerColor.test.mjs: all 64 shipped themes pass every
+ * Validated by terminalBannerColor.test.mjs: all 66 shipped themes pass every
  * gate, and 8 mutants of this file are killed by those gates.
  */
 import type {
