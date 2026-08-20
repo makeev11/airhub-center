@@ -48,6 +48,7 @@ import type {
   ProfilePanelTab,
 } from "@/features/profile/ui/UserProfilePanelUtils";
 import { cn } from "@/shared/lib/cn";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 
@@ -149,8 +150,19 @@ function resolveRuntimeTabStatus({
 }
 
 function RuntimeTabStatusDot({ status }: { status: RuntimeTabStatus }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const label =
-    status === "error" ? "Error" : status === "running" ? "Running" : "Stopped";
+    status === "error"
+      ? isRussian
+        ? "Ошибка"
+        : "Error"
+      : status === "running"
+        ? isRussian
+          ? "Работает"
+          : "Running"
+        : isRussian
+          ? "Остановлен"
+          : "Stopped";
 
   return (
     <span
@@ -222,6 +234,7 @@ export function ProfileSummaryView({
   unfollowMutation,
   userStatus,
 }: ProfileSummaryViewProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const activeTurns = useAgentWorking(isBot ? pubkey : null).channels;
 
   const showMemoriesTab = isOwner === true && Boolean(pubkey);
@@ -246,8 +259,9 @@ export function ProfileSummaryView({
       canOpenAgentLogs ||
       showInstructionBlock);
   const showDiagnosticsIngress =
-    diagnosticsFields.some((field) => field.label !== "Status") ||
-    canOpenAgentLogs;
+    diagnosticsFields.some(
+      (field) => field.label !== "Status" && field.label !== "Статус",
+    ) || canOpenAgentLogs;
   const showActivityIngress = canViewActivity;
   const showInfoTab =
     agentInfoFields.length > 0 ||
@@ -256,14 +270,16 @@ export function ProfileSummaryView({
     showActivityIngress ||
     !showRuntimeTab;
 
-  const diagnosticsErrorField = diagnosticsFields.find(
-    (field) => field.label === "Last error",
+  const diagnosticsErrorField = diagnosticsFields.find((field) =>
+    ["Last error", "Последняя ошибка"].includes(field.label),
   );
   const diagnosticsTrailing =
     diagnosticsErrorField !== undefined ? (
       <Badge title={diagnosticsErrorField.displayValue} variant="destructive">
-        Error
+        {isRussian ? "Ошибка" : "Error"}
       </Badge>
+    ) : isRussian ? (
+      "Открыть"
     ) : (
       "View"
     );
@@ -279,12 +295,12 @@ export function ProfileSummaryView({
       trailing?: React.ReactNode;
     }> = [];
     if (showInfoTab) {
-      items.push({ id: "info", label: "Info" });
+      items.push({ id: "info", label: isRussian ? "Информация" : "Info" });
     }
     if (showRuntimeTab) {
       items.push({
         id: "runtime",
-        label: "Runtime",
+        label: isRussian ? "Запуск" : "Runtime",
         trailing: runtimeTabStatus ? (
           <RuntimeTabStatusDot status={runtimeTabStatus} />
         ) : undefined,
@@ -293,7 +309,7 @@ export function ProfileSummaryView({
     if (showChannelsTab) {
       items.push({
         id: "channels",
-        label: "Channels",
+        label: isRussian ? "Каналы" : "Channels",
         trailing: channelsLoading
           ? "…"
           : channelCount > 0
@@ -304,7 +320,7 @@ export function ProfileSummaryView({
     if (showMemoriesTab) {
       items.push({
         id: "memories",
-        label: "Memories",
+        label: isRussian ? "Память" : "Memories",
         trailing: memoriesLoading
           ? "…"
           : memoryCount !== undefined
@@ -316,6 +332,7 @@ export function ProfileSummaryView({
   }, [
     channelCount,
     channelsLoading,
+    isRussian,
     memoriesLoading,
     memoryCount,
     runtimeTabStatus,
@@ -666,21 +683,28 @@ export function ChannelsFocusedView({
   onOpenChannel: (channelId: string) => void;
   variant?: "embedded" | "focused";
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <div className={cn("space-y-3", variant === "focused" && "pt-4")}>
       {canAddToChannel ? (
         <ProfileIngressRow
           disabled={isActionPending}
           icon={UserPlus}
-          label="Add to channel"
+          label={isRussian ? "Добавить в канал" : "Add to channel"}
           onClick={onAddToChannel}
           testId="user-profile-agent-add-channel"
-          trailing={isActionPending ? "Working…" : undefined}
+          trailing={
+            isActionPending
+              ? isRussian
+                ? "Добавляем…"
+                : "Working…"
+              : undefined
+          }
         />
       ) : null}
       {isLoading ? (
         <p className="text-base leading-7 text-muted-foreground">
-          Loading channels…
+          {isRussian ? "Загружаем каналы…" : "Loading channels…"}
         </p>
       ) : channels.length === 0 ? (
         <div
@@ -693,13 +717,21 @@ export function ChannelsFocusedView({
           <UserPlus className="mx-auto h-4 w-4 text-muted-foreground" />
           <p className="mt-3 text-sm font-medium">
             {canAddToChannel
-              ? "Add this agent to a channel"
-              : "Channels appear here"}
+              ? isRussian
+                ? "Добавьте этого агента в канал"
+                : "Add this agent to a channel"
+              : isRussian
+                ? "Здесь появятся каналы"
+                : "Channels appear here"}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             {canAddToChannel
-              ? "Choose a channel above so it can join the conversation."
-              : "Visible memberships appear as this agent joins channels."}
+              ? isRussian
+                ? "Выберите канал выше, чтобы агент мог участвовать в обсуждении."
+                : "Choose a channel above so it can join the conversation."
+              : isRussian
+                ? "Список обновится, когда агент присоединится к каналам."
+                : "Visible memberships appear as this agent joins channels."}
           </p>
         </div>
       ) : (
@@ -710,7 +742,11 @@ export function ChannelsFocusedView({
           {channels.map((channel) => (
             <li key={channel.id}>
               <button
-                aria-label={`Open #${channel.name}`}
+                aria-label={
+                  isRussian
+                    ? `Открыть #${channel.name}`
+                    : `Open #${channel.name}`
+                }
                 className="group flex w-full items-center gap-3 px-4 py-3 text-left text-base leading-7 text-foreground transition-colors hover:bg-muted/40"
                 data-testid={`user-profile-channel-link-${channel.name}`}
                 onClick={() => onOpenChannel(channel.id)}
@@ -762,9 +798,16 @@ export function DiagnosticsFocusedView({
   managedAgent: ManagedAgent | undefined;
 }) {
   const hasLog = canOpenAgentLogs && managedAgent !== undefined;
-  const lastErrorField = fields.find((field) => field.label === "Last error");
+  const lastErrorField = fields.find(
+    (field) =>
+      field.label === "Last error" || field.label === "Последняя ошибка",
+  );
   const detailFields = fields.filter(
-    (field) => field.label !== "Last error" && field.label !== "Status",
+    (field) =>
+      field.label !== "Last error" &&
+      field.label !== "Последняя ошибка" &&
+      field.label !== "Status" &&
+      field.label !== "Статус",
   );
 
   if (!lastErrorField && detailFields.length === 0 && !hasLog) {

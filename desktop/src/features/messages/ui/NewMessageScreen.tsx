@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import {
   useOpenDmMutation,
   useUpsertCachedChannel,
@@ -27,6 +28,7 @@ import {
  * lives in an attached popover instead of taking over the message area.
  */
 export function NewMessageScreen() {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const identityQuery = useIdentityQuery();
   const currentPubkey = identityQuery.data?.pubkey;
   const openDmMutation = useOpenDmMutation();
@@ -215,13 +217,16 @@ export function NewMessageScreen() {
         setSubmitErrorMessage(
           error instanceof Error
             ? error.message
-            : "Failed to open direct message.",
+            : isRussian
+              ? "Не удалось открыть личную переписку."
+              : "Failed to open direct message.",
         );
         return null;
       }
     },
     [
       currentPubkey,
+      isRussian,
       openDmMutation.isPending,
       openDmMutation.mutateAsync,
       selectedUsers,
@@ -253,7 +258,10 @@ export function NewMessageScreen() {
           : await openDirectMessage();
       if (!directMessage) {
         throw new Error(
-          submitErrorMessage ?? "Choose at least one recipient first.",
+          submitErrorMessage ??
+            (isRussian
+              ? "Сначала выберите хотя бы одного получателя."
+              : "Choose at least one recipient first."),
         );
       }
 
@@ -271,7 +279,11 @@ export function NewMessageScreen() {
       } catch (error) {
         preparedDirectMessageRef.current = null;
         const message =
-          error instanceof Error ? error.message : "Failed to send message.";
+          error instanceof Error
+            ? error.message
+            : isRussian
+              ? "Не удалось отправить сообщение."
+              : "Failed to send message.";
         setSubmitErrorMessage(message);
         throw error;
       }
@@ -288,6 +300,7 @@ export function NewMessageScreen() {
     },
     [
       goChannel,
+      isRussian,
       openDirectMessage,
       sendMessageMutation,
       submitErrorMessage,
@@ -297,10 +310,16 @@ export function NewMessageScreen() {
 
   const composerPlaceholder =
     selectedUsers.length === 0
-      ? "Choose a recipient to start a message"
+      ? isRussian
+        ? "Выберите получателя"
+        : "Choose a recipient to start a message"
       : selectedUsers.length === 1
-        ? `Message ${formatRecipientName(selectedUsers[0])}`
-        : `Message ${selectedUsers.length} people`;
+        ? isRussian
+          ? `Сообщение для ${formatRecipientName(selectedUsers[0])}`
+          : `Message ${formatRecipientName(selectedUsers[0])}`
+        : isRussian
+          ? `Сообщение для ${selectedUsers.length} получателей`
+          : `Message ${selectedUsers.length} people`;
 
   return (
     <div
@@ -334,7 +353,7 @@ export function NewMessageScreen() {
                 ref={toFieldRef}
               >
                 <span className="shrink-0 text-base font-semibold tracking-tight">
-                  To:
+                  {isRussian ? "Кому:" : "To:"}
                 </span>
                 {selectedUsers.map((user) => (
                   <SelectedRecipientChip
@@ -365,7 +384,7 @@ export function NewMessageScreen() {
                   }
                   aria-controls="new-dm-results"
                   aria-expanded={showRecipientPicker}
-                  aria-label="To"
+                  aria-label={isRussian ? "Получатели" : "To"}
                   autoComplete="off"
                   autoCorrect="off"
                   className="h-7 min-w-32 flex-1 bg-transparent text-base outline-hidden placeholder:text-muted-foreground"
@@ -529,7 +548,11 @@ export function NewMessageScreen() {
                 ) : isDirectoryLoading || isSearchTransitionPending ? (
                   <div
                     aria-busy="true"
-                    aria-label="Loading people and agents"
+                    aria-label={
+                      isRussian
+                        ? "Загружаем людей и агентов"
+                        : "Loading people and agents"
+                    }
                     className="space-y-3 px-4 py-3"
                     data-testid="new-dm-loading"
                     role="status"
@@ -550,8 +573,12 @@ export function NewMessageScreen() {
                     data-testid="new-dm-empty"
                   >
                     {deferredSearchQuery.length === 0
-                      ? "No people or agents available to message."
-                      : "No matching users."}
+                      ? isRussian
+                        ? "Нет доступных сотрудников или агентов."
+                        : "No people or agents available to message."
+                      : isRussian
+                        ? "Ничего не найдено."
+                        : "No matching users."}
                   </p>
                 )}
               </div>
@@ -563,7 +590,7 @@ export function NewMessageScreen() {
               className="shrink-0 pl-2 text-sm text-muted-foreground"
               data-testid="new-dm-opening"
             >
-              Opening…
+              {isRussian ? "Открываем…" : "Opening…"}
             </span>
           ) : null}
         </div>
@@ -579,7 +606,9 @@ export function NewMessageScreen() {
           className="px-5 pb-2 text-sm text-muted-foreground"
           data-testid="new-dm-limit"
         >
-          DMs support up to nine people, including you.
+          {isRussian
+            ? "В личной переписке может быть до девяти участников, включая вас."
+            : "Direct messages support up to nine people, including you."}
         </p>
       ) : null}
       {searchError ? (
@@ -594,7 +623,7 @@ export function NewMessageScreen() {
       ) : null}
 
       <MessageComposer
-        channelName="new message"
+        channelName={isRussian ? "новое сообщение" : "new message"}
         channelType="dm"
         containerClassName="px-5"
         disabled={isPending || selectedUsers.length === 0}

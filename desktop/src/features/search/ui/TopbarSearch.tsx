@@ -1,5 +1,6 @@
 import { Search } from "lucide-react";
 import * as React from "react";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 import { resolveUserLabel } from "@/features/profile/lib/identity";
 import {
@@ -66,10 +67,10 @@ type SearchHitContextLabel = {
   text: string;
 };
 
-function truncateResultText(content: string, maxLength = 96) {
+function truncateResultText(content: string, russian: boolean, maxLength = 96) {
   const trimmed = content.trim();
   if (trimmed.length === 0) {
-    return "No message body.";
+    return russian ? "Нет текста сообщения." : "No message body.";
   }
 
   if (trimmed.length <= maxLength) {
@@ -79,26 +80,32 @@ function truncateResultText(content: string, maxLength = 96) {
   return `${trimmed.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
-function formatRelativeTime(unixSeconds: number) {
+function formatRelativeTime(unixSeconds: number, locale: "ru-RU" | "en-US") {
   const diff = Math.floor(Date.now() / 1_000) - unixSeconds;
 
   if (diff < 60) {
-    return "just now";
+    return locale === "ru-RU" ? "только что" : "just now";
   }
 
   if (diff < 60 * 60) {
-    return `${Math.floor(diff / 60)}m ago`;
+    return locale === "ru-RU"
+      ? `${Math.floor(diff / 60)} мин назад`
+      : `${Math.floor(diff / 60)}m ago`;
   }
 
   if (diff < 60 * 60 * 24) {
-    return `${Math.floor(diff / (60 * 60))}h ago`;
+    return locale === "ru-RU"
+      ? `${Math.floor(diff / (60 * 60))} ч назад`
+      : `${Math.floor(diff / (60 * 60))}h ago`;
   }
 
   if (diff < 60 * 60 * 24 * 7) {
-    return `${Math.floor(diff / (60 * 60 * 24))}d ago`;
+    return locale === "ru-RU"
+      ? `${Math.floor(diff / (60 * 60 * 24))} дн назад`
+      : `${Math.floor(diff / (60 * 60 * 24))}d ago`;
   }
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat(locale, {
     month: "short",
     day: "numeric",
   }).format(new Date(unixSeconds * 1_000));
@@ -113,11 +120,11 @@ function getChannelActivityTime(channel: Channel) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-function getChannelSuggestionMeta(channel: Channel) {
+function getChannelSuggestionMeta(channel: Channel, locale: "ru-RU" | "en-US") {
   const activityTime = getChannelActivityTime(channel);
 
   if (activityTime > 0) {
-    return formatRelativeTime(Math.floor(activityTime / 1_000));
+    return formatRelativeTime(Math.floor(activityTime / 1_000), locale);
   }
 
   return null;
@@ -184,6 +191,7 @@ function getSearchHitContextLabel(
   hit: SearchHit,
   channelLookup: ReadonlyMap<string, Channel>,
   channelLabels?: Record<string, string>,
+  russian = false,
 ): SearchHitContextLabel {
   const channel = hit.channelId ? channelLookup.get(hit.channelId) : null;
   const channelName = getSearchHitChannelName(
@@ -195,7 +203,7 @@ function getSearchHitContextLabel(
   if (channel?.channelType === "dm") {
     return {
       channelLabel: null,
-      text: "Direct message",
+      text: russian ? "Личное сообщение" : "Direct message",
     };
   }
 
@@ -204,10 +212,16 @@ function getSearchHitContextLabel(
   return {
     channelLabel: channelName,
     text: channelName
-      ? `${isThread ? "Thread" : "Message"} in`
+      ? russian
+        ? `${isThread ? "Обсуждение" : "Сообщение"} в`
+        : `${isThread ? "Thread" : "Message"} in`
       : isThread
-        ? "Thread"
-        : "Message",
+        ? russian
+          ? "Обсуждение"
+          : "Thread"
+        : russian
+          ? "Сообщение"
+          : "Message",
   };
 }
 
@@ -227,20 +241,20 @@ function getResultSectionKey(result: SearchResult): SearchResultSectionKey {
   return "messages";
 }
 
-function getSectionTitle(sectionKey: SearchResultSectionKey) {
+function getSectionTitle(sectionKey: SearchResultSectionKey, russian: boolean) {
   switch (sectionKey) {
     case "channels":
-      return "Channels";
+      return russian ? "Каналы" : "Channels";
     case "direct-messages":
-      return "Direct messages";
+      return russian ? "Личные сообщения" : "Direct messages";
     case "people":
-      return "People";
+      return russian ? "Люди" : "People";
     case "agents":
-      return "Agents";
+      return russian ? "Агенты" : "Agents";
     case "messages":
-      return "Most relevant";
+      return russian ? "Самое подходящее" : "Most relevant";
     case "actions":
-      return "Actions";
+      return russian ? "Действия" : "Actions";
   }
 }
 
@@ -268,7 +282,10 @@ function SearchHitContextLine({ label }: { label: SearchHitContextLabel }) {
   );
 }
 
-function groupSearchResults(results: SearchResult[]): SearchResultSection[] {
+function groupSearchResults(
+  results: SearchResult[],
+  russian: boolean,
+): SearchResultSection[] {
   const resultsBySection = new Map<SearchResultSectionKey, SearchResult[]>();
 
   for (const result of results) {
@@ -289,7 +306,7 @@ function groupSearchResults(results: SearchResult[]): SearchResultSection[] {
       {
         key: sectionKey,
         results: sectionResults,
-        title: getSectionTitle(sectionKey),
+        title: getSectionTitle(sectionKey, russian),
       },
     ];
   });
@@ -400,6 +417,9 @@ export function TopbarSearch({
   suggestionChannels,
   variant = "bar",
 }: TopbarSearchProps) {
+  const locale = useAirHopLocale() === "ru-RU" ? "ru-RU" : "en-US";
+  const isRussian = locale === "ru-RU";
+  const searchLabel = isRussian ? "Искать везде" : "Search everything";
   const [isOpen, setIsOpen] = React.useState(false);
   const [selectedMenuIndex, setSelectedMenuIndex] = React.useState(0);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
@@ -434,7 +454,7 @@ export function TopbarSearch({
         kind: "action",
         action: {
           id: "browse-channels",
-          title: "Browse channels",
+          title: isRussian ? "Найти каналы" : "Browse channels",
         },
       });
     }
@@ -444,7 +464,7 @@ export function TopbarSearch({
         kind: "action",
         action: {
           id: "create-channel",
-          title: "Create a new channel",
+          title: isRussian ? "Создать канал" : "Create a new channel",
         },
       });
     }
@@ -454,13 +474,13 @@ export function TopbarSearch({
         kind: "action",
         action: {
           id: "create-agent",
-          title: "Create a new agent",
+          title: isRussian ? "Создать агента" : "Create a new agent",
         },
       });
     }
 
     return actions;
-  }, [onBrowseChannels, onCreateAgent, onCreateChannel]);
+  }, [isRussian, onBrowseChannels, onCreateAgent, onCreateChannel]);
   const suggestionResults = React.useMemo(
     () => [...suggestedResults, ...suggestionActionResults],
     [suggestedResults, suggestionActionResults],
@@ -478,8 +498,8 @@ export function TopbarSearch({
     [currentPubkeyNormalized, results],
   );
   const searchResultSections = React.useMemo(
-    () => groupSearchResults(searchableResults),
-    [searchableResults],
+    () => groupSearchResults(searchableResults, isRussian),
+    [isRussian, searchableResults],
   );
   const groupedSearchResults = React.useMemo(
     () => searchResultSections.flatMap((section) => section.results),
@@ -639,7 +659,12 @@ export function TopbarSearch({
         : null;
     const messageContextLabel =
       result.kind === "message"
-        ? getSearchHitContextLabel(result.hit, channelLookup, channelLabels)
+        ? getSearchHitContextLabel(
+            result.hit,
+            channelLookup,
+            channelLabels,
+            isRussian,
+          )
         : null;
     const title =
       result.kind === "channel"
@@ -656,12 +681,12 @@ export function TopbarSearch({
           ? result.action.description
           : result.kind === "user"
             ? getUserSecondaryLabel(result.user)
-            : truncateResultText(result.hit.content);
+            : truncateResultText(result.hit.content, isRussian);
     const trailingLabel =
       result.kind === "channel"
-        ? getChannelSuggestionMeta(result.channel)
+        ? getChannelSuggestionMeta(result.channel, locale)
         : result.kind === "message"
-          ? formatRelativeTime(result.hit.createdAt)
+          ? formatRelativeTime(result.hit.createdAt, locale)
           : null;
 
     return (
@@ -771,11 +796,15 @@ export function TopbarSearch({
   const searchResultContent = isShowingSuggestions ? (
     suggestionResults.length === 0 ? (
       <div className="px-4 py-5 text-sm text-muted-foreground">
-        <p>No recent activity yet.</p>
+        <p>
+          {isRussian
+            ? "Недавних действий пока нет."
+            : "No recent activity yet."}
+        </p>
       </div>
     ) : (
       <div
-        aria-label="Recent activity"
+        aria-label={isRussian ? "Недавние действия" : "Recent activity"}
         className="max-h-96 overflow-y-auto p-1.5"
         role="listbox"
       >
@@ -787,7 +816,7 @@ export function TopbarSearch({
               {suggestedResults.length > 0 ? (
                 <div>
                   <div className={SEARCH_SECTION_TITLE_CLASS}>
-                    Recent activity
+                    {isRussian ? "Недавние действия" : "Recent activity"}
                   </div>
                   {suggestedResults.map((result) =>
                     renderSearchResultRow(result, resultIndex++),
@@ -796,7 +825,9 @@ export function TopbarSearch({
               ) : null}
               {suggestionActionResults.length > 0 ? (
                 <div>
-                  <div className={SEARCH_SECTION_TITLE_CLASS}>Actions</div>
+                  <div className={SEARCH_SECTION_TITLE_CLASS}>
+                    {isRussian ? "Действия" : "Actions"}
+                  </div>
                   {suggestionActionResults.map((result) =>
                     renderSearchResultRow(result, resultIndex++),
                   )}
@@ -815,7 +846,8 @@ export function TopbarSearch({
     </p>
   ) : searchableResults.length === 0 ? (
     <p className="px-4 py-5 text-sm text-muted-foreground">
-      No matches for <span className="font-semibold">{trimmedQuery}</span>.
+      {isRussian ? "Нет результатов для" : "No matches for"}{" "}
+      <span className="font-semibold">{trimmedQuery}</span>.
     </p>
   ) : (
     <div className="max-h-96 overflow-y-auto p-1.5" role="listbox">
@@ -827,7 +859,7 @@ export function TopbarSearch({
     <div className={cn("relative", className)}>
       <Dialog open={isOpen} onOpenChange={handleSearchOpenChange}>
         <button
-          aria-label="Search everything"
+          aria-label={searchLabel}
           className={
             isIconVariant
               ? "group/search flex size-6 items-center justify-center rounded p-1 text-sidebar-foreground/50 transition-colors hover:bg-sidebar-border/35 hover:text-sidebar-foreground focus-visible:bg-sidebar-border/35 focus-visible:text-sidebar-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring"
@@ -836,7 +868,7 @@ export function TopbarSearch({
           data-testid="open-search"
           onClick={openSearchDialog}
           ref={triggerRef}
-          title="Search everything"
+          title={searchLabel}
           type="button"
         >
           <Search
@@ -856,7 +888,7 @@ export function TopbarSearch({
                     : "text-sidebar-foreground/55",
                 )}
               >
-                {query || "Search everything"}
+                {query || searchLabel}
               </span>
               <kbd className="shrink-0 text-2xs text-sidebar-foreground/45">
                 &#x2318;K
@@ -878,7 +910,7 @@ export function TopbarSearch({
           }}
           showCloseButton={false}
         >
-          <DialogTitle className="sr-only">Search everything</DialogTitle>
+          <DialogTitle className="sr-only">{searchLabel}</DialogTitle>
           <div className="flex h-12 items-center gap-3 border-b border-border/70 px-4">
             <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
             <div className="relative min-w-0 flex-1">
@@ -888,7 +920,7 @@ export function TopbarSearch({
                 </span>
               ) : null}
               <input
-                aria-label="Search everything"
+                aria-label={searchLabel}
                 autoCapitalize="none"
                 autoCorrect="off"
                 className="relative z-10 w-full min-w-0 bg-transparent text-base text-foreground outline-none"

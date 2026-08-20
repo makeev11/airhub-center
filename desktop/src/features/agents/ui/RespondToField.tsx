@@ -20,6 +20,7 @@ import {
 import { useAgentRunLocation } from "./AgentRunLocationContext";
 import { PersonaDropdownField } from "./PersonaDropdownField";
 import type { PersonaDropdownOption } from "./agentConfigOptions";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 /**
  * Inbound author gate UI for create/edit agent dialogs.
@@ -102,6 +103,7 @@ export function CreateAgentRespondToField({
    */
   runLocation?: AgentRunLocation | null;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const [query, setQuery] = React.useState("");
   const [isDirectEntryOpen, setIsDirectEntryOpen] = React.useState(false);
   const [pasteText, setPasteText] = React.useState("");
@@ -162,7 +164,15 @@ export function CreateAgentRespondToField({
   const warningText = agentAccessWarningText(
     mode,
     runLocation ?? inheritedRunLocation,
+    isRussian ? "ru-RU" : "en-US",
   );
+  const respondToOptions: PersonaDropdownOption[] = isRussian
+    ? [
+        { label: "Только я (по умолчанию)", value: "owner-only" },
+        { label: "Все сотрудники", value: "anyone" },
+        { label: "Выбранные сотрудники", value: "allowlist" },
+      ]
+    : RESPOND_TO_OPTIONS;
 
   // Rendered in two positions: directly below the selector for Anyone, but
   // after the people picker for Selected people, so it never sits between the
@@ -192,15 +202,17 @@ export function CreateAgentRespondToField({
         }
         htmlFor="agent-respond-to"
       >
-        Who can send instructions
+        {isRussian ? "Кто может давать задания" : "Who can send instructions"}
       </label>
       {isPersonaVariant ? (
         <PersonaDropdownField
           disabled={disabled}
           id="agent-respond-to"
           onValueChange={(value) => onModeChange(value as RespondToMode)}
-          options={RESPOND_TO_OPTIONS}
-          placeholder="Only me (default)"
+          options={respondToOptions}
+          placeholder={
+            isRussian ? "Только я (по умолчанию)" : "Only me (default)"
+          }
           value={mode}
         />
       ) : (
@@ -212,7 +224,7 @@ export function CreateAgentRespondToField({
           onChange={(e) => onModeChange(e.target.value as RespondToMode)}
           value={mode}
         >
-          {RESPOND_TO_OPTIONS.map((option) => (
+          {respondToOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
@@ -222,7 +234,9 @@ export function CreateAgentRespondToField({
       {mode === "anyone" ? accessWarning : null}
       {mode === "owner-only" ? (
         <p className="text-xs text-muted-foreground">
-          Only you can send instructions.
+          {isRussian
+            ? "Только вы можете давать агенту задания."
+            : "Only you can send instructions."}
         </p>
       ) : null}
       {mode === "allowlist" ? (
@@ -231,6 +245,7 @@ export function CreateAgentRespondToField({
           deferredQuery={deferredQuery}
           disabled={disabled}
           isDirectEntryOpen={isDirectEntryOpen}
+          isRussian={isRussian}
           onAddFromPaste={handleAddFromPaste}
           onAddRawPubkey={handleAddRawPubkey}
           onAddSearchResult={handleAddSearchResult}
@@ -265,6 +280,7 @@ function AllowlistPicker({
   deferredQuery,
   disabled,
   isDirectEntryOpen,
+  isRussian,
   onAddFromPaste,
   onAddRawPubkey,
   onAddSearchResult,
@@ -286,6 +302,7 @@ function AllowlistPicker({
   deferredQuery: string;
   disabled?: boolean;
   isDirectEntryOpen: boolean;
+  isRussian: boolean;
   onAddFromPaste: () => void;
   onAddRawPubkey: (pubkey: string) => void;
   onAddSearchResult: (user: UserSearchResult) => void;
@@ -321,21 +338,27 @@ function AllowlistPicker({
     >
       {!isPersona ? (
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-medium">Selected people</span>
+          <span className="text-sm font-medium">
+            {isRussian ? "Выбранные сотрудники" : "Selected people"}
+          </span>
           <span className="rounded-full bg-background px-2 py-1 text-2xs font-medium leading-none text-muted-foreground">
-            {allowlist.length} selected
+            {allowlist.length} {isRussian ? "выбрано" : "selected"}
           </span>
         </div>
       ) : null}
       {!isPersona && ownerPubkey ? (
         <p className="text-xs text-muted-foreground">
-          You (
-          <PubKey pubkey={ownerPubkey} />) can always use this agent. You
-          don&apos;t need to add yourself.
+          {isRussian ? "Вы (" : "You ("}
+          <PubKey pubkey={ownerPubkey} />)
+          {isRussian
+            ? " всегда можете использовать этого агента — добавлять себя не нужно."
+            : " can always use this agent. You don't need to add yourself."}
         </p>
       ) : !isPersona ? (
         <p className="text-xs text-muted-foreground">
-          You can always use this agent.
+          {isRussian
+            ? "Вы всегда можете использовать этого агента."
+            : "You can always use this agent."}
         </p>
       ) : null}
       <div className="rounded-lg border border-border/80 bg-background">
@@ -347,7 +370,11 @@ function AllowlistPicker({
             disabled={disabled}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder={
-              isPersona ? "Search people" : "Search by name or NIP-05."
+              isRussian
+                ? "Найти сотрудника"
+                : isPersona
+                  ? "Search people"
+                  : "Search by name or NIP-05."
             }
             value={query}
           />
@@ -367,7 +394,7 @@ function AllowlistPicker({
                 />
                 <PubKey pubkey={pubkey} />
                 <button
-                  aria-label={`Remove ${truncatePubkey(pubkey)}`}
+                  aria-label={`${isRussian ? "Убрать" : "Remove"} ${truncatePubkey(pubkey)}`}
                   className="text-muted-foreground transition-colors hover:text-foreground"
                   disabled={disabled}
                   onClick={() => onRemove(pubkey)}
@@ -383,7 +410,7 @@ function AllowlistPicker({
           <div className="border-t border-border/70 px-2 py-2">
             {searchIsLoading ? (
               <p className="px-2 py-1 text-sm text-muted-foreground">
-                Searching…
+                {isRussian ? "Ищем…" : "Searching…"}
               </p>
             ) : searchResults.length > 0 ? (
               <div className="max-h-44 space-y-1 overflow-y-auto">
@@ -410,7 +437,9 @@ function AllowlistPicker({
                         </p>
                       </div>
                     </div>
-                    <span className="text-xs text-muted-foreground">Add</span>
+                    <span className="text-xs text-muted-foreground">
+                      {isRussian ? "Добавить" : "Add"}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -432,15 +461,19 @@ function AllowlistPicker({
                       {truncatePubkey(deferredQuery)}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
-                      Add pubkey directly
+                      {isRussian
+                        ? "Добавить публичный ключ"
+                        : "Add pubkey directly"}
                     </p>
                   </div>
                 </div>
-                <span className="text-xs text-muted-foreground">Add</span>
+                <span className="text-xs text-muted-foreground">
+                  {isRussian ? "Добавить" : "Add"}
+                </span>
               </button>
             ) : (
               <p className="px-2 py-1 text-sm text-muted-foreground">
-                No matching users.
+                {isRussian ? "Ничего не найдено." : "No matching users."}
               </p>
             )}
           </div>
@@ -465,7 +498,9 @@ function AllowlistPicker({
                 isDirectEntryOpen && "rotate-180",
               )}
             />
-            <span>Paste pubkeys</span>
+            <span>
+              {isRussian ? "Вставить публичные ключи" : "Paste pubkeys"}
+            </span>
           </button>
           {isDirectEntryOpen ? (
             <div
@@ -473,8 +508,9 @@ function AllowlistPicker({
               id="agent-respond-to-direct-panel"
             >
               <p className="text-xs text-muted-foreground">
-                One per line, or comma/space-separated. 64-char lowercase hex
-                only — npub decoding is not yet supported here.
+                {isRussian
+                  ? "По одному в строке либо через запятую или пробел. Поддерживается 64-символьный hex; npub пока не поддерживается."
+                  : "One per line, or comma/space-separated. 64-char lowercase hex only — npub decoding is not yet supported here."}
               </p>
               <Textarea
                 className="min-h-20 font-mono text-xs"
@@ -486,16 +522,20 @@ function AllowlistPicker({
               />
               {pasteInvalid.length > 0 ? (
                 <p className="text-xs text-destructive">
-                  {pasteInvalid.length} entr
-                  {pasteInvalid.length === 1 ? "y is" : "ies are"} not 64-char
-                  hex and will be ignored.
+                  {isRussian
+                    ? `${pasteInvalid.length} некорректных значений будет пропущено.`
+                    : `${pasteInvalid.length} ${pasteInvalid.length === 1 ? "entry is" : "entries are"} not 64-char hex and will be ignored.`}
                 </p>
               ) : null}
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">
                   {pasteValidCount > 0
-                    ? `${pasteValidCount} valid pubkey${pasteValidCount === 1 ? "" : "s"} ready.`
-                    : "No valid pubkeys yet."}
+                    ? isRussian
+                      ? `${pasteValidCount} корректных ключей готово.`
+                      : `${pasteValidCount} valid pubkey${pasteValidCount === 1 ? "" : "s"} ready.`
+                    : isRussian
+                      ? "Корректных ключей пока нет."
+                      : "No valid pubkeys yet."}
                 </span>
                 <button
                   className="rounded-md border border-border/80 bg-background px-2.5 py-1 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
@@ -504,7 +544,7 @@ function AllowlistPicker({
                   onClick={onAddFromPaste}
                   type="button"
                 >
-                  Add people
+                  {isRussian ? "Добавить сотрудников" : "Add people"}
                 </button>
               </div>
             </div>

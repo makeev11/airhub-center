@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { CopyButton } from "@/features/agents/ui/CopyButton";
 import { MemoryRefreshButton } from "@/features/agent-memory/ui/MemorySection";
 import {
-  PROFILE_PANEL_VIEW_TITLES,
+  getProfilePanelViewTitle,
   type ProfilePanelView,
 } from "@/features/profile/ui/UserProfilePanelUtils";
 import {
@@ -11,8 +11,9 @@ import {
   AuxiliaryPanelHeaderGroup,
   AuxiliaryPanelHeaderTitleBlock,
 } from "@/shared/layout/AuxiliaryPanel";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 
-export function getUserProfilePanelHeaderContent({
+export function useUserProfilePanelHeaderContent({
   agentSettingsMenu,
   effectivePubkey,
   logCopyValue,
@@ -29,13 +30,14 @@ export function getUserProfilePanelHeaderContent({
   view: ProfilePanelView;
   viewerIsOwner: boolean;
 }) {
-  const title = PROFILE_PANEL_VIEW_TITLES[view];
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const title = getProfilePanelViewTitle(view, isRussian);
   const shouldShowLogDetails =
     (view === "diagnostics" || view === "logs") && Boolean(logSubtitle);
   const headerLeftContent = (
     <AuxiliaryPanelHeaderGroup
       align={shouldShowLogDetails ? "start" : "center"}
-      backButtonAriaLabel="Back to profile"
+      backButtonAriaLabel={isRussian ? "Назад к профилю" : "Back to profile"}
       backButtonTestId="user-profile-panel-back"
       onBack={view !== "summary" ? onBack : undefined}
     >
@@ -60,7 +62,7 @@ export function getUserProfilePanelHeaderContent({
         <CopyButton
           className="text-muted-foreground hover:text-foreground"
           iconOnly
-          label="Copy log"
+          label={isRussian ? "Копировать журнал" : "Copy log"}
           size="icon"
           value={logCopyValue ?? ""}
           variant="ghost"

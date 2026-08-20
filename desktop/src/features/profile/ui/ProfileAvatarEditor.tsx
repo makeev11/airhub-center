@@ -5,6 +5,8 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import * as React from "react";
 import { flushSync } from "react-dom";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
+import { getProfileAvatarEditorCopy } from "@/features/profile/lib/profileAvatarEditorCopy";
 import { AnimatedAvatarCapture } from "@/features/profile/ui/AnimatedAvatarCapture";
 import { AvatarCustomColorPanel } from "@/features/profile/ui/AvatarCustomColorPanel";
 import { ProfileAvatarUploadPreview } from "@/features/profile/ui/ProfileAvatarUploadPreview";
@@ -87,6 +89,8 @@ export function ProfileAvatarEditor({
   onAnimatedPreviewCaptionChange,
   presentation = "default",
 }: ProfileAvatarEditorProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const copy = getProfileAvatarEditorCopy(isRussian);
   const { burstEmoji } = useEmojiBurst();
   const shouldReduceMotion = useReducedMotion();
   const initialEmojiAvatar = React.useMemo(
@@ -556,7 +560,7 @@ export function ProfileAvatarEditor({
         void handleFiles(event.dataTransfer.files);
       }}
     >
-      <legend className="sr-only">Avatar image picker</legend>
+      <legend className="sr-only">{copy.pickerLegend}</legend>
       <div
         className="relative"
         style={
@@ -654,16 +658,16 @@ export function ProfileAvatarEditor({
                       )}
                     >
                       {isUploading ? (
-                        "Uploading..."
+                        copy.uploading
                       ) : isImageDropActive ? (
-                        "Drop image here"
+                        copy.dropHere
                       ) : isOnboardingModal ? (
-                        "Drag or browse"
+                        copy.dragOrBrowse
                       ) : (
                         <>
-                          Drop or{" "}
+                          {copy.dropOr}
                           <span className="underline underline-offset-2">
-                            browse
+                            {copy.browse}
                           </span>
                         </>
                       )}
@@ -713,9 +717,7 @@ export function ProfileAvatarEditor({
                         }
                       }}
                       placeholder={
-                        isOnboardingModal
-                          ? "Paste a URL"
-                          : "Paste a URL (Slack profile, etc.)"
+                        isOnboardingModal ? copy.pasteUrl : copy.pasteImageUrl
                       }
                       spellCheck={false}
                       type="url"
@@ -729,7 +731,7 @@ export function ProfileAvatarEditor({
                       data-testid={`${testIdPrefix}-upload-error`}
                       role="alert"
                     >
-                      {uploadErrorMessage}
+                      {isRussian ? copy.uploadError : uploadErrorMessage}
                     </p>
                   ) : null}
                 </div>
@@ -788,6 +790,7 @@ export function ProfileAvatarEditor({
                         applyEmojiAvatar(emoji.native, nextColor);
                       }}
                       previewPosition="none"
+                      locale={isRussian ? "ru" : "en"}
                       searchPosition="none"
                       set="native"
                       skinTonePosition="none"
@@ -832,9 +835,9 @@ export function ProfileAvatarEditor({
                             aria-label={
                               isCustomSwatch
                                 ? selectedEmoji
-                                  ? "Choose custom avatar color"
-                                  : "Choose an emoji before custom avatar color"
-                                : `Use ${swatch} background`
+                                  ? copy.customColor
+                                  : copy.chooseEmojiFirst
+                                : copy.backgroundLabel(swatch)
                             }
                             aria-pressed={isSelected}
                             className={cn(
@@ -948,10 +951,10 @@ export function ProfileAvatarEditor({
                           transition={DONE_BUTTON_CONTENT_TRANSITION}
                         >
                           <Spinner
-                            aria-label="Saving avatar"
+                            aria-label={copy.savingAvatar}
                             className="h-4 w-4 border-2"
                           />
-                          <span>Saving</span>
+                          <span>{copy.saving}</span>
                         </motion.span>
                       ) : (
                         <motion.span
@@ -970,7 +973,7 @@ export function ProfileAvatarEditor({
                           key="ready"
                           transition={DONE_BUTTON_CONTENT_TRANSITION}
                         >
-                          {isOnboardingModal ? "Save" : "Done"}
+                          {isOnboardingModal ? copy.save : copy.done}
                         </motion.span>
                       )}
                     </AnimatePresence>

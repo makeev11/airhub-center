@@ -65,7 +65,8 @@ test("Russian administration copy exposes the tariff catalog contract", () => {
     "Новые тарифы используют это число, если для них не задан другой день.",
   );
   assert.equal(messages.paymentsTitle, "Оплаты");
-  assert.equal(messages.paymentMarkPaid, "Отметить оплату");
+  assert.equal(messages.paymentMarkPaid, "Подтвердить оплату");
+  assert.equal(messages.paymentCancel, "Отменить начисление");
   assert.equal(messages.paymentCancelReason, "Внутренняя причина");
 });
 

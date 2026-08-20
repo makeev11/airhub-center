@@ -3,10 +3,18 @@ import {
   type BookingLockCoordinator,
   type BookingRepository,
 } from "@/features/booking/data/bookingRepository";
+import {
+  resolveActivationLocale,
+  type ActivationLocale,
+} from "@/features/activation/i18n";
 import { isAirhopDemoRuntimeAvailable } from "@/features/booking/lib/demoRuntime";
 import { detectBookingTimeZone } from "@/features/booking/lib/bookingTimeZones";
-import type { BookingWorkspace } from "@/features/booking/model/bookingCore";
+import type {
+  BookingWorkspace,
+  BookingWorkspaceDraft,
+} from "@/features/booking/model/bookingCore";
 import { DEMO_BOOKING_WORKSPACE } from "@/features/booking/model/demoSchedule";
+import { localizeDemoBookingWorkspace } from "@/features/booking/model/demoBookingLocalization";
 
 export const DEMO_BOOKING_STORAGE_KEY = "buzz-airhop.booking.workspace.v6";
 const LEGACY_BOOKING_STORAGE_KEYS = [
@@ -25,14 +33,18 @@ export function demoBookingStorageKey(storageScope?: string): string {
 
 export function createInitialDemoBookingWorkspace(
   timeZone = detectBookingTimeZone(),
+  locale: ActivationLocale = "ru-RU",
 ): BookingWorkspace {
-  return {
-    ...DEMO_BOOKING_WORKSPACE,
-    organization: {
-      ...DEMO_BOOKING_WORKSPACE.organization,
-      timeZone: detectBookingTimeZone(() => timeZone),
+  return localizeDemoBookingWorkspace(
+    {
+      ...DEMO_BOOKING_WORKSPACE,
+      organization: {
+        ...DEMO_BOOKING_WORKSPACE.organization,
+        timeZone: detectBookingTimeZone(() => timeZone),
+      },
     },
-  };
+    locale,
+  );
 }
 
 /** Moves the newest available preview workspace into the v6 scoped key. */
@@ -85,10 +97,28 @@ export function createDemoBookingRepository(
   if (!storage) return null;
   const storageKey = demoBookingStorageKey(storageScope);
   migrateLegacyPreviewStorage(storage, storageKey, storageScope);
-  return new BrowserPreviewBookingRepository({
+  const repository = new BrowserPreviewBookingRepository({
     storage,
     storageKey,
-    initialWorkspace: createInitialDemoBookingWorkspace(),
+    initialWorkspace: createInitialDemoBookingWorkspace(
+      detectBookingTimeZone(),
+      resolveActivationLocale(),
+    ),
     lockCoordinator: browserLockCoordinator(),
   });
+  const localize = (workspace: BookingWorkspace) =>
+    localizeDemoBookingWorkspace(workspace, resolveActivationLocale());
+
+  return {
+    async load(): Promise<BookingWorkspace> {
+      return localize(await repository.load());
+    },
+    async save(
+      draft: BookingWorkspaceDraft,
+      expectedRevision: number,
+    ): Promise<BookingWorkspace> {
+      return localize(await repository.save(draft, expectedRevision));
+    },
+    takeNotice: () => repository.takeNotice(),
+  };
 }

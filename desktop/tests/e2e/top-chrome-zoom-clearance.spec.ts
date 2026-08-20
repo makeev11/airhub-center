@@ -17,8 +17,9 @@ const tauriConfig = JSON.parse(
     "utf8",
   ),
 ) as TauriConfig;
-const EXPECTED_TRAFFIC_LIGHT_POSITION = { x: 16, y: 25 };
+const EXPECTED_TRAFFIC_LIGHT_POSITION = { x: 16, y: 21 };
 const EXPECTED_NAV_CENTER_Y = 23;
+const EXPECTED_NAV_FIRST_X = 88;
 
 // The macOS traffic lights are native chrome: with `trafficLightPosition`
 // x:16 they occupy roughly x 16–68 regardless of the app's Cmd +/- text
@@ -42,10 +43,9 @@ async function firstNavButtonX(page: import("@playwright/test").Page) {
 
 // The chrome buttons are styled to visually match the fixed-size native
 // controls, so their box must not follow the rem text scale either. The
-// sidebar toggle is 28px square; the back/forward history buttons share the
-// height but are deliberately narrower (24px).
+// The sidebar and history controls share the same 28px box and 4px rhythm.
 const NAV_BUTTON_SIZE = 28;
-const HISTORY_BUTTON_WIDTH = 24;
+const HISTORY_BUTTON_WIDTH = 28;
 
 // The grabber/drag strip hosting the buttons must hold its height too —
 // otherwise Cmd+ balloons the bar around the fixed-size buttons and Cmd-
@@ -118,16 +118,14 @@ test.describe("top chrome macOS traffic-light clearance under text zoom", () => 
       .getByRole("button", { name: "Toggle Sidebar", exact: true })
       .boundingBox();
     expect(toggleBox).not.toBeNull();
-    // Tauri interprets y:25 as a native titlebar inset, not the literal
+    // Tauri interprets y:21 as a native titlebar inset, not the literal
     // traffic-light center. The native controls use a small optical correction
     // while the adjacent web controls remain centered at y:23.
     expect((toggleBox?.y ?? 0) + (toggleBox?.height ?? 0) / 2).toBe(
       EXPECTED_NAV_CENTER_Y,
     );
 
-    expect(await firstNavButtonX(page)).toBeGreaterThanOrEqual(
-      TRAFFIC_LIGHT_RIGHT_EDGE,
-    );
+    expect(await firstNavButtonX(page)).toBe(EXPECTED_NAV_FIRST_X);
     await expectNavButtonsFixedSize(page);
     await expectTopChromeFixedHeight(page);
   });

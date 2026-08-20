@@ -29,6 +29,7 @@ import {
 } from "@/features/profile/ui/UserProfilePanelFields";
 import type { ProfilePanelTab } from "@/features/profile/ui/UserProfilePanelUtils";
 import { cn } from "@/shared/lib/cn";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { useNow } from "@/shared/lib/useNow";
 import { Button } from "@/shared/ui/button";
 import {
@@ -223,6 +224,7 @@ export function ProfileTabBar({
     trailing?: React.ReactNode;
   }>;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const { didDragRef, onPointerDown, scrollRef } = useHorizontalDragScroll();
 
   return (
@@ -232,7 +234,7 @@ export function ProfileTabBar({
       ref={scrollRef}
     >
       <div
-        aria-label="Profile sections"
+        aria-label={isRussian ? "Разделы профиля" : "Profile sections"}
         className="flex w-max min-w-full justify-center gap-1.5"
         role="tablist"
       >
@@ -302,13 +304,14 @@ export function ProfileInfoTabContent({
   pubkey: string | null;
   showActivityIngress: boolean;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const infoFields: ProfileField[] = isArchived
     ? [
         ...agentInfoFields,
         {
-          displayValue: "Archived",
+          displayValue: isRussian ? "В архиве" : "Archived",
           icon: Archive,
-          label: "Visibility",
+          label: isRussian ? "Видимость" : "Visibility",
           testId: "user-profile-archived-flair",
           trailingNode: <ArchiveStatusTooltip />,
         },
@@ -339,10 +342,10 @@ export function ProfileInfoTabContent({
         ) : (
           <ProfileIngressRow
             icon={Wrench}
-            label="Activity log"
+            label={isRussian ? "Журнал активности" : "Activity log"}
             onClick={() => onOpenActivity(null)}
             testId={`user-profile-view-activity-${pubkey}`}
-            trailing="View"
+            trailing={isRussian ? "Открыть" : "View"}
           />
         )
       ) : null}
@@ -367,6 +370,7 @@ function ProfileInstancesSection({
   instances: ManagedAgent[];
   onOpenInstance: (pubkey: string) => void;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const [expanded, setExpanded] = React.useState(false);
 
   return (
@@ -378,7 +382,9 @@ function ProfileInstancesSection({
         onClick={() => setExpanded((value) => !value)}
         type="button"
       >
-        <span className="min-w-0 flex-1 text-sm font-medium">Instances</span>
+        <span className="min-w-0 flex-1 text-sm font-medium">
+          {isRussian ? "Экземпляры" : "Instances"}
+        </span>
         <span className="text-sm text-muted-foreground">
           {instances.length}
         </span>
@@ -405,7 +411,11 @@ function ProfileInstancesSection({
                   {instance.name}
                 </span>
                 <span className="text-xs capitalize text-muted-foreground">
-                  {isCurrent ? "Current" : instance.status.replace("_", " ")}
+                  {isCurrent
+                    ? isRussian
+                      ? "Текущий"
+                      : "Current"
+                    : instance.status.replace("_", " ")}
                 </span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
               </button>
@@ -831,10 +841,14 @@ export function ProfileRuntimeTabContent({
   showInstructionBlock: boolean;
 }) {
   const statusDiagnosticsFields = diagnosticsFields.filter(
-    (field) => field.label === "Status",
+    (field) => field.label === "Status" || field.label === "Статус",
   );
   const detailDiagnosticsFields = diagnosticsFields.filter(
-    (field) => field.label !== "Last error" && field.label !== "Status",
+    (field) =>
+      field.label !== "Last error" &&
+      field.label !== "Последняя ошибка" &&
+      field.label !== "Status" &&
+      field.label !== "Статус",
   );
   const hasRuntimeRows =
     runtimeConfigurationFields.length > 0 || runtimeSettingsFields.length > 0;

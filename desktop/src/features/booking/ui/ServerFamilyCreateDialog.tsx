@@ -6,7 +6,9 @@ import {
   StaffFamilyLifecycleApiError,
 } from "@/features/booking/data/staffFamilyLifecycleService";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
+import { airHopTodayIsoDate } from "@/features/booking/lib/airHopDateInput";
 import { normalizePublicBookingPhone } from "@/features/booking/model/publicBooking";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import {
@@ -20,14 +22,16 @@ import {
 import { Input } from "@/shared/ui/input";
 
 type FormState = {
-  representativeName: string;
+  representativeFirstName: string;
+  representativeLastName: string;
   phone: string;
   childName: string;
   childBirthDate: string;
 };
 
 const EMPTY_FORM: FormState = {
-  representativeName: "",
+  representativeFirstName: "",
+  representativeLastName: "",
   phone: "",
   childName: "",
   childBirthDate: "",
@@ -64,9 +68,10 @@ export function ServerFamilyCreateDialog({
     event.preventDefault();
     const phoneNormalized = normalizePublicBookingPhone(form.phone);
     const nextErrors: Record<string, string> = {};
-    if (!form.representativeName.trim()) {
-      nextErrors.representativeName = messages.requiredField;
-    }
+    if (!form.representativeFirstName.trim())
+      nextErrors.representativeFirstName = messages.requiredField;
+    if (!form.representativeLastName.trim())
+      nextErrors.representativeLastName = messages.requiredField;
     if (!phoneNormalized) nextErrors.phone = messages.invalidPhone;
     if (!form.childName.trim()) nextErrors.childName = messages.requiredField;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(form.childBirthDate)) {
@@ -78,9 +83,13 @@ export function ServerFamilyCreateDialog({
     setIsSaving(true);
     setRequestError(null);
     try {
+      const representativeName = [
+        form.representativeLastName.trim(),
+        form.representativeFirstName.trim(),
+      ].join(" ");
       const result = await service.createFamily({
-        displayName: `Семья ${form.representativeName.trim()}`,
-        representativeName: form.representativeName,
+        displayName: form.representativeLastName.trim(),
+        representativeName,
         phone: form.phone,
         childName: form.childName,
         childBirthDate: form.childBirthDate,
@@ -109,16 +118,29 @@ export function ServerFamilyCreateDialog({
       htmlFor={`airhop-server-family-${key}`}
     >
       <span className="font-medium">{label}</span>
-      <Input
-        aria-label={label}
-        data-testid={`airhop-server-family-${key}`}
-        id={`airhop-server-family-${key}`}
-        onChange={(event) =>
-          setForm((current) => ({ ...current, [key]: event.target.value }))
-        }
-        type={type}
-        value={form[key]}
-      />
+      {type === "date" ? (
+        <AirHopDateInput
+          aria-label={label}
+          data-testid={`airhop-server-family-${key}`}
+          id={`airhop-server-family-${key}`}
+          max={airHopTodayIsoDate()}
+          onChange={(value) =>
+            setForm((current) => ({ ...current, [key]: value }))
+          }
+          value={form[key]}
+        />
+      ) : (
+        <Input
+          aria-label={label}
+          data-testid={`airhop-server-family-${key}`}
+          id={`airhop-server-family-${key}`}
+          onChange={(event) =>
+            setForm((current) => ({ ...current, [key]: event.target.value }))
+          }
+          type={type}
+          value={form[key]}
+        />
+      )}
       {errors[key] ? (
         <span className="text-xs text-destructive">{errors[key]}</span>
       ) : null}
@@ -143,7 +165,10 @@ export function ServerFamilyCreateDialog({
               <AlertDescription>{requestError}</AlertDescription>
             </Alert>
           ) : null}
-          {field("representativeName", messages.representativeName)}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {field("representativeFirstName", messages.representativeFirstName)}
+            {field("representativeLastName", messages.representativeLastName)}
+          </div>
           {field("phone", messages.representativePhone, "tel")}
           <div className="grid gap-4 sm:grid-cols-2">
             {field("childName", messages.childName)}

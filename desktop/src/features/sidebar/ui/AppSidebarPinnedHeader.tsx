@@ -91,6 +91,7 @@ export function AppSidebarPrimaryMenu({
   selectedView,
 }: AppSidebarPrimaryMenuProps) {
   const locale = useAirHopLocale();
+  const inboxLabel = locale === "ru-RU" ? "Входящие" : "Inbox";
   const agentsLabel = locale === "ru-RU" ? "AI-агенты" : "AI agents";
 
   return (
@@ -104,11 +105,11 @@ export function AppSidebarPrimaryMenu({
           <SidebarMenuButton
             isActive={selectedView === "home"}
             onClick={onSelectHome}
-            tooltip="Inbox"
+            tooltip={inboxLabel}
             type="button"
           >
             <Inbox className="h-4 w-4" />
-            <SidebarMenuLabel>Inbox</SidebarMenuLabel>
+            <SidebarMenuLabel>{inboxLabel}</SidebarMenuLabel>
           </SidebarMenuButton>
           {homeBadgeCount > 0 ? (
             <SidebarMenuBadge

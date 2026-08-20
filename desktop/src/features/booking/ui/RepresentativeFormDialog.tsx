@@ -4,10 +4,14 @@ import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspacePro
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import type { BookingRepresentative } from "@/features/booking/model/bookingCore";
 import { representativeSchema } from "@/features/booking/model/bookingCore";
-import { upsertBookingRepresentative } from "@/features/booking/model/bookingMutations";
+import {
+  upsertBookingFamily,
+  upsertBookingRepresentative,
+} from "@/features/booking/model/bookingMutations";
 import { normalizePublicBookingPhone } from "@/features/booking/model/publicBooking";
 import { BookingFeedbackBanners } from "@/features/booking/ui/BookingWorkspaceState";
 import { Button } from "@/shared/ui/button";
+import { Checkbox } from "@/shared/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -38,13 +42,21 @@ export function RepresentativeFormDialog({
   );
   const [name, setName] = React.useState("");
   const [phone, setPhone] = React.useState("");
+  const [makePrimary, setMakePrimary] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const family = workspace?.families.find(
+    (candidate) => candidate.id === familyId,
+  );
+  const isCurrentPrimary =
+    representative !== null &&
+    representative.id === family?.primaryRepresentativeId;
   React.useEffect(() => {
     if (!open) return;
     setName(representative?.displayName ?? "");
     setPhone(representative?.phoneDisplay ?? "");
+    setMakePrimary(isCurrentPrimary);
     setError(null);
-  }, [open, representative]);
+  }, [isCurrentPrimary, open, representative]);
   if (!workspace) return null;
 
   const submit = async (event: React.FormEvent) => {
@@ -72,9 +84,22 @@ export function RepresentativeFormDialog({
       updatedAt: now,
     });
     try {
-      await booking.save((current) =>
-        upsertBookingRepresentative(current, parsed),
-      );
+      await booking.save((current) => {
+        const withRepresentative = upsertBookingRepresentative(current, parsed);
+        if (!makePrimary) return withRepresentative;
+        const currentFamily = current.families.find(
+          (candidate) => candidate.id === familyId,
+        );
+        if (!currentFamily) return withRepresentative;
+        return upsertBookingFamily(
+          { ...current, ...withRepresentative },
+          {
+            ...currentFamily,
+            primaryRepresentativeId: parsed.id,
+            updatedAt: now,
+          },
+        );
+      });
       onSaved();
       onOpenChange(false);
     } catch {
@@ -127,6 +152,26 @@ export function RepresentativeFormDialog({
               value={phone}
             />
           </label>
+          {family &&
+          workspace.representatives.filter(
+            (candidate) => candidate.familyId === familyId,
+          ).length > 1 ? (
+            <label
+              className="flex items-center gap-2 text-sm"
+              htmlFor="airhop-representative-primary"
+            >
+              <Checkbox
+                checked={makePrimary}
+                data-testid="airhop-representative-primary"
+                disabled={isCurrentPrimary}
+                id="airhop-representative-primary"
+                onCheckedChange={(checked) => setMakePrimary(checked === true)}
+              />
+              <span className="font-medium">
+                {messages.familyPrimaryContact}
+              </span>
+            </label>
+          ) : null}
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
           <DialogFooter>
             <Button

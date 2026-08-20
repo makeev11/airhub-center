@@ -1,6 +1,7 @@
 import { Video } from "lucide-react";
 import { motion } from "motion/react";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { AnimatedAvatarCameraPicker } from "@/features/profile/ui/AnimatedAvatarCameraPicker";
 import {
   type CameraSource,
@@ -41,6 +42,7 @@ export function AnimatedAvatarCameraControls({
   showCameraPicker,
   testIdPrefix,
 }: AnimatedAvatarCameraControlsProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <div className="grid gap-4">
       {showCameraPicker ? (
@@ -71,7 +73,7 @@ export function AnimatedAvatarCameraControls({
             onClick={onRetry}
             type="button"
           >
-            Try camera again
+            {isRussian ? "Попробовать камеру снова" : "Try camera again"}
           </Button>
         ) : isLive ? (
           <Button
@@ -92,7 +94,9 @@ export function AnimatedAvatarCameraControls({
               transition={ENTRANCE_TRANSITION}
             >
               <Video aria-hidden="true" className="mr-2 h-4 w-4" />
-              Capture {RECORD_SECONDS} sec video
+              {isRussian
+                ? `Записать видео · ${RECORD_SECONDS} сек.`
+                : `Capture ${RECORD_SECONDS} sec video`}
             </motion.button>
           </Button>
         ) : null}

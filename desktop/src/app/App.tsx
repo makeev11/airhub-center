@@ -715,7 +715,9 @@ export function App() {
   if (isPublicBookingLocation) {
     return (
       <QueryClientProvider client={queryClient}>
-        <PublicBookingApp />
+        <BookingWorkspaceProvider repository={null}>
+          <PublicBookingApp />
+        </BookingWorkspaceProvider>
       </QueryClientProvider>
     );
   }

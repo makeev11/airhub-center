@@ -23,8 +23,9 @@ for (const label of ["Only me (default)", "Selected people", "Anyone"]) {
 test("native and persona controls share one option list", () => {
   assert.match(
     respondToFieldSource,
-    /<select[\s\S]*RESPOND_TO_OPTIONS\.map\(\(option\) => \([\s\S]*<option/,
+    /<select[\s\S]*respondToOptions\.map\(\(option\) => \([\s\S]*<option/,
   );
+  assert.match(respondToFieldSource, /options=\{respondToOptions\}/);
 });
 
 test("every shared-access mode renders a persistent warning", () => {
@@ -50,7 +51,7 @@ test("the warning copy comes from the shared helper, not inline text", () => {
   // call site must keep that precedence rather than reading only one source.
   assert.match(
     collapsedSource,
-    /agentAccessWarningText\( mode, runLocation \?\? inheritedRunLocation, \)/,
+    /agentAccessWarningText\( mode, runLocation \?\? inheritedRunLocation, isRussian \? "ru-RU" : "en-US", \)/,
   );
   assert.match(collapsedSource, /<p aria-live="polite"[^>]*> \{warningText\}/);
 });

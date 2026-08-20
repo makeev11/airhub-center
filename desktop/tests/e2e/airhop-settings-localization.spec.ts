@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
 });
 
-test("Russian employee settings open profiles without excluded Huddle runtime", async ({
+test("Russian employee settings open localized profiles without excluded Huddle runtime", async ({
   page,
 }) => {
   await openSettings(page, "community-members");
@@ -26,8 +26,16 @@ test("Russian employee settings open profiles without excluded Huddle runtime", 
 
   await page.getByRole("button", { name: "Открыть профиль: alice" }).click();
   await expect(page).toHaveURL(/#\/\?profile=/);
-  await expect(page.getByText("Profile", { exact: true })).toBeVisible();
+  await expect(page.getByText("Профиль", { exact: true })).toBeVisible();
   await expect(page.getByText(/useHuddle must be used/)).toHaveCount(0);
+
+  await openSettings(page, "notifications");
+  await expect(
+    page.getByRole("heading", { name: "Уведомления", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Desktop alerts", { exact: true })).toHaveCount(
+    0,
+  );
 });
 
 test("Russian appearance settings expose center and booking-widget targets", async ({

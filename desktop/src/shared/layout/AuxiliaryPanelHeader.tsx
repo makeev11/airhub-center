@@ -5,6 +5,7 @@ import { channelChrome } from "@/shared/layout/chromeLayout";
 import { AuxiliaryPanelContext } from "@/shared/layout/auxiliaryPanelContext";
 import type { AuxiliaryPanelMode } from "@/shared/layout/auxiliaryPanelContext";
 import { cn } from "@/shared/lib/cn";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
 
 export type { AuxiliaryPanelMode } from "@/shared/layout/auxiliaryPanelContext";
@@ -55,7 +56,6 @@ type AuxiliaryPanelTitleContentProps = React.ComponentProps<"h2">;
 type AuxiliaryPanelSurface = "default" | "soft" | "transparent";
 
 const AUXILIARY_PANEL_HEADER_HEIGHT_CLASS = "pt-13";
-const AUXILIARY_PANEL_CLOSE_LABEL = "Close panel";
 const AUXILIARY_PANEL_CLOSE_TEST_ID = "auxiliary-panel-close";
 const AUXILIARY_PANEL_RESIZE_BORDER_CLASS =
   "after:absolute after:bottom-0 after:-left-px after:top-0 after:w-px after:bg-border/45 after:transition-colors peer-hover/auxiliary-panel-resize:after:bg-border/80 peer-focus-visible/auxiliary-panel-resize:after:bg-border/80";
@@ -321,6 +321,7 @@ export function AuxiliaryPanelHeaderActions({
 }
 
 function AuxiliaryPanelHeaderCloseAction() {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const panelContext = React.useContext(AuxiliaryPanelContext);
 
   if (!panelContext?.onClose) {
@@ -329,7 +330,7 @@ function AuxiliaryPanelHeaderCloseAction() {
 
   return (
     <Button
-      aria-label={AUXILIARY_PANEL_CLOSE_LABEL}
+      aria-label={isRussian ? "Закрыть панель" : "Close panel"}
       className="shrink-0"
       data-testid={AUXILIARY_PANEL_CLOSE_TEST_ID}
       onClick={panelContext.onClose}

@@ -7,21 +7,22 @@ import { getBookingAdminMessages } from "./bookingAdminLocale.ts";
 const { createBookingFormatters, formatBookingAgeRange, getBookingMessages } =
   bookingLocale;
 
-test("Booking locale keeps Russian as the MVP copy fallback", () => {
+test("Booking locale serves reviewed Russian and English copy", () => {
   assert.equal(getBookingMessages("ru-RU").scheduleTitle, "Расписание");
-  assert.equal(getBookingMessages("tr-TR").scheduleTitle, "Расписание");
-});
-
-test("AirHop settings explain automatic time zone detection", () => {
-  const messages = getBookingAdminMessages("ru-RU");
+  assert.equal(getBookingMessages("en-US").scheduleTitle, "Schedule");
+  assert.equal(getBookingMessages("tr-TR").scheduleTitle, "Schedule");
 
   assert.equal(
-    messages.timeZoneAutomatic("Asia/Tokyo"),
-    "Определить автоматически — Asia/Tokyo",
+    getBookingAdminMessages("ru-RU").settingsTitle,
+    "Настройки AirHop",
   );
   assert.equal(
-    messages.timeZoneHint,
-    "Выберите часовой пояс IANA из списка или определите его автоматически.",
+    getBookingAdminMessages("en-US").settingsTitle,
+    "AirHop settings",
+  );
+  assert.equal(
+    getBookingAdminMessages("pt-BR").settingsTitle,
+    "AirHop settings",
   );
 });
 
@@ -47,7 +48,19 @@ test("Booking locale covers lesson overrides and working-hour accessibility", ()
   );
   assert.match(
     adminMessages.bookedOccurrenceRuleErrorDescription,
-    /уже есть записи/,
+    /используется записями или постоянными учениками/,
+  );
+});
+
+test("AirHop settings explain automatic time zone detection", () => {
+  const messages = getBookingAdminMessages("ru-RU");
+  assert.equal(
+    messages.timeZoneAutomatic("Asia/Tokyo"),
+    "Определить автоматически — Asia/Tokyo",
+  );
+  assert.equal(
+    messages.timeZoneHint,
+    "Выберите часовой пояс IANA из списка или определите его автоматически.",
   );
 });
 
@@ -97,6 +110,18 @@ test("Booking age formatter does not round month limits down", () => {
       maxAgeMonths: 84,
     }),
     "5–7 лет",
+  );
+  assert.equal(
+    formatBookingAgeRange({ locale: "en-US", minAgeMonths: 71 }),
+    "from 5 years 11 months",
+  );
+  assert.equal(
+    formatBookingAgeRange({
+      locale: "en-US",
+      minAgeMonths: 60,
+      maxAgeMonths: 84,
+    }),
+    "5–7 years",
   );
 });
 

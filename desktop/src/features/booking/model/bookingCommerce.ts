@@ -11,7 +11,6 @@ import {
   type PaymentExpectation,
   type WeeklyScheduleSelection,
 } from "@/features/booking/model/bookingCore";
-import { isExactBirthDateEligible } from "@/features/booking/model/publicBooking";
 
 export type BookingCommerceErrorCode =
   | "unknown_tariff"
@@ -23,6 +22,7 @@ export type BookingCommerceErrorCode =
   | "overlapping_enrollment"
   | "invalid_payment_snapshot"
   | "invalid_payment_transition"
+  | "invalid_enrollment_transition"
   | "entity_not_found"
   | "entity_already_exists";
 
@@ -60,6 +60,28 @@ function rangesOverlap(
     (left.endDate === undefined || left.endDate >= right.startDate) &&
     (right.endDate === undefined || right.endDate >= left.startDate)
   );
+}
+
+function shiftIsoDate(isoDate: string, days: number): string {
+  const date = new Date(`${isoDate}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function cancelledPayment(
+  payment: PaymentExpectation,
+  input: { actorId: string; occurredAt: string; internalReason: string },
+): PaymentExpectation {
+  return paymentExpectationSchema.parse({
+    ...payment,
+    status: "cancelled",
+    paidAt: undefined,
+    paidBy: undefined,
+    cancelledAt: input.occurredAt,
+    cancelledBy: input.actorId,
+    internalReason: input.internalReason,
+    updatedAt: input.occurredAt,
+  });
 }
 
 export function weeklySelectionKey(selection: WeeklyScheduleSelection): string {
@@ -119,12 +141,6 @@ function validateConfiguredEnrollment(
     throw new BookingCommerceError(
       "inactive_group",
       `Group ${group.id} is archived`,
-    );
-  }
-  if (!isExactBirthDateEligible(group, child.birthDate, enrollment.startDate)) {
-    throw new BookingCommerceError(
-      "age_mismatch",
-      `Child ${child.id} does not fit group ${group.id}`,
     );
   }
   const tariff = requireTariff(workspace, enrollment.tariffId);
@@ -313,6 +329,178 @@ export function reconfigureEnrollment(
     ...workspaceDraft(workspace),
     enrollments: workspace.enrollments.map((candidate) =>
       candidate.id === enrollment.id ? enrollment : candidate,
+    ),
+  });
+}
+
+/**
+ * Starts a new tariff segment without rewriting the previous enrollment or
+ * any resolved payment snapshots. Future expected payments from the previous
+ * segment are cancelled and replaced by the first payment for the new tariff.
+ */
+export function transitionEnrollmentTariff(
+  workspace: BookingWorkspace,
+  input: {
+    enrollmentId: string;
+    tariffId: string;
+    weeklyScheduleSelections: WeeklyScheduleSelection[];
+    effectiveDate: string;
+    newEnrollmentId: string;
+    newPaymentId: string;
+    actorId: string;
+    occurredAt: string;
+  },
+): BookingWorkspaceDraft {
+  const existing = workspace.enrollments.find(
+    (candidate) => candidate.id === input.enrollmentId,
+  );
+  if (!existing) {
+    throw new BookingCommerceError(
+      "entity_not_found",
+      `Unknown enrollment ${input.enrollmentId}`,
+    );
+  }
+  if (
+    existing.assignmentState !== "configured" ||
+    existing.status !== "active" ||
+    input.effectiveDate <= existing.startDate ||
+    (existing.endDate !== undefined && input.effectiveDate > existing.endDate)
+  ) {
+    throw new BookingCommerceError(
+      "invalid_enrollment_transition",
+      "Tariff transition must start inside an active configured enrollment",
+    );
+  }
+  if (
+    workspace.enrollments.some(
+      (candidate) => candidate.id === input.newEnrollmentId,
+    ) ||
+    workspace.paymentExpectations.some(
+      (candidate) => candidate.id === input.newPaymentId,
+    )
+  ) {
+    throw new BookingCommerceError(
+      "entity_already_exists",
+      "Enrollment or payment id already exists",
+    );
+  }
+
+  const tariff = requireTariff(workspace, input.tariffId);
+  const previousEndDate = shiftIsoDate(input.effectiveDate, -1);
+  const previousEnrollment = enrollmentSchema.parse({
+    ...existing,
+    endDate: previousEndDate,
+    updatedAt: input.occurredAt,
+  });
+  const nextEnrollment = enrollmentSchema.parse({
+    ...existing,
+    id: input.newEnrollmentId,
+    startDate: input.effectiveDate,
+    ...(existing.endDate ? { endDate: existing.endDate } : {}),
+    tariffId: input.tariffId,
+    weeklyScheduleSelections: input.weeklyScheduleSelections,
+    createdBy: input.actorId,
+    createdAt: input.occurredAt,
+    updatedAt: input.occurredAt,
+  });
+  if (nextEnrollment.assignmentState !== "configured") {
+    throw new BookingCommerceError(
+      "invalid_enrollment_transition",
+      "New tariff segment must be configured",
+    );
+  }
+
+  const shortenedWorkspace = parseBookingWorkspace({
+    ...workspace,
+    enrollments: workspace.enrollments.map((candidate) =>
+      candidate.id === previousEnrollment.id ? previousEnrollment : candidate,
+    ),
+  });
+  const created = createConfiguredEnrollmentWithPayment(shortenedWorkspace, {
+    enrollment: nextEnrollment,
+    payment: {
+      id: input.newPaymentId,
+      organizationId: existing.organizationId,
+      familyId: existing.familyId,
+      childId: existing.childId,
+      enrollmentId: nextEnrollment.id,
+      tariffId: tariff.id,
+      tariffNameSnapshot: tariff.name,
+      amountMinor: tariff.priceMinor,
+      currency: tariff.currency,
+      dueDate: input.effectiveDate,
+      status: "expected",
+      createdAt: input.occurredAt,
+      updatedAt: input.occurredAt,
+    },
+  });
+  const reason = `Tariff changed from ${existing.tariffId} to ${tariff.id}`;
+  return checkedDraft(workspace, {
+    ...created,
+    paymentExpectations: created.paymentExpectations.map((payment) =>
+      payment.enrollmentId === existing.id &&
+      payment.status === "expected" &&
+      payment.dueDate >= input.effectiveDate
+        ? cancelledPayment(payment, {
+            actorId: input.actorId,
+            occurredAt: input.occurredAt,
+            internalReason: reason,
+          })
+        : payment,
+    ),
+  });
+}
+
+/** Ends an enrollment after the selected date while preserving its history. */
+export function endEnrollment(
+  workspace: BookingWorkspace,
+  enrollmentId: string,
+  input: {
+    endDate: string;
+    cancelExpectedPayments: boolean;
+    actorId: string;
+    occurredAt: string;
+  },
+): BookingWorkspaceDraft {
+  const existing = workspace.enrollments.find(
+    (candidate) => candidate.id === enrollmentId,
+  );
+  if (!existing) {
+    throw new BookingCommerceError(
+      "entity_not_found",
+      `Unknown enrollment ${enrollmentId}`,
+    );
+  }
+  if (
+    existing.status !== "active" ||
+    input.endDate < existing.startDate ||
+    (existing.endDate !== undefined && input.endDate > existing.endDate)
+  ) {
+    throw new BookingCommerceError(
+      "invalid_enrollment_transition",
+      "Enrollment cannot end on the selected date",
+    );
+  }
+  const ended = enrollmentSchema.parse({
+    ...existing,
+    endDate: input.endDate,
+    updatedAt: input.occurredAt,
+  });
+  return checkedDraft(workspace, {
+    ...workspaceDraft(workspace),
+    enrollments: workspace.enrollments.map((candidate) =>
+      candidate.id === enrollmentId ? ended : candidate,
+    ),
+    paymentExpectations: workspace.paymentExpectations.map((payment) =>
+      input.cancelExpectedPayments &&
+      payment.enrollmentId === enrollmentId &&
+      payment.status === "expected"
+        ? cancelledPayment(payment, {
+            actorId: input.actorId,
+            occurredAt: input.occurredAt,
+            internalReason: "Enrollment ended by staff",
+          })
+        : payment,
     ),
   });
 }

@@ -14,7 +14,10 @@ export function loadAirHopLocale(
     ? null
     : localStorage,
 ): AirHopLocale | null {
-  const value = storage?.getItem(AIRHOP_LOCALE_STORAGE_KEY) ?? null;
+  const value =
+    storage && typeof storage.getItem === "function"
+      ? storage.getItem(AIRHOP_LOCALE_STORAGE_KEY)
+      : null;
   return isAirHopLocale(value) ? value : null;
 }
 
@@ -28,7 +31,9 @@ export function persistAirHopLocale(
     ? null
     : localStorage,
 ): void {
-  storage?.setItem(AIRHOP_LOCALE_STORAGE_KEY, locale);
+  if (storage && typeof storage.setItem === "function") {
+    storage.setItem(AIRHOP_LOCALE_STORAGE_KEY, locale);
+  }
   if (typeof document !== "undefined") document.documentElement.lang = locale;
   if (typeof window !== "undefined") {
     window.dispatchEvent(

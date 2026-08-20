@@ -827,6 +827,7 @@ export function GroupFormDialog({
             ) : null}
             <GroupScheduleEditor
               errors={scheduleErrors}
+              locale={workspace.organization.locale}
               messages={messages}
               onAdd={() =>
                 updateForm((current) => ({

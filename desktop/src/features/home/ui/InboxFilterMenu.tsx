@@ -1,4 +1,5 @@
 import { ChevronDown } from "lucide-react";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 import type { InboxFilter } from "@/features/home/lib/inbox";
 import { cn } from "@/shared/lib/cn";
@@ -12,17 +13,20 @@ import {
 } from "@/shared/ui/dropdown-menu";
 
 const INBOX_FILTER_OPTIONS: Array<{
-  label: string;
+  label: { en: string; ru: string };
   value: InboxFilter;
 }> = [
-  { value: "all", label: "All" },
-  { value: "project", label: "Projects" },
-  { value: "mention", label: "Mentions" },
-  { value: "thread", label: "Threads" },
-  { value: "needs_action", label: "Needs action" },
-  { value: "agent_activity", label: "Agents" },
-  { value: "reminders", label: "Reminders" },
-  { value: "drafts", label: "Drafts" },
+  { value: "all", label: { en: "All", ru: "Все" } },
+  { value: "project", label: { en: "Projects", ru: "Проекты" } },
+  { value: "mention", label: { en: "Mentions", ru: "Упоминания" } },
+  { value: "thread", label: { en: "Threads", ru: "Обсуждения" } },
+  {
+    value: "needs_action",
+    label: { en: "Needs action", ru: "Нужны действия" },
+  },
+  { value: "agent_activity", label: { en: "Agents", ru: "Агенты" } },
+  { value: "reminders", label: { en: "Reminders", ru: "Напоминания" } },
+  { value: "drafts", label: { en: "Drafts", ru: "Черновики" } },
 ];
 
 const TRIGGER_CLASS =
@@ -43,26 +47,38 @@ export function InboxFilterMenu({
   onFilterChange,
   reminderCount,
 }: InboxFilterMenuProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const optionLabel = (option: (typeof INBOX_FILTER_OPTIONS)[number]) =>
+    isRussian ? option.label.ru : option.label.en;
   const activeFilter = INBOX_FILTER_OPTIONS.find(
     (option) => option.value === filter,
   );
   const statusLabel =
     dueReminderCount > 0
-      ? `${dueReminderCount} due reminder${dueReminderCount === 1 ? "" : "s"}`
+      ? isRussian
+        ? `Просроченных напоминаний: ${dueReminderCount}`
+        : `${dueReminderCount} due reminder${dueReminderCount === 1 ? "" : "s"}`
       : activeDraftCount > 0
-        ? `${activeDraftCount} active draft${activeDraftCount === 1 ? "" : "s"}`
+        ? isRussian
+          ? `Активных черновиков: ${activeDraftCount}`
+          : `${activeDraftCount} active draft${activeDraftCount === 1 ? "" : "s"}`
         : null;
+  const activeLabel = activeFilter
+    ? optionLabel(activeFilter)
+    : isRussian
+      ? "Все"
+      : "All";
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          aria-label={`Filter inbox: ${activeFilter?.label ?? "All"}${statusLabel ? `. ${statusLabel}` : ""}`}
+          aria-label={`${isRussian ? "Фильтр входящих" : "Filter inbox"}: ${activeLabel}${statusLabel ? `. ${statusLabel}` : ""}`}
           className={cn(TRIGGER_CLASS)}
           data-testid="inbox-filter-trigger"
           type="button"
         >
-          <span>{activeFilter?.label ?? "All"}</span>
+          <span>{activeLabel}</span>
           <ChevronDown className="text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
@@ -78,7 +94,7 @@ export function InboxFilterMenu({
               ) : null}
               <DropdownMenuRadioItem value={option.value}>
                 <span className="flex flex-1 items-center gap-2">
-                  <span>{option.label}</span>
+                  <span>{optionLabel(option)}</span>
                   <span className="ml-auto flex items-center gap-1.5">
                     {option.value === "reminders" && reminderCount > 0 ? (
                       <span

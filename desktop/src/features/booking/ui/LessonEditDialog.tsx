@@ -26,6 +26,7 @@ import {
   upsertBookingLessonException,
 } from "@/features/booking/model/bookingMutations";
 import { BookingFeedbackBanners } from "@/features/booking/ui/BookingWorkspaceState";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { BookingSelect } from "@/features/booking/ui/BookingSelect";
 import { useBookingUnsavedChangesGuard } from "@/features/booking/ui/useBookingUnsavedChangesGuard";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
@@ -557,18 +558,15 @@ export function LessonEditDialog({
                 label: messages.lessonDate,
                 error: errors.date,
                 children: (
-                  <Input
+                  <AirHopDateInput
                     aria-label={messages.lessonDate}
                     data-testid="airhop-lesson-date"
-                    onChange={(event) => {
+                    onChange={(value) => {
                       setConflictsConfirmed(false);
                       setForm((current) =>
-                        current
-                          ? { ...current, date: event.target.value }
-                          : current,
+                        current ? { ...current, date: value } : current,
                       );
                     }}
-                    type="date"
                     value={form.date}
                   />
                 ),

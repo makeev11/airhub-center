@@ -100,7 +100,7 @@ import type {
   UpdatePersonaInput,
 } from "@/shared/api/types";
 import { UserProfilePanelFrame } from "@/features/profile/ui/UserProfilePanelFrame";
-import { getUserProfilePanelHeaderContent } from "@/features/profile/ui/UserProfilePanelHeaderContent";
+import { useUserProfilePanelHeaderContent } from "@/features/profile/ui/UserProfilePanelHeaderContent";
 export type { ProfilePanelTab, ProfilePanelView };
 
 export function UserProfilePanel({
@@ -763,7 +763,7 @@ export function UserProfilePanel({
     isDiagnosticsLikeView && managedAgent
       ? `${managedAgent.name} · ${describeLogFile(managedAgent.logPath)}`
       : null;
-  const { headerActions, headerLeftContent } = getUserProfilePanelHeaderContent(
+  const { headerActions, headerLeftContent } = useUserProfilePanelHeaderContent(
     {
       agentSettingsMenu,
       effectivePubkey,

@@ -1,5 +1,6 @@
 import { Bell, Clock, Ellipsis, ExternalLink, MailOpen } from "lucide-react";
 import * as React from "react";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 import {
   getInboxTypeLabel,
@@ -64,6 +65,28 @@ const INBOX_UNREAD_EMPTY_STATE_TITLES: Record<InboxFilter, string> = {
   drafts: "No unread drafts",
 };
 
+const RU_INBOX_EMPTY_STATE_TITLES: Record<InboxFilter, string> = {
+  all: "Действий пока нет",
+  project: "Работа по проектам не найдена",
+  mention: "Упоминаний нет",
+  thread: "Обсуждений нет",
+  needs_action: "Действия не требуются",
+  agent_activity: "Обновлений от агентов нет",
+  reminders: "Напоминаний нет",
+  drafts: "Черновиков нет",
+};
+
+const RU_INBOX_UNREAD_EMPTY_STATE_TITLES: Record<InboxFilter, string> = {
+  all: "Непрочитанных действий нет",
+  project: "Непрочитанной работы по проектам нет",
+  mention: "Непрочитанных упоминаний нет",
+  thread: "Непрочитанных обсуждений нет",
+  needs_action: "Непрочитанных задач нет",
+  agent_activity: "Непрочитанных обновлений от агентов нет",
+  reminders: "Непрочитанных напоминаний нет",
+  drafts: "Непрочитанных черновиков нет",
+};
+
 const INBOX_HEADER_ICON_BUTTON_CLASS =
   "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted/70 data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
 const INBOX_PANE_RIGHT_DIVIDER_CLASS =
@@ -106,18 +129,28 @@ function InboxLabel({
   );
 }
 
-function formatReminderStatus(notBefore: number | undefined) {
-  if (notBefore === undefined) return "Pending";
+function formatReminderStatus(notBefore: number | undefined, russian: boolean) {
+  if (notBefore === undefined) return russian ? "Ожидает" : "Pending";
   const secondsUntil = notBefore - Math.floor(Date.now() / 1_000);
-  if (secondsUntil <= 0) return "Reminder due";
-  if (secondsUntil < 60) return "Reminder in less than a minute";
+  if (secondsUntil <= 0) return russian ? "Пора напомнить" : "Reminder due";
+  if (secondsUntil < 60) {
+    return russian
+      ? "Меньше чем через минуту"
+      : "Reminder in less than a minute";
+  }
   if (secondsUntil < 3_600) {
-    return `Reminder in ${Math.floor(secondsUntil / 60)}m`;
+    return russian
+      ? `Через ${Math.floor(secondsUntil / 60)} мин`
+      : `Reminder in ${Math.floor(secondsUntil / 60)}m`;
   }
   if (secondsUntil < 86_400) {
-    return `Reminder in ${Math.floor(secondsUntil / 3_600)}h`;
+    return russian
+      ? `Через ${Math.floor(secondsUntil / 3_600)} ч`
+      : `Reminder in ${Math.floor(secondsUntil / 3_600)}h`;
   }
-  return `Reminder in ${Math.floor(secondsUntil / 86_400)}d`;
+  return russian
+    ? `Через ${Math.floor(secondsUntil / 86_400)} дн`
+    : `Reminder in ${Math.floor(secondsUntil / 86_400)}d`;
 }
 
 function PersonalItemRow({
@@ -127,6 +160,7 @@ function PersonalItemRow({
   preview,
   selected,
   status,
+  title,
 }: {
   id: string;
   location: InboxTypeLabel | null;
@@ -134,6 +168,7 @@ function PersonalItemRow({
   preview: string;
   selected: boolean;
   status: string;
+  title: string;
 }) {
   return (
     <button
@@ -151,7 +186,7 @@ function PersonalItemRow({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold text-foreground">
-          Reminder
+          {title}
         </span>
         {location ? (
           <InboxLabel
@@ -226,6 +261,38 @@ export function InboxListPane({
   selectedReminderId,
   unreadOnly,
 }: InboxListPaneProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const copy = isRussian
+    ? {
+        reminder: "Напоминание",
+        unread: "непрочитано",
+        reminderDue: "Пора напомнить",
+        markUnread: "Отметить непрочитанным",
+        markRead: "Отметить прочитанным",
+        openChannel: "Открыть в канале",
+        noChannel: "Нет ссылки на канал",
+        reminderSet: "Напоминание создано",
+        remindLater: "Напомнить позже",
+        cannotRemind: "Нужен канал, чтобы создать напоминание",
+        options: "Настройки входящих",
+        unreadOnly: "Только непрочитанные",
+        markAllRead: "Отметить всё прочитанным",
+      }
+    : {
+        reminder: "Reminder",
+        unread: "unread",
+        reminderDue: "Reminder due",
+        markUnread: "Mark unread",
+        markRead: "Mark as read",
+        openChannel: "Open in channel",
+        noChannel: "No channel link",
+        reminderSet: "Reminder set",
+        remindLater: "Remind me later",
+        cannotRemind: "Cannot remind without a channel",
+        options: "Inbox options",
+        unreadOnly: "Show unread only",
+        markAllRead: "Mark all as read",
+      };
   const isReminders = filter === "reminders";
   const isDrafts = filter === "drafts";
   const isMixedInboxView = filter === "all";
@@ -301,7 +368,11 @@ export function InboxListPane({
         }
       >
         <button
-          aria-label={`Open inbox item from ${item.senderLabel}`}
+          aria-label={
+            isRussian
+              ? `Открыть входящее от ${item.senderLabel}`
+              : `Open inbox item from ${item.senderLabel}`
+          }
           className="absolute inset-0 z-0 block w-full border-l border-l-transparent text-left"
           onClick={() => onSelect(item.id)}
           type="button"
@@ -378,7 +449,7 @@ export function InboxListPane({
                   ) : null}
                   {item.unreadCount > 1 ? (
                     <span data-testid="home-inbox-unread-count">
-                      {item.unreadCount} unread
+                      {item.unreadCount} {copy.unread}
                     </span>
                   ) : null}
                   {item.timestampLabel}
@@ -395,7 +466,7 @@ export function InboxListPane({
                   data-testid="home-inbox-reminder-due"
                 >
                   <Bell className="h-3 w-3" />
-                  Reminder due
+                  {copy.reminderDue}
                 </div>
               ) : null}
 
@@ -421,14 +492,14 @@ export function InboxListPane({
         <div className="pointer-events-none absolute right-3 top-2 z-10 flex items-center gap-0.5 rounded-full bg-[var(--inbox-row-highlight-bg)] p-1 opacity-0 transition-opacity duration-150 ease-out group-hover/inbox-item:pointer-events-auto group-hover/inbox-item:opacity-100 group-focus-within/inbox-item:pointer-events-auto group-focus-within/inbox-item:opacity-100">
           {isDone ? (
             <InboxRowActionButton
-              label="Mark unread"
+              label={copy.markUnread}
               onClick={() => onMarkUnread(item.id)}
             >
               <MailOpen className="!h-4 !w-4" />
             </InboxRowActionButton>
           ) : (
             <InboxRowActionButton
-              label="Mark as read"
+              label={copy.markRead}
               onClick={() => onMarkRead(item.id)}
             >
               <MailOpen className="!h-4 !w-4" />
@@ -436,7 +507,7 @@ export function InboxListPane({
           )}
           <InboxRowActionButton
             disabled={!hasChannelTarget}
-            label={hasChannelTarget ? "Open in channel" : "No channel link"}
+            label={hasChannelTarget ? copy.openChannel : copy.noChannel}
             onClick={() => onOpenDirect(item)}
           >
             <ExternalLink className="!h-4 !w-4" />
@@ -447,9 +518,9 @@ export function InboxListPane({
             label={
               hasChannelTarget
                 ? hasActiveReminder
-                  ? "Reminder set"
-                  : "Remind me later"
-                : "Cannot remind without a channel"
+                  ? copy.reminderSet
+                  : copy.remindLater
+                : copy.cannotRemind
             }
             onClick={() => onRemindLater(item)}
           >
@@ -466,12 +537,12 @@ export function InboxListPane({
           {isDone ? (
             <ContextMenuItem onClick={() => onMarkUnread(item.id)}>
               <MailOpen className="h-4 w-4" />
-              Mark unread
+              {copy.markUnread}
             </ContextMenuItem>
           ) : (
             <ContextMenuItem onClick={() => onMarkRead(item.id)}>
               <MailOpen className="h-4 w-4" />
-              Mark as read
+              {copy.markRead}
             </ContextMenuItem>
           )}
           <ContextMenuSeparator />
@@ -484,7 +555,7 @@ export function InboxListPane({
             }}
           >
             <ExternalLink className="h-4 w-4" />
-            {hasChannelTarget ? "Open in channel" : "No channel link"}
+            {hasChannelTarget ? copy.openChannel : copy.noChannel}
           </ContextMenuItem>
           <ContextMenuItem
             disabled={!hasChannelTarget}
@@ -495,7 +566,7 @@ export function InboxListPane({
             }}
           >
             <Clock className="h-4 w-4" />
-            {hasActiveReminder ? "Reminder set" : "Remind me later"}
+            {hasActiveReminder ? copy.reminderSet : copy.remindLater}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -516,7 +587,7 @@ export function InboxListPane({
               <Popover>
                 <PopoverTrigger asChild>
                   <button
-                    aria-label="Inbox options"
+                    aria-label={copy.options}
                     className={cn(INBOX_HEADER_ICON_BUTTON_CLASS, "-mr-4")}
                     data-testid="inbox-options-trigger"
                     type="button"
@@ -535,7 +606,7 @@ export function InboxListPane({
                       className="text-sm font-medium text-foreground"
                       htmlFor="inbox-unread-only-switch"
                     >
-                      Show unread only
+                      {copy.unreadOnly}
                     </label>
                     <Switch
                       checked={unreadOnly}
@@ -553,7 +624,7 @@ export function InboxListPane({
                     onClick={handleMarkAllRead}
                     type="button"
                   >
-                    <span>Mark all as read</span>
+                    <span>{copy.markAllRead}</span>
                     {unreadVisibleItemCount > 0 ? (
                       <span className="ml-auto text-xs text-muted-foreground">
                         {unreadVisibleItemCount}
@@ -626,10 +697,15 @@ export function InboxListPane({
                       source?.channel
                         ? source.channel.channelType === "dm"
                           ? {
-                              text: `In DM with ${source.channelLabel}`,
+                              text: isRussian
+                                ? `В личной переписке с ${source.channelLabel}`
+                                : `In DM with ${source.channelLabel}`,
                               channelLabel: null,
                             }
-                          : { text: "In", channelLabel: source.channelLabel }
+                          : {
+                              text: isRussian ? "В" : "In",
+                              channelLabel: source.channelLabel,
+                            }
                         : null
                     }
                     onClick={() => {
@@ -638,10 +714,14 @@ export function InboxListPane({
                     preview={
                       row.reminder.content.target?.preview ||
                       row.reminder.content.note ||
-                      "Reminder"
+                      copy.reminder
                     }
                     selected={selectedReminderId === row.reminder.id}
-                    status={formatReminderStatus(row.reminder.notBefore)}
+                    status={formatReminderStatus(
+                      row.reminder.notBefore,
+                      isRussian,
+                    )}
+                    title={copy.reminder}
                   />
                 );
               }}
@@ -652,15 +732,25 @@ export function InboxListPane({
               <div>
                 <p className="text-sm font-medium text-foreground">
                   {unreadOnly
-                    ? INBOX_UNREAD_EMPTY_STATE_TITLES[filter]
-                    : INBOX_EMPTY_STATE_TITLES[filter]}
+                    ? isRussian
+                      ? RU_INBOX_UNREAD_EMPTY_STATE_TITLES[filter]
+                      : INBOX_UNREAD_EMPTY_STATE_TITLES[filter]
+                    : isRussian
+                      ? RU_INBOX_EMPTY_STATE_TITLES[filter]
+                      : INBOX_EMPTY_STATE_TITLES[filter]}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {unreadOnly
-                    ? "Turn off Show unread only to see read activity."
+                    ? isRussian
+                      ? "Отключите фильтр непрочитанных, чтобы увидеть остальные действия."
+                      : "Turn off Show unread only to see read activity."
                     : filter === "all"
-                      ? "New activity will appear here."
-                      : "Switch back to All to see other activity."}
+                      ? isRussian
+                        ? "Новые действия появятся здесь."
+                        : "New activity will appear here."
+                      : isRussian
+                        ? "Вернитесь к фильтру «Все», чтобы увидеть остальные действия."
+                        : "Switch back to All to see other activity."}
                 </p>
               </div>
             </div>

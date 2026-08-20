@@ -14,6 +14,7 @@ import * as React from "react";
 import { AgentStatusBadge } from "@/features/agents/ui/AgentStatusBadge";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { PubKey } from "@/shared/ui/PubKey";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import type {
@@ -47,21 +48,35 @@ export type ProfileField = {
 
 const AGENT_INFO_LABELS = new Set([
   "Public key",
+  "Публичный ключ",
   "Managed by",
+  "Ответственный",
   "NIP-05",
   "Agent type",
+  "Тип агента",
   "Capabilities",
+  "Возможности",
   "Backend",
+  "Бэкенд",
 ]);
 const AGENT_SETTINGS_LABELS = new Set([
   "Runtime",
+  "Среда запуска",
   "Agent profile",
+  "Профиль агента",
   "Who can send instructions",
+  "Кто может ставить задачи",
   "ACP command",
   "MCP command",
   "Start on launch",
+  "Запускать вместе с приложением",
 ]);
-const DIAGNOSTICS_LABELS = new Set(["Status", "Last error"]);
+const DIAGNOSTICS_LABELS = new Set([
+  "Status",
+  "Статус",
+  "Last error",
+  "Последняя ошибка",
+]);
 
 export function bucketProfileFields(fields: ProfileField[]) {
   return {
@@ -110,9 +125,17 @@ export function useProfileFieldBuckets({
   pubkey: string | null;
   relayAgent: RelayAgent | undefined;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return React.useMemo(() => {
     const metadataFields = [
-      ...buildPublicFields({ pubkey, profile, relayAgent, isBot, persona }),
+      ...buildPublicFields({
+        pubkey,
+        profile,
+        relayAgent,
+        isBot,
+        persona,
+        isRussian,
+      }),
       ...(ownerDisplayName || isOwner === true
         ? buildOwnerFields({
             includeOperationalFields: isOwner === true,
@@ -127,12 +150,14 @@ export function useProfileFieldBuckets({
             presenceLoaded,
             presenceStatus,
             relayAgent,
+            isRussian,
           })
         : []),
     ];
     return bucketProfileFields(metadataFields);
   }, [
     isBot,
+    isRussian,
     isOwner,
     managedAgent,
     onOpenProfile,
@@ -156,12 +181,14 @@ export function buildPublicFields({
   profile,
   pubkey,
   relayAgent,
+  isRussian = false,
 }: {
   isBot: boolean;
   persona?: AgentPersona;
   profile: Profile | undefined;
   pubkey: string | null;
   relayAgent: RelayAgent | undefined;
+  isRussian?: boolean;
 }): ProfileField[] {
   const fields: ProfileField[] = [];
 
@@ -170,7 +197,7 @@ export function buildPublicFields({
       displayValue: truncatePubkey(pubkey),
       displayNode: <PubKey pubkey={pubkey} testId="user-profile-copy-pubkey" />,
       icon: Fingerprint,
-      label: "Public key",
+      label: isRussian ? "Публичный ключ" : "Public key",
     });
   }
 
@@ -189,16 +216,16 @@ export function buildPublicFields({
       copyValue: relayAgent.agentType,
       displayValue: runtimeLabel(relayAgent.agentType),
       icon: Cpu,
-      label: "Agent type",
+      label: isRussian ? "Тип агента" : "Agent type",
       testId: "user-profile-agent-type",
     });
   }
 
   if (!pubkey && persona) {
     fields.push({
-      displayValue: "Not deployed",
+      displayValue: isRussian ? "Не запущен" : "Not deployed",
       icon: Activity,
-      label: "Status",
+      label: isRussian ? "Статус" : "Status",
       testId: "user-profile-agent-status",
     });
   }
@@ -208,7 +235,7 @@ export function buildPublicFields({
       copyValue: relayAgent.capabilities.join(", "),
       displayValue: relayAgent.capabilities.join(", "),
       icon: Server,
-      label: "Capabilities",
+      label: isRussian ? "Возможности" : "Capabilities",
       testId: "user-profile-capabilities",
     });
   }
@@ -229,6 +256,7 @@ export function buildOwnerFields({
   presenceLoaded,
   presenceStatus,
   relayAgent,
+  isRussian = false,
 }: {
   includeOperationalFields: boolean;
   managedAgent: ManagedAgent | undefined;
@@ -242,17 +270,26 @@ export function buildOwnerFields({
   presenceLoaded: boolean;
   presenceStatus: "online" | "away" | "offline" | undefined;
   relayAgent: RelayAgent | undefined;
+  isRussian?: boolean;
 }): ProfileField[] {
   const fields: ProfileField[] = [];
   const respondTo = managedAgent?.respondTo ?? relayAgent?.respondTo ?? null;
   const respondToDisplayValue = respondTo
     ? respondTo === "owner-only"
       ? ownerDisplayName
-        ? `Only ${ownerDisplayName} (owner)`
-        : "Only the owner"
+        ? isRussian
+          ? `Только ${ownerDisplayName} (владелец)`
+          : `Only ${ownerDisplayName} (owner)`
+        : isRussian
+          ? "Только владелец"
+          : "Only the owner"
       : respondTo === "allowlist"
-        ? "Selected people"
-        : "Anyone"
+        ? isRussian
+          ? "Выбранные сотрудники"
+          : "Selected people"
+        : isRussian
+          ? "Любой сотрудник"
+          : "Anyone"
     : null;
 
   const ownerClickable = Boolean(onOpenProfile && ownerProfilePubkey);
@@ -281,7 +318,7 @@ export function buildOwnerFields({
         </span>
       ),
       icon: UserRound,
-      label: "Managed by",
+      label: isRussian ? "Ответственный" : "Managed by",
       onClick:
         ownerClickable && ownerProfilePubkey
           ? () => onOpenProfile?.(ownerProfilePubkey)
@@ -299,7 +336,7 @@ export function buildOwnerFields({
       copyValue: managedAgent.agentCommand,
       displayValue: runtimeLabel(managedAgent.agentCommand),
       icon: Terminal,
-      label: "Runtime",
+      label: isRussian ? "Среда запуска" : "Runtime",
       testId: "user-profile-runtime",
     });
   } else if (relayAgent?.agentType) {
@@ -307,7 +344,7 @@ export function buildOwnerFields({
       copyValue: relayAgent.agentType,
       displayValue: runtimeLabel(relayAgent.agentType),
       icon: Terminal,
-      label: "Runtime",
+      label: isRussian ? "Среда запуска" : "Runtime",
       testId: "user-profile-runtime",
     });
   } else if (persona?.runtime) {
@@ -315,15 +352,17 @@ export function buildOwnerFields({
       copyValue: persona.runtime,
       displayValue: runtimeLabel(persona.runtime),
       icon: Terminal,
-      label: "Runtime",
+      label: isRussian ? "Среда запуска" : "Runtime",
       testId: "user-profile-runtime",
     });
   } else if (ownerPubkey) {
     fields.push({
       copyValue: ownerPubkey,
-      displayValue: "Declared owner verified",
+      displayValue: isRussian
+        ? "Владелец агента подтверждён"
+        : "Declared owner verified",
       icon: UserRound,
-      label: "Agent profile",
+      label: isRussian ? "Профиль агента" : "Agent profile",
       testId: "user-profile-agent-profile",
     });
   }
@@ -341,7 +380,7 @@ export function buildOwnerFields({
         />
       ),
       icon: Activity,
-      label: "Status",
+      label: isRussian ? "Статус" : "Status",
       testId: "user-profile-agent-status",
     });
   }
@@ -372,16 +411,22 @@ export function buildOwnerFields({
       copyValue: backendLabel,
       displayValue: backendLabel,
       icon: Server,
-      label: "Backend",
+      label: isRussian ? "Бэкенд" : "Backend",
       testId: "user-profile-backend",
     });
   }
 
   if (managedAgent) {
     fields.push({
-      displayValue: managedAgent.startOnAppLaunch ? "Yes" : "No",
+      displayValue: managedAgent.startOnAppLaunch
+        ? isRussian
+          ? "Да"
+          : "Yes"
+        : isRussian
+          ? "Нет"
+          : "No",
       icon: Server,
-      label: "Start on launch",
+      label: isRussian ? "Запускать вместе с приложением" : "Start on launch",
       testId: "user-profile-start-on-launch",
     });
   }
@@ -390,7 +435,9 @@ export function buildOwnerFields({
     fields.push({
       displayValue: respondToDisplayValue,
       icon: Ear,
-      label: "Who can send instructions",
+      label: isRussian
+        ? "Кто может ставить задачи"
+        : "Who can send instructions",
       testId: "user-profile-respond-to",
     });
   }
@@ -400,7 +447,7 @@ export function buildOwnerFields({
       copyValue: managedAgent.lastError,
       displayValue: managedAgent.lastError,
       icon: Activity,
-      label: "Last error",
+      label: isRussian ? "Последняя ошибка" : "Last error",
       testId: "user-profile-last-error",
     });
   }
@@ -409,28 +456,28 @@ export function buildOwnerFields({
 }
 
 function orderProfileFields(fields: ProfileField[]) {
-  const visibilityLabel = "Visibility";
-  const publicKeyLabel = "Public key";
-  const managedByLabel = "Managed by";
-  const statusLabel = "Status";
+  const visibilityLabels = new Set(["Visibility", "Видимость"]);
+  const publicKeyLabels = new Set(["Public key", "Публичный ключ"]);
+  const managedByLabels = new Set(["Managed by", "Ответственный"]);
+  const statusLabels = new Set(["Status", "Статус"]);
   return [
-    ...fields.filter((field) => field.label === visibilityLabel),
-    ...fields.filter((field) => field.label === publicKeyLabel),
-    ...fields.filter((field) => field.label === managedByLabel),
+    ...fields.filter((field) => visibilityLabels.has(field.label)),
+    ...fields.filter((field) => publicKeyLabels.has(field.label)),
+    ...fields.filter((field) => managedByLabels.has(field.label)),
     ...fields.filter(
       (field) =>
-        field.label !== visibilityLabel &&
-        field.label !== publicKeyLabel &&
-        field.label !== managedByLabel &&
+        !visibilityLabels.has(field.label) &&
+        !publicKeyLabels.has(field.label) &&
+        !managedByLabels.has(field.label) &&
         field.copyValue,
     ),
-    ...fields.filter((field) => field.label === statusLabel),
+    ...fields.filter((field) => statusLabels.has(field.label)),
     ...fields.filter((field) => {
       if (
-        field.label === visibilityLabel ||
-        field.label === publicKeyLabel ||
-        field.label === managedByLabel ||
-        field.label === statusLabel
+        visibilityLabels.has(field.label) ||
+        publicKeyLabels.has(field.label) ||
+        managedByLabels.has(field.label) ||
+        statusLabels.has(field.label)
       ) {
         return false;
       }

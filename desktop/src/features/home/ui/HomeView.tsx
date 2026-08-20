@@ -1,6 +1,7 @@
 import * as React from "react";
 import { RefreshCcw } from "lucide-react";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { useAppShell } from "@/app/AppShellContext";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
@@ -101,6 +102,7 @@ export function HomeView({
   onOpenContext,
   onRefresh,
 }: HomeViewProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const relaySelfPubkey = useRelaySelfQuery().data;
   const [homeInboxRef, homeInboxWidthPx] = useElementWidth<HTMLDivElement>();
   const isNarrowHomeViewport =
@@ -555,7 +557,10 @@ export function HomeView({
               Home feed unavailable
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
-              {errorMessage ?? "The relay did not return a feed response."}
+              {errorMessage ??
+                (isRussian
+                  ? "Центр не вернул данные ленты."
+                  : "The Center did not return a feed response.")}
             </p>
             <Button className="mt-5" onClick={onRefresh} type="button">
               <RefreshCcw className="h-4 w-4" />
@@ -714,7 +719,11 @@ export function HomeView({
           ) : null}
 
           <button
-            aria-label="Resize inbox list"
+            aria-label={
+              isRussian
+                ? "Изменить ширину списка входящих"
+                : "Resize inbox list"
+            }
             className={cn(
               "group absolute bottom-0 z-40 w-3 -translate-x-1/2 cursor-col-resize",
               topChromeInset.top,
@@ -728,8 +737,12 @@ export function HomeView({
             style={{ left: `${effectiveInboxListWidthPx}px` }}
             title={
               canResetInboxListWidth
-                ? "Drag to resize. Double-click to reset width."
-                : "Drag to resize."
+                ? isRussian
+                  ? "Перетащите, чтобы изменить ширину. Двойной щелчок сбросит её."
+                  : "Drag to resize. Double-click to reset width."
+                : isRussian
+                  ? "Перетащите, чтобы изменить ширину."
+                  : "Drag to resize."
             }
             type="button"
           >

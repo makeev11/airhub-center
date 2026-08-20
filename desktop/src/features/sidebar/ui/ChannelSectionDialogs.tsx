@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { X } from "lucide-react";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { EmojiPicker } from "@/features/custom-emoji/ui/EmojiPicker";
 import {
   AlertDialog,
@@ -60,6 +61,7 @@ function SectionNameDialog({
   isConfirmDisabled,
   onConfirm,
 }: SectionNameDialogProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const [name, setName] = React.useState(initialValue);
   const [icon, setIcon] = React.useState(initialIcon);
   const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -108,7 +110,11 @@ function SectionNameDialog({
               <div className="relative shrink-0">
                 <PopoverTrigger asChild>
                   <button
-                    aria-label="Choose section icon"
+                    aria-label={
+                      isRussian
+                        ? "Выбрать значок раздела"
+                        : "Choose section icon"
+                    }
                     className="flex h-9 w-9 items-center justify-center rounded-md border border-input text-lg transition-colors hover:bg-accent"
                     type="button"
                   >
@@ -121,7 +127,9 @@ function SectionNameDialog({
                 </PopoverTrigger>
                 {icon ? (
                   <button
-                    aria-label="Clear section icon"
+                    aria-label={
+                      isRussian ? "Убрать значок раздела" : "Clear section icon"
+                    }
                     className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-background bg-muted text-muted-foreground hover:bg-accent hover:text-foreground"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -147,7 +155,7 @@ function SectionNameDialog({
               autoCorrect="off"
               className="flex-1"
               onChange={(event) => setName(event.target.value)}
-              placeholder="Section name"
+              placeholder={isRussian ? "Название раздела" : "Section name"}
               ref={inputRef}
               spellCheck={false}
               value={name}
@@ -156,7 +164,7 @@ function SectionNameDialog({
           <div className="flex justify-end gap-2 mt-4">
             <DialogClose asChild>
               <Button variant="ghost" type="button">
-                Cancel
+                {isRussian ? "Отмена" : "Cancel"}
               </Button>
             </DialogClose>
             <Button
@@ -183,14 +191,19 @@ export function CreateSectionDialog({
   onOpenChange,
   onConfirm,
 }: CreateSectionDialogProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <SectionNameDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Create section"
-      description="Sections let you group related channels in the sidebar."
+      title={isRussian ? "Создать раздел" : "Create section"}
+      description={
+        isRussian
+          ? "Разделы помогают группировать связанные каналы в боковой панели."
+          : "Sections let you group related channels in the sidebar."
+      }
       initialValue=""
-      confirmLabel="Create"
+      confirmLabel={isRussian ? "Создать" : "Create"}
       isConfirmDisabled={(trimmed) => trimmed.length === 0}
       onConfirm={onConfirm}
     />
@@ -212,15 +225,20 @@ export function RenameSectionDialog({
   sectionIcon,
   onConfirm,
 }: RenameSectionDialogProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <SectionNameDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Rename section"
-      description="Enter a new name for this section."
+      title={isRussian ? "Переименовать раздел" : "Rename section"}
+      description={
+        isRussian
+          ? "Введите новое название раздела."
+          : "Enter a new name for this section."
+      }
       initialValue={sectionName}
       initialIcon={sectionIcon}
-      confirmLabel="Save"
+      confirmLabel={isRussian ? "Сохранить" : "Save"}
       isConfirmDisabled={(trimmed, icon) =>
         trimmed.length === 0 ||
         (trimmed === sectionName && icon === (sectionIcon ?? ""))
@@ -245,27 +263,42 @@ export function DeleteSectionAlertDialog({
   channelCount,
   onConfirm,
 }: DeleteSectionAlertDialogProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const channelLabel =
-    channelCount === 1 ? "1 channel" : `${channelCount} channels`;
+    channelCount === 1
+      ? isRussian
+        ? "1 канал"
+        : "1 channel"
+      : isRussian
+        ? `${channelCount} каналов`
+        : `${channelCount} channels`;
   const description =
     channelCount === 0
-      ? `Delete section "${sectionName}"? It has no channels.`
-      : `Delete section "${sectionName}"? Its ${channelLabel} will move back to the default Channels group.`;
+      ? isRussian
+        ? `Удалить раздел «${sectionName}»? В нём нет каналов.`
+        : `Delete section "${sectionName}"? It has no channels.`
+      : isRussian
+        ? `Удалить раздел «${sectionName}»? ${channelLabel} будут перемещены в основной раздел «Каналы».`
+        : `Delete section "${sectionName}"? Its ${channelLabel} will move back to the default Channels group.`;
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete section</AlertDialogTitle>
+          <AlertDialogTitle>
+            {isRussian ? "Удалить раздел" : "Delete section"}
+          </AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>
+            {isRussian ? "Отмена" : "Cancel"}
+          </AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={onConfirm}
           >
-            Delete
+            {isRussian ? "Удалить" : "Delete"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -290,22 +323,29 @@ export function LeaveChannelAlertDialog({
   channelName,
   onConfirm,
 }: LeaveChannelAlertDialogProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Leave channel</AlertDialogTitle>
+          <AlertDialogTitle>
+            {isRussian ? "Покинуть канал" : "Leave channel"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            {`Leave "${channelName}"? You'll stop receiving its messages and can rejoin later.`}
+            {isRussian
+              ? `Покинуть «${channelName}»? Вы перестанете получать сообщения, но сможете присоединиться позже.`
+              : `Leave "${channelName}"? You'll stop receiving its messages and can rejoin later.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>
+            {isRussian ? "Отмена" : "Cancel"}
+          </AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={onConfirm}
           >
-            Leave
+            {isRussian ? "Покинуть" : "Leave"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

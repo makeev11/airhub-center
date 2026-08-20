@@ -17,6 +17,7 @@ import type {
 } from "@/features/profile/hooks";
 import { useFeatureEnabled } from "@/shared/features";
 import { cn } from "@/shared/lib/cn";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Spinner } from "@/shared/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
@@ -53,6 +54,7 @@ export function ProfilePrimaryActions({
   pubkey: string;
   unfollowMutation: ReturnType<typeof useUnfollowMutation>;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const showFollowAction = useFeatureEnabled("pulse");
   const followToggleMutation = isFollowing ? unfollowMutation : followMutation;
 
@@ -60,7 +62,9 @@ export function ProfilePrimaryActions({
     followToggleMutation.mutate(pubkey, {
       onError: (error) =>
         toast.error(
-          `${isFollowing ? "Unfollow" : "Follow"} failed: ${error.message}`,
+          isRussian
+            ? `Не удалось ${isFollowing ? "отписаться" : "подписаться"}: ${error.message}`
+            : `${isFollowing ? "Unfollow" : "Follow"} failed: ${error.message}`,
         ),
     });
   };
@@ -72,7 +76,15 @@ export function ProfilePrimaryActions({
           active={isFollowing}
           disabled={followToggleMutation.isPending}
           icon={isFollowing ? UserMinus : UserPlus}
-          label={isFollowing ? "Unfollow" : "Follow"}
+          label={
+            isRussian
+              ? isFollowing
+                ? "Отписаться"
+                : "Подписаться"
+              : isFollowing
+                ? "Unfollow"
+                : "Follow"
+          }
           onClick={handleFollowClick}
         />
       ) : null}
@@ -81,7 +93,7 @@ export function ProfilePrimaryActions({
           disabled={messagePending}
           icon={MessageSquare}
           isLoading={messagePending}
-          label="Message"
+          label={isRussian ? "Написать" : "Message"}
           onClick={onMessage}
           testId="user-profile-message"
         />
@@ -89,7 +101,7 @@ export function ProfilePrimaryActions({
       {canEditAgent ? (
         <ProfileQuickAction
           icon={Pencil}
-          label="Edit"
+          label={isRussian ? "Изменить" : "Edit"}
           onClick={onEditAgent}
           testId="user-profile-edit-agent"
         />
@@ -108,7 +120,7 @@ export function ProfilePrimaryActions({
         <ProfileQuickAction
           disabled={agentActionDisabled}
           icon={RefreshCw}
-          label="Restart"
+          label={isRussian ? "Перезапустить" : "Restart"}
           onClick={onAgentRestart}
           testId="user-profile-agent-restart"
         />
@@ -116,7 +128,7 @@ export function ProfilePrimaryActions({
       {onCreateCard ? (
         <ProfileQuickAction
           icon={Sparkles}
-          label="Create card"
+          label={isRussian ? "Создать карточку" : "Create card"}
           onClick={onCreateCard}
           testId="user-profile-create-card"
         />
@@ -138,12 +150,13 @@ export function ProfilePersonaPrimaryActions({
   onEditAgent: () => void;
   onStartAgent: () => void;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <div className="flex items-center justify-center gap-8">
       <ProfileQuickAction
         disabled={disabled}
         icon={Play}
-        label="Start agent"
+        label={isRussian ? "Запустить агента" : "Start agent"}
         onClick={onStartAgent}
         testId="user-profile-start-agent"
       />
@@ -151,7 +164,7 @@ export function ProfilePersonaPrimaryActions({
         <ProfileQuickAction
           disabled={disabled}
           icon={Pencil}
-          label="Edit"
+          label={isRussian ? "Изменить" : "Edit"}
           onClick={onEditAgent}
           testId="user-profile-edit-agent"
         />
@@ -160,7 +173,7 @@ export function ProfilePersonaPrimaryActions({
         <ProfileQuickAction
           disabled={disabled}
           icon={Sparkles}
-          label="Create card"
+          label={isRussian ? "Создать карточку" : "Create card"}
           onClick={onCreateCard}
           testId="user-profile-create-card"
         />

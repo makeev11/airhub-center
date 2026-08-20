@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bot, UserRoundPlus, X } from "lucide-react";
 import {
@@ -140,6 +141,7 @@ export function MembersSidebar({
   onViewActivity,
   relayUrl,
 }: MembersSidebarProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const channelId = channel?.id ?? null;
   const managedAgentRuntimesQuery = useManagedAgentRuntimesQuery({
     enabled: open,
@@ -158,7 +160,11 @@ export function MembersSidebar({
   const addMembersMutation = useAddChannelMembersMutation(channelId);
   const changeRoleMutation = useMutation({
     mutationFn: async ({ pubkey, role }: { pubkey: string; role: string }) => {
-      if (!channelId) throw new Error("No channel selected.");
+      if (!channelId) {
+        throw new Error(
+          isRussian ? "Канал не выбран." : "No channel selected.",
+        );
+      }
       await changeChannelMemberRole(channelId, pubkey, role);
     },
     onSettled: async () => {
@@ -566,7 +572,11 @@ export function MembersSidebar({
             {
               pubkey: user.pubkey,
               error:
-                error instanceof Error ? error.message : "Failed to add agent.",
+                error instanceof Error
+                  ? error.message
+                  : isRussian
+                    ? "Не удалось добавить агента."
+                    : "Failed to add agent.",
             },
           ]);
         }
@@ -683,10 +693,14 @@ export function MembersSidebar({
         >
           <DialogHeader className="space-y-0 pb-5">
             <div className="flex items-center justify-between gap-4">
-              <DialogTitle>Channel members</DialogTitle>
+              <DialogTitle>
+                {isRussian ? "Участники канала" : "Channel members"}
+              </DialogTitle>
               <DialogClose className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-1 focus:ring-ring">
                 <X className="h-4 w-4" />
-                <span className="sr-only">Close</span>
+                <span className="sr-only">
+                  {isRussian ? "Закрыть" : "Close"}
+                </span>
               </DialogClose>
             </div>
             <label
@@ -714,8 +728,12 @@ export function MembersSidebar({
                 }}
                 placeholder={
                   canAddMembers
-                    ? "Add people and agents"
-                    : "Search people and agents"
+                    ? isRussian
+                      ? "Добавить сотрудника или агента"
+                      : "Add people and agents"
+                    : isRussian
+                      ? "Найти сотрудника или агента"
+                      : "Search people and agents"
                 }
                 ref={searchInputRef}
                 spellCheck={false}
@@ -734,8 +752,10 @@ export function MembersSidebar({
               >
                 <SearchResultSectionTitle>
                   {normalizedSearchQuery
-                    ? "Members"
-                    : `Members · ${activeMembers.length}`}
+                    ? isRussian
+                      ? "Участники"
+                      : "Members"
+                    : `${isRussian ? "Участники" : "Members"} · ${activeMembers.length}`}
                 </SearchResultSectionTitle>
                 {normalizedSearchQuery ? (
                   <div>
@@ -746,7 +766,9 @@ export function MembersSidebar({
                       <>
                         {addSearchResults.length > 0 || isAddSearchLoading ? (
                           <SearchResultSectionTitle>
-                            Not in this channel
+                            {isRussian
+                              ? "Не в этом канале"
+                              : "Not in this channel"}
                           </SearchResultSectionTitle>
                         ) : null}
                         {addSearchResults.map((user) => (
@@ -768,7 +790,7 @@ export function MembersSidebar({
                         ))}
                         {isAddSearchLoading ? (
                           <p className="px-4 py-3 text-sm text-muted-foreground">
-                            Searching...
+                            {isRussian ? "Ищем…" : "Searching..."}
                           </p>
                         ) : null}
                       </>
@@ -777,7 +799,9 @@ export function MembersSidebar({
                     addSearchResults.length === 0 &&
                     !isAddSearchLoading ? (
                       <p className="px-4 py-3 text-sm text-muted-foreground">
-                        No matching people or agents.
+                        {isRussian
+                          ? "Подходящих сотрудников или агентов не найдено."
+                          : "No matching people or agents."}
                       </p>
                     ) : null}
                   </div>
@@ -790,10 +814,16 @@ export function MembersSidebar({
                 ) : (
                   <p className="px-4 py-3 text-sm text-muted-foreground">
                     {membersQuery.isLoading
-                      ? "Loading members..."
+                      ? isRussian
+                        ? "Загружаем участников…"
+                        : "Loading members..."
                       : normalizedSearchQuery
-                        ? "No members match your search."
-                        : "No members found."}
+                        ? isRussian
+                          ? "Подходящие участники не найдены."
+                          : "No members match your search."
+                        : isRussian
+                          ? "Участников пока нет."
+                          : "No members found."}
                   </p>
                 )}
               </div>
@@ -807,7 +837,7 @@ export function MembersSidebar({
                 >
                   <summary className="flex cursor-pointer items-center gap-2 list-none [&::-webkit-details-marker]:hidden">
                     <h2 className="text-sm font-semibold tracking-tight text-muted-foreground">
-                      Archived
+                      {isRussian ? "Неактивные" : "Archived"}
                     </h2>
                     <span
                       className="text-muted-foreground"
@@ -828,7 +858,9 @@ export function MembersSidebar({
                     )}
                     {filteredArchivedMembers.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
-                        No archived members match your search.
+                        {isRussian
+                          ? "Неактивные сотрудники не найдены."
+                          : "No archived members match your search."}
                       </p>
                     ) : null}
                   </div>
@@ -901,6 +933,7 @@ function AddMemberSearchResultRow({
   ownerLabel?: string | null;
   user: UserSearchResult;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <div
       className={cn(
@@ -910,7 +943,7 @@ function AddMemberSearchResultRow({
       data-testid={`channel-user-search-result-${user.pubkey}`}
     >
       <button
-        aria-label={`Select ${formatAddCandidateName(user)}`}
+        aria-label={`${isRussian ? "Выбрать" : "Select"} ${formatAddCandidateName(user)}`}
         className="absolute inset-0 z-0 cursor-pointer focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
         disabled={disabled}
         onClick={() => onSelect(user)}
@@ -931,12 +964,12 @@ function AddMemberSearchResultRow({
               </span>
               <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                 <Bot aria-hidden="true" className="h-4 w-4" />
-                agent
+                {isRussian ? "агент" : "agent"}
               </span>
             </div>
             {ownerLabel ? (
               <span className="block truncate text-xs text-muted-foreground">
-                managed by {ownerLabel}
+                {isRussian ? "управляет" : "managed by"} {ownerLabel}
               </span>
             ) : null}
           </div>
@@ -956,7 +989,7 @@ function AddMemberSearchResultRow({
         size="sm"
         type="button"
       >
-        Add
+        {isRussian ? "Добавить" : "Add"}
       </Button>
     </div>
   );

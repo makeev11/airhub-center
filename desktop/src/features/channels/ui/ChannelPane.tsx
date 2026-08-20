@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Hash, LogIn } from "lucide-react";
 import { AnimatePresence } from "motion/react";
+import { useChannelPaneCopy } from "@/features/channels/ui/channelPaneCopy";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useMediaUpload } from "@/features/messages/lib/useMediaUpload";
 import { ComposerDockBackdrop } from "@/features/messages/ui/ComposerDockBackdrop";
@@ -166,6 +167,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   threadFirstUnreadReplyId,
   typingPubkeys,
 }: ChannelPaneProps) {
+  const copy = useChannelPaneCopy();
   const timelineScrollRef = React.useRef<HTMLDivElement>(null);
   const messageTimelineRef = React.useRef<MessageTimelineHandle>(null);
   const composerWrapperRef = React.useRef<HTMLDivElement>(null);
@@ -594,7 +596,7 @@ export const ChannelPane = React.memo(function ChannelPane({
 
       {!isSinglePanelView ? (
         <section
-          aria-label="Channel messages and composer"
+          aria-label={copy.surfaceLabel}
           className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
           inert={channelIsCovered ? true : undefined}
           data-testid="channel-drop-zone"
@@ -656,18 +658,10 @@ export const ChannelPane = React.memo(function ChannelPane({
             profiles={profiles}
             ownerProfiles={ownerProfiles}
             unfollowThreadById={unfollowThreadById}
-            emptyDescription={
-              activeChannel?.channelType === "forum"
-                ? "Select a stream or DM to load real message history in this first integration pass."
-                : "Messages and sub-replies will appear here once the relay has history for this channel."
-            }
-            emptyTitle={
-              activeChannel
-                ? activeChannel.channelType === "forum"
-                  ? "Forum channels are next"
-                  : "No messages yet"
-                : "No channel selected"
-            }
+            emptyDescription={copy.emptyDescription(
+              activeChannel?.channelType === "forum",
+            )}
+            emptyTitle={copy.emptyTitle(activeChannel?.channelType)}
             isLoading={isHuddleTranscript ? false : isTimelineLoading}
             entranceMessageId={entranceMessageId}
             onEntranceMessageComplete={onEntranceMessageComplete}
@@ -709,7 +703,7 @@ export const ChannelPane = React.memo(function ChannelPane({
               <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-muted-foreground">
                 <Hash className="h-4 w-4 shrink-0" />
                 <span className="truncate">
-                  Viewing{" "}
+                  {copy.viewing}
                   <span className="font-medium text-foreground">
                     #{activeChannel?.name}
                   </span>
@@ -724,7 +718,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                 variant="default"
               >
                 <LogIn className="mr-1.5 h-4 w-4" />
-                {isJoining ? "Joining..." : "Join to participate"}
+                {isJoining ? copy.joining : copy.join}
               </Button>
             </div>
           ) : (
@@ -755,7 +749,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                 <ComposerDockBackdrop gutterClassName="inset-x-5" />
                 <MessageComposer
                   channelId={activeChannel?.id ?? null}
-                  channelName={activeChannel?.name ?? "channel"}
+                  channelName={activeChannel?.name ?? copy.channelFallback}
                   channelType={activeChannel?.channelType ?? null}
                   containerClassName="px-5 pb-0"
                   layoutMode="dock"
@@ -777,19 +771,21 @@ export const ChannelPane = React.memo(function ChannelPane({
                   profiles={profiles}
                   placeholder={
                     timeoutState.active
-                      ? "You're timed out by community moderators."
+                      ? copy.timedOut
                       : isModerationDmChannel
-                        ? "This channel is read-only."
+                        ? copy.readOnly
                         : activeChannel?.archivedAt
-                          ? "Archived channels are read-only."
+                          ? copy.archivedReadOnly
                           : activeChannel?.channelType === "forum"
-                            ? "Forum posting is not wired in this pass."
+                            ? copy.forumUnavailable
                             : activeChannel
                               ? activeChannel.channelType === "dm" &&
                                 directMessageIntro
-                                ? `Message ${directMessageIntro.displayName}`
-                                : `Message #${activeChannel.name}`
-                              : "Select a channel"
+                                ? copy.messagePerson(
+                                    directMessageIntro.displayName,
+                                  )
+                                : copy.messageChannel(activeChannel.name)
+                              : copy.selectChannel
                   }
                   showTopBorder={false}
                 />

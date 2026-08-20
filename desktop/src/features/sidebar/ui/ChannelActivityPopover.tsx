@@ -18,6 +18,7 @@ import { useNow } from "@/shared/lib/useNow";
 import { Markdown } from "@/shared/ui/markdown";
 import { Popover, PopoverAnchor, PopoverContent } from "@/shared/ui/popover";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 const HOVER_OPEN_DELAY_MS = 250;
 const HOVER_CLOSE_DELAY_MS = 180;
@@ -71,11 +72,13 @@ function RowActionButton({
 
 function ThreadPreviewRow({
   item,
+  isRussian,
   onMarkRead,
   onOpen,
   onRemindLater,
 }: {
   item: InboxItem;
+  isRussian: boolean;
   onMarkRead: () => void;
   onOpen: () => void;
   onRemindLater: () => void;
@@ -86,7 +89,11 @@ function ThreadPreviewRow({
       data-testid={`channel-activity-item-${item.conversationId}`}
     >
       <button
-        aria-label={`Open thread from ${item.senderLabel}`}
+        aria-label={
+          isRussian
+            ? `Открыть обсуждение от ${item.senderLabel}`
+            : `Open thread from ${item.senderLabel}`
+        }
         className="absolute inset-0 z-0 w-full text-left"
         onClick={onOpen}
         type="button"
@@ -108,11 +115,13 @@ function ThreadPreviewRow({
             </span>
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-xs leading-4 text-muted-foreground">
-            <span>Thread</span>
+            <span>{isRussian ? "Обсуждение" : "Thread"}</span>
             {item.unreadCount > 1 ? (
               <>
                 <span aria-hidden="true">·</span>
-                <span>{item.unreadCount} unread</span>
+                <span>
+                  {item.unreadCount} {isRussian ? "непрочитано" : "unread"}
+                </span>
               </>
             ) : null}
           </div>
@@ -125,10 +134,16 @@ function ThreadPreviewRow({
         </div>
       </div>
       <div className="pointer-events-none absolute right-2 top-2 z-20 flex items-center gap-0.5 rounded-full bg-muted/95 p-0.5 opacity-0 shadow-xs transition-opacity group-hover/activity-row:pointer-events-auto group-hover/activity-row:opacity-100 group-focus-within/activity-row:pointer-events-auto group-focus-within/activity-row:opacity-100">
-        <RowActionButton label="Mark as read" onClick={onMarkRead}>
+        <RowActionButton
+          label={isRussian ? "Отметить прочитанным" : "Mark as read"}
+          onClick={onMarkRead}
+        >
           <MailOpen />
         </RowActionButton>
-        <RowActionButton label="Remind me later" onClick={onRemindLater}>
+        <RowActionButton
+          label={isRussian ? "Напомнить позже" : "Remind me later"}
+          onClick={onRemindLater}
+        >
           <Clock />
         </RowActionButton>
       </div>
@@ -140,12 +155,14 @@ function WorkingAgentRow({
   avatarUrl,
   elapsed,
   name,
+  isRussian,
   onOpen,
   pubkey,
 }: {
   avatarUrl: string | null;
   elapsed: string;
   name: string;
+  isRussian: boolean;
   onOpen: () => void;
   pubkey: string;
 }) {
@@ -173,7 +190,7 @@ function WorkingAgentRow({
         </div>
         <span className="mt-0.5 flex items-center gap-1.5 text-xs leading-4 text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-primary/70" />
-          Working
+          {isRussian ? "Работает" : "Working"}
         </span>
       </div>
     </button>
@@ -183,11 +200,13 @@ function WorkingAgentRow({
 function WorkingAgentRows({
   activeWorking,
   channelId,
+  isRussian,
   onOpen,
   profiles,
 }: {
   activeWorking: ActiveChannelTurnSummary;
   channelId: string;
+  isRussian: boolean;
   onOpen: (pubkey: string, channelId: string) => void;
   profiles?: UserProfileLookup;
 }) {
@@ -210,6 +229,7 @@ function WorkingAgentRows({
         elapsed={elapsed}
         key={pubkey}
         name={name}
+        isRussian={isRussian}
         onOpen={() => onOpen(pubkey, channelId)}
         pubkey={pubkey}
       />
@@ -226,6 +246,7 @@ export function ChannelActivityPopover({
   channel: Channel;
   children: React.ReactNode;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const [open, setOpen] = React.useState(false);
   const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -390,14 +411,14 @@ export function ChannelActivityPopover({
         sideOffset={8}
       >
         <section
-          aria-label="Channel activity"
+          aria-label={isRussian ? "Активность канала" : "Channel activity"}
           className="flex max-h-96 min-h-0 flex-col overflow-hidden"
         >
           <h3
             className="relative z-20 shrink-0 border-b border-border/70 bg-background/95 px-3 py-2 text-sm font-semibold text-foreground backdrop-blur-md supports-[backdrop-filter]:bg-background/90"
             data-testid="channel-activity-header"
           >
-            Channel activity
+            {isRussian ? "Активность канала" : "Channel activity"}
           </h3>
           <div
             className="buzz-channel-activity-scrollbar min-h-0 overflow-y-auto overscroll-contain"
@@ -407,6 +428,7 @@ export function ChannelActivityPopover({
               <WorkingAgentRows
                 activeWorking={activeWorking}
                 channelId={channel.id}
+                isRussian={isRussian}
                 onOpen={(pubkey, channelId) => {
                   setOpen(false);
                   openAgentActivity(pubkey, { channelId });
@@ -418,6 +440,7 @@ export function ChannelActivityPopover({
               ? activityItems.map((item) => (
                   <ThreadPreviewRow
                     item={item}
+                    isRussian={isRussian}
                     key={item.conversationId}
                     onMarkRead={() => handleMarkRead(item)}
                     onOpen={() => {

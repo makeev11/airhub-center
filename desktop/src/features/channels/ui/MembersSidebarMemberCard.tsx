@@ -13,6 +13,7 @@ import {
   Square,
   Trash2,
 } from "lucide-react";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 import {
   getManagedAgentPrimaryActionLabel,
@@ -92,27 +93,38 @@ const TIMEOUT_PRESETS: { label: string; seconds: number }[] = [
 const MEMBER_ROW_INSET_DIVIDER_CLASS =
   "after:pointer-events-none after:absolute after:bottom-0 after:left-[3.75rem] after:right-0 after:h-px after:bg-border/60 after:content-[''] last:after:hidden";
 
-function formatRoleLabel(member: ChannelMember, memberIsBot: boolean) {
-  if (memberIsBot) {
-    return "agent";
-  }
-
-  if (member.role === "owner" || member.role === "admin") {
-    return member.role;
+function formatRoleLabel(
+  member: ChannelMember,
+  memberIsBot: boolean,
+  isRussian: boolean,
+) {
+  if (memberIsBot) return isRussian ? "AI-агент" : "AI agent";
+  if (member.role === "owner") return isRussian ? "владелец" : "owner";
+  if (member.role === "admin") {
+    return isRussian ? "администратор" : "administrator";
   }
 
   return null;
 }
 
-function formatRespondToLabel(agent: ManagedAgent) {
+function formatRespondToLabel(agent: ManagedAgent, isRussian: boolean) {
   switch (agent.respondTo) {
     case "anyone":
-      return "Anyone";
+      return isRussian ? "Все" : "Anyone";
     case "allowlist":
-      return `Selected people (${agent.respondToAllowlist.length})`;
+      return `${isRussian ? "Выбранные сотрудники" : "Selected people"} (${agent.respondToAllowlist.length})`;
     default:
-      return "Only me";
+      return isRussian ? "Только я" : "Only me";
   }
+}
+
+function localizeAgentAction(label: string, isRussian: boolean): string {
+  if (!isRussian) return label;
+  const normalized = label.toLowerCase();
+  if (normalized.includes("restart")) return "Перезапустить";
+  if (normalized.includes("stop")) return "Остановить";
+  if (normalized.includes("start")) return "Запустить";
+  return label;
 }
 
 export function MembersSidebarMemberCard({
@@ -143,7 +155,8 @@ export function MembersSidebarMemberCard({
   profileAvatarUrl,
   viewerIsOwner,
 }: MembersSidebarMemberCardProps) {
-  const roleLabel = formatRoleLabel(member, memberIsBot);
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const roleLabel = formatRoleLabel(member, memberIsBot, isRussian);
   const disabled = isActionPending || isArchived;
   const canViewActivity =
     memberIsBot &&
@@ -220,10 +233,18 @@ export function MembersSidebarMemberCard({
             }
           >
             {managedAgentRuntime
-              ? agentCommunityAvailability(managedAgentRuntime)
+              ? isRussian
+                ? agentCommunityAvailability(managedAgentRuntime) === "Here"
+                  ? "В этом центре"
+                  : "В другом центре"
+                : agentCommunityAvailability(managedAgentRuntime)
               : managedAgent && isManagedAgentActive(managedAgent)
-                ? "Running"
-                : "Stopped"}
+                ? isRussian
+                  ? "Работает"
+                  : "Running"
+                : isRussian
+                  ? "Остановлен"
+                  : "Stopped"}
           </Badge>
         ) : null}
         {managedAgent ? (
@@ -231,7 +252,7 @@ export function MembersSidebarMemberCard({
             className="sr-only"
             data-testid={`sidebar-managed-agent-respond-to-${member.pubkey}`}
           >
-            {formatRespondToLabel(managedAgent)}
+            {formatRespondToLabel(managedAgent, isRussian)}
           </span>
         ) : null}
       </div>
@@ -248,7 +269,11 @@ export function MembersSidebarMemberCard({
     >
       {onOpenProfile ? (
         <button
-          aria-label={`Open profile for ${memberLabel}`}
+          aria-label={
+            isRussian
+              ? `Открыть профиль: ${memberLabel}`
+              : `Open profile for ${memberLabel}`
+          }
           className="absolute inset-0 z-0 cursor-pointer focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
           data-testid={`sidebar-member-open-profile-${member.pubkey}`}
           onClick={() => onOpenProfile(member.pubkey)}
@@ -279,6 +304,7 @@ export function MembersSidebarMemberCard({
           onUntimeout={onUntimeout}
           onViewActivity={onViewActivity}
           pairAction={pairAction}
+          isRussian={isRussian}
         />
       ) : null}
     </div>
@@ -307,6 +333,7 @@ function MemberActionsMenu({
   onUntimeout,
   onViewActivity,
   pairAction,
+  isRussian,
 }: {
   canChangeRole: boolean;
   canModerateMember: boolean;
@@ -327,6 +354,7 @@ function MemberActionsMenu({
   onUntimeout: (member: ChannelMember) => void;
   onViewActivity?: (pubkey: string) => void;
   pairAction?: ManagedAgentPairAction;
+  isRussian: boolean;
 }) {
   const showChangeRole =
     canChangeRole && !memberIsBot && member.role !== "owner";
@@ -337,6 +365,11 @@ function MemberActionsMenu({
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <button
+          aria-label={
+            isRussian
+              ? `Действия с участником ${member.pubkey}`
+              : `Actions for ${member.pubkey}`
+          }
           className="invisible relative z-20 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground group-hover/member:visible hover:bg-muted hover:text-foreground data-[state=open]:visible"
           data-testid={`sidebar-member-menu-${member.pubkey}`}
           type="button"
@@ -354,7 +387,7 @@ function MemberActionsMenu({
             onClick={() => onViewActivity?.(member.pubkey)}
           >
             <Activity className="h-4 w-4" />
-            View activity
+            {isRussian ? "Активность" : "View activity"}
           </DropdownMenuItem>
         ) : null}
         {memberIsBot && managedAgent ? (
@@ -369,8 +402,14 @@ function MemberActionsMenu({
                 ? getPairActionIcon(pairAction)
                 : getManagedAgentActionIcon(managedAgent)}
               {pairAction
-                ? MANAGED_AGENT_PAIR_ACTION_LABELS[pairAction]
-                : getManagedAgentPrimaryActionLabel(managedAgent)}
+                ? localizeAgentAction(
+                    MANAGED_AGENT_PAIR_ACTION_LABELS[pairAction],
+                    isRussian,
+                  )
+                : localizeAgentAction(
+                    getManagedAgentPrimaryActionLabel(managedAgent),
+                    isRussian,
+                  )}
             </DropdownMenuItem>
             {onEditRespondTo ? (
               <DropdownMenuItem
@@ -379,7 +418,7 @@ function MemberActionsMenu({
                 onClick={() => onEditRespondTo(managedAgent)}
               >
                 <Pencil className="h-4 w-4" />
-                Manage agent access...
+                {isRussian ? "Доступ агента…" : "Manage agent access..."}
               </DropdownMenuItem>
             ) : null}
             {canRemoveMember || showChangeRole ? (
@@ -394,7 +433,7 @@ function MemberActionsMenu({
               disabled={disabled}
             >
               <Shield className="h-4 w-4" />
-              Change role
+              {isRussian ? "Изменить роль" : "Change role"}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {PEOPLE_ROLES.map((role) => (
@@ -404,9 +443,18 @@ function MemberActionsMenu({
                   key={role}
                   onClick={() => onChangeRole(member, role)}
                 >
-                  {role[0]?.toUpperCase()}
-                  {role.slice(1)}
-                  {member.role === role ? " (current)" : ""}
+                  {isRussian
+                    ? role === "admin"
+                      ? "Администратор"
+                      : role === "guest"
+                        ? "Гость"
+                        : "Сотрудник"
+                    : `${role[0]?.toUpperCase()}${role.slice(1)}`}
+                  {member.role === role
+                    ? isRussian
+                      ? " (текущая)"
+                      : " (current)"
+                    : ""}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuSubContent>
@@ -422,7 +470,7 @@ function MemberActionsMenu({
               onClick={() => onRemoveMember(member)}
             >
               <Trash2 className="h-4 w-4" />
-              Remove from channel
+              {isRussian ? "Убрать из канала" : "Remove from channel"}
             </DropdownMenuItem>
           </>
         ) : null}
@@ -438,7 +486,7 @@ function MemberActionsMenu({
                 onClick={() => onUntimeout(member)}
               >
                 <ShieldCheck className="h-4 w-4" />
-                Lift timeout
+                {isRussian ? "Снять ограничение" : "Lift timeout"}
               </DropdownMenuItem>
             ) : (
               <DropdownMenuSub>
@@ -447,7 +495,7 @@ function MemberActionsMenu({
                   disabled={disabled}
                 >
                   <Clock className="h-4 w-4" />
-                  Time out
+                  {isRussian ? "Ограничить" : "Time out"}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   {TIMEOUT_PRESETS.map((preset) => (
@@ -462,7 +510,13 @@ function MemberActionsMenu({
                         )
                       }
                     >
-                      {preset.label}
+                      {isRussian
+                        ? preset.seconds === 60 * 60
+                          ? "1 час"
+                          : preset.seconds === 24 * 60 * 60
+                            ? "24 часа"
+                            : "7 дней"
+                        : preset.label}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuSubContent>
@@ -475,7 +529,7 @@ function MemberActionsMenu({
                 onClick={() => onUnban(member)}
               >
                 <CircleSlash className="h-4 w-4" />
-                Lift ban
+                {isRussian ? "Снять блокировку" : "Lift ban"}
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem
@@ -485,7 +539,7 @@ function MemberActionsMenu({
                 onClick={() => onBan(member)}
               >
                 <Ban className="h-4 w-4" />
-                Ban from community
+                {isRussian ? "Заблокировать в центре" : "Ban from community"}
               </DropdownMenuItem>
             )}
           </>

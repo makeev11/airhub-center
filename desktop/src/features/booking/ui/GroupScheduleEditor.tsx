@@ -4,6 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 import type { BookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import { BOOKING_WEEKDAYS } from "@/features/booking/lib/bookingAdmin";
 import type { Weekday } from "@/features/booking/model/bookingCore";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
@@ -23,6 +24,7 @@ function Label({ children }: { children: React.ReactNode }) {
 
 export function GroupScheduleEditor({
   errors,
+  locale,
   messages,
   onAdd,
   onChange,
@@ -30,6 +32,7 @@ export function GroupScheduleEditor({
   value,
 }: {
   errors: Readonly<Record<string, string | undefined>>;
+  locale: string;
   messages: BookingAdminMessages;
   onAdd: () => void;
   onChange: (id: string, update: Partial<GroupScheduleTemplateForm>) => void;
@@ -92,13 +95,13 @@ export function GroupScheduleEditor({
                 htmlFor={`${template.id}-starts-on`}
               >
                 <Label>{messages.scheduleStartsOn}</Label>
-                <Input
+                <AirHopDateInput
                   aria-label={`${messages.scheduleStartsOn} ${index + 1}`}
                   id={`${template.id}-starts-on`}
-                  onChange={(event) =>
-                    onChange(template.id, { startsOn: event.target.value })
+                  locale={locale}
+                  onChange={(value) =>
+                    onChange(template.id, { startsOn: value })
                   }
-                  type="date"
                   value={template.startsOn}
                 />
               </label>
@@ -107,13 +110,11 @@ export function GroupScheduleEditor({
                 htmlFor={`${template.id}-ends-on`}
               >
                 <Label>{messages.scheduleEndsOn}</Label>
-                <Input
+                <AirHopDateInput
                   aria-label={`${messages.scheduleEndsOn} ${index + 1}`}
                   id={`${template.id}-ends-on`}
-                  onChange={(event) =>
-                    onChange(template.id, { endsOn: event.target.value })
-                  }
-                  type="date"
+                  locale={locale}
+                  onChange={(value) => onChange(template.id, { endsOn: value })}
                   value={template.endsOn}
                 />
               </label>

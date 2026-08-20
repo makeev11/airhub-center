@@ -19,6 +19,7 @@ import type {
   RelayEvent,
 } from "@/shared/api/types";
 import { resolveMentionProps } from "@/shared/lib/resolveMentionNames";
+import { resolveActivationLocale } from "@/features/activation/i18n";
 
 export type InboxFilter =
   | "all"
@@ -103,33 +104,13 @@ export type InboxGroup = {
 
 type InboxChannel = Pick<Channel, "channelType" | "id" | "name">;
 
-const listTimeFormatter = new Intl.DateTimeFormat("en-US", {
-  hour: "numeric",
-  minute: "2-digit",
-});
+function inboxLocale() {
+  return resolveActivationLocale() === "ru-RU" ? "ru-RU" : "en-US";
+}
 
-const fullTimeFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-});
-
-const shortDateFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-});
-
-const shortDateWithYearFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
-
-const weekdayFormatter = new Intl.DateTimeFormat("en-US", {
-  weekday: "long",
-});
+function inboxDateFormatter(options: Intl.DateTimeFormatOptions) {
+  return new Intl.DateTimeFormat(inboxLocale(), options);
+}
 
 function startOfDay(value: Date) {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate());
@@ -154,12 +135,14 @@ function projectRootItem(item: FeedItem, groupItems: readonly FeedItem[]) {
 }
 
 function projectTypeLabel(item: FeedItem) {
-  if (item.kind === 1618) return "Pull request";
-  if (item.kind === 1621) return "Issue";
-  return "Project update";
+  const russian = inboxLocale() === "ru-RU";
+  if (item.kind === 1618) return russian ? "Запрос на слияние" : "Pull request";
+  if (item.kind === 1621) return russian ? "Задача" : "Issue";
+  return russian ? "Обновление проекта" : "Project update";
 }
 
 function feedHeadline(item: FeedItem, groupItems: readonly FeedItem[] = []) {
+  const russian = inboxLocale() === "ru-RU";
   if (isProjectInboxItem(item)) {
     const root = projectRootItem(item, groupItems);
     return (
@@ -170,63 +153,77 @@ function feedHeadline(item: FeedItem, groupItems: readonly FeedItem[] = []) {
 
   switch (item.kind) {
     case 40007:
-      return "Reminder";
+      return russian ? "Напоминание" : "Reminder";
     case 43001:
-      return "Job requested";
+      return russian ? "Запрошена задача" : "Job requested";
     case 43002:
-      return "Job accepted";
+      return russian ? "Задача принята" : "Job accepted";
     case 43003:
-      return "Progress update";
+      return russian ? "Обновление выполнения" : "Progress update";
     case 43004:
-      return "Job result";
+      return russian ? "Результат задачи" : "Job result";
     case 43005:
-      return "Job cancelled";
+      return russian ? "Задача отменена" : "Job cancelled";
     case 43006:
-      return "Job failed";
+      return russian ? "Ошибка задачи" : "Job failed";
     case 45001:
-      return "Forum post";
+      return russian ? "Публикация" : "Forum post";
     case 45003:
-      return "Forum reply";
+      return russian ? "Ответ" : "Forum reply";
     case 46010:
-      return "Approval requested";
+      return russian ? "Запрошено подтверждение" : "Approval requested";
     default:
       if (item.category === "mention") {
-        return "Mention";
+        return russian ? "Упоминание" : "Mention";
       }
 
       if (item.category === "agent_activity") {
-        return "Agent update";
+        return russian ? "Обновление агента" : "Agent update";
       }
 
-      return "Channel update";
+      return russian ? "Обновление канала" : "Channel update";
   }
 }
 
 function feedPreview(item: FeedItem) {
+  const russian = inboxLocale() === "ru-RU";
   const content = item.content.trim();
   if (content.length > 0) {
     return content;
   }
 
   if (item.kind === 46010) {
-    return "A workflow is waiting for approval.";
+    return russian
+      ? "Процесс ожидает подтверждения."
+      : "A workflow is waiting for approval.";
   }
 
   if (item.kind === 40007) {
-    return "A reminder is waiting for you.";
+    return russian ? "Вас ждёт напоминание." : "A reminder is waiting for you.";
   }
 
-  return "No additional details were attached to this event.";
+  return russian
+    ? "Дополнительных сведений нет."
+    : "No additional details were attached to this event.";
 }
 
 function categoryLabelFor(category: FeedItemCategory) {
+  const russian = inboxLocale() === "ru-RU";
   return category === "needs_action"
-    ? "Needs Action"
+    ? russian
+      ? "Нужны действия"
+      : "Needs Action"
     : category === "mention"
-      ? "Mention"
+      ? russian
+        ? "Упоминание"
+        : "Mention"
       : category === "agent_activity"
-        ? "Agent update"
-        : "Activity";
+        ? russian
+          ? "Обновление агента"
+          : "Agent update"
+        : russian
+          ? "Действие"
+          : "Activity";
 }
 
 export function isThreadActivityItem(item: FeedItem) {
@@ -294,6 +291,7 @@ function resolveGroupChannel(
 }
 
 export function getInboxTypeLabel(item: InboxItem): InboxTypeLabel {
+  const russian = inboxLocale() === "ru-RU";
   const channelName = item.channelLabel;
 
   if (item.groupItems.some(isProjectInboxItem)) {
@@ -306,7 +304,13 @@ export function getInboxTypeLabel(item: InboxItem): InboxTypeLabel {
 
   if (item.item.channelType === "dm") {
     return {
-      text: item.senderLabel ? `DM from ${item.senderLabel}` : "DM",
+      text: item.senderLabel
+        ? russian
+          ? `Личное сообщение от ${item.senderLabel}`
+          : `DM from ${item.senderLabel}`
+        : russian
+          ? "Личное сообщение"
+          : "DM",
       channelLabel: null,
     };
   }
@@ -314,21 +318,39 @@ export function getInboxTypeLabel(item: InboxItem): InboxTypeLabel {
   const primaryCategory = item.item.category;
   if (primaryCategory === "mention") {
     return {
-      text: channelName ? "Mentioned in" : "Mentioned",
+      text: channelName
+        ? russian
+          ? "Упомянули в"
+          : "Mentioned in"
+        : russian
+          ? "Упоминание"
+          : "Mentioned",
       channelLabel: channelName,
     };
   }
 
   if (primaryCategory === "needs_action") {
     return {
-      text: channelName ? "Needs action in" : "Needs action",
+      text: channelName
+        ? russian
+          ? "Нужны действия в"
+          : "Needs action in"
+        : russian
+          ? "Нужны действия"
+          : "Needs action",
       channelLabel: channelName,
     };
   }
 
   if (isThreadActivityItem(item.item)) {
     return {
-      text: channelName ? "Thread in" : "Thread",
+      text: channelName
+        ? russian
+          ? "Обсуждение в"
+          : "Thread in"
+        : russian
+          ? "Обсуждение"
+          : "Thread",
       channelLabel: channelName,
     };
   }
@@ -450,22 +472,34 @@ function formatInboxTimestamp(unixSeconds: number) {
   const dayDiff = diffInDays(now, date);
 
   if (dayDiff === 0) {
-    return listTimeFormatter.format(date);
+    return inboxDateFormatter({ hour: "numeric", minute: "2-digit" }).format(
+      date,
+    );
   }
 
   if (dayDiff === 1) {
-    return "Yesterday";
+    return inboxLocale() === "ru-RU" ? "Вчера" : "Yesterday";
   }
 
   if (now.getFullYear() === date.getFullYear()) {
-    return shortDateFormatter.format(date);
+    return inboxDateFormatter({ month: "short", day: "numeric" }).format(date);
   }
 
-  return shortDateWithYearFormatter.format(date);
+  return inboxDateFormatter({
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
 }
 
 export function formatInboxFullTimestamp(unixSeconds: number) {
-  return fullTimeFormatter.format(new Date(unixSeconds * 1_000));
+  return inboxDateFormatter({
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(unixSeconds * 1_000));
 }
 
 export function relayEventFromFeedItem(item: FeedItem): RelayEvent {
@@ -489,12 +523,20 @@ export function groupInboxItems(items: InboxItem[]): InboxGroup[] {
     const dayDiff = diffInDays(now, date);
     const label =
       dayDiff === 0
-        ? "Today"
+        ? inboxLocale() === "ru-RU"
+          ? "Сегодня"
+          : "Today"
         : dayDiff === 1
-          ? "Yesterday"
+          ? inboxLocale() === "ru-RU"
+            ? "Вчера"
+            : "Yesterday"
           : dayDiff < 7
-            ? weekdayFormatter.format(date)
-            : shortDateWithYearFormatter.format(date);
+            ? inboxDateFormatter({ weekday: "long" }).format(date)
+            : inboxDateFormatter({
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              }).format(date);
 
     const current = groups.get(label) ?? [];
     current.push(item);

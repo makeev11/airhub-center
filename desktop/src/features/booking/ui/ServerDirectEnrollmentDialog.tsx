@@ -11,6 +11,7 @@ import type {
   WeeklyScheduleSelection,
 } from "@/features/booking/model/bookingCore";
 import { BookingSelect } from "@/features/booking/ui/BookingSelect";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { WeeklySchedulePicker } from "@/features/booking/ui/WeeklySchedulePicker";
 import { deriveWeeklySlotOptions } from "@/features/booking/ui/weeklySchedulePickerModel";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
@@ -336,9 +337,9 @@ export function ServerDirectEnrollmentDialog({
                   error={errors.startDate}
                   label={messages.enrollmentStartDate}
                 >
-                  <Input
-                    onChange={(event) => setStartDate(event.target.value)}
-                    type="date"
+                  <AirHopDateInput
+                    aria-label={messages.enrollmentStartDate}
+                    onChange={setStartDate}
                     value={startDate}
                   />
                 </Field>

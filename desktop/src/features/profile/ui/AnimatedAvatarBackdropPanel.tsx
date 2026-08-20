@@ -1,4 +1,5 @@
 import { cn } from "@/shared/lib/cn";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 import {
   AVATAR_COLOR_SWATCHES,
@@ -27,6 +28,7 @@ export function AnimatedAvatarBackdropPanel({
   onSelectColor,
   testIdPrefix,
 }: AnimatedAvatarBackdropPanelProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <div
       className={cn(
@@ -46,8 +48,12 @@ export function AnimatedAvatarBackdropPanel({
           <button
             aria-label={
               isCustomSwatch
-                ? "Choose custom backdrop color"
-                : `Use ${swatch} backdrop`
+                ? isRussian
+                  ? "Выбрать собственный цвет фона"
+                  : "Choose custom backdrop color"
+                : isRussian
+                  ? `Использовать фон ${swatch}`
+                  : `Use ${swatch} backdrop`
             }
             aria-pressed={isSelected}
             className={cn(

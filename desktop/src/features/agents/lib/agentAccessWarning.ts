@@ -49,8 +49,18 @@ export function runLocationForRunOn(
 export function agentAccessWarningText(
   mode: RespondToMode,
   runLocation?: AgentRunLocation | null,
+  locale: "ru-RU" | "en-US" = "en-US",
 ): string | null {
   if (mode !== "anyone" && mode !== "allowlist") return null;
+  if (locale === "ru-RU") {
+    const audience =
+      mode === "anyone" ? "Любой сотрудник" : "Выбранные сотрудники";
+    const target =
+      runLocation === "remote"
+        ? "сервер, где он работает, включая доступные там аккаунты и инструменты"
+        : "этот компьютер, включая файлы, аккаунты и подключённые инструменты";
+    return `${audience} сможет через этого агента получать доступ к: ${target}.`;
+  }
   const audience = mode === "anyone" ? "Anyone" : "Selected people";
   // The two locations differ in more than the noun: a local agent reaches the
   // owner's own files, while a remote host's files aren't theirs to describe —

@@ -2,6 +2,8 @@ import { Camera } from "lucide-react";
 import * as React from "react";
 import { createPortal } from "react-dom";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
+import { getAnimatedAvatarCaptureCopy } from "@/features/profile/lib/animatedAvatarCaptureCopy";
 import {
   type AnimatedAvatarRecording,
   ANIMATED_AVATAR_FRAME_DELAY_MS,
@@ -47,7 +49,6 @@ import {
   clampFrameIndex,
   clampOffset,
   defaultPersonScaleForSource,
-  PERSON_SIZE_TIP,
   preferredCameraDevice,
   randomBackdropColor,
 } from "@/features/profile/ui/AnimatedAvatarCapture.helpers";
@@ -82,6 +83,11 @@ export function AnimatedAvatarCapture({
   autoStartCamera = false,
   compactReview = false,
 }: AnimatedAvatarCaptureProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const copy = React.useMemo(
+    () => getAnimatedAvatarCaptureCopy(isRussian),
+    [isRussian],
+  );
   const [phase, setPhase] = React.useState<CapturePhase>("idle");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [cameraDevices, setCameraDevices] = React.useState<
@@ -346,9 +352,7 @@ export function AnimatedAvatarCapture({
             stopAvatarCamera(stream);
             setSelectedCameraSource(null);
             setSelectedCameraId(null);
-            setErrorMessage(
-              "Could not find an iPhone camera. Make sure Continuity Camera is available, then try again.",
-            );
+            setErrorMessage(copy.iphoneCameraError);
             setPhase("idle");
             return;
           }
@@ -377,14 +381,14 @@ export function AnimatedAvatarCapture({
         void refreshCameraDevices();
       } catch {
         releaseCamera();
-        setErrorMessage(
-          "Could not access the camera. Check Buzz's camera permission and try again.",
-        );
+        setErrorMessage(copy.cameraAccessError);
         setPhase("idle");
       }
     },
     [
       refreshCameraDevices,
+      copy.cameraAccessError,
+      copy.iphoneCameraError,
       releaseCamera,
       selectedCameraId,
       selectedCameraSource,
@@ -466,15 +470,13 @@ export function AnimatedAvatarCapture({
       if (error instanceof DOMException && error.name === "AbortError") {
         return;
       }
-      setErrorMessage(
-        error instanceof Error ? error.message : "Recording failed. Try again.",
-      );
+      setErrorMessage(copy.recordingError(error));
       releaseCamera();
       setPhase("idle");
     } finally {
       recordAbortRef.current = null;
     }
-  }, [phase, releaseBitmaps, releaseCamera, selectedCameraSource]);
+  }, [copy, phase, releaseBitmaps, releaseCamera, selectedCameraSource]);
 
   const retake = React.useCallback(() => {
     setRecording(null);
@@ -504,7 +506,7 @@ export function AnimatedAvatarCapture({
       const composed = composeAvatarFrames(bitmaps, composition);
       const posterFrame = composed[posterIndex] ?? composed[0];
       if (!posterFrame) {
-        throw new Error("No frames were recorded.");
+        throw new Error(copy.noFrames);
       }
       const animationBytes = encodeAvatarAnimation(composed);
       const posterBytes = await renderAvatarPosterPng(posterFrame);
@@ -516,22 +518,18 @@ export function AnimatedAvatarCapture({
         !animationUpload.type.startsWith("image/") ||
         !posterUpload.type.startsWith("image/")
       ) {
-        setErrorMessage("The relay rejected the recording. Try again.");
+        setErrorMessage(copy.relayRejected);
         return false;
       }
       onApply(buildAnimatedAvatarUrl(posterUpload.url, animationUpload.url));
       return true;
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not upload the animated avatar.",
-      );
+      setErrorMessage(copy.uploadError(error));
       return false;
     } finally {
       setIsSaving(false);
     }
-  }, [bitmaps, composition, isSaving, onApply, posterIndex]);
+  }, [bitmaps, composition, copy, isSaving, onApply, posterIndex]);
 
   // Hand the host's Done button the current apply function whenever a
   // recording is ready to upload.
@@ -574,7 +572,7 @@ export function AnimatedAvatarCapture({
   const usePortal = previewContainer !== null;
   const reviewWarning =
     phase === "review" && recording && !recording.backgroundRemoved
-      ? "Background removal model couldn't be loaded, so the background was kept. Retake while online to remove it."
+      ? copy.reviewWarning
       : null;
   const captureHelpText =
     phase === "idle"
@@ -582,17 +580,17 @@ export function AnimatedAvatarCapture({
       : phase === "starting"
         ? null
         : phase === "live"
-          ? "Line up your shot."
+          ? copy.liveHelp
           : phase === "recording"
-            ? "Recording... hold still-ish."
+            ? copy.recordingHelp
             : phase === "processing"
-              ? "Cutting you out of the background..."
+              ? copy.processingHelp
               : null;
   const previewCaption =
     usePortal && (phase === "live" || phase === "recording")
       ? captureHelpText
       : usePortal && phase === "review"
-        ? "Hover to play"
+        ? copy.hoverToPlay
         : null;
   const inlineCaptureHelpText =
     usePortal && (phase === "live" || phase === "recording")
@@ -686,7 +684,7 @@ export function AnimatedAvatarCapture({
               animation on hover — exactly how the avatar behaves in the app.
               Dragging repositions the active framing target. */}
       <div
-        aria-label="Avatar preview — drag or use arrow keys to position"
+        aria-label={copy.previewLabel}
         className={cn(
           // Transparent like the real avatar container — only a faint
           // ring marks the circular crop boundary. pointer-events-auto
@@ -778,15 +776,15 @@ export function AnimatedAvatarCapture({
       ) : phase === "starting" ? (
         <div className="absolute inset-0 grid place-items-center rounded-full bg-background/70 text-center shadow-inner">
           <div className="grid justify-items-center gap-2 px-4">
-            <Spinner aria-label="Starting camera" className="h-4 w-4" />
+            <Spinner aria-label={copy.startingCamera} className="h-4 w-4" />
             <span className="text-xs font-medium text-muted-foreground">
-              Starting camera
+              {copy.startingCamera}
             </span>
           </div>
         </div>
       ) : phase === "processing" ? (
         <div className="grid h-full w-full place-items-center rounded-full bg-background/60 shadow-inner">
-          <Spinner aria-label="Processing recording" className="h-6 w-6" />
+          <Spinner aria-label={copy.processingRecording} className="h-6 w-6" />
         </div>
       ) : null}
     </div>
@@ -875,7 +873,7 @@ export function AnimatedAvatarCapture({
             resetValue={Math.round(activeScaleReset * 100)}
             resetTestId={`${testIdPrefix}-animated-reset-framing`}
             testId={`${testIdPrefix}-animated-size`}
-            tipText={activeSection === "person" ? PERSON_SIZE_TIP : null}
+            tipText={activeSection === "person" ? copy.personSizeTip : null}
             value={Math.round(activeScale * 100)}
           />
           {activeSection === "person" ? (
@@ -908,7 +906,7 @@ export function AnimatedAvatarCapture({
           frameCount={bitmaps.length}
           frames={filmstripFrames}
           helpTestId={`${testIdPrefix}-animated-review-help`}
-          helpText="Pick the still shown before hover."
+          helpText={copy.reviewHelp}
           onSelectFrame={(index) =>
             setPosterIndex(clampFrameIndex(index, bitmaps.length))
           }
@@ -954,12 +952,9 @@ export function AnimatedAvatarCapture({
           type="button"
         >
           {isSaving ? (
-            <Spinner
-              aria-label="Uploading animated avatar"
-              className="h-4 w-4 border-2"
-            />
+            <Spinner aria-label={copy.uploading} className="h-4 w-4 border-2" />
           ) : (
-            "Use as avatar"
+            copy.useAvatar
           )}
         </Button>
       ) : null}

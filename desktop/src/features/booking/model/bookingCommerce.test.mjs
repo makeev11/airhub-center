@@ -122,6 +122,19 @@ test("configured enrollment and first payment are created atomically", () => {
   assert.equal(draft.paymentExpectations.at(-1).amountMinor, 600_000);
 });
 
+test("staff can enroll a child outside the group's recommended age range", () => {
+  const workspace = workspaceWithClient();
+  workspace.children.find((child) => child.id === "child-masha").birthDate =
+    "2024-06-15";
+
+  const draft = commerce.createConfiguredEnrollmentWithPayment(workspace, {
+    enrollment: configuredEnrollment(),
+    payment: firstPayment(),
+  });
+
+  assert.equal(draft.enrollments.at(-1).childId, "child-masha");
+});
+
 test("weekly slots must belong to the group and fit the tariff", () => {
   const workspace = workspaceWithClient();
   assert.throws(
@@ -232,6 +245,82 @@ test("changing a tariff never rewrites an existing payment snapshot", () => {
     changed.paymentExpectations[0].tariffNameSnapshot,
     "2 раза в неделю",
   );
+});
+
+test("tariff transition preserves history and starts a new dated segment", () => {
+  const initiallyEnrolled = savedWorkspace(
+    commerce.createConfiguredEnrollmentWithPayment(workspaceWithClient(), {
+      enrollment: configuredEnrollment(),
+      payment: firstPayment(),
+    }),
+  );
+  const enrolled = savedWorkspace({
+    ...initiallyEnrolled,
+    paymentExpectations: initiallyEnrolled.paymentExpectations.map(
+      (payment) => ({ ...payment, dueDate: "2026-09-05" }),
+    ),
+  });
+  const transitioned = commerce.transitionEnrollmentTariff(enrolled, {
+    enrollmentId: "enrollment-robotics",
+    tariffId: "tariff-weekly-1",
+    weeklyScheduleSelections: [
+      { recurrenceRuleId: "robotics-junior-weekly", weekday: "monday" },
+    ],
+    effectiveDate: "2026-09-05",
+    newEnrollmentId: "enrollment-robotics-september",
+    newPaymentId: "payment-enrollment-robotics-september",
+    actorId: "owner-one",
+    occurredAt: "2026-08-11T09:00:00.000Z",
+  });
+
+  const previous = transitioned.enrollments.find(
+    ({ id }) => id === "enrollment-robotics",
+  );
+  const next = transitioned.enrollments.find(
+    ({ id }) => id === "enrollment-robotics-september",
+  );
+  const previousPayment = transitioned.paymentExpectations.find(
+    ({ id }) => id === "payment-enrollment-robotics-first",
+  );
+  const nextPayment = transitioned.paymentExpectations.find(
+    ({ id }) => id === "payment-enrollment-robotics-september",
+  );
+
+  assert.equal(previous.endDate, "2026-09-04");
+  assert.equal(previous.tariffId, "tariff-weekly-2");
+  assert.equal(next.startDate, "2026-09-05");
+  assert.equal(next.tariffId, "tariff-weekly-1");
+  assert.equal(previousPayment.status, "cancelled");
+  assert.equal(previousPayment.tariffId, "tariff-weekly-2");
+  assert.equal(nextPayment.status, "expected");
+  assert.equal(nextPayment.tariffId, "tariff-weekly-1");
+  assert.equal(nextPayment.dueDate, "2026-09-05");
+});
+
+test("ending an enrollment can independently keep or cancel its payment", () => {
+  const enrolled = savedWorkspace(
+    commerce.createConfiguredEnrollmentWithPayment(workspaceWithClient(), {
+      enrollment: configuredEnrollment(),
+      payment: firstPayment(),
+    }),
+  );
+  const kept = commerce.endEnrollment(enrolled, "enrollment-robotics", {
+    endDate: "2026-08-31",
+    cancelExpectedPayments: false,
+    actorId: "owner-one",
+    occurredAt: "2026-08-11T09:00:00.000Z",
+  });
+  assert.equal(kept.enrollments[0].endDate, "2026-08-31");
+  assert.equal(kept.paymentExpectations[0].status, "expected");
+
+  const cancelled = commerce.endEnrollment(enrolled, "enrollment-robotics", {
+    endDate: "2026-08-31",
+    cancelExpectedPayments: true,
+    actorId: "owner-one",
+    occurredAt: "2026-08-11T09:00:00.000Z",
+  });
+  assert.equal(cancelled.paymentExpectations[0].status, "cancelled");
+  assert.equal(cancelled.paymentExpectations[0].cancelledBy, "owner-one");
 });
 
 test("expected payment can change amount, be paid, unmarked, cancelled and restored", () => {

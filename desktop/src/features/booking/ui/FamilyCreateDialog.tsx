@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import { airHopTodayIsoDate } from "@/features/booking/lib/airHopDateInput";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import { normalizePublicBookingPhone } from "@/features/booking/model/publicBooking";
 import {
@@ -9,6 +10,7 @@ import {
   representativeSchema,
 } from "@/features/booking/model/bookingCore";
 import { BookingFeedbackBanners } from "@/features/booking/ui/BookingWorkspaceState";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -35,7 +37,8 @@ export function FamilyCreateDialog({
     workspace?.organization.locale ?? "ru-RU",
   );
   const [form, setForm] = React.useState({
-    representativeName: "",
+    representativeFirstName: "",
+    representativeLastName: "",
     phone: "",
     childName: "",
     childBirthDate: "",
@@ -45,7 +48,8 @@ export function FamilyCreateDialog({
   React.useEffect(() => {
     if (!open) return;
     setForm({
-      representativeName: "",
+      representativeFirstName: "",
+      representativeLastName: "",
       phone: "",
       childName: "",
       childBirthDate: "",
@@ -58,8 +62,10 @@ export function FamilyCreateDialog({
     event.preventDefault();
     const phoneNormalized = normalizePublicBookingPhone(form.phone);
     const nextErrors: Record<string, string> = {};
-    if (!form.representativeName.trim())
-      nextErrors.representativeName = messages.requiredField;
+    if (!form.representativeFirstName.trim())
+      nextErrors.representativeFirstName = messages.requiredField;
+    if (!form.representativeLastName.trim())
+      nextErrors.representativeLastName = messages.requiredField;
     if (!phoneNormalized) nextErrors.phone = messages.invalidPhone;
     if (!form.childName.trim()) nextErrors.childName = messages.requiredField;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(form.childBirthDate))
@@ -72,10 +78,14 @@ export function FamilyCreateDialog({
     const representativeId = `representative-${suffix}`;
     const childId = `child-${suffix}`;
     const now = new Date().toISOString();
+    const representativeDisplayName = [
+      form.representativeLastName.trim(),
+      form.representativeFirstName.trim(),
+    ].join(" ");
     const family = familySchema.parse({
       id: familyId,
       organizationId: workspace.organization.id,
-      displayName: `Семья ${form.representativeName.trim()}`,
+      displayName: form.representativeLastName.trim(),
       primaryRepresentativeId: representativeId,
       status: "active",
       createdAt: now,
@@ -85,7 +95,7 @@ export function FamilyCreateDialog({
       id: representativeId,
       organizationId: workspace.organization.id,
       familyId,
-      displayName: form.representativeName,
+      displayName: representativeDisplayName,
       phoneNormalized,
       phoneDisplay: form.phone.trim(),
       preferredContactChannel: "phone",
@@ -137,16 +147,30 @@ export function FamilyCreateDialog({
   ) => (
     <label className="grid gap-1.5 text-sm" htmlFor={`airhop-family-${key}`}>
       <span className="font-medium">{label}</span>
-      <Input
-        aria-label={label}
-        data-testid={`airhop-family-${key}`}
-        id={`airhop-family-${key}`}
-        onChange={(event) =>
-          setForm((current) => ({ ...current, [key]: event.target.value }))
-        }
-        type={type}
-        value={form[key]}
-      />
+      {type === "date" ? (
+        <AirHopDateInput
+          aria-label={label}
+          data-testid={`airhop-family-${key}`}
+          id={`airhop-family-${key}`}
+          locale={workspace.organization.locale}
+          max={airHopTodayIsoDate()}
+          onChange={(value) =>
+            setForm((current) => ({ ...current, [key]: value }))
+          }
+          value={form[key]}
+        />
+      ) : (
+        <Input
+          aria-label={label}
+          data-testid={`airhop-family-${key}`}
+          id={`airhop-family-${key}`}
+          onChange={(event) =>
+            setForm((current) => ({ ...current, [key]: event.target.value }))
+          }
+          type={type}
+          value={form[key]}
+        />
+      )}
       {errors[key] ? (
         <span className="text-xs text-destructive">{errors[key]}</span>
       ) : null}
@@ -164,7 +188,10 @@ export function FamilyCreateDialog({
         </DialogHeader>
         <form className="space-y-4" onSubmit={(event) => void submit(event)}>
           <BookingFeedbackBanners />
-          {field("representativeName", messages.representativeName)}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {field("representativeFirstName", messages.representativeFirstName)}
+            {field("representativeLastName", messages.representativeLastName)}
+          </div>
           {field("phone", messages.representativePhone, "tel")}
           <div className="grid gap-4 sm:grid-cols-2">
             {field("childName", messages.childName)}

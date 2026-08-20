@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { EmojiPicker } from "@/features/custom-emoji/ui/EmojiPicker";
 import { StatusEmoji } from "@/features/user-status/ui/StatusEmoji";
 import {
@@ -12,14 +13,6 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
-
-const PRESETS = [
-  { text: "In a meeting", emoji: "\uD83D\uDDE3\uFE0F" },
-  { text: "Commuting", emoji: "\uD83D\uDE8C" },
-  { text: "Out sick", emoji: "\uD83E\uDD12" },
-  { text: "Vacationing", emoji: "\uD83C\uDFD6\uFE0F" },
-  { text: "Working remotely", emoji: "\uD83C\uDFE0" },
-] as const;
 
 type SetStatusDialogProps = {
   open: boolean;
@@ -40,6 +33,37 @@ export function SetStatusDialog({
   onClear,
   hasExistingStatus,
 }: SetStatusDialogProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const presets = React.useMemo(
+    () => [
+      {
+        id: "teaching-a-class",
+        text: isRussian ? "На занятии" : "Teaching a class",
+        emoji: "🧑‍🏫",
+      },
+      {
+        id: "in-a-meeting",
+        text: isRussian ? "На встрече" : "In a meeting",
+        emoji: "\uD83D\uDDE3\uFE0F",
+      },
+      {
+        id: "commuting",
+        text: isRussian ? "В дороге" : "Commuting",
+        emoji: "\uD83D\uDE8C",
+      },
+      {
+        id: "out-sick",
+        text: isRussian ? "Болею" : "Out sick",
+        emoji: "\uD83E\uDD12",
+      },
+      {
+        id: "vacationing",
+        text: isRussian ? "В отпуске" : "Vacationing",
+        emoji: "\uD83C\uDFD6\uFE0F",
+      },
+    ],
+    [isRussian],
+  );
   const [text, setText] = React.useState(initialText);
   const [emoji, setEmoji] = React.useState(initialEmoji);
   const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -85,9 +109,13 @@ export function SetStatusDialog({
         data-testid="set-status-dialog"
       >
         <DialogHeader>
-          <DialogTitle>Set a status</DialogTitle>
+          <DialogTitle>
+            {isRussian ? "Установить статус" : "Set a status"}
+          </DialogTitle>
           <DialogDescription>
-            Let others know what you're up to.
+            {isRussian
+              ? "Расскажите коллегам, чем вы заняты."
+              : "Let others know what you're up to."}
           </DialogDescription>
         </DialogHeader>
 
@@ -97,7 +125,11 @@ export function SetStatusDialog({
               <div className="relative shrink-0">
                 <PopoverTrigger asChild>
                   <button
-                    aria-label="Choose status emoji"
+                    aria-label={
+                      isRussian
+                        ? "Выбрать эмодзи статуса"
+                        : "Choose status emoji"
+                    }
                     className="flex h-9 w-9 items-center justify-center rounded-md border border-input text-lg transition-colors hover:bg-accent"
                     type="button"
                   >
@@ -110,7 +142,9 @@ export function SetStatusDialog({
                 </PopoverTrigger>
                 {emoji ? (
                   <button
-                    aria-label="Clear status emoji"
+                    aria-label={
+                      isRussian ? "Убрать эмодзи статуса" : "Clear status emoji"
+                    }
                     className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-background bg-muted text-2xs leading-none text-muted-foreground hover:bg-accent hover:text-foreground"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -135,17 +169,19 @@ export function SetStatusDialog({
               data-testid="set-status-input"
               onChange={(event) => setText(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="What's your status?"
+              placeholder={
+                isRussian ? "Что у вас сейчас?" : "What's your status?"
+              }
               value={text}
             />
           </div>
 
           <div className="flex flex-wrap gap-1.5">
-            {PRESETS.map((preset) => (
+            {presets.map((preset) => (
               <button
                 className="rounded-full border border-input px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                data-testid={`set-status-preset-${preset.text.toLowerCase().replace(/\s+/g, "-")}`}
-                key={preset.text}
+                data-testid={`set-status-preset-${preset.id}`}
+                key={preset.id}
                 onClick={() => handlePresetClick(preset)}
                 type="button"
               >
@@ -164,7 +200,7 @@ export function SetStatusDialog({
                   type="button"
                   variant="ghost"
                 >
-                  Clear status
+                  {isRussian ? "Очистить статус" : "Clear status"}
                 </Button>
               ) : null}
             </div>
@@ -176,7 +212,7 @@ export function SetStatusDialog({
                 type="button"
                 variant="ghost"
               >
-                Cancel
+                {isRussian ? "Отмена" : "Cancel"}
               </Button>
               <Button
                 data-testid="set-status-save"
@@ -185,7 +221,7 @@ export function SetStatusDialog({
                 size="sm"
                 type="button"
               >
-                Save
+                {isRussian ? "Сохранить" : "Save"}
               </Button>
             </div>
           </div>

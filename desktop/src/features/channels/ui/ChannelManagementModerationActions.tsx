@@ -18,6 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/shared/ui/alert-dialog";
 import { Button } from "@/shared/ui/button";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 type ChannelMutation<TArgs = void> = {
   error: unknown;
@@ -103,6 +104,7 @@ export function ChannelDeleteConfirmationDialog({
   open,
   trigger,
 }: ChannelDeleteConfirmationDialogProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <AlertDialog onOpenChange={onOpenChange} open={open}>
       {trigger ? (
@@ -110,10 +112,13 @@ export function ChannelDeleteConfirmationDialog({
       ) : null}
       <AlertDialogContent data-testid="channel-delete-confirmation-dialog">
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete channel?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {isRussian ? "Удалить канал?" : "Delete channel?"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            Delete {channelName} from the community list. This action cannot be
-            undone.
+            {isRussian
+              ? `Канал «${channelName}» будет удалён из Центра. Это действие нельзя отменить.`
+              : `Delete ${channelName} from the Center. This action cannot be undone.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error instanceof Error ? (
@@ -127,7 +132,7 @@ export function ChannelDeleteConfirmationDialog({
               type="button"
               variant="outline"
             >
-              Cancel
+              {isRussian ? "Отмена" : "Cancel"}
             </Button>
           </AlertDialogCancel>
           <AlertDialogAction asChild>
@@ -141,7 +146,13 @@ export function ChannelDeleteConfirmationDialog({
               type="button"
               variant="destructive"
             >
-              {isPending ? "Deleting..." : "Delete channel"}
+              {isPending
+                ? isRussian
+                  ? "Удаляем…"
+                  : "Deleting..."
+                : isRussian
+                  ? "Удалить канал"
+                  : "Delete channel"}
             </Button>
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -163,6 +174,22 @@ export function ChannelManagementModerationActions({
   resolvedChannelName,
   unarchiveChannelMutation,
 }: ChannelManagementModerationActionsProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const restoreLabel = unarchiveChannelMutation.isPending
+    ? isRussian
+      ? "Восстанавливаем канал"
+      : "Restoring channel"
+    : isRussian
+      ? "Восстановить канал"
+      : "Unarchive channel";
+  const archiveLabel = archiveChannelMutation.isPending
+    ? isRussian
+      ? "Архивируем канал"
+      : "Archiving channel"
+    : isRussian
+      ? "Архивировать канал"
+      : "Archive channel";
+  const deleteLabel = isRussian ? "Удалить канал" : "Delete channel";
   return (
     <div
       className={cn(
@@ -175,22 +202,14 @@ export function ChannelManagementModerationActions({
     >
       {isArchived ? (
         <Button
-          aria-label={
-            unarchiveChannelMutation.isPending
-              ? "Restoring channel"
-              : "Unarchive channel"
-          }
+          aria-label={restoreLabel}
           data-testid="channel-management-unarchive"
           disabled={!canManageChannel || unarchiveChannelMutation.isPending}
           onClick={() => {
             void unarchiveChannelMutation.mutateAsync();
           }}
           size="icon"
-          title={
-            unarchiveChannelMutation.isPending
-              ? "Restoring channel"
-              : "Unarchive channel"
-          }
+          title={restoreLabel}
           type="button"
           variant="ghost"
         >
@@ -198,22 +217,14 @@ export function ChannelManagementModerationActions({
         </Button>
       ) : (
         <Button
-          aria-label={
-            archiveChannelMutation.isPending
-              ? "Archiving channel"
-              : "Archive channel"
-          }
+          aria-label={archiveLabel}
           data-testid="channel-management-archive"
           disabled={!canManageChannel || archiveChannelMutation.isPending}
           onClick={() => {
             void archiveChannelMutation.mutateAsync();
           }}
           size="icon"
-          title={
-            archiveChannelMutation.isPending
-              ? "Archiving channel"
-              : "Archive channel"
-          }
+          title={archiveLabel}
           type="button"
           variant="ghost"
         >
@@ -232,11 +243,11 @@ export function ChannelManagementModerationActions({
           open={isDeleteDialogOpen}
           trigger={
             <Button
-              aria-label="Delete channel"
+              aria-label={deleteLabel}
               data-testid="channel-management-delete"
               disabled={deleteChannelMutation.isPending}
               size="icon"
-              title="Delete channel"
+              title={deleteLabel}
               type="button"
               variant="ghost"
             >

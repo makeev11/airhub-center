@@ -1,3 +1,4 @@
+import { loadActivationLocale } from "@/features/activation/i18n";
 import { currencyMinorUnitExponent } from "@/features/booking/lib/bookingMoney";
 import type { Weekday } from "@/features/booking/model/bookingCore";
 
@@ -72,6 +73,11 @@ export type BookingMessages = {
   openLesson: (groupName: string, startTime: string) => string;
   scheduleUnavailableTitle: string;
   scheduleUnavailableDescription: string;
+  scheduleLoadingTitle: string;
+  scheduleLoadingDescription: string;
+  scheduleLoadErrorTitle: string;
+  scheduleLoadErrorDescription: string;
+  scheduleRetry: string;
 };
 
 const ruMessages: BookingMessages = {
@@ -154,9 +160,103 @@ const ruMessages: BookingMessages = {
   scheduleUnavailableTitle: "Расписание ещё не подключено",
   scheduleUnavailableDescription:
     "Подключите Booking API организации, чтобы здесь появились реальные филиалы, группы и занятия.",
+  scheduleLoadingTitle: "Загружаем расписание",
+  scheduleLoadingDescription: "Получаем актуальные занятия с сервера центра.",
+  scheduleLoadErrorTitle: "Не удалось загрузить расписание",
+  scheduleLoadErrorDescription:
+    "Проверьте соединение с сервером центра и повторите попытку.",
+  scheduleRetry: "Попробовать снова",
+};
+
+const enMessages: BookingMessages = {
+  scheduleTitle: "Schedule",
+  today: "Today",
+  previousWeek: "Previous week",
+  nextWeek: "Next week",
+  branch: "Branch",
+  archivedBranch: "Archived branch",
+  allBranches: "All branches",
+  noLessons: "No classes",
+  moved: "Moved",
+  modified: "Changed",
+  cancelled: "Cancelled",
+  dateAndTime: "Date and time",
+  room: "Room",
+  teachers: "Teachers",
+  places: "Places",
+  trialLesson: "Trial class",
+  unlimited: "No limit",
+  unlimitedCapacity: "Unlimited",
+  noPlaces: "No places",
+  onePlaceLeft: "1 place left",
+  placesFree: (count) => `${count} places free`,
+  occupiedPlaces: (booked, capacity) => `${booked} of ${capacity} occupied`,
+  trialUnavailable: "Trial unavailable",
+  trialFree: "Trial: free",
+  trialPaid: (price) => `Trial: ${price}`,
+  teacherUnassigned: "No teacher assigned",
+  roomFallback: "Not specified — showing the branch address",
+  addressMissing: "Address not specified",
+  unnamedGroup: "Unnamed group",
+  movedFrom: (date, startTime, endTime) =>
+    `Moved from ${date}, ${startTime}–${endTime}`,
+  editLesson: "Edit class",
+  cancelLesson: "Cancel class",
+  restoreLesson: "Restore series values",
+  editLessonTitle: "Edit one class",
+  editLessonDescription:
+    "Date, time, place, teachers, capacity, and trial settings change only for the selected class.",
+  lessonDate: "Class date",
+  lessonStartTime: "Start time",
+  lessonEndTime: "End time",
+  lessonCapacity: "Class capacity",
+  lessonCapacityInherit: "Inherit from series",
+  lessonCapacityUnlimited: "Unlimited",
+  lessonCapacityLimited: "Set a limit",
+  lessonCapacityLimit: "Place limit",
+  lessonTrialPolicy: "Trial for this class",
+  lessonTrialInherit: "Inherit",
+  lessonInheritedValue: (value) => `Inherit from series (${value})`,
+  lessonCapacityValue: (count) => `${count} places`,
+  lessonPreviewTitle: "What will change",
+  lessonOneOccurrenceOnly: "Changes apply only to this class.",
+  lessonNoChanges: "Change at least one value or restore the series values.",
+  lessonChangeDate: (from, to) => `Date: ${from} → ${to}`,
+  lessonChangeTime: (from, to) => `Time: ${from} → ${to}`,
+  lessonChangeBranch: (from, to) => `Branch: ${from} → ${to}`,
+  lessonChangeRoom: (from, to) => `Room: ${from} → ${to}`,
+  lessonChangeTeachers: (from, to) => `Teachers: ${from} → ${to}`,
+  lessonChangeCapacity: (from, to) => `Capacity: ${from} → ${to}`,
+  lessonChangeTrial: (from, to) => `Trial: ${from} → ${to}`,
+  lessonConflictTitle: "Class conflicts found",
+  lessonConflictDescription:
+    "You can still save, but review conflicts for the resulting date and time.",
+  lessonConflictConfirmation:
+    "I reviewed the conflicts and want to change this class",
+  cancelLessonTitle: "Cancel this class?",
+  cancelLessonDescription: (date, time) =>
+    `${date}, ${time}. Other classes in the series are unchanged.`,
+  restoreLessonTitle: "Restore series values?",
+  restoreLessonDescription:
+    "The exception will be removed. The class will again use the series date, time, place, teachers, capacity, and trial settings.",
+  lessonUpdated: "Class updated",
+  lessonCancelled: "Class cancelled",
+  lessonRestored: "Series values restored",
+  openLesson: (groupName, startTime) =>
+    `Open ${groupName} class at ${startTime}`,
+  scheduleUnavailableTitle: "Schedule not connected yet",
+  scheduleUnavailableDescription:
+    "Connect the organization's Booking API to show live branches, groups, and classes here.",
+  scheduleLoadingTitle: "Loading schedule",
+  scheduleLoadingDescription: "Getting the latest classes from the Center.",
+  scheduleLoadErrorTitle: "Could not load the schedule",
+  scheduleLoadErrorDescription:
+    "Check the connection to the Center server and try again.",
+  scheduleRetry: "Try again",
 };
 
 const messagesByLanguage: Partial<Record<string, BookingMessages>> = {
+  en: enMessages,
   ru: ruMessages,
 };
 
@@ -169,9 +269,9 @@ function canonicalLocale(locale: string): string {
 }
 
 export function getBookingMessages(locale: string): BookingMessages {
-  const resolvedLocale = canonicalLocale(locale);
+  const resolvedLocale = canonicalLocale(loadActivationLocale() ?? locale);
   const language = new Intl.Locale(resolvedLocale).language;
-  return messagesByLanguage[language] ?? ruMessages;
+  return messagesByLanguage[language] ?? enMessages;
 }
 
 function asCalendarDate(isoDate: string): Date {
@@ -188,7 +288,7 @@ export type BookingFormatters = {
 };
 
 export function createBookingFormatters(locale: string): BookingFormatters {
-  const resolvedLocale = canonicalLocale(locale);
+  const resolvedLocale = canonicalLocale(loadActivationLocale() ?? locale);
   const dateFormatter = new Intl.DateTimeFormat(resolvedLocale, {
     day: "numeric",
     month: "long",
@@ -280,6 +380,17 @@ function russianAgeDuration(totalMonths: number): string {
   return parts.join(" ");
 }
 
+function englishAgeDuration(totalMonths: number): string {
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  const parts: string[] = [];
+  if (years) parts.push(`${years} ${years === 1 ? "year" : "years"}`);
+  if (months || !parts.length) {
+    parts.push(`${months} ${months === 1 ? "month" : "months"}`);
+  }
+  return parts.join(" ");
+}
+
 export function formatBookingAgeRange({
   locale,
   minAgeMonths,
@@ -294,21 +405,32 @@ export function formatBookingAgeRange({
     return messages.unlimited;
   }
 
-  // Russian is the first MVP language. Keeping age grammar behind this locale
-  // boundary lets subsequent dictionaries provide their own implementation.
-  const duration = russianAgeDuration;
-  if (minAgeMonths === undefined) return `до ${duration(maxAgeMonths ?? 0)}`;
-  if (maxAgeMonths === undefined) return `от ${duration(minAgeMonths)}`;
+  const language = new Intl.Locale(
+    canonicalLocale(loadActivationLocale() ?? locale),
+  ).language;
+  const duration = language === "ru" ? russianAgeDuration : englishAgeDuration;
+  if (minAgeMonths === undefined) {
+    return language === "ru"
+      ? `до ${duration(maxAgeMonths ?? 0)}`
+      : `up to ${duration(maxAgeMonths ?? 0)}`;
+  }
+  if (maxAgeMonths === undefined) {
+    return language === "ru"
+      ? `от ${duration(minAgeMonths)}`
+      : `from ${duration(minAgeMonths)}`;
+  }
 
   if (minAgeMonths % 12 === 0 && maxAgeMonths % 12 === 0) {
     const minYears = minAgeMonths / 12;
     const maxYears = maxAgeMonths / 12;
-    return `${minYears}–${maxYears} ${russianPlural(
-      maxYears,
-      "год",
-      "года",
-      "лет",
-    )}`;
+    return language === "ru"
+      ? `${minYears}–${maxYears} ${russianPlural(
+          maxYears,
+          "год",
+          "года",
+          "лет",
+        )}`
+      : `${minYears}–${maxYears} years`;
   }
   return `${duration(minAgeMonths)}–${duration(maxAgeMonths)}`;
 }
@@ -322,7 +444,7 @@ export function formatChildAgeAndBirthDate({
   onDate: string;
   locale: string;
 }): string {
-  const resolvedLocale = canonicalLocale(locale);
+  const resolvedLocale = canonicalLocale(loadActivationLocale() ?? locale);
   const [birthYear, birthMonth, birthDay] = birthDate.split("-").map(Number);
   const [currentYear, currentMonth, currentDay] = onDate.split("-").map(Number);
   let years = currentYear - birthYear;

@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { EditorContent } from "@tiptap/react";
+import { useComposerCopy } from "@/features/messages/lib/messageComposerCopy";
 import { useChannelLinks } from "@/features/messages/lib/useChannelLinks";
 import { handleAgentSnapshotPaste } from "@/features/messages/lib/agentSnapshotClipboard";
 import { useComposerAutofocus } from "@/features/messages/lib/useComposerAutofocus";
@@ -142,8 +143,7 @@ function MessageComposerImpl({
     typingRootEventId,
   );
 
-  // We pass a custom setter that both updates React state AND inserts
-  // markdown into the Tiptap editor when media upload completes.
+  // This setter also inserts markdown when media upload completes.
   const internalMedia = useMediaUpload();
   const media = mediaController ?? internalMedia;
   const ownsDropZone = mediaController === undefined;
@@ -227,12 +227,12 @@ function MessageComposerImpl({
     });
   }, []);
 
-  const computedPlaceholder = editTarget
-    ? "Edit your message"
-    : (placeholder ??
-      (replyTarget
-        ? `Reply to ${replyTarget.author} in #${channelName}`
-        : `Message #${channelName}`));
+  const computedPlaceholder = useComposerCopy(
+    channelName,
+    editTarget,
+    replyTarget,
+    placeholder,
+  );
 
   const richText = useRichTextEditor({
     placeholder: computedPlaceholder,

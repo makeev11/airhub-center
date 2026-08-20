@@ -1,0 +1,20 @@
+export type BookingEnrollmentManagementMessages = {
+  enrollmentEnds: (date: string) => string;
+  enrollmentScheduled: string;
+  enrollmentEnded: string;
+  enrollmentChangeTariffTitle: string;
+  enrollmentChangeTariffDescription: string;
+  enrollmentEffectiveDate: string;
+  enrollmentEffectiveDateHint: string;
+  enrollmentNewTariff: string;
+  enrollmentNewPayment: (amount: string, date: string) => string;
+  enrollmentFuturePaymentReplaced: string;
+  enrollmentConfirmTariffChange: string;
+  enrollmentTariffChanged: string;
+  enrollmentEndTitle: string;
+  enrollmentEndDate: string;
+  enrollmentCancelExpectedPayment: string;
+  enrollmentCancelExpectedPaymentHint: string;
+  enrollmentConfirmEnd: string;
+  enrollmentEndedSuccess: string;
+};

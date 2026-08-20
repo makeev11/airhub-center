@@ -8,6 +8,7 @@ import {
 
 export const AGENT_DETAILS_FIELD_LABELS = new Set([
   "Runtime",
+  "Среда запуска",
   "ACP command",
   "MCP command",
 ]);

@@ -1,5 +1,6 @@
 import { Bot } from "lucide-react";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { formatOwnerLabel } from "@/features/profile/lib/identity";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
@@ -81,6 +82,7 @@ export function NewMessageResultRow({
   ownerProfiles?: UserProfileLookup;
   user: UserSearchResult;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const name = formatRecipientName(user);
   const ownerLabel = formatOwnerLabel(
     user.ownerPubkey,
@@ -94,7 +96,15 @@ export function NewMessageResultRow({
       data-keyboard-highlighted={isKeyboardHighlighted ? "true" : undefined}
     >
       <button
-        aria-label={`${isAlreadySelected ? "Already added" : "Add"} ${name}`}
+        aria-label={`${
+          isAlreadySelected
+            ? isRussian
+              ? "Уже добавлен"
+              : "Already added"
+            : isRussian
+              ? "Добавить"
+              : "Add"
+        } ${name}`}
         aria-selected={isAlreadySelected || isKeyboardHighlighted}
         className={cn(
           "group/dm-result flex min-h-14 w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left transition-colors duration-150 ease-out hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
@@ -130,12 +140,12 @@ export function NewMessageResultRow({
                     className="h-3 w-3"
                     data-testid="new-dm-agent-icon"
                   />
-                  agent
+                  {isRussian ? "агент" : "agent"}
                 </span>
               </div>
               {ownerLabel ? (
                 <span className="block truncate text-xs text-muted-foreground">
-                  managed by {ownerLabel}
+                  {isRussian ? "управляет" : "managed by"} {ownerLabel}
                 </span>
               ) : null}
             </div>

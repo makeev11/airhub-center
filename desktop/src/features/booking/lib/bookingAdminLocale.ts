@@ -3,420 +3,436 @@ import {
   type BookingPaymentMessages,
   ruPaymentMessages,
 } from "@/features/booking/lib/bookingPaymentLocale";
+import { EN_BOOKING_ADMIN_MESSAGES } from "@/features/booking/lib/bookingAdminLocale.en";
+import { loadAirHopLocale } from "@/shared/locale/airhopLocale";
+import type { BookingEnrollmentManagementMessages } from "@/features/booking/lib/bookingEnrollmentLocale";
 
-export type BookingAdminMessages = BookingPaymentMessages & {
-  productName: string;
-  navSchedule: string;
-  navRequests: string;
-  navClients: string;
-  navBranches: string;
-  navGroups: string;
-  navTariffs: string;
-  navPayments: string;
-  navAnalytics: string;
-  navTeachers: string;
-  navSettings: string;
-  loadingTitle: string;
-  loadingDescription: string;
-  unavailableTitle: string;
-  unavailableDescription: string;
-  loadErrorTitle: string;
-  loadErrorDescription: string;
-  saveErrorTitle: string;
-  saveErrorDescription: string;
-  retry: string;
-  revisionConflictTitle: string;
-  revisionConflictDescription: string;
-  recoveredDataTitle: string;
-  recoveredDataDescription: string;
-  dismiss: string;
-  unsavedChangesConfirm: string;
-  save: string;
-  saving: string;
-  cancel: string;
-  edit: string;
-  archive: string;
-  restore: string;
-  active: string;
-  archived: string;
-  nextStage: string;
-  settingsTitle: string;
-  settingsDescription: string;
-  settingsSectionsLabel: string;
-  organizationCardTitle: string;
-  organizationName: string;
-  locale: string;
-  localeRussian: string;
-  localeEnglish: string;
-  timeZone: string;
-  timeZoneAutomatic: (timeZone: string) => string;
-  timeZoneHint: string;
-  trialPolicy: string;
-  trialDisabled: string;
-  trialFree: string;
-  trialPaid: string;
-  currency: string;
-  trialPrice: string;
-  centerPaymentDay: string;
-  centerPaymentDayHint: string;
-  attendanceDefault: string;
-  attendanceHint: string;
-  singleVisitsDefault: string;
-  singleVisitsHint: string;
-  publicBookingCardTitle: string;
-  publicBookingCardDescription: string;
-  publicBookingPurpose: string;
-  publicBookingPurposeTrial: string;
-  publicBookingPurposeLesson: string;
-  publicBookingPurposeHint: string;
-  publicBookingAppearance: string;
-  publicBookingAppearanceAutomatic: string;
-  publicBookingAppearanceLight: string;
-  publicBookingAppearanceDark: string;
-  publicBookingAppearanceHint: string;
-  settingsSaved: string;
-  requiredField: string;
-  invalidTimeZone: string;
-  invalidCurrency: string;
-  invalidPrice: string;
-  branchesTitle: string;
-  branchesDescription: string;
-  addBranch: string;
-  noBranchesTitle: string;
-  noBranchesDescription: string;
-  branchName: string;
-  branchAddress: string;
-  buzzChannel: string;
-  buzzChannelHint: string;
-  buzzChannelPlaceholder: string;
-  buzzChannelSearching: string;
-  buzzChannelFound: (name: string) => string;
-  buzzChannelWillCreate: (name: string) => string;
-  buzzChannelSuggestions: string;
-  buzzChannelLookupError: string;
-  buzzChannelUnavailable: string;
-  buzzChannelDescription: (branchName: string) => string;
-  workingHours: string;
-  workingDay: string;
-  dayOff: string;
-  workingPeriodStart: string;
-  workingPeriodEnd: string;
-  addPeriod: string;
-  removePeriod: string;
-  createBranchTitle: string;
-  editBranchTitle: string;
-  createBranchDescription: string;
-  editBranchDescription: string;
-  branchCreated: string;
-  branchUpdated: string;
-  branchArchived: string;
-  branchRestored: string;
-  archiveBranchTitle: (name: string) => string;
-  archiveBranchDescription: string;
-  branchUsage: (groups: number, rooms: number, rules: number) => string;
-  copyBookingLink: string;
-  bookingLinkCopied: (name: string) => string;
-  bookingLinkCopyFailed: string;
-  manageRooms: string;
-  roomsForBranch: (name: string) => string;
-  roomsDescription: string;
-  addRoom: string;
-  noRoomsTitle: string;
-  noRoomsDescription: string;
-  roomName: string;
-  createRoomTitle: string;
-  editRoomTitle: string;
-  createRoomDescription: string;
-  editRoomDescription: string;
-  roomCreated: string;
-  roomUpdated: string;
-  roomArchived: string;
-  roomRestored: string;
-  archiveRoomTitle: (name: string) => string;
-  archiveRoomDescription: string;
-  roomUsage: (active: number, historical: number) => string;
-  restoreRoomBlocked: string;
-  invalidWorkingPeriod: string;
-  overlapWarningTitle: string;
-  overlapWarningDescription: string;
-  overlapConfirmation: string;
-  workingDaysSummary: (days: number, periods: number) => string;
-  groupsTitle: string;
-  groupsDescription: string;
-  addGroup: string;
-  noGroupsTitle: string;
-  noGroupsDescription: string;
-  groupName: string;
-  groupDescription: string;
-  groupDescriptionHint: string;
-  groupBranch: string;
-  groupRoom: string;
-  noRoom: string;
-  groupTeachers: string;
-  noTeachers: string;
-  groupMinAge: string;
-  groupMaxAge: string;
-  ageMonthsHint: string;
-  groupCapacity: string;
-  capacityHint: string;
-  groupTrialPolicy: string;
-  inheritCenterSetting: string;
-  groupAttendance: string;
-  groupSingleVisits: string;
-  attendanceEnabled: string;
-  attendanceDisabled: string;
-  singleVisitsEnabled: string;
-  singleVisitsDisabled: string;
-  inheritGroupSetting: string;
-  lessonChangeSingleVisits: (from: string, to: string) => string;
-  weeklySchedule: string;
-  scheduleHint: string;
-  scheduleWeekday: string;
-  scheduleStartsOn: string;
-  scheduleEndsOn: string;
-  scheduleStartTime: string;
-  scheduleEndTime: string;
-  addScheduleTemplate: string;
-  removeScheduleTemplate: string;
-  createGroupTitle: string;
-  editGroupTitle: string;
-  createGroupDescription: string;
-  editGroupDescription: string;
-  groupCreated: string;
-  groupUpdated: string;
-  groupArchived: string;
-  groupRestored: string;
-  archiveGroupTitle: (name: string) => string;
-  archiveGroupDescription: string;
-  groupUsage: (rules: number, exceptions: number) => string;
-  groupScheduleSummary: (templates: number) => string;
-  groupTeachersSummary: (teachers: number) => string;
-  groupEnrollStudent: string;
-  groupActiveStudents: (count: number) => string;
-  groupAgeSummary: (minimum: string, maximum: string) => string;
-  groupCapacityUnlimited: string;
-  trialEffective: (value: string) => string;
-  attendanceEffective: (value: string) => string;
-  archivedBranchOption: (name: string) => string;
-  archivedTeacherOption: (name: string) => string;
-  archivedRoomOption: (name: string) => string;
-  restoreGroupBlocked: string;
-  invalidAge: string;
-  invalidAgeRange: string;
-  invalidCapacity: string;
-  invalidScheduleRange: string;
-  invalidScheduleTime: string;
-  scheduleWeekdayRequired: string;
-  scheduleRequired: string;
-  scheduleConflictTitle: string;
-  scheduleConflictDescription: string;
-  scheduleConflictWorkingHours: string;
-  scheduleConflictRoom: string;
-  scheduleConflictTeacher: string;
-  scheduleConflictWithGroup: (name: string) => string;
-  scheduleConflictConfirmation: string;
-  bookedOccurrenceRuleErrorTitle: string;
-  bookedOccurrenceRuleErrorDescription: string;
-  teachersTitle: string;
-  teachersDescription: string;
-  addTeacher: string;
-  noTeachersTitle: string;
-  noTeachersDescription: string;
-  teacherName: string;
-  teacherBuzzUsername: string;
-  teacherBuzzUsernameHint: string;
-  createTeacherTitle: string;
-  editTeacherTitle: string;
-  createTeacherDescription: string;
-  editTeacherDescription: string;
-  teacherCreated: string;
-  teacherUpdated: string;
-  teacherArchived: string;
-  teacherRestored: string;
-  archiveTeacherTitle: (name: string) => string;
-  archiveTeacherDescription: string;
-  teacherUsage: (groups: number, rules: number) => string;
-  teacherGroupsSummary: (groups: number) => string;
-  tariffsTitle: string;
-  tariffsDescription: string;
-  addTariff: string;
-  noTariffsTitle: string;
-  noTariffsDescription: string;
-  tariffName: string;
-  tariffDescription: string;
-  tariffDescriptionHint: string;
-  tariffPrice: string;
-  tariffCurrency: string;
-  tariffWeeklyScheduleLimit: string;
-  tariffWeeklyScheduleLimitHint: string;
-  tariffPaymentDay: string;
-  tariffPaymentDayInherited: (day: number) => string;
-  tariffPaymentDayCustom: string;
-  tariffPaymentDayCustomLabel: string;
-  tariffPaymentDayHint: string;
-  createTariffTitle: string;
-  editTariffTitle: string;
-  createTariffDescription: string;
-  editTariffDescription: string;
-  tariffCreated: string;
-  tariffUpdated: string;
-  tariffArchived: string;
-  tariffRestored: string;
-  showArchivedTariffs: (count: number) => string;
-  hideArchivedTariffs: string;
-  archivedTariffsTitle: string;
-  archiveTariffTitle: (name: string) => string;
-  archiveTariffDescription: string;
-  tariffEnrollmentUsage: (count: number) => string;
-  tariffPerWeek: (count: number) => string;
-  tariffPaymentDaySummary: (day: number) => string;
-  tariffPaymentDayCenterSummary: (day: number) => string;
-  invalidWeeklyScheduleLimit: string;
-  invalidPaymentDay: string;
-  enrollChildTitle: string;
-  enrollChildDescription: string;
-  enrollmentExistingChild: string;
-  enrollmentGroup: string;
-  enrollmentTariff: string;
-  enrollmentSchedule: string;
-  enrollmentStartDate: string;
-  enrollmentReviewTitle: string;
-  enrollmentReviewDescription: string;
-  enrollmentSelectedSlots: (selected: number, maximum: number) => string;
-  enrollmentSlotLimitReached: (maximum: number) => string;
-  enrollmentNoWeeklySlots: string;
-  enrollmentNoGroups: string;
-  enrollmentNoTariffs: string;
-  enrollmentFirstPayment: string;
-  enrollmentBack: string;
-  enrollmentContinue: string;
-  enrollmentConfirm: string;
-  enrollmentCreated: string;
-  enrollmentActionFailed: string;
-  familyEnrollments: string;
-  familyEnrollChild: string;
-  enrollmentNeedsAssignment: string;
-  enrollmentStarts: (date: string) => string;
-  enrollmentManage: string;
-  enrollmentManagementTitle: string;
-  enrollmentManagementDescription: (group: string) => string;
-  enrollmentManagementFailed: string;
-  enrollmentUpdated: string;
-  enrollmentCurrentTariff: string;
-  enrollmentChangeTariff: string;
-  enrollmentSelectTariff: string;
-  enrollmentNoCompatibleTariffs: string;
-  enrollmentTariffFutureOnly: string;
-  enrollmentPause: string;
-  enrollmentResume: string;
-  enrollmentEnd: string;
-  enrollmentEndDescription: string;
-  enrollmentEndWarning: string;
-  requestsTitle: string;
-  requestsDescription: string;
-  requestSearch: string;
-  requestFilterAll: string;
-  requestFilterAttention: string;
-  requestFilterPending: string;
-  requestFilterConfirmed: string;
-  requestFilterProcessed: string;
-  noRequestsTitle: string;
-  noRequestsDescription: string;
-  requestStatusPending: string;
-  requestStatusConfirmed: string;
-  requestStatusRejected: string;
-  requestStatusCancelledByParent: string;
-  requestStatusCancelledByCenter: string;
-  requestStatusIntakeNew: string;
-  requestStatusIntakeConverted: string;
-  requestStatusIntakeClosed: string;
-  requestNeedsLesson: string;
-  requestTransferPending: string;
-  requestPossibleDuplicate: string;
-  requestConfirm: string;
-  requestReject: string;
-  requestConfirmed: string;
-  requestRejected: string;
-  requestMessengerQueued: string;
-  requestStaffCallQueued: string;
-  requestSourceBookingCore: string;
-  requestLoadMore: string;
-  requestLoadingMore: string;
-  requestOpenFamily: string;
-  clientsTitle: string;
-  clientsDescription: string;
-  clientSearch: string;
-  clientAddFamily: string;
-  clientsServerReadOnly: string;
-  noClientsTitle: string;
-  noClientsDescription: string;
-  family: string;
-  familyRepresentatives: string;
-  familyChildren: string;
-  familyHistory: string;
-  familyPrimaryContact: string;
-  familyBookingsCount: (count: number) => string;
-  familyActiveEnrollmentsCount: (count: number) => string;
-  familyLastActivity: string;
-  familyPossibleDuplicate: string;
-  familyNotFoundTitle: string;
-  familyNotFoundDescription: string;
-  familySourceBookingCore: string;
-  familyServerReadOnly: string;
-  familyVerifiedMessenger: string;
-  familyNoEnrollments: string;
-  familyEnrollmentPaused: string;
-  familyEnrollmentEnded: string;
-  familyHistoryTruncated: string;
-  createFamilyTitle: string;
-  createFamilyDescription: string;
-  familyCreated: string;
-  editRepresentativeTitle: string;
-  addRepresentativeTitle: string;
-  representativeSaved: string;
-  editChildTitle: string;
-  addChildTitle: string;
-  childSaved: string;
-  invalidPhone: string;
-  invalidBirthDate: string;
-  familyArchiveTitle: (name: string) => string;
-  familyArchiveDescription: string;
-  familyArchived: string;
-  familyRestored: string;
-  representativeName: string;
-  representativePhone: string;
-  representativeChannel: string;
-  childName: string;
-  childBirthDate: string;
-  childNote: string;
-  addRepresentative: string;
-  addChild: string;
-  lessonRosterTitle: string;
-  lessonRosterExpected: (count: number) => string;
-  lessonRosterEmpty: string;
-  lessonRosterPending: string;
-  lessonRosterConfirmed: string;
-  lessonRosterPermanent: string;
-  lessonRosterTrial: string;
-  lessonRosterSingle: string;
-  lessonAddParticipant: string;
-  lessonAddParticipantTitle: string;
-  lessonAddParticipantDescription: string;
-  participantExistingClient: string;
-  participantNewClient: string;
-  participantSearch: string;
-  participantSearchEmpty: string;
-  participantVisitKind: string;
-  participantVisitTrial: string;
-  participantVisitSingle: string;
-  participantNoVisitKinds: string;
-  participantAdd: string;
-  participantAdded: string;
-  participantAttendancePresent: string;
-  participantAttendanceAbsent: string;
-  participantActionFailed: string;
-  weekdayNames: Record<Weekday, string>;
-};
+export type BookingAdminMessages = BookingPaymentMessages &
+  BookingEnrollmentManagementMessages & {
+    productName: string;
+    navSchedule: string;
+    navRequests: string;
+    navClients: string;
+    navBranches: string;
+    navGroups: string;
+    navTariffs: string;
+    navPayments: string;
+    navAnalytics: string;
+    navTeachers: string;
+    navSettings: string;
+    loadingTitle: string;
+    loadingDescription: string;
+    unavailableTitle: string;
+    unavailableDescription: string;
+    loadErrorTitle: string;
+    loadErrorDescription: string;
+    saveErrorTitle: string;
+    saveErrorDescription: string;
+    retry: string;
+    revisionConflictTitle: string;
+    revisionConflictDescription: string;
+    recoveredDataTitle: string;
+    recoveredDataDescription: string;
+    dismiss: string;
+    unsavedChangesConfirm: string;
+    save: string;
+    saving: string;
+    cancel: string;
+    edit: string;
+    archive: string;
+    restore: string;
+    active: string;
+    archived: string;
+    nextStage: string;
+    settingsTitle: string;
+    settingsDescription: string;
+    settingsSectionsLabel: string;
+    organizationCardTitle: string;
+    organizationName: string;
+    locale: string;
+    localeRussian: string;
+    localeEnglish: string;
+    timeZone: string;
+    timeZoneAutomatic: (timeZone: string) => string;
+    timeZoneHint: string;
+    trialPolicy: string;
+    trialDisabled: string;
+    trialFree: string;
+    trialPaid: string;
+    currency: string;
+    trialPrice: string;
+    centerPaymentDay: string;
+    centerPaymentDayHint: string;
+    attendanceDefault: string;
+    attendanceHint: string;
+    singleVisitsDefault: string;
+    singleVisitsHint: string;
+    publicBookingCardTitle: string;
+    publicBookingCardDescription: string;
+    publicBookingPurpose: string;
+    publicBookingPurposeTrial: string;
+    publicBookingPurposeLesson: string;
+    publicBookingPurposeHint: string;
+    publicBookingAppearance: string;
+    publicBookingAppearanceAutomatic: string;
+    publicBookingAppearanceLight: string;
+    publicBookingAppearanceDark: string;
+    publicBookingAppearanceHint: string;
+    settingsSaved: string;
+    requiredField: string;
+    invalidTimeZone: string;
+    invalidCurrency: string;
+    invalidPrice: string;
+    branchesTitle: string;
+    branchesDescription: string;
+    addBranch: string;
+    noBranchesTitle: string;
+    noBranchesDescription: string;
+    branchName: string;
+    branchAddress: string;
+    buzzChannel: string;
+    buzzChannelHint: string;
+    buzzChannelPlaceholder: string;
+    buzzChannelSearching: string;
+    buzzChannelFound: (name: string) => string;
+    buzzChannelWillCreate: (name: string) => string;
+    buzzChannelSuggestions: string;
+    buzzChannelLookupError: string;
+    buzzChannelUnavailable: string;
+    buzzChannelDescription: (branchName: string) => string;
+    workingHours: string;
+    workingDay: string;
+    dayOff: string;
+    workingPeriodStart: string;
+    workingPeriodEnd: string;
+    addPeriod: string;
+    removePeriod: string;
+    createBranchTitle: string;
+    editBranchTitle: string;
+    createBranchDescription: string;
+    editBranchDescription: string;
+    branchCreated: string;
+    branchUpdated: string;
+    branchArchived: string;
+    branchRestored: string;
+    archiveBranchTitle: (name: string) => string;
+    archiveBranchDescription: string;
+    branchUsage: (groups: number, rooms: number, rules: number) => string;
+    copyBookingLink: string;
+    bookingLinkCopied: (name: string) => string;
+    bookingLinkCopyFailed: string;
+    manageRooms: string;
+    roomsForBranch: (name: string) => string;
+    roomsDescription: string;
+    addRoom: string;
+    noRoomsTitle: string;
+    noRoomsDescription: string;
+    roomName: string;
+    createRoomTitle: string;
+    editRoomTitle: string;
+    createRoomDescription: string;
+    editRoomDescription: string;
+    roomCreated: string;
+    roomUpdated: string;
+    roomArchived: string;
+    roomRestored: string;
+    archiveRoomTitle: (name: string) => string;
+    archiveRoomDescription: string;
+    roomUsage: (active: number, historical: number) => string;
+    restoreRoomBlocked: string;
+    invalidWorkingPeriod: string;
+    overlapWarningTitle: string;
+    overlapWarningDescription: string;
+    overlapConfirmation: string;
+    workingDaysSummary: (days: number, periods: number) => string;
+    groupsTitle: string;
+    groupsDescription: string;
+    addGroup: string;
+    noGroupsTitle: string;
+    noGroupsDescription: string;
+    groupName: string;
+    groupDescription: string;
+    groupDescriptionHint: string;
+    groupBranch: string;
+    groupRoom: string;
+    noRoom: string;
+    groupTeachers: string;
+    noTeachers: string;
+    groupMinAge: string;
+    groupMaxAge: string;
+    ageMonthsHint: string;
+    groupCapacity: string;
+    capacityHint: string;
+    groupTrialPolicy: string;
+    inheritCenterSetting: string;
+    groupAttendance: string;
+    groupSingleVisits: string;
+    attendanceEnabled: string;
+    attendanceDisabled: string;
+    singleVisitsEnabled: string;
+    singleVisitsDisabled: string;
+    inheritGroupSetting: string;
+    lessonChangeSingleVisits: (from: string, to: string) => string;
+    weeklySchedule: string;
+    scheduleHint: string;
+    scheduleWeekday: string;
+    scheduleStartsOn: string;
+    scheduleEndsOn: string;
+    scheduleStartTime: string;
+    scheduleEndTime: string;
+    addScheduleTemplate: string;
+    removeScheduleTemplate: string;
+    createGroupTitle: string;
+    editGroupTitle: string;
+    createGroupDescription: string;
+    editGroupDescription: string;
+    groupCreated: string;
+    groupUpdated: string;
+    groupArchived: string;
+    groupRestored: string;
+    archiveGroupTitle: (name: string) => string;
+    archiveGroupDescription: string;
+    groupUsage: (rules: number, exceptions: number) => string;
+    groupScheduleSummary: (templates: number) => string;
+    groupTeachersSummary: (teachers: number) => string;
+    groupEnrollStudent: string;
+    groupActiveStudents: (count: number) => string;
+    groupAgeSummary: (minimum: string, maximum: string) => string;
+    groupCapacityUnlimited: string;
+    trialEffective: (value: string) => string;
+    attendanceEffective: (value: string) => string;
+    archivedBranchOption: (name: string) => string;
+    archivedTeacherOption: (name: string) => string;
+    archivedRoomOption: (name: string) => string;
+    restoreGroupBlocked: string;
+    invalidAge: string;
+    invalidAgeRange: string;
+    invalidCapacity: string;
+    invalidScheduleRange: string;
+    invalidScheduleTime: string;
+    scheduleWeekdayRequired: string;
+    scheduleRequired: string;
+    scheduleConflictTitle: string;
+    scheduleConflictDescription: string;
+    scheduleConflictWorkingHours: string;
+    scheduleConflictRoom: string;
+    scheduleConflictTeacher: string;
+    scheduleConflictWithGroup: (name: string) => string;
+    scheduleConflictConfirmation: string;
+    bookedOccurrenceRuleErrorTitle: string;
+    bookedOccurrenceRuleErrorDescription: string;
+    teachersTitle: string;
+    teachersDescription: string;
+    addTeacher: string;
+    noTeachersTitle: string;
+    noTeachersDescription: string;
+    teacherName: string;
+    teacherBuzzUsername: string;
+    teacherBuzzUsernameHint: string;
+    createTeacherTitle: string;
+    editTeacherTitle: string;
+    createTeacherDescription: string;
+    editTeacherDescription: string;
+    teacherCreated: string;
+    teacherUpdated: string;
+    teacherArchived: string;
+    teacherRestored: string;
+    archiveTeacherTitle: (name: string) => string;
+    archiveTeacherDescription: string;
+    teacherUsage: (groups: number, rules: number) => string;
+    teacherGroupsSummary: (groups: number) => string;
+    tariffsTitle: string;
+    tariffsDescription: string;
+    addTariff: string;
+    noTariffsTitle: string;
+    noTariffsDescription: string;
+    tariffName: string;
+    tariffDescription: string;
+    tariffDescriptionHint: string;
+    tariffPrice: string;
+    tariffCurrency: string;
+    tariffWeeklyScheduleLimit: string;
+    tariffWeeklyScheduleLimitHint: string;
+    tariffPaymentDay: string;
+    tariffPaymentDayInherited: (day: number) => string;
+    tariffPaymentDayCustom: string;
+    tariffPaymentDayCustomLabel: string;
+    tariffPaymentDayHint: string;
+    createTariffTitle: string;
+    editTariffTitle: string;
+    createTariffDescription: string;
+    editTariffDescription: string;
+    tariffCreated: string;
+    tariffUpdated: string;
+    tariffArchived: string;
+    tariffRestored: string;
+    showArchivedTariffs: (count: number) => string;
+    hideArchivedTariffs: string;
+    archivedTariffsTitle: string;
+    archiveTariffTitle: (name: string) => string;
+    archiveTariffDescription: string;
+    tariffEnrollmentUsage: (count: number) => string;
+    tariffPerWeek: (count: number) => string;
+    tariffPaymentDaySummary: (day: number) => string;
+    tariffPaymentDayCenterSummary: (day: number) => string;
+    invalidWeeklyScheduleLimit: string;
+    invalidPaymentDay: string;
+    enrollChildTitle: string;
+    enrollChildDescription: string;
+    enrollmentClientSectionTitle: string;
+    enrollmentClientSectionDescription: string;
+    enrollmentTermsSectionTitle: string;
+    enrollmentTermsSectionDescription: string;
+    enrollmentExistingChild: string;
+    enrollmentGroup: string;
+    enrollmentTariff: string;
+    enrollmentTariffPlaceholder: string;
+    enrollmentSchedule: string;
+    enrollmentStartDate: string;
+    enrollmentAgeWarningTitle: string;
+    enrollmentAgeWarningDescription: (ageRange: string) => string;
+    enrollmentReviewTitle: string;
+    enrollmentReviewDescription: string;
+    enrollmentSelectedSlots: (selected: number, maximum: number) => string;
+    enrollmentSlotLimitReached: (maximum: number) => string;
+    enrollmentNoWeeklySlots: string;
+    enrollmentNoGroups: string;
+    enrollmentNoTariffs: string;
+    enrollmentFirstPayment: string;
+    enrollmentBack: string;
+    enrollmentContinue: string;
+    enrollmentConfirm: string;
+    enrollmentCreated: string;
+    enrollmentActionFailed: string;
+    familyEnrollments: string;
+    familyEnrollChild: string;
+    enrollmentNeedsAssignment: string;
+    enrollmentStarts: (date: string) => string;
+    enrollmentManage: string;
+    enrollmentManagementTitle: string;
+    enrollmentManagementDescription: (group: string) => string;
+    enrollmentManagementFailed: string;
+    enrollmentUpdated: string;
+    enrollmentCurrentTariff: string;
+    enrollmentChangeTariff: string;
+    enrollmentSelectTariff: string;
+    enrollmentNoCompatibleTariffs: string;
+    enrollmentTariffFutureOnly: string;
+    enrollmentPause: string;
+    enrollmentResume: string;
+    enrollmentEnd: string;
+    enrollmentEndDescription: string;
+    enrollmentEndWarning: string;
+    requestsTitle: string;
+    requestsDescription: string;
+    requestSearch: string;
+    requestFilterAll: string;
+    requestFilterAttention: string;
+    requestFilterPending: string;
+    requestFilterConfirmed: string;
+    requestFilterProcessed: string;
+    noRequestsTitle: string;
+    noRequestsDescription: string;
+    requestStatusPending: string;
+    requestStatusConfirmed: string;
+    requestStatusRejected: string;
+    requestStatusCancelledByParent: string;
+    requestStatusCancelledByCenter: string;
+    requestStatusIntakeNew: string;
+    requestStatusIntakeConverted: string;
+    requestStatusIntakeClosed: string;
+    requestNeedsLesson: string;
+    requestTransferPending: string;
+    requestPossibleDuplicate: string;
+    requestConfirm: string;
+    requestReject: string;
+    requestConfirmed: string;
+    requestRejected: string;
+    requestMessengerQueued: string;
+    requestStaffCallQueued: string;
+    requestSourceBookingCore: string;
+    requestLoadMore: string;
+    requestLoadingMore: string;
+    requestOpenFamily: string;
+    clientsTitle: string;
+    clientsDescription: string;
+    clientSearch: string;
+    clientAddFamily: string;
+    clientsServerReadOnly: string;
+    noClientsTitle: string;
+    noClientsDescription: string;
+    family: string;
+    familyRepresentatives: string;
+    familyChildren: string;
+    familyHistory: string;
+    familyPrimaryContact: string;
+    familyBookingsCount: (count: number) => string;
+    familyActiveEnrollmentsCount: (count: number) => string;
+    familyLastActivity: string;
+    familyPossibleDuplicate: string;
+    familyNotFoundTitle: string;
+    familyNotFoundDescription: string;
+    familySourceBookingCore: string;
+    familyServerReadOnly: string;
+    familyVerifiedMessenger: string;
+    familyNoEnrollments: string;
+    familyEnrollmentPaused: string;
+    familyEnrollmentEnded: string;
+    familyHistoryTruncated: string;
+    createFamilyTitle: string;
+    createFamilyDescription: string;
+    familyCreated: string;
+    editRepresentativeTitle: string;
+    addRepresentativeTitle: string;
+    representativeSaved: string;
+    editChildTitle: string;
+    addChildTitle: string;
+    childSaved: string;
+    invalidPhone: string;
+    invalidBirthDate: string;
+    familyArchiveTitle: (name: string) => string;
+    familyArchiveDescription: string;
+    familyArchived: string;
+    familyRestored: string;
+    familyName: string;
+    editFamilyNameTitle: string;
+    editFamilyNameDescription: string;
+    representativeName: string;
+    representativeFirstName: string;
+    representativeLastName: string;
+    representativePhone: string;
+    representativeChannel: string;
+    childName: string;
+    childBirthDate: string;
+    childNote: string;
+    addRepresentative: string;
+    addChild: string;
+    lessonRosterTitle: string;
+    lessonRosterExpected: (count: number) => string;
+    lessonRosterEmpty: string;
+    lessonRosterPending: string;
+    lessonRosterConfirmed: string;
+    lessonRosterPermanent: string;
+    lessonRosterTrial: string;
+    lessonRosterSingle: string;
+    lessonAddParticipant: string;
+    lessonAddParticipantTitle: string;
+    lessonAddParticipantDescription: string;
+    participantExistingClient: string;
+    participantNewClient: string;
+    participantSearch: string;
+    participantSearchEmpty: string;
+    participantVisitKind: string;
+    participantVisitTrial: string;
+    participantVisitSingle: string;
+    participantNoVisitKinds: string;
+    participantAdd: string;
+    participantAdded: string;
+    participantAttendancePresent: string;
+    participantAttendanceAbsent: string;
+    participantActionFailed: string;
+    weekdayNames: Record<Weekday, string>;
+  };
 
 const ru: BookingAdminMessages = {
   productName: "Airhop",
@@ -460,7 +476,7 @@ const ru: BookingAdminMessages = {
   active: "Активен",
   archived: "В архиве",
   nextStage: "Следующий этап",
-  settingsTitle: "Настройки Airhop",
+  settingsTitle: "Настройки AirHop",
   settingsDescription:
     "Основные параметры центра и значения по умолчанию для новых групп.",
   settingsSectionsLabel: "Разделы настроек Airhop",
@@ -674,7 +690,7 @@ const ru: BookingAdminMessages = {
     "Я проверил конфликты и хочу сохранить расписание",
   bookedOccurrenceRuleErrorTitle: "Нельзя изменить эту серию",
   bookedOccurrenceRuleErrorDescription:
-    "На затрагиваемые занятия уже есть записи. Сначала отмените или перенесите их, затем измените расписание.",
+    "Серия уже используется записями или постоянными учениками либо связана с архивными настройками. Сохраните её историю и создайте новый шаблон.",
   teachersTitle: "Преподаватели",
   teachersDescription:
     "Необязательный справочник преподавателей с сохранением исторических связей.",
@@ -747,11 +763,21 @@ const ru: BookingAdminMessages = {
   enrollChildTitle: "Зачислить в группу",
   enrollChildDescription:
     "Выберите тариф и постоянные дни занятий. Первая оплата появится сразу после подтверждения.",
+  enrollmentClientSectionTitle: "Кого зачисляем?",
+  enrollmentClientSectionDescription:
+    "Выберите ребёнка из клиентской базы или создайте новую карточку.",
+  enrollmentTermsSectionTitle: "Условия зачисления",
+  enrollmentTermsSectionDescription:
+    "Выберите тариф, дату начала и постоянные дни занятий.",
   enrollmentExistingChild: "Ребёнок",
   enrollmentGroup: "Группа",
   enrollmentTariff: "Тариф",
+  enrollmentTariffPlaceholder: "Выберите тариф",
   enrollmentSchedule: "Постоянные дни",
   enrollmentStartDate: "Дата начала",
+  enrollmentAgeWarningTitle: "Возраст вне диапазона группы",
+  enrollmentAgeWarningDescription: (ageRange) =>
+    `Рекомендуемый возраст для этой группы: ${ageRange}. Можно продолжить, если сотрудник центра согласовал зачисление.`,
   enrollmentReviewTitle: "Проверьте зачисление",
   enrollmentReviewDescription:
     "После подтверждения ребёнок появится в выбранных занятиях, а оплата — в рабочей очереди.",
@@ -769,11 +795,14 @@ const ru: BookingAdminMessages = {
   enrollmentConfirm: "Подтвердить зачисление",
   enrollmentCreated: "Ребёнок зачислен в группу",
   enrollmentActionFailed:
-    "Не удалось создать зачисление. Проверьте возраст, тариф и выбранное расписание.",
+    "Не удалось создать зачисление. Проверьте тариф и выбранное расписание.",
   familyEnrollments: "Постоянные занятия",
   familyEnrollChild: "Зачислить в группу",
   enrollmentNeedsAssignment: "Нужно назначить тариф и постоянные дни",
   enrollmentStarts: (date) => `Начало: ${date}`,
+  enrollmentEnds: (date) => `До: ${date} включительно`,
+  enrollmentScheduled: "Запланировано",
+  enrollmentEnded: "Завершено",
   enrollmentManage: "Управлять",
   enrollmentManagementTitle: "Управление зачислением",
   enrollmentManagementDescription: (group) =>
@@ -783,14 +812,35 @@ const ru: BookingAdminMessages = {
   enrollmentUpdated: "Зачисление обновлено",
   enrollmentCurrentTariff: "Текущий тариф",
   enrollmentChangeTariff: "Сменить тариф",
+  enrollmentChangeTariffTitle: "Смена тарифа",
+  enrollmentChangeTariffDescription:
+    "Выберите новый тариф и дату перехода. История прежнего тарифа и оплат сохранится.",
+  enrollmentEffectiveDate: "Дата перехода",
+  enrollmentEffectiveDateHint:
+    "По умолчанию выбран следующий расчётный день. При необходимости можно перейти раньше.",
+  enrollmentNewTariff: "Новый тариф",
+  enrollmentNewPayment: (amount, date) =>
+    `Новая ожидаемая оплата: ${amount} · ${date}`,
+  enrollmentFuturePaymentReplaced:
+    "Ожидаемая оплата прежнего тарифа на эту дату или позже будет отменена и останется в истории.",
+  enrollmentConfirmTariffChange: "Подтвердить переход",
+  enrollmentTariffChanged: "Переход на новый тариф запланирован",
   enrollmentSelectTariff: "Выберите новый тариф",
   enrollmentNoCompatibleTariffs: "Нет подходящих активных тарифов",
   enrollmentTariffFutureOnly:
     "Новый тариф применяется только к ещё не созданным оплатам.",
   enrollmentPause: "Приостановить",
   enrollmentResume: "Возобновить",
-  enrollmentEnd: "Завершить",
-  enrollmentEndDescription: "Зачисление будет завершено текущей датой центра.",
+  enrollmentEnd: "Завершить зачисление",
+  enrollmentEndTitle: "Завершить зачисление",
+  enrollmentEndDescription:
+    "Ребёнок останется в группе до выбранной даты включительно. История занятий и оплат сохранится.",
+  enrollmentEndDate: "Последний день в группе",
+  enrollmentCancelExpectedPayment: "Отменить ожидаемую оплату",
+  enrollmentCancelExpectedPaymentHint:
+    "Оплата сохранится в истории как отменённая. Оплаченные операции не изменятся.",
+  enrollmentConfirmEnd: "Завершить зачисление",
+  enrollmentEndedSuccess: "Дата завершения зачисления сохранена",
   enrollmentEndWarning:
     "Уже созданные оплаты сохранятся без изменений. При необходимости отмените их отдельно в очереди оплат.",
   ...ruPaymentMessages,
@@ -874,7 +924,13 @@ const ru: BookingAdminMessages = {
     "История и записи сохранятся, семья исчезнет из списка активных клиентов.",
   familyArchived: "Семья перемещена в архив",
   familyRestored: "Семья восстановлена",
+  familyName: "Название семьи",
+  editFamilyNameTitle: "Изменить название семьи",
+  editFamilyNameDescription:
+    "Название используется в списке клиентов, заявках и оплатах.",
   representativeName: "Имя представителя",
+  representativeFirstName: "Имя представителя",
+  representativeLastName: "Фамилия представителя",
   representativePhone: "Телефон",
   representativeChannel: "Канал связи",
   childName: "Имя ребёнка",
@@ -921,6 +977,7 @@ const ru: BookingAdminMessages = {
 };
 
 const messagesByLanguage: Partial<Record<string, BookingAdminMessages>> = {
+  en: EN_BOOKING_ADMIN_MESSAGES,
   ru,
 };
 
@@ -934,5 +991,9 @@ function bookingLanguage(locale: string): string {
 }
 
 export function getBookingAdminMessages(locale: string): BookingAdminMessages {
-  return messagesByLanguage[bookingLanguage(locale)] ?? ru;
+  const interfaceLocale = loadAirHopLocale() ?? locale;
+  return (
+    messagesByLanguage[bookingLanguage(interfaceLocale)] ??
+    EN_BOOKING_ADMIN_MESSAGES
+  );
 }

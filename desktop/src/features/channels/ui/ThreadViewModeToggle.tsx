@@ -1,5 +1,6 @@
 import { Columns2, PanelRightOpen } from "lucide-react";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import {
   type ThreadViewMode,
   useThreadViewMode,
@@ -58,7 +59,13 @@ export function ThreadViewModeToggle({
   onChange: (mode: ThreadViewMode, restoreFocus: boolean) => void;
 }) {
   const viewMode = useThreadViewMode();
-  const { icon: Icon, label, target } = THREAD_VIEW_MODE_TOGGLE[viewMode];
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const { icon: Icon, target } = THREAD_VIEW_MODE_TOGGLE[viewMode];
+  const label = isRussian
+    ? viewMode === "focus"
+      ? "Показать обсуждение рядом с каналом"
+      : "Развернуть обсуждение"
+    : THREAD_VIEW_MODE_TOGGLE[viewMode].label;
 
   return (
     <Tooltip disableHoverableContent>

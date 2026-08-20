@@ -40,6 +40,26 @@ export const PROFILE_PANEL_VIEW_TITLES: Record<ProfilePanelView, string> = {
   logs: "Harness Log",
 };
 
+const RUSSIAN_PROFILE_PANEL_VIEW_TITLES: Record<ProfilePanelView, string> = {
+  summary: "Профиль",
+  instructions: "Инструкции",
+  info: "Об агенте",
+  configuration: "Среда запуска",
+  diagnostics: "Журнал агента",
+  memories: "Память",
+  channels: "Каналы",
+  logs: "Журнал агента",
+};
+
+export function getProfilePanelViewTitle(
+  view: ProfilePanelView,
+  isRussian: boolean,
+): string {
+  return isRussian
+    ? RUSSIAN_PROFILE_PANEL_VIEW_TITLES[view]
+    : PROFILE_PANEL_VIEW_TITLES[view];
+}
+
 const PROFILE_PANEL_VIEWS = new Set<ProfilePanelView>(
   Object.keys(PROFILE_PANEL_VIEW_TITLES) as ProfilePanelView[],
 );

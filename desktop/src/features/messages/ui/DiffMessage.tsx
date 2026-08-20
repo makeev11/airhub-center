@@ -7,6 +7,7 @@ import { Button } from "@/shared/ui/button";
 import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { DiffViewer } from "./DiffViewer";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 type DiffMessageProps = {
   content: string;
@@ -35,6 +36,7 @@ export default function DiffMessage({
   truncated,
   onExpand,
 }: DiffMessageProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const diffCardRef = React.useRef<HTMLDivElement | null>(null);
   useSmoothCorners(diffCardRef);
 
@@ -98,7 +100,9 @@ export default function DiffMessage({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  aria-label="Expand diff"
+                  aria-label={
+                    isRussian ? "Развернуть изменения" : "Expand diff"
+                  }
                   className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
                   onClick={onExpand}
                   size="sm"
@@ -108,7 +112,9 @@ export default function DiffMessage({
                   <Maximize2 className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Expand diff</TooltipContent>
+              <TooltipContent>
+                {isRussian ? "Развернуть изменения" : "Expand diff"}
+              </TooltipContent>
             </Tooltip>
           )}
         </div>

@@ -18,6 +18,7 @@ import {
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { toast } from "sonner";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 import {
   useArchiveChannelMutation,
@@ -108,6 +109,7 @@ export function ChannelManagementSheet({
   open,
   transparentChrome = false,
 }: ChannelManagementSheetProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const { isDark } = useTheme();
   const isSplitLayout = layout === "split";
   const auxiliaryPanelMode = getAuxiliaryPanelMode(
@@ -441,8 +443,9 @@ export function ChannelManagementSheet({
             <div className="flex max-h-[85vh] flex-col">
               <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-5 pr-14">
                 <DialogTitle>
-                  Edit {currentVisibility === "private" ? "private" : "public"}{" "}
-                  channel
+                  {isRussian
+                    ? `Изменить ${currentVisibility === "private" ? "закрытый" : "открытый"} канал`
+                    : `Edit ${currentVisibility === "private" ? "private" : "public"} channel`}
                 </DialogTitle>
               </DialogHeader>
 
@@ -453,7 +456,7 @@ export function ChannelManagementSheet({
                       className="text-sm font-medium text-foreground"
                       htmlFor="channel-name"
                     >
-                      Name
+                      {isRussian ? "Название" : "Name"}
                     </label>
                     <div
                       className={cn(
@@ -482,7 +485,7 @@ export function ChannelManagementSheet({
                       className="text-sm font-medium text-foreground"
                       htmlFor="channel-description"
                     >
-                      Description
+                      {isRussian ? "Описание" : "Description"}
                     </label>
                     <div className={CHANNEL_FORM_FIELD_SHELL_CLASS}>
                       <Textarea
@@ -549,7 +552,7 @@ export function ChannelManagementSheet({
                   type="button"
                   variant="outline"
                 >
-                  Cancel
+                  {isRussian ? "Отмена" : "Cancel"}
                 </Button>
                 <Button
                   data-testid="channel-management-save-changes"
@@ -558,7 +561,13 @@ export function ChannelManagementSheet({
                   size="sm"
                   type="button"
                 >
-                  {isSavingChannelEdits ? "Saving..." : "Save changes"}
+                  {isSavingChannelEdits
+                    ? isRussian
+                      ? "Сохраняем…"
+                      : "Saving..."
+                    : isRussian
+                      ? "Сохранить изменения"
+                      : "Save changes"}
                 </Button>
               </div>
             </div>
@@ -638,6 +647,7 @@ function ChannelManagementPanelContent({
   setIsEditDialogOpen,
   unarchiveChannelMutation,
 }: ChannelManagementPanelContentProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const scrollRef = React.useRef<HTMLDivElement>(null);
   useScrollBoundaryLock(scrollRef);
 
@@ -666,7 +676,7 @@ function ChannelManagementPanelContent({
         transparent={transparentChrome}
       >
         <AuxiliaryPanelHeaderGroup
-          backButtonAriaLabel="Back to channel"
+          backButtonAriaLabel={isRussian ? "Назад к каналу" : "Back to channel"}
           backButtonTestId="channel-management-back"
           mode={mode}
           onBack={
@@ -675,12 +685,18 @@ function ChannelManagementPanelContent({
         >
           <DialogPrimitive.Title asChild>
             <AuxiliaryPanelTitle>
-              {activeView === "canvas" ? "Canvas" : "Channel"}
+              {activeView === "canvas"
+                ? isRussian
+                  ? "Холст"
+                  : "Canvas"
+                : isRussian
+                  ? "Канал"
+                  : "Channel"}
             </AuxiliaryPanelTitle>
           </DialogPrimitive.Title>
         </AuxiliaryPanelHeaderGroup>
         <DialogPrimitive.Description className="sr-only">
-          Channel settings
+          {isRussian ? "Настройки канала" : "Channel settings"}
         </DialogPrimitive.Description>
       </AuxiliaryPanelHeader>
 
@@ -712,10 +728,12 @@ function ChannelManagementPanelContent({
             <div className="flex flex-wrap items-start justify-center gap-6">
               <ChannelQuickAction
                 icon={Copy}
-                label="Copy ID"
+                label={isRussian ? "Копировать ID" : "Copy ID"}
                 onClick={() => {
                   void writeTextToClipboard(resolvedChannel.id).then(() =>
-                    toast.success("Copied channel ID"),
+                    toast.success(
+                      isRussian ? "ID канала скопирован" : "Copied channel ID",
+                    ),
                   );
                 }}
                 testId="channel-management-copy-id-action"
@@ -725,7 +743,15 @@ function ChannelManagementPanelContent({
                   active
                   disabled={joinChannelMutation.isPending}
                   icon={DoorOpen}
-                  label={joinChannelMutation.isPending ? "Joining..." : "Join"}
+                  label={
+                    joinChannelMutation.isPending
+                      ? isRussian
+                        ? "Входим…"
+                        : "Joining..."
+                      : isRussian
+                        ? "Войти"
+                        : "Join"
+                  }
                   onClick={() => {
                     void joinChannelMutation.mutateAsync();
                   }}
@@ -737,7 +763,13 @@ function ChannelManagementPanelContent({
                   disabled={leaveChannelMutation.isPending}
                   icon={DoorClosed}
                   label={
-                    leaveChannelMutation.isPending ? "Leaving..." : "Leave"
+                    leaveChannelMutation.isPending
+                      ? isRussian
+                        ? "Выходим…"
+                        : "Leaving..."
+                      : isRussian
+                        ? "Покинуть"
+                        : "Leave"
                   }
                   onClick={() => {
                     void leaveChannelMutation.mutateAsync().then(() => {
@@ -750,7 +782,7 @@ function ChannelManagementPanelContent({
               {canManageChannel ? (
                 <ChannelQuickAction
                   icon={Pencil}
-                  label="Edit"
+                  label={isRussian ? "Изменить" : "Edit"}
                   onClick={() => setIsEditDialogOpen(true)}
                   testId="channel-management-edit"
                 />
@@ -775,7 +807,7 @@ function ChannelManagementPanelContent({
                 {resolvedChannel.description.trim() ? (
                   <NarrativeField
                     icon={FileText}
-                    label="Description"
+                    label={isRussian ? "Описание" : "Description"}
                     testId="channel-management-description"
                     value={resolvedChannel.description.trim()}
                   />
@@ -783,7 +815,7 @@ function ChannelManagementPanelContent({
                 {resolvedChannel.topic?.trim() ? (
                   <NarrativeField
                     icon={MessageSquare}
-                    label="Topic"
+                    label={isRussian ? "Тема" : "Topic"}
                     testId="channel-management-topic"
                     value={resolvedChannel.topic.trim()}
                   />
@@ -791,7 +823,7 @@ function ChannelManagementPanelContent({
                 {resolvedChannel.purpose?.trim() ? (
                   <NarrativeField
                     icon={Zap}
-                    label="Purpose"
+                    label={isRussian ? "Назначение" : "Purpose"}
                     testId="channel-management-purpose"
                     value={resolvedChannel.purpose.trim()}
                   />
@@ -803,56 +835,76 @@ function ChannelManagementPanelContent({
               <IngressRow
                 description={canvasPreview}
                 icon={BookOpenText}
-                label="Canvas"
+                label={isRussian ? "Холст" : "Canvas"}
                 onClick={() => setActiveView("canvas")}
                 testId="channel-canvas-ingress"
-                trailing={canvasQuery.isLoading ? "Loading..." : undefined}
+                trailing={
+                  canvasQuery.isLoading
+                    ? isRussian
+                      ? "Загружаем…"
+                      : "Loading..."
+                    : undefined
+                }
               />
             ) : null}
 
             <FieldGroup>
               <CopyFieldRow
                 icon={Fingerprint}
-                label="Channel ID"
+                label={isRussian ? "ID канала" : "Channel ID"}
                 testId="channel-management-channel-id"
                 value={resolvedChannel.id}
               />
               <InfoFieldRow
                 icon={Type}
-                label="Name"
+                label={isRussian ? "Название" : "Name"}
                 testId="channel-management-name-row"
                 value={resolvedChannel.name}
               />
               <InfoFieldRow
                 icon={Radio}
-                label="Type"
+                label={isRussian ? "Тип" : "Type"}
                 testId="channel-management-type"
-                value={resolvedChannel.channelType}
+                value={
+                  isRussian
+                    ? resolvedChannel.channelType === "dm"
+                      ? "Личные сообщения"
+                      : resolvedChannel.channelType === "forum"
+                        ? "Форум"
+                        : "Канал"
+                    : resolvedChannel.channelType
+                }
               />
               <InfoFieldRow
                 icon={resolvedChannel.visibility === "private" ? Lock : Eye}
-                label="Visibility"
+                label={isRussian ? "Доступ" : "Visibility"}
                 testId="channel-management-visibility"
-                value={resolvedChannel.visibility}
+                value={
+                  isRussian
+                    ? resolvedChannel.visibility === "private"
+                      ? "Закрытый"
+                      : "Открытый"
+                    : resolvedChannel.visibility
+                }
               />
               <InfoFieldRow
                 icon={Users}
-                label="Members"
+                label={isRussian ? "Участники" : "Members"}
                 testId="channel-management-member-count"
                 value={`${memberCount}`}
               />
               {isArchived ? (
                 <InfoFieldRow
                   icon={Archive}
-                  label="Status"
+                  label={isRussian ? "Статус" : "Status"}
                   testId="channel-management-archived"
-                  value="Archived"
+                  value={isRussian ? "В архиве" : "Archived"}
                 />
               ) : null}
               {resolvedChannel.ttlSeconds !== null ? (
                 <InfoFieldRow
                   icon={Archive}
-                  label="Ephemeral"
+                  label={isRussian ? "Временный" : "Ephemeral"}
                   testId="channel-management-ephemeral-row"
                   value={formatTtlDuration(resolvedChannel.ttlSeconds)}
                 />

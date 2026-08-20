@@ -14,6 +14,7 @@ import {
   Strikethrough,
 } from "lucide-react";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { cn } from "@/shared/lib/cn";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import {
@@ -129,6 +130,7 @@ export const FormattingToolbar = React.memo(function FormattingToolbar({
   disabled = false,
   onLinkButton,
 }: FormattingToolbarProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const pendingSelectionRef = React.useRef<FormattingSelectionRange | null>(
     null,
   );
@@ -254,18 +256,25 @@ export const FormattingToolbar = React.memo(function FormattingToolbar({
     const hasSelection = from !== to;
 
     if (hasSelection) {
-      const url = window.prompt("Enter URL:");
+      const url = window.prompt(isRussian ? "Введите URL:" : "Enter URL:");
       if (url) {
         editor.chain().focus().setLink({ href: url }).run();
       }
     } else {
-      const url = window.prompt("Enter URL:");
+      const url = window.prompt(isRussian ? "Введите URL:" : "Enter URL:");
       if (url) {
-        const label = window.prompt("Link text:", url) || url;
+        const label =
+          window.prompt(isRussian ? "Текст ссылки:" : "Link text:", url) || url;
         editor.chain().focus().insertContent(`[${label}](${url})`).run();
       }
     }
-  }, [editor, formattingChain, onLinkButton, restorePendingSelection]);
+  }, [
+    editor,
+    formattingChain,
+    isRussian,
+    onLinkButton,
+    restorePendingSelection,
+  ]);
 
   const toggleBulletList = React.useCallback(() => {
     formattingChain()
@@ -320,66 +329,66 @@ export const FormattingToolbar = React.memo(function FormattingToolbar({
   const items = [
     {
       icon: Bold,
-      label: "Bold",
+      label: isRussian ? "Полужирный" : "Bold",
       shortcut: "⌘B",
       action: toggleBold,
       active: activeStates.bold,
     },
     {
       icon: Italic,
-      label: "Italic",
+      label: isRussian ? "Курсив" : "Italic",
       shortcut: "⌘I",
       action: toggleItalic,
       active: activeStates.italic,
     },
     {
       icon: Strikethrough,
-      label: "Strikethrough",
+      label: isRussian ? "Зачёркнутый" : "Strikethrough",
       shortcut: "⌘⇧X",
       action: toggleStrike,
       active: activeStates.strike,
     },
     {
       icon: Code,
-      label: "Code",
+      label: isRussian ? "Код" : "Code",
       shortcut: "⌘E",
       action: toggleCode,
       active: activeStates.code,
     },
     {
       icon: SquareCode,
-      label: "Code block",
+      label: isRussian ? "Блок кода" : "Code block",
       action: toggleCodeBlock,
       active: activeStates.codeBlock,
     },
     {
       icon: Link,
-      label: "Link",
+      label: isRussian ? "Ссылка" : "Link",
       shortcut: "⌘K",
       action: toggleLink,
       active: activeStates.link,
     },
     {
       icon: List,
-      label: "Bullet list",
+      label: isRussian ? "Маркированный список" : "Bullet list",
       action: toggleBulletList,
       active: activeStates.bulletList,
     },
     {
       icon: ListOrdered,
-      label: "Ordered list",
+      label: isRussian ? "Нумерованный список" : "Ordered list",
       action: toggleOrderedList,
       active: activeStates.orderedList,
     },
     {
       icon: Quote,
-      label: "Quote",
+      label: isRussian ? "Цитата" : "Quote",
       action: toggleBlockquote,
       active: activeStates.blockquote,
     },
     {
       icon: HatGlasses,
-      label: "Spoiler",
+      label: isRussian ? "Спойлер" : "Spoiler",
       action: toggleSpoiler,
       active: activeStates.spoiler,
     },

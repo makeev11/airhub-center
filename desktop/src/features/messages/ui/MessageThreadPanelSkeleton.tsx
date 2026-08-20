@@ -15,6 +15,7 @@ import {
   AuxiliaryPanelTitle,
 } from "@/shared/layout/AuxiliaryPanel";
 import { Skeleton } from "@/shared/ui/skeleton";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 type MessageThreadPanelSkeletonProps = ThreadPanelLayoutProps & {
   onClose: () => void;
@@ -104,18 +105,23 @@ export function MessageThreadPanelSkeleton({
   widthPx,
   transparentChrome = false,
 }: MessageThreadPanelSkeletonProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const isOverlay = useIsThreadPanelOverlay();
   const hasConstrainedColumn = columnMaxWidthPx != null;
   useEscapeKey(onClose, isOverlay || isSinglePanelView || isFocusMode);
 
   const threadHeaderContent = (
     <AuxiliaryPanelHeaderGroup
-      backButtonAriaLabel="Back to conversation"
+      backButtonAriaLabel={
+        isRussian ? "Назад к переписке" : "Back to conversation"
+      }
       // Matches the loaded panel's header so it doesn't shift on resolve.
       leading={headerLeading}
       onBack={isSinglePanelView && !isFocusMode ? onClose : undefined}
     >
-      <AuxiliaryPanelTitle>Thread</AuxiliaryPanelTitle>
+      <AuxiliaryPanelTitle>
+        {isRussian ? "Обсуждение" : "Thread"}
+      </AuxiliaryPanelTitle>
     </AuxiliaryPanelHeaderGroup>
   );
 

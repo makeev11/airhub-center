@@ -1,5 +1,6 @@
 import { createPortal } from "react-dom";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import type {
   AvatarEditorPresentation,
   AvatarMode,
@@ -8,12 +9,6 @@ import { cn } from "@/shared/lib/cn";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
 const MODE_TAB_ORDER: AvatarMode[] = ["image", "emoji", "animated"];
-const MODE_TAB_LABELS: Record<AvatarMode, string> = {
-  animated: "Animated",
-  emoji: "Emoji",
-  image: "Image",
-};
-
 type ProfileAvatarModeTabsProps = {
   disabled: boolean;
   mode: AvatarMode;
@@ -29,6 +24,12 @@ export function ProfileAvatarModeTabs({
   presentation,
   portalContainer,
 }: ProfileAvatarModeTabsProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const modeTabLabels: Record<AvatarMode, string> = {
+    animated: isRussian ? "Анимация" : "Animated",
+    emoji: "Emoji",
+    image: isRussian ? "Изображение" : "Image",
+  };
   const isOnboardingModal = presentation === "onboarding-modal";
   const tabs = (
     <Tabs
@@ -39,7 +40,7 @@ export function ProfileAvatarModeTabs({
       value={mode}
     >
       <TabsList
-        aria-label="Avatar type"
+        aria-label={isRussian ? "Тип аватара" : "Avatar type"}
         className={cn(
           isOnboardingModal
             ? "flex h-10 w-auto gap-2 rounded-none bg-transparent p-0 text-muted-foreground"
@@ -67,7 +68,7 @@ export function ProfileAvatarModeTabs({
             key={tabMode}
             value={tabMode}
           >
-            {MODE_TAB_LABELS[tabMode]}
+            {modeTabLabels[tabMode]}
           </TabsTrigger>
         ))}
       </TabsList>

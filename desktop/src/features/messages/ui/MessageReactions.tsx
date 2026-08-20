@@ -1,5 +1,6 @@
 import { SmilePlus } from "lucide-react";
 import * as React from "react";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 import { EmojiPicker } from "@/features/custom-emoji/ui/EmojiPicker";
 import type { TimelineReaction } from "@/features/messages/types";
@@ -99,21 +100,38 @@ function EmojiGlyph({
   );
 }
 
-function formatReactionUsers(reaction: TimelineReaction): string {
+function formatReactionUsers(
+  reaction: TimelineReaction,
+  russian: boolean,
+): string {
   const names = reaction.users.map((user) => user.displayName).filter(Boolean);
   if (reaction.reactedByCurrentUser) {
     const others = names.filter((name) => name !== "You");
-    names.splice(0, names.length, "You (click to remove)", ...others);
+    names.splice(
+      0,
+      names.length,
+      russian ? "Вы (нажмите, чтобы убрать)" : "You (click to remove)",
+      ...others,
+    );
   }
-  if (names.length === 0) return `${reaction.count} people`;
+  if (names.length === 0) {
+    return russian
+      ? `Пользователей: ${reaction.count}`
+      : `${reaction.count} people`;
+  }
   if (names.length === 1) return names[0];
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+  if (names.length === 2) {
+    return `${names[0]} ${russian ? "и" : "and"} ${names[1]}`;
+  }
+  return russian
+    ? `${names.slice(0, -1).join(", ")} и ${names[names.length - 1]}`
+    : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
 }
 
 function ReactionPopoverContent({ reaction }: { reaction: TimelineReaction }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const displayName = emojiDisplayName(reaction.emoji);
-  const userText = formatReactionUsers(reaction);
+  const userText = formatReactionUsers(reaction, isRussian);
 
   return (
     <div className="flex flex-col items-center text-center">
@@ -124,7 +142,10 @@ function ReactionPopoverContent({ reaction }: { reaction: TimelineReaction }) {
         />
       </div>
       <div className="max-w-[14rem] text-balance text-sm font-semibold leading-snug text-popover-foreground">
-        {userText} <span className="text-muted-foreground">reacted with</span>
+        {userText}{" "}
+        <span className="text-muted-foreground">
+          {isRussian ? "отреагировали" : "reacted with"}
+        </span>
       </div>
       <div
         className="mt-0.5 break-all text-sm font-semibold leading-snug text-muted-foreground"
@@ -290,6 +311,7 @@ function InlineReactionPicker({
   reactions: TimelineReaction[];
   requestBadgeBurst: (emoji: string) => void;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const [open, setOpen] = React.useState(false);
   const wouldAddReaction = (emoji: string) =>
     !reactions.some(
@@ -302,7 +324,7 @@ function InlineReactionPicker({
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
             <button
-              aria-label="Add reaction"
+              aria-label={isRussian ? "Добавить реакцию" : "Add reaction"}
               className={cn(
                 REACTION_PILL_BASE_CLASSES,
                 "pointer-events-none w-10 min-w-10 justify-center p-0 text-muted-foreground opacity-0",
@@ -323,7 +345,7 @@ function InlineReactionPicker({
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent>React</TooltipContent>
+        <TooltipContent>{isRussian ? "Реакция" : "React"}</TooltipContent>
       </Tooltip>
       <PopoverContent
         align="start"

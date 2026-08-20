@@ -2,6 +2,7 @@ import { CalendarClock, Clock, Loader2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { useReminderMutations } from "@/features/reminders/hooks";
 import {
   parseCustomDateTime,
@@ -31,6 +32,7 @@ export function RemindMeLaterDialog({
   onOpenChange: (open: boolean) => void;
   target: ReminderTarget | null;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const pubkey = useIdentityQuery().data?.pubkey ?? "";
   const { create } = useReminderMutations(pubkey);
   const [note, setNote] = React.useState("");
@@ -44,11 +46,16 @@ export function RemindMeLaterDialog({
       { target, notBefore, note: note || undefined },
       {
         onSuccess: () => {
-          toast.success("Reminder set");
+          toast.success(isRussian ? "Напоминание установлено" : "Reminder set");
           onOpenChange(false);
           setNote("");
         },
-        onError: () => toast.error("Failed to create reminder"),
+        onError: () =>
+          toast.error(
+            isRussian
+              ? "Не удалось создать напоминание"
+              : "Failed to create reminder",
+          ),
       },
     );
   };
@@ -59,10 +66,12 @@ export function RemindMeLaterDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
-            Remind me later
+            {isRussian ? "Напомнить позже" : "Remind me later"}
           </DialogTitle>
           <DialogDescription>
-            Choose when you want to be reminded about this message.
+            {isRussian
+              ? "Выберите, когда напомнить об этом сообщении."
+              : "Choose when you want to be reminded about this message."}
           </DialogDescription>
         </DialogHeader>
 
@@ -75,7 +84,15 @@ export function RemindMeLaterDialog({
               disabled={create.isPending}
               onClick={() => submit(preset.getTimestamp())}
             >
-              {preset.label}
+              {isRussian
+                ? ({
+                    "In 30 minutes": "Через 30 минут",
+                    "In 1 hour": "Через 1 час",
+                    "In 3 hours": "Через 3 часа",
+                    "Tomorrow at 9am": "Завтра в 09:00",
+                    "Next Monday at 9am": "В следующий понедельник в 09:00",
+                  }[preset.label] ?? preset.label)
+                : preset.label}
             </Button>
           ))}
         </div>
@@ -83,11 +100,11 @@ export function RemindMeLaterDialog({
         <div className="space-y-3 border-t pt-3">
           <p className="flex items-center gap-2 text-sm font-medium">
             <CalendarClock className="h-4 w-4" />
-            Custom date & time
+            {isRussian ? "Своя дата и время" : "Custom date & time"}
           </p>
           <div className="flex gap-2">
             <Input
-              aria-label="Reminder date"
+              aria-label={isRussian ? "Дата напоминания" : "Reminder date"}
               className="flex-1"
               min={todayDateString()}
               onChange={(e) => setCustomDate(e.target.value)}
@@ -95,7 +112,7 @@ export function RemindMeLaterDialog({
               value={customDate}
             />
             <Input
-              aria-label="Reminder time"
+              aria-label={isRussian ? "Время напоминания" : "Reminder time"}
               className="w-[120px]"
               onChange={(e) => setCustomTime(e.target.value)}
               type="time"
@@ -109,11 +126,11 @@ export function RemindMeLaterDialog({
             htmlFor="reminder-note"
             className="text-sm font-medium text-muted-foreground"
           >
-            Note (optional)
+            {isRussian ? "Заметка (необязательно)" : "Note (optional)"}
           </label>
           <Textarea
             id="reminder-note"
-            placeholder="Add a note..."
+            placeholder={isRussian ? "Добавьте заметку…" : "Add a note..."}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
@@ -127,7 +144,7 @@ export function RemindMeLaterDialog({
             onClick={() => onOpenChange(false)}
             disabled={create.isPending}
           >
-            Cancel
+            {isRussian ? "Отмена" : "Cancel"}
           </Button>
           <Button
             className="relative"
@@ -141,7 +158,7 @@ export function RemindMeLaterDialog({
             {/* The hidden label keeps the button width stable while the
                 spinner overlays it. */}
             <span className={create.isPending ? "invisible" : undefined}>
-              Set reminder
+              {isRussian ? "Установить напоминание" : "Set reminder"}
             </span>
             {create.isPending ? (
               <span className="absolute inset-0 flex items-center justify-center">

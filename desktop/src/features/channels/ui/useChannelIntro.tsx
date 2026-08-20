@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Bot, Plus, Sparkles, UserPlus } from "lucide-react";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 import {
   getChannelIntroDescription,
@@ -41,6 +42,7 @@ export function useChannelIntro({
   onOpenMembers?: () => void;
   onWelcomeAddAgent?: () => void;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return React.useMemo(() => {
     if (!activeChannel || activeChannel.channelType === "dm") {
       return null;
@@ -51,7 +53,7 @@ export function useChannelIntro({
       if (onBrowseChannels) {
         actions.push({
           icon: <HashSearch aria-hidden className="h-6 w-6" />,
-          label: "Browse channels",
+          label: isRussian ? "Найти каналы" : "Browse channels",
           onClick: onBrowseChannels,
           testId: "welcome-intro-action-browse-channels",
         });
@@ -60,7 +62,7 @@ export function useChannelIntro({
       if (onCreateChannel) {
         actions.push({
           icon: <Plus aria-hidden className="h-6 w-6" />,
-          label: "Create a channel",
+          label: isRussian ? "Создать канал" : "Create a channel",
           onClick: onCreateChannel,
           testId: "welcome-intro-action-create-channel",
         });
@@ -69,7 +71,7 @@ export function useChannelIntro({
       if (onWelcomeAddAgent) {
         actions.push({
           icon: <Bot aria-hidden className="h-6 w-6" />,
-          label: "Create an agent",
+          label: isRussian ? "Добавить AI-агента" : "Add AI agent",
           onClick: onWelcomeAddAgent,
           testId: "welcome-intro-action-create-agent",
         });
@@ -78,7 +80,9 @@ export function useChannelIntro({
       return {
         actions,
         channelKindLabel: isWelcomeChannel(activeChannel)
-          ? "private welcome channel"
+          ? isRussian
+            ? "закрытый приветственный канал"
+            : "private welcome channel"
           : getChannelIntroKind(activeChannel),
         channelName: activeChannel.name,
         description: isWelcomeChannel(activeChannel)
@@ -91,9 +95,11 @@ export function useChannelIntro({
     if (!activeChannel.archivedAt && activeChannel.isMember) {
       if (onAddAgent) {
         actions.push({
-          description: "Add an agent here.",
+          description: isRussian
+            ? "Добавьте сюда AI-агента AirHop."
+            : "Add an AirHop agent here.",
           icon: <Bot aria-hidden className="h-6 w-6" />,
-          label: "Create agent",
+          label: isRussian ? "Добавить AI-агента" : "Add AI agent",
           onClick: onAddAgent,
           testId: "channel-intro-action-create-agent",
         });
@@ -101,9 +107,11 @@ export function useChannelIntro({
 
       if (onOpenMembers) {
         actions.push({
-          description: "Invite members.",
+          description: isRussian
+            ? "Добавьте сотрудников."
+            : "Invite employees.",
           icon: <UserPlus aria-hidden className="h-6 w-6" />,
-          label: "Add people",
+          label: isRussian ? "Добавить сотрудников" : "Add employees",
           onClick: onOpenMembers,
           testId: "channel-intro-action-add-people",
         });
@@ -118,6 +126,7 @@ export function useChannelIntro({
     };
   }, [
     activeChannel,
+    isRussian,
     onAddAgent,
     onBrowseChannels,
     onCreateChannel,

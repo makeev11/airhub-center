@@ -1,4 +1,5 @@
 import type { Reminder } from "@/features/reminders/lib/reminderTypes";
+import { resolveActivationLocale } from "@/features/activation/i18n";
 
 const nowSeconds = () => Math.floor(Date.now() / 1_000);
 
@@ -57,6 +58,7 @@ export function groupReminders(
   reminders: Reminder[],
   includeDone = false,
 ): ReminderGroup[] {
+  const isRussian = resolveActivationLocale() === "ru-RU";
   const now = nowSeconds();
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
@@ -86,10 +88,22 @@ export function groupReminders(
   done.sort((a, b) => b.createdAt - a.createdAt);
 
   const groups: ReminderGroup[] = [];
-  if (overdue.length > 0) groups.push({ label: "Overdue", reminders: overdue });
-  if (today.length > 0) groups.push({ label: "Today", reminders: today });
+  if (overdue.length > 0)
+    groups.push({
+      label: isRussian ? "Просрочено" : "Overdue",
+      reminders: overdue,
+    });
+  if (today.length > 0)
+    groups.push({ label: isRussian ? "Сегодня" : "Today", reminders: today });
   if (upcoming.length > 0)
-    groups.push({ label: "Upcoming", reminders: upcoming });
-  if (done.length > 0) groups.push({ label: "Completed", reminders: done });
+    groups.push({
+      label: isRussian ? "Предстоящие" : "Upcoming",
+      reminders: upcoming,
+    });
+  if (done.length > 0)
+    groups.push({
+      label: isRussian ? "Завершено" : "Completed",
+      reminders: done,
+    });
   return groups;
 }

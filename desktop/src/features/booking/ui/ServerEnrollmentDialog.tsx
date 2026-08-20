@@ -13,6 +13,7 @@ import type {
   WeeklyScheduleSelection,
 } from "@/features/booking/model/bookingCore";
 import { BookingSelect } from "@/features/booking/ui/BookingSelect";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { WeeklySchedulePicker } from "@/features/booking/ui/WeeklySchedulePicker";
 import { deriveWeeklySlotOptions } from "@/features/booking/ui/weeklySchedulePickerModel";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
@@ -25,7 +26,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
-import { Input } from "@/shared/ui/input";
 
 type Step = "details" | "review";
 
@@ -262,10 +262,10 @@ export function ServerEnrollmentDialog({
                   error={errors.startDate}
                   label={messages.enrollmentStartDate}
                 >
-                  <Input
+                  <AirHopDateInput
+                    aria-label={messages.enrollmentStartDate}
                     data-testid="airhop-server-enrollment-start-date"
-                    onChange={(event) => setStartDate(event.target.value)}
-                    type="date"
+                    onChange={setStartDate}
                     value={startDate}
                   />
                 </Field>

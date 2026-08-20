@@ -1,23 +1,32 @@
 import * as React from "react";
+import { Check, Search, UserRoundPlus, UsersRound } from "lucide-react";
 
 import { createStaffActionContext } from "@/features/booking/actions/airhopActionContext";
 import { executeAirhopAction } from "@/features/booking/actions/airhopActionService";
 import type { AirhopClientSelector } from "@/features/booking/actions/airhopActionSchemas";
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import { airHopTodayIsoDate } from "@/features/booking/lib/airHopDateInput";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import { searchFamilySummaries } from "@/features/booking/lib/bookingClients";
 import { organizationLocalDateTime } from "@/features/booking/lib/bookingDateTime";
-import { createBookingFormatters } from "@/features/booking/lib/bookingLocale";
+import {
+  createBookingFormatters,
+  formatBookingAgeRange,
+} from "@/features/booking/lib/bookingLocale";
 import type {
   BookingChild,
   BookingWorkspace,
   WeeklyScheduleSelection,
 } from "@/features/booking/model/bookingCore";
-import { normalizePublicBookingPhone } from "@/features/booking/model/publicBooking";
+import {
+  isExactBirthDateEligible,
+  normalizePublicBookingPhone,
+} from "@/features/booking/model/publicBooking";
 import { BookingSelect } from "@/features/booking/ui/BookingSelect";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { WeeklySchedulePicker } from "@/features/booking/ui/WeeklySchedulePicker";
 import { deriveWeeklySlotOptions } from "@/features/booking/ui/weeklySchedulePickerModel";
-import { Alert, AlertDescription } from "@/shared/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -28,6 +37,7 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
+import { cn } from "@/shared/lib/cn";
 
 type ClientMode = "existing" | "new";
 type EnrollmentStep = "details" | "review";
@@ -35,7 +45,8 @@ type EnrollmentStep = "details" | "review";
 type ExistingClient = Extract<AirhopClientSelector, { mode: "existing" }>;
 
 type NewClientForm = {
-  parentName: string;
+  parentFirstName: string;
+  parentLastName: string;
   phone: string;
   childName: string;
   childBirthDate: string;
@@ -47,11 +58,18 @@ export type EnrollmentSourceVisit = {
 };
 
 const EMPTY_NEW_CLIENT: NewClientForm = {
-  parentName: "",
+  parentFirstName: "",
+  parentLastName: "",
   phone: "",
   childName: "",
   childBirthDate: "",
 };
+
+function newClientRepresentativeName(form: NewClientForm): string {
+  return [form.parentLastName.trim(), form.parentFirstName.trim()]
+    .filter(Boolean)
+    .join(" ");
+}
 
 function existingClientForChild(
   workspace: BookingWorkspace,
@@ -103,6 +121,7 @@ function existingClientChoices(workspace: BookingWorkspace, query: string) {
             childId: child.id,
           },
           child,
+          familyName: summary.family.displayName,
           parentName: summary.primaryRepresentative.displayName,
           phone: summary.primaryRepresentative.phoneDisplay,
         })),
@@ -127,10 +146,40 @@ function Field({
   );
 }
 
+function EnrollmentSection({
+  children,
+  description,
+  step,
+  title,
+}: {
+  children: React.ReactNode;
+  description: string;
+  step: number;
+  title: string;
+}) {
+  return (
+    <section className="rounded-2xl border border-border/70 bg-card p-4 shadow-xs sm:p-5">
+      <div className="mb-4 flex items-start gap-3">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">
+          {step}
+        </span>
+        <div className="min-w-0">
+          <h3 className="font-semibold leading-7">{title}</h3>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
 function SelectedChildCard({ child }: { child: BookingChild }) {
   return (
-    <div className="rounded-xl border border-border/70 bg-muted/40 px-4 py-3">
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-foreground/20 bg-muted/50 px-4 py-3">
       <p className="font-medium">{child.displayName}</p>
+      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground text-background">
+        <Check className="size-3.5" />
+      </span>
     </div>
   );
 }
@@ -219,6 +268,23 @@ export function EnrollmentDialog({
     client?.mode === "existing"
       ? workspace.children.find(({ id }) => id === client.childId)
       : undefined;
+  const selectedBirthDate =
+    clientMode === "new" && !resolvedInitialChildId
+      ? newClient.childBirthDate
+      : selectedChild?.birthDate;
+  const enrollmentAgeMismatch = Boolean(
+    selectedGroup &&
+      selectedBirthDate &&
+      startDate &&
+      !isExactBirthDateEligible(selectedGroup, selectedBirthDate, startDate),
+  );
+  const selectedGroupAgeRange = selectedGroup
+    ? formatBookingAgeRange({
+        locale: workspace.organization.locale,
+        minAgeMonths: selectedGroup.minAgeMonths,
+        maxAgeMonths: selectedGroup.maxAgeMonths,
+      })
+    : "";
   const choices = existingClientChoices(workspace, query);
   const slotOptions = groupId
     ? deriveWeeklySlotOptions(workspace, groupId)
@@ -232,7 +298,8 @@ export function EnrollmentDialog({
     if (clientMode === "existing") return client;
     const phoneNormalized = normalizePublicBookingPhone(newClient.phone);
     if (
-      !newClient.parentName.trim() ||
+      !newClient.parentFirstName.trim() ||
+      !newClient.parentLastName.trim() ||
       !phoneNormalized ||
       !newClient.childName.trim() ||
       !/^\d{4}-\d{2}-\d{2}$/.test(newClient.childBirthDate)
@@ -242,7 +309,7 @@ export function EnrollmentDialog({
     return {
       mode: "new",
       applicant: {
-        parentName: newClient.parentName.trim(),
+        parentName: newClientRepresentativeName(newClient),
         phoneNormalized,
         phoneDisplay: newClient.phone.trim(),
         childName: newClient.childName.trim(),
@@ -261,8 +328,10 @@ export function EnrollmentDialog({
       if (clientMode === "existing" || resolvedInitialChildId) {
         nextErrors.client = messages.requiredField;
       } else {
-        if (!newClient.parentName.trim())
-          nextErrors.parentName = messages.requiredField;
+        if (!newClient.parentFirstName.trim())
+          nextErrors.parentFirstName = messages.requiredField;
+        if (!newClient.parentLastName.trim())
+          nextErrors.parentLastName = messages.requiredField;
         if (!normalizePublicBookingPhone(newClient.phone))
           nextErrors.phone = messages.invalidPhone;
         if (!newClient.childName.trim())
@@ -334,18 +403,31 @@ export function EnrollmentDialog({
     type: React.HTMLInputTypeAttribute = "text",
   ) => (
     <Field error={errors[key]} label={label}>
-      <Input
-        aria-label={label}
-        data-testid={`airhop-enrollment-${key}`}
-        onChange={(event) =>
-          setNewClient((current) => ({
-            ...current,
-            [key]: event.target.value,
-          }))
-        }
-        type={type}
-        value={newClient[key]}
-      />
+      {type === "date" ? (
+        <AirHopDateInput
+          aria-label={label}
+          data-testid={`airhop-enrollment-${key}`}
+          locale={workspace.organization.locale}
+          max={airHopTodayIsoDate()}
+          onChange={(value) =>
+            setNewClient((current) => ({ ...current, [key]: value }))
+          }
+          value={newClient[key]}
+        />
+      ) : (
+        <Input
+          aria-label={label}
+          data-testid={`airhop-enrollment-${key}`}
+          onChange={(event) =>
+            setNewClient((current) => ({
+              ...current,
+              [key]: event.target.value,
+            }))
+          }
+          type={type}
+          value={newClient[key]}
+        />
+      )}
     </Field>
   );
 
@@ -360,10 +442,22 @@ export function EnrollmentDialog({
     }`;
   };
 
+  const ageWarning = enrollmentAgeMismatch ? (
+    <Alert
+      className="border-amber-500/50 bg-amber-500/10"
+      data-testid="airhop-enrollment-age-warning"
+    >
+      <AlertTitle>{messages.enrollmentAgeWarningTitle}</AlertTitle>
+      <AlertDescription>
+        {messages.enrollmentAgeWarningDescription(selectedGroupAgeRange)}
+      </AlertDescription>
+    </Alert>
+  ) : null;
+
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:w-full"
+        className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-4xl flex-col gap-0 overflow-hidden p-0 sm:w-full"
         data-testid="airhop-enrollment-dialog"
       >
         <DialogHeader className="shrink-0 border-b border-border/70 px-4 py-4 pr-12 text-left sm:px-6">
@@ -382,62 +476,80 @@ export function EnrollmentDialog({
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
           onSubmit={(event) => void submit(event)}
         >
-          <div className="min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-6">
+          <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto bg-muted/20 px-4 py-4 sm:px-6">
             {actionError ? (
               <Alert variant="destructive">
                 <AlertDescription>{actionError}</AlertDescription>
               </Alert>
             ) : null}
             {step === "details" ? (
-              <>
-                <Field
-                  error={errors.client}
-                  label={messages.enrollmentExistingChild}
+              <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+                <EnrollmentSection
+                  description={messages.enrollmentClientSectionDescription}
+                  step={1}
+                  title={messages.enrollmentClientSectionTitle}
                 >
                   {resolvedInitialChildId && selectedChild ? (
                     <SelectedChildCard child={selectedChild} />
                   ) : (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted p-1">
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/70 bg-muted/50 p-1">
                         <Button
                           aria-pressed={clientMode === "existing"}
+                          className={cn(
+                            "h-10 gap-2 rounded-lg border border-transparent text-muted-foreground shadow-none",
+                            clientMode === "existing" &&
+                              "border-border bg-background text-foreground shadow-xs hover:bg-background",
+                          )}
                           onClick={() => {
                             setClientMode("existing");
                             setClient(null);
                             setErrors({});
                           }}
                           type="button"
-                          variant={
-                            clientMode === "existing" ? "secondary" : "ghost"
-                          }
+                          variant="ghost"
                         >
+                          <UsersRound className="size-4" />
                           {messages.participantExistingClient}
                         </Button>
                         <Button
                           aria-pressed={clientMode === "new"}
+                          className={cn(
+                            "h-10 gap-2 rounded-lg border border-transparent text-muted-foreground shadow-none",
+                            clientMode === "new" &&
+                              "border-border bg-background text-foreground shadow-xs hover:bg-background",
+                          )}
                           onClick={() => {
                             setClientMode("new");
                             setClient(null);
                             setErrors({});
                           }}
                           type="button"
-                          variant={clientMode === "new" ? "secondary" : "ghost"}
+                          variant="ghost"
                         >
+                          <UserRoundPlus className="size-4" />
                           {messages.participantNewClient}
                         </Button>
                       </div>
                       {clientMode === "existing" ? (
                         <>
-                          <Input
-                            aria-label={messages.participantSearch}
-                            onChange={(event) => {
-                              setQuery(event.target.value);
-                              setClient(null);
-                            }}
-                            placeholder={messages.participantSearch}
-                            value={query}
-                          />
-                          <div className="grid max-h-48 gap-2 overflow-y-auto">
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60" />
+                            <Input
+                              aria-label={messages.participantSearch}
+                              className="h-10 bg-background pl-9 placeholder:text-muted-foreground/50"
+                              onChange={(event) => {
+                                setQuery(event.target.value);
+                                setClient(null);
+                              }}
+                              placeholder={messages.participantSearch}
+                              value={query}
+                            />
+                          </div>
+                          <fieldset
+                            aria-label={messages.enrollmentExistingChild}
+                            className="grid max-h-56 gap-2 overflow-y-auto border-0 p-0 pr-1"
+                          >
                             {choices.length ? (
                               choices.map((choice) => {
                                 const selected =
@@ -446,19 +558,37 @@ export function EnrollmentDialog({
                                 return (
                                   <Button
                                     aria-pressed={selected}
-                                    className="h-auto min-w-0 justify-start whitespace-normal px-3 py-2 text-left"
+                                    className={cn(
+                                      "group h-auto min-w-0 justify-between gap-3 whitespace-normal rounded-xl border border-border/70 bg-background px-4 py-3 text-left shadow-none hover:border-foreground/15 hover:bg-muted/40",
+                                      selected &&
+                                        "border-foreground/25 bg-muted/70 hover:border-foreground/25 hover:bg-muted/70",
+                                    )}
                                     key={choice.child.id}
-                                    onClick={() => setClient(choice.selector)}
+                                    onClick={() =>
+                                      setClient(
+                                        selected ? null : choice.selector,
+                                      )
+                                    }
                                     type="button"
-                                    variant={selected ? "secondary" : "outline"}
+                                    variant="ghost"
                                   >
                                     <span className="min-w-0">
                                       <span className="block font-medium">
                                         {choice.child.displayName}
                                       </span>
                                       <span className="block break-words text-xs text-muted-foreground">
+                                        {choice.familyName} ·{" "}
                                         {choice.parentName} · {choice.phone}
                                       </span>
+                                    </span>
+                                    <span
+                                      className={cn(
+                                        "flex size-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground/35 text-transparent transition-colors",
+                                        selected &&
+                                          "border-foreground bg-foreground text-background",
+                                      )}
+                                    >
+                                      <Check className="size-3.5" />
                                     </span>
                                   </Button>
                                 );
@@ -468,19 +598,25 @@ export function EnrollmentDialog({
                                 {messages.participantSearchEmpty}
                               </p>
                             )}
-                          </div>
+                          </fieldset>
                         </>
                       ) : (
                         <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                           {newClientField(
-                            "parentName",
-                            messages.representativeName,
+                            "parentFirstName",
+                            messages.representativeFirstName,
                           )}
                           {newClientField(
-                            "phone",
-                            messages.representativePhone,
-                            "tel",
+                            "parentLastName",
+                            messages.representativeLastName,
                           )}
+                          <div className="sm:col-span-2">
+                            {newClientField(
+                              "phone",
+                              messages.representativePhone,
+                              "tel",
+                            )}
+                          </div>
                           {newClientField("childName", messages.childName)}
                           {newClientField(
                             "childBirthDate",
@@ -489,96 +625,126 @@ export function EnrollmentDialog({
                           )}
                         </div>
                       )}
+                      {errors.client ? (
+                        <p className="text-xs text-destructive">
+                          {errors.client}
+                        </p>
+                      ) : null}
                     </div>
                   )}
-                </Field>
+                </EnrollmentSection>
 
-                <Field error={errors.group} label={messages.enrollmentGroup}>
-                  {activeGroups.length ? (
-                    <BookingSelect
-                      aria-label={messages.enrollmentGroup}
-                      data-testid="airhop-enrollment-group"
-                      disabled={Boolean(resolvedInitialGroupId)}
-                      onChange={(event) => {
-                        setGroupId(event.target.value);
-                        setWeeklySelections([]);
-                      }}
-                      value={groupId}
-                    >
-                      <option value="">{messages.enrollmentGroup}</option>
-                      {activeGroups.map((group) => (
-                        <option key={group.id} value={group.id}>
-                          {group.name}
-                        </option>
-                      ))}
-                    </BookingSelect>
-                  ) : (
-                    <Alert>
-                      <AlertDescription>
-                        {messages.enrollmentNoGroups}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                </Field>
-
-                <Field error={errors.tariff} label={messages.enrollmentTariff}>
-                  {activeTariffs.length ? (
-                    <BookingSelect
-                      aria-label={messages.enrollmentTariff}
-                      data-testid="airhop-enrollment-tariff"
-                      onChange={(event) => {
-                        setTariffId(event.target.value);
-                        setWeeklySelections([]);
-                      }}
-                      value={tariffId}
-                    >
-                      <option value="">{messages.enrollmentTariff}</option>
-                      {activeTariffs.map((tariff) => (
-                        <option key={tariff.id} value={tariff.id}>
-                          {tariff.name} ·{" "}
-                          {formatters.money(tariff.priceMinor, tariff.currency)}
-                        </option>
-                      ))}
-                    </BookingSelect>
-                  ) : (
-                    <Alert>
-                      <AlertDescription>
-                        {messages.enrollmentNoTariffs}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                </Field>
-
-                {selectedGroup && selectedTariff ? (
-                  <Field
-                    error={errors.schedule}
-                    label={messages.enrollmentSchedule}
-                  >
-                    <WeeklySchedulePicker
-                      locale={workspace.organization.locale}
-                      maxSelections={maximumSelections}
-                      onChange={setWeeklySelections}
-                      options={slotOptions}
-                      value={weeklySelections}
-                    />
-                  </Field>
-                ) : null}
-
-                <Field
-                  error={errors.startDate}
-                  label={messages.enrollmentStartDate}
+                <EnrollmentSection
+                  description={messages.enrollmentTermsSectionDescription}
+                  step={2}
+                  title={messages.enrollmentTermsSectionTitle}
                 >
-                  <Input
-                    aria-label={messages.enrollmentStartDate}
-                    data-testid="airhop-enrollment-start-date"
-                    onChange={(event) => setStartDate(event.target.value)}
-                    type="date"
-                    value={startDate}
-                  />
-                </Field>
-              </>
+                  <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+                    <Field
+                      error={errors.group}
+                      label={messages.enrollmentGroup}
+                    >
+                      {activeGroups.length ? (
+                        <BookingSelect
+                          aria-label={messages.enrollmentGroup}
+                          data-testid="airhop-enrollment-group"
+                          disabled={Boolean(resolvedInitialGroupId)}
+                          onChange={(event) => {
+                            setGroupId(event.target.value);
+                            setWeeklySelections([]);
+                          }}
+                          value={groupId}
+                        >
+                          <option value="">{messages.enrollmentGroup}</option>
+                          {activeGroups.map((group) => (
+                            <option key={group.id} value={group.id}>
+                              {group.name}
+                            </option>
+                          ))}
+                        </BookingSelect>
+                      ) : (
+                        <Alert>
+                          <AlertDescription>
+                            {messages.enrollmentNoGroups}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                    </Field>
+
+                    <Field
+                      error={errors.tariff}
+                      label={messages.enrollmentTariff}
+                    >
+                      {activeTariffs.length ? (
+                        <BookingSelect
+                          aria-label={messages.enrollmentTariff}
+                          className={cn(!tariffId && "text-muted-foreground")}
+                          data-testid="airhop-enrollment-tariff"
+                          onChange={(event) => {
+                            setTariffId(event.target.value);
+                            setWeeklySelections([]);
+                          }}
+                          value={tariffId}
+                        >
+                          <option value="">
+                            {messages.enrollmentTariffPlaceholder}
+                          </option>
+                          {activeTariffs.map((tariff) => (
+                            <option key={tariff.id} value={tariff.id}>
+                              {tariff.name} ·{" "}
+                              {formatters.money(
+                                tariff.priceMinor,
+                                tariff.currency,
+                              )}
+                            </option>
+                          ))}
+                        </BookingSelect>
+                      ) : (
+                        <Alert>
+                          <AlertDescription>
+                            {messages.enrollmentNoTariffs}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                    </Field>
+
+                    <Field
+                      error={errors.startDate}
+                      label={messages.enrollmentStartDate}
+                    >
+                      <AirHopDateInput
+                        aria-label={messages.enrollmentStartDate}
+                        data-testid="airhop-enrollment-start-date"
+                        locale={workspace.organization.locale}
+                        onChange={setStartDate}
+                        value={startDate}
+                      />
+                    </Field>
+                  </div>
+
+                  {ageWarning ? <div className="mt-4">{ageWarning}</div> : null}
+
+                  {selectedGroup && selectedTariff ? (
+                    <div className="mt-4 border-t border-border/70 pt-4">
+                      <Field
+                        error={errors.schedule}
+                        label={messages.enrollmentSchedule}
+                      >
+                        <WeeklySchedulePicker
+                          locale={workspace.organization.locale}
+                          maxSelections={maximumSelections}
+                          onChange={setWeeklySelections}
+                          options={slotOptions}
+                          value={weeklySelections}
+                        />
+                      </Field>
+                    </div>
+                  ) : null}
+                </EnrollmentSection>
+              </div>
             ) : (
               <div className="space-y-4" data-testid="airhop-enrollment-review">
+                {ageWarning}
                 <dl className="grid gap-4 rounded-xl border border-border/70 p-4 sm:grid-cols-2">
                   <div>
                     <dt className="text-xs text-muted-foreground">

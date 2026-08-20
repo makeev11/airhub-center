@@ -247,6 +247,10 @@ test("family search ignores case, accents, spacing, and phone punctuation", () =
     ["family-1"],
   );
   assert.deepEqual(
+    searchFamilySummaries(workspace, "ёлкиных").map(({ family }) => family.id),
+    ["family-1"],
+  );
+  assert.deepEqual(
     searchFamilySummaries(workspace, "лев елкин").map(
       ({ family }) => family.id,
     ),

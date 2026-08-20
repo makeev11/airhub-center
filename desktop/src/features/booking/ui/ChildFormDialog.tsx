@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import { airHopTodayIsoDate } from "@/features/booking/lib/airHopDateInput";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import {
   childSchema,
@@ -8,6 +9,7 @@ import {
 } from "@/features/booking/model/bookingCore";
 import { upsertBookingChild } from "@/features/booking/model/bookingMutations";
 import { BookingFeedbackBanners } from "@/features/booking/ui/BookingWorkspaceState";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -107,17 +109,18 @@ export function ChildFormDialog({
             htmlFor="airhop-child-birth-date"
           >
             <span className="font-medium">{messages.childBirthDate}</span>
-            <Input
+            <AirHopDateInput
               aria-label={messages.childBirthDate}
               data-testid="airhop-child-birth-date"
               id="airhop-child-birth-date"
-              onChange={(event) =>
+              locale={workspace.organization.locale}
+              max={airHopTodayIsoDate()}
+              onChange={(value) =>
                 setForm((current) => ({
                   ...current,
-                  birthDate: event.target.value,
+                  birthDate: value,
                 }))
               }
-              type="date"
               value={form.birthDate}
             />
           </label>

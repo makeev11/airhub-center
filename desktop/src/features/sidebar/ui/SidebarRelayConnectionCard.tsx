@@ -1,4 +1,5 @@
 import { Check, CloudOff } from "lucide-react";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 import {
   SidebarCompactActionCard,
@@ -58,16 +59,42 @@ export function SidebarRelayConnectionCompactCard({
   surface,
   testId = "sidebar-relay-unreachable-compact",
 }: SidebarRelayConnectionCardProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
+  const copy = isRussian
+    ? {
+        waiting: "Ожидаем подключение",
+        connecting: "Подключаемся",
+        helper:
+          "Завершите действия в открывшемся окне помощника, чтобы продолжить.",
+        reconnecting: "Восстанавливаем соединение",
+        connected: "Подключено",
+        connect: "Подключиться к серверу",
+        click: "Нажмите, чтобы подключиться",
+        dismiss: "Закрыть уведомление о подключении",
+        unreachable: "Нет связи с сервером",
+      }
+    : {
+        waiting: "Waiting to reconnect",
+        connecting: "Connecting",
+        helper:
+          "Complete any prompts opened by the reconnect helper to continue.",
+        reconnecting: "Reconnecting",
+        connected: "Connected",
+        connect: "Connect to relay",
+        click: "Click to connect",
+        dismiss: "Dismiss relay notification",
+        unreachable: "Can't reach the relay",
+      };
   const reconnectTitle = isWaitingOnReconnectHook
-    ? "Waiting to reconnect"
-    : "Connecting";
+    ? copy.waiting
+    : copy.connecting;
   const reconnectDescription = isWaitingOnReconnectHook
-    ? "Complete any prompts opened by the reconnect helper to continue."
-    : "Reconnecting";
+    ? copy.helper
+    : copy.reconnecting;
 
   return (
     <SidebarCompactActionCard
-      actionAriaLabel={isConnected ? "Connected" : "Connect to relay"}
+      actionAriaLabel={isConnected ? copy.connected : copy.connect}
       actionDisabled={isActionDisabled || isReconnectPending || isConnected}
       actionTestId={actionTestId}
       description={
@@ -75,9 +102,9 @@ export function SidebarRelayConnectionCompactCard({
           ? undefined
           : isReconnectPending
             ? reconnectDescription
-            : "Click to connect"
+            : copy.click
       }
-      dismissLabel="Dismiss relay notification"
+      dismissLabel={copy.dismiss}
       iconKey={
         isConnected ? "connected" : isReconnectPending ? "pending" : "idle"
       }
@@ -98,10 +125,10 @@ export function SidebarRelayConnectionCompactCard({
       testId={testId}
       title={
         isConnected
-          ? "Connected"
+          ? copy.connected
           : isReconnectPending
             ? reconnectTitle
-            : "Can't reach the relay"
+            : copy.unreachable
       }
       tone={isConnected ? "success" : "neutral"}
     />

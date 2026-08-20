@@ -14,6 +14,7 @@ import type {
   PaymentMethod,
 } from "@/features/booking/model/bookingCore";
 import { BookingSelect } from "@/features/booking/ui/BookingSelect";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import {
@@ -346,11 +347,11 @@ export function PaymentActionDialog({
                 >
                   {messages.paymentDueDate}
                 </label>
-                <Input
+                <AirHopDateInput
+                  aria-label={messages.paymentDueDate}
                   autoFocus
                   id="airhop-payment-due-date"
-                  onChange={(event) => setDueDate(event.target.value)}
-                  type="date"
+                  onChange={setDueDate}
                   value={dueDate}
                 />
               </div>

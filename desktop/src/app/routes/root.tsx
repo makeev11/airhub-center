@@ -15,8 +15,9 @@ export const Route = createRootRoute({
 
 function RootRouteBoundary() {
   const pathname = useLocation({ select: (location) => location.pathname });
-  if (resolveLegacyAirHopRoute(pathname)) {
+  const isPublicBooking = isPublicBookingPath(pathname);
+  if (!isPublicBooking && resolveLegacyAirHopRoute(pathname)) {
     return <Navigate replace to="/booking/schedule" />;
   }
-  return isPublicBookingPath(pathname) ? <Outlet /> : <AppShell />;
+  return isPublicBooking ? <Outlet /> : <AppShell />;
 }

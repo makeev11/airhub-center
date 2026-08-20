@@ -2,6 +2,7 @@ import type * as React from "react";
 
 import { AuxiliaryPanel } from "@/shared/layout/AuxiliaryPanel";
 import { AuxiliaryPanelHeader } from "@/shared/layout/AuxiliaryPanel";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 
 type UserProfilePanelFrameProps = {
   addAgentToChannelDialog: React.ReactNode;
@@ -40,6 +41,7 @@ export function UserProfilePanelFrame({
   widthPx,
   transparentChrome = false,
 }: UserProfilePanelFrameProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <AuxiliaryPanel
       canResetWidth={canResetWidth}
@@ -48,7 +50,9 @@ export function UserProfilePanelFrame({
       onClose={onClose}
       onResetWidth={onResetWidth}
       onResizeStart={onResizeStart}
-      resizeHandleAriaLabel="Resize profile panel"
+      resizeHandleAriaLabel={
+        isRussian ? "Изменить ширину панели профиля" : "Resize profile panel"
+      }
       resizeHandleTestId="user-profile-resize-handle"
       siblings={
         <>

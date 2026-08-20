@@ -2,11 +2,13 @@ import * as React from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Archive,
+  ArrowRightLeft,
   CalendarDays,
   Pencil,
   Phone,
   Plus,
   RotateCcw,
+  UserMinus,
   UsersRound,
 } from "lucide-react";
 
@@ -25,12 +27,18 @@ import type {
   BookingRepresentative,
 } from "@/features/booking/model/bookingCore";
 import { setBookingFamilyStatus } from "@/features/booking/model/bookingMutations";
+import { isEnrollmentActiveOn } from "@/features/booking/model/bookingOperations";
 import {
   BookingFeedbackBanners,
   BookingWorkspaceGate,
 } from "@/features/booking/ui/BookingWorkspaceState";
 import { ChildFormDialog } from "@/features/booking/ui/ChildFormDialog";
 import { EnrollmentDialog } from "@/features/booking/ui/EnrollmentDialog";
+import {
+  EnrollmentManagementDialog,
+  type EnrollmentManagementMode,
+} from "@/features/booking/ui/EnrollmentManagementDialog";
+import { FamilyNameDialog } from "@/features/booking/ui/FamilyNameDialog";
 import { RepresentativeFormDialog } from "@/features/booking/ui/RepresentativeFormDialog";
 import { ServerFamilyDetailsScreen } from "@/features/booking/ui/ServerFamilyDetailsScreen";
 import {
@@ -72,6 +80,10 @@ function FamilyDetailsContent({ familyId }: { familyId: string }) {
   const [enrollmentChildId, setEnrollmentChildId] = React.useState<
     string | null
   >(null);
+  const [enrollmentManagement, setEnrollmentManagement] = React.useState<{
+    enrollmentId: string;
+    mode: EnrollmentManagementMode;
+  } | null>(null);
   const [archiveOpen, setArchiveOpen] = React.useState(false);
   const [success, setSuccess] = React.useState<string | null>(null);
   if (!family) {
@@ -263,6 +275,30 @@ function FamilyDetailsContent({ familyId }: { familyId: string }) {
                       ) : null}
                     </div>
                     {childEnrollments.map((row) => {
+                      const activeNow = isEnrollmentActiveOn(
+                        row.enrollment,
+                        currentDate,
+                      );
+                      const scheduled =
+                        row.enrollment.status === "active" &&
+                        row.enrollment.startDate > currentDate;
+                      const ended =
+                        row.enrollment.status === "ended" ||
+                        (row.enrollment.endDate !== undefined &&
+                          row.enrollment.endDate < currentDate);
+                      const hasFutureSegment = workspace.enrollments.some(
+                        (candidate) =>
+                          candidate.id !== row.enrollment.id &&
+                          candidate.status === "active" &&
+                          candidate.childId === row.enrollment.childId &&
+                          candidate.groupId === row.enrollment.groupId &&
+                          candidate.startDate > currentDate,
+                      );
+                      const canManage =
+                        row.enrollment.assignmentState === "configured" &&
+                        activeNow &&
+                        row.enrollment.endDate === undefined &&
+                        !hasFutureSegment;
                       const schedule =
                         row.enrollment.assignmentState === "configured"
                           ? row.enrollment.weeklyScheduleSelections
@@ -299,15 +335,15 @@ function FamilyDetailsContent({ familyId }: { familyId: string }) {
                               </p>
                             </div>
                             <Badge
-                              variant={
-                                row.enrollment.status === "active"
-                                  ? "success"
-                                  : "secondary"
-                              }
+                              variant={activeNow ? "success" : "secondary"}
                             >
-                              {row.enrollment.status === "active"
+                              {activeNow
                                 ? messages.active
-                                : messages.archived}
+                                : scheduled
+                                  ? messages.enrollmentScheduled
+                                  : ended
+                                    ? messages.enrollmentEnded
+                                    : messages.archived}
                             </Badge>
                           </div>
                           <p className="text-xs leading-5">{schedule}</p>
@@ -316,6 +352,13 @@ function FamilyDetailsContent({ familyId }: { familyId: string }) {
                               formatters.date(row.enrollment.startDate),
                             )}
                           </p>
+                          {row.enrollment.endDate ? (
+                            <p className="text-xs text-muted-foreground">
+                              {messages.enrollmentEnds(
+                                formatters.date(row.enrollment.endDate),
+                              )}
+                            </p>
+                          ) : null}
                           {payment && paymentLabel ? (
                             <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
                               <Badge
@@ -336,6 +379,38 @@ function FamilyDetailsContent({ familyId }: { familyId: string }) {
                                   formatters.date(payment.payment.dueDate),
                                 )}
                               </span>
+                            </div>
+                          ) : null}
+                          {canManage ? (
+                            <div className="flex flex-wrap gap-2 border-t border-border/60 pt-2">
+                              <Button
+                                data-testid={`airhop-change-tariff-${row.enrollment.id}`}
+                                onClick={() =>
+                                  setEnrollmentManagement({
+                                    enrollmentId: row.enrollment.id,
+                                    mode: "tariff",
+                                  })
+                                }
+                                size="sm"
+                                variant="outline"
+                              >
+                                <ArrowRightLeft />
+                                {messages.enrollmentChangeTariff}
+                              </Button>
+                              <Button
+                                data-testid={`airhop-end-enrollment-${row.enrollment.id}`}
+                                onClick={() =>
+                                  setEnrollmentManagement({
+                                    enrollmentId: row.enrollment.id,
+                                    mode: "end",
+                                  })
+                                }
+                                size="sm"
+                                variant="ghost"
+                              >
+                                <UserMinus />
+                                {messages.enrollmentEnd}
+                              </Button>
                             </div>
                           ) : null}
                         </div>
@@ -430,6 +505,15 @@ function FamilyDetailsContent({ familyId }: { familyId: string }) {
         onSaved={() => setSuccess(messages.enrollmentCreated)}
         open={enrollmentChildId !== null}
       />
+      <EnrollmentManagementDialog
+        enrollmentId={enrollmentManagement?.enrollmentId ?? null}
+        mode={enrollmentManagement?.mode ?? "tariff"}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setEnrollmentManagement(null);
+        }}
+        onSaved={setSuccess}
+        open={enrollmentManagement !== null}
+      />
       <AlertDialog onOpenChange={setArchiveOpen} open={archiveOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -460,6 +544,7 @@ function FamilyDetailsContent({ familyId }: { familyId: string }) {
 
 function WorkspaceFamilyDetailsScreen({ familyId }: { familyId: string }) {
   const booking = useBookingWorkspace();
+  const [familyNameOpen, setFamilyNameOpen] = React.useState(false);
   const family = booking.workspace?.families.find(
     (candidate) => candidate.id === familyId,
   );
@@ -470,6 +555,18 @@ function WorkspaceFamilyDetailsScreen({ familyId }: { familyId: string }) {
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-tl-xl bg-background">
       <header className="shrink-0 border-b border-border/70 px-4 py-4 sm:px-6 sm:py-5">
         <PageHeader
+          action={
+            family ? (
+              <Button
+                data-testid="airhop-edit-family-name"
+                onClick={() => setFamilyNameOpen(true)}
+                size="sm"
+                variant="outline"
+              >
+                <Pencil /> {messages.edit}
+              </Button>
+            ) : null
+          }
           description={
             family?.status === "archived"
               ? messages.archived
@@ -483,6 +580,13 @@ function WorkspaceFamilyDetailsScreen({ familyId }: { familyId: string }) {
           {() => <FamilyDetailsContent familyId={familyId} />}
         </BookingWorkspaceGate>
       </div>
+      {family ? (
+        <FamilyNameDialog
+          family={family}
+          onOpenChange={setFamilyNameOpen}
+          open={familyNameOpen}
+        />
+      ) : null}
     </div>
   );
 }

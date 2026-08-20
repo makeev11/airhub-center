@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 export function EditRespondToDialog({
   agent,
@@ -24,6 +25,7 @@ export function EditRespondToDialog({
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const updateMutation = useUpdateManagedAgentMutation();
   const [respondTo, setRespondTo] = React.useState<RespondToMode>("owner-only");
   const [respondToAllowlist, setRespondToAllowlist] = React.useState<string[]>(
@@ -55,9 +57,13 @@ export function EditRespondToDialog({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Manage agent access</DialogTitle>
+          <DialogTitle>
+            {isRussian ? "Доступ к AI-агенту" : "Manage agent access"}
+          </DialogTitle>
           <DialogDescription>
-            Choose who can send instructions to {agent?.name ?? "this agent"}.
+            {isRussian
+              ? `Выберите, кто может давать задания агенту ${agent?.name ?? ""}.`
+              : `Choose who can send instructions to ${agent?.name ?? "this agent"}.`}
           </DialogDescription>
         </DialogHeader>
         <CreateAgentRespondToField
@@ -81,7 +87,7 @@ export function EditRespondToDialog({
             type="button"
             variant="outline"
           >
-            Cancel
+            {isRussian ? "Отмена" : "Cancel"}
           </Button>
           <Button
             disabled={!respondToValid || updateMutation.isPending}
@@ -89,7 +95,13 @@ export function EditRespondToDialog({
             size="sm"
             type="button"
           >
-            {updateMutation.isPending ? "Saving..." : "Save access"}
+            {updateMutation.isPending
+              ? isRussian
+                ? "Сохраняем…"
+                : "Saving..."
+              : isRussian
+                ? "Сохранить доступ"
+                : "Save access"}
           </Button>
         </div>
       </DialogContent>

@@ -7,6 +7,7 @@ import {
 import type { StaffFamilyDetail } from "@/features/booking/data/staffFamilyDetailService";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import { getStaffFamilyCommandMessages } from "@/features/booking/lib/staffFamilyCommandLocale";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -226,11 +227,11 @@ export function ServerChildFormDialog({
             htmlFor="airhop-server-child-birth-date"
           >
             <span className="font-medium">{messages.childBirthDate}</span>
-            <Input
+            <AirHopDateInput
+              aria-label={messages.childBirthDate}
               id="airhop-server-child-birth-date"
               max={detail.organization.currentDate}
-              onChange={(event) => setBirthDate(event.target.value)}
-              type="date"
+              onChange={setBirthDate}
               value={birthDate}
             />
           </label>

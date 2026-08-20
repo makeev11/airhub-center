@@ -7,6 +7,7 @@ import {
 } from "@/features/booking/actions/airhopActionService";
 import type { AirhopClientSelector } from "@/features/booking/actions/airhopActionSchemas";
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import { airHopTodayIsoDate } from "@/features/booking/lib/airHopDateInput";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import {
   searchFamilySummaries,
@@ -15,6 +16,7 @@ import {
 import type { ScheduleLesson } from "@/features/booking/model/demoSchedule";
 import { normalizePublicBookingPhone } from "@/features/booking/model/publicBooking";
 import { BookingSelect } from "@/features/booking/ui/BookingSelect";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import {
@@ -191,20 +193,38 @@ export function LessonParticipantDialog({
       htmlFor={`airhop-participant-${key}`}
     >
       <span className="font-medium">{label}</span>
-      <Input
-        aria-label={label}
-        aria-describedby={
-          errors[key] ? `airhop-participant-${key}-error` : undefined
-        }
-        aria-invalid={Boolean(errors[key])}
-        data-testid={`airhop-participant-${key.replace("childBirthDate", "birth-date").replace("parentName", "parent-name").replace("childName", "child-name")}`}
-        id={`airhop-participant-${key}`}
-        onChange={(event) =>
-          setForm((current) => ({ ...current, [key]: event.target.value }))
-        }
-        type={type}
-        value={form[key]}
-      />
+      {type === "date" ? (
+        <AirHopDateInput
+          aria-label={label}
+          aria-describedby={
+            errors[key] ? `airhop-participant-${key}-error` : undefined
+          }
+          aria-invalid={Boolean(errors[key])}
+          data-testid={`airhop-participant-${key.replace("childBirthDate", "birth-date").replace("parentName", "parent-name").replace("childName", "child-name")}`}
+          id={`airhop-participant-${key}`}
+          locale={workspace.organization.locale}
+          max={airHopTodayIsoDate()}
+          onChange={(value) =>
+            setForm((current) => ({ ...current, [key]: value }))
+          }
+          value={form[key]}
+        />
+      ) : (
+        <Input
+          aria-label={label}
+          aria-describedby={
+            errors[key] ? `airhop-participant-${key}-error` : undefined
+          }
+          aria-invalid={Boolean(errors[key])}
+          data-testid={`airhop-participant-${key.replace("childBirthDate", "birth-date").replace("parentName", "parent-name").replace("childName", "child-name")}`}
+          id={`airhop-participant-${key}`}
+          onChange={(event) =>
+            setForm((current) => ({ ...current, [key]: event.target.value }))
+          }
+          type={type}
+          value={form[key]}
+        />
+      )}
       {errors[key] ? (
         <span
           className="text-xs text-destructive"

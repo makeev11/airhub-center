@@ -9,6 +9,7 @@ import {
   AlertDialogTitle,
 } from "@/shared/ui/alert-dialog";
 import { Button } from "@/shared/ui/button";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 /**
  * The "Delete message?" confirmation. Single definition shared by every
@@ -26,24 +27,29 @@ export function DeleteMessageConfirmDialog({
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <AlertDialog onOpenChange={onOpenChange} open={open}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete message?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {isRussian ? "Удалить сообщение?" : "Delete message?"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            This will permanently delete this message and cannot be undone.
+            {isRussian
+              ? "Сообщение будет удалено без возможности восстановления."
+              : "This will permanently delete this message and cannot be undone."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel asChild>
             <Button type="button" variant="outline">
-              Cancel
+              {isRussian ? "Отмена" : "Cancel"}
             </Button>
           </AlertDialogCancel>
           <AlertDialogAction asChild>
             <Button onClick={onConfirm} type="button" variant="destructive">
-              Delete
+              {isRussian ? "Удалить" : "Delete"}
             </Button>
           </AlertDialogAction>
         </AlertDialogFooter>

@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import {
   BookingRevisionConflictError,
   type BookingRepository,
@@ -77,6 +78,7 @@ export function BookingWorkspaceProvider({
   repository?: BookingRepository | null;
   storageScope?: string;
 }) {
+  const interfaceLocale = useAirHopLocale();
   const [repositoryState] = React.useState(() =>
     repositoryOverride === undefined
       ? defaultRepository(storageScope)
@@ -97,6 +99,7 @@ export function BookingWorkspaceProvider({
   const [conflict, setConflict] = React.useState<BookingConflict | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const mountedRef = React.useRef(false);
+  const loadedLocaleRef = React.useRef<string | null>(null);
   const pendingLoadRef = React.useRef<Promise<BookingWorkspace> | null>(null);
   const pendingSaveRef = React.useRef<Promise<BookingWorkspace> | null>(null);
 
@@ -141,12 +144,16 @@ export function BookingWorkspaceProvider({
   );
 
   React.useEffect(() => {
+    const forceReload =
+      loadedLocaleRef.current !== null &&
+      loadedLocaleRef.current !== interfaceLocale;
+    loadedLocaleRef.current = interfaceLocale;
     mountedRef.current = true;
-    void load();
+    void load(forceReload);
     return () => {
       mountedRef.current = false;
     };
-  }, [load]);
+  }, [interfaceLocale, load]);
 
   const save = React.useCallback(
     async (

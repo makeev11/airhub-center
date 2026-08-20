@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Smile } from "lucide-react";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import {
@@ -67,6 +68,7 @@ export function ProfilePopover({
   triggerContainerRef,
   communitySwitcherSlot,
 }: ProfilePopoverProps) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const [statusDialogOpen, setStatusDialogOpen] = React.useState(false);
   const [presenceMenuOpen, setPresenceMenuOpen] = React.useState(false);
   const hasUserStatus = Boolean(userStatusText || userStatusEmoji);
@@ -110,7 +112,10 @@ export function ProfilePopover({
             }
           }}
         >
-          <div aria-label="Profile menu" role="menu">
+          <div
+            aria-label={isRussian ? "Меню профиля" : "Profile menu"}
+            role="menu"
+          >
             {/* ── Identity block ─────────────────────────────────── */}
             <div className="flex items-center gap-2 px-3 pt-2 pb-2">
               <MaskedAvatarBadgeFrame
@@ -172,7 +177,12 @@ export function ProfilePopover({
                     side="bottom"
                     sideOffset={4}
                   >
-                    <div aria-label="Presence status" role="menu">
+                    <div
+                      aria-label={
+                        isRussian ? "Статус присутствия" : "Presence status"
+                      }
+                      role="menu"
+                    >
                       {ALL_STATUSES.map((status) => (
                         <button
                           className={MENU_ITEM_CLASS}
@@ -223,7 +233,7 @@ export function ProfilePopover({
                   </span>
                 ) : (
                   <span className="flex-1 truncate text-muted-foreground">
-                    Update your status
+                    {isRussian ? "Установить статус" : "Update your status"}
                   </span>
                 )}
               </button>
@@ -254,7 +264,9 @@ export function ProfilePopover({
                 role="menuitem"
                 type="button"
               >
-                <span className="flex-1">Send feedback</span>
+                <span className="flex-1">
+                  {isRussian ? "Отправить отзыв" : "Send feedback"}
+                </span>
               </button>
             ) : null}
 
@@ -271,7 +283,9 @@ export function ProfilePopover({
               role="menuitem"
               type="button"
             >
-              <span className="flex-1">Settings</span>
+              <span className="flex-1">
+                {isRussian ? "Настройки" : "Settings"}
+              </span>
               <kbd className="text-xs text-muted-foreground">
                 {settingsShortcutLabel}
               </kbd>

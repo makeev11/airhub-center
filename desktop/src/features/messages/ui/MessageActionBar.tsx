@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { buildMessageLink } from "@/features/messages/lib/messageLink";
 import { EmojiPicker } from "@/features/custom-emoji/ui/EmojiPicker";
 import { useCustomEmoji } from "@/features/custom-emoji/hooks";
@@ -82,6 +83,7 @@ function MoreActionsMenu({
   isFollowingThread?: boolean;
   isUnread?: boolean;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = React.useState(false);
   const [isReportDialogOpen, setIsReportDialogOpen] = React.useState(false);
   // Set true the moment the user picks "Edit message". The
@@ -112,7 +114,7 @@ function MoreActionsMenu({
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <Button
-                aria-label="More actions"
+                aria-label={isRussian ? "Другие действия" : "More actions"}
                 className={ACTION_BUTTON_CLASS}
                 data-testid={`more-actions-${message.id}`}
                 size="sm"
@@ -123,7 +125,9 @@ function MoreActionsMenu({
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>More actions</TooltipContent>
+          <TooltipContent>
+            {isRussian ? "Другие действия" : "More actions"}
+          </TooltipContent>
         </Tooltip>
         <DropdownMenuContent
           align="end"
@@ -145,7 +149,7 @@ function MoreActionsMenu({
               }}
             >
               <Pencil className="h-4 w-4" />
-              Edit message
+              {isRussian ? "Изменить сообщение" : "Edit message"}
             </DropdownMenuItem>
           ) : null}
 
@@ -165,7 +169,13 @@ function MoreActionsMenu({
               ) : (
                 <MailOpen className="h-4 w-4" />
               )}
-              {isUnread ? "Mark read" : "Mark unread"}
+              {isUnread
+                ? isRussian
+                  ? "Отметить прочитанным"
+                  : "Mark read"
+                : isRussian
+                  ? "Отметить непрочитанным"
+                  : "Mark unread"}
             </DropdownMenuItem>
           ) : null}
 
@@ -184,7 +194,13 @@ function MoreActionsMenu({
               ) : (
                 <BellRing className="h-4 w-4" />
               )}
-              {isFollowingThread ? "Unfollow thread" : "Follow thread"}
+              {isFollowingThread
+                ? isRussian
+                  ? "Не следить за обсуждением"
+                  : "Unfollow thread"
+                : isRussian
+                  ? "Следить за обсуждением"
+                  : "Follow thread"}
             </DropdownMenuItem>
           ) : null}
 
@@ -193,12 +209,14 @@ function MoreActionsMenu({
               onClick={() => {
                 copyTextToClipboard(
                   message.body,
-                  "Message copied to clipboard",
+                  isRussian
+                    ? "Сообщение скопировано"
+                    : "Message copied to clipboard",
                 );
               }}
             >
               <Copy className="h-4 w-4" />
-              Copy message
+              {isRussian ? "Копировать сообщение" : "Copy message"}
             </DropdownMenuItem>
           ) : null}
 
@@ -209,7 +227,7 @@ function MoreActionsMenu({
               }}
             >
               <Clock className="h-4 w-4" />
-              Remind me later
+              {isRussian ? "Напомнить позже" : "Remind me later"}
             </DropdownMenuItem>
           ) : null}
 
@@ -223,11 +241,14 @@ function MoreActionsMenu({
                   messageId: message.id,
                   threadRootId: rootId,
                 });
-                copyTextToClipboard(link, "Link copied to clipboard");
+                copyTextToClipboard(
+                  link,
+                  isRussian ? "Ссылка скопирована" : "Link copied to clipboard",
+                );
               }}
             >
               <Link2 className="h-4 w-4" />
-              Copy link
+              {isRussian ? "Копировать ссылку" : "Copy link"}
             </DropdownMenuItem>
           ) : null}
 
@@ -241,7 +262,7 @@ function MoreActionsMenu({
               }}
             >
               <Flag className="h-4 w-4" />
-              Report message
+              {isRussian ? "Пожаловаться на сообщение" : "Report message"}
             </DropdownMenuItem>
           ) : null}
 
@@ -254,7 +275,7 @@ function MoreActionsMenu({
               }}
             >
               <Trash2 className="h-4 w-4" />
-              Delete message
+              {isRussian ? "Удалить сообщение" : "Delete message"}
             </DropdownMenuItem>
           ) : null}
 
@@ -371,6 +392,7 @@ export const MessageActionBar = React.memo(function MessageActionBar({
    *  unread badge uses. Drives the single mark-read/unread toggle label. */
   isUnread?: boolean;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const [isReactionPickerOpen, setIsReactionPickerOpen] = React.useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = React.useState(false);
   const customEmoji = useCustomEmoji();
@@ -475,7 +497,9 @@ export const MessageActionBar = React.memo(function MessageActionBar({
                 <TooltipTrigger asChild>
                   <PopoverTrigger asChild>
                     <Button
-                      aria-label="Open reactions"
+                      aria-label={
+                        isRussian ? "Открыть реакции" : "Open reactions"
+                      }
                       className={ACTION_BUTTON_CLASS}
                       data-testid={`react-message-${message.id}`}
                       size="sm"
@@ -486,7 +510,9 @@ export const MessageActionBar = React.memo(function MessageActionBar({
                     </Button>
                   </PopoverTrigger>
                 </TooltipTrigger>
-                <TooltipContent>React</TooltipContent>
+                <TooltipContent>
+                  {isRussian ? "Реакция" : "React"}
+                </TooltipContent>
               </Tooltip>
               <PopoverContent
                 align="end"
@@ -517,7 +543,7 @@ export const MessageActionBar = React.memo(function MessageActionBar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  aria-label="Reply"
+                  aria-label={isRussian ? "Ответить" : "Reply"}
                   className={ACTION_BUTTON_CLASS}
                   data-testid={`reply-message-${message.id}`}
                   onClick={() => {
@@ -530,7 +556,9 @@ export const MessageActionBar = React.memo(function MessageActionBar({
                   <CornerUpLeft className={ACTION_ICON_CLASS} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Reply</TooltipContent>
+              <TooltipContent>
+                {isRussian ? "Ответить" : "Reply"}
+              </TooltipContent>
             </Tooltip>
           ) : null}
 
