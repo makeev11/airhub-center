@@ -33,9 +33,11 @@ type SelectedClient = Extract<
 >;
 
 const EMPTY_FORM = {
-  parentName: "",
+  parentFirstName: "",
+  parentLastName: "",
   phone: "",
-  childName: "",
+  childFirstName: "",
+  childLastName: "",
   childBirthDate: "",
 };
 
@@ -118,18 +120,29 @@ export function ServerLessonParticipantDialog({
       else client = selectedClient;
     } else {
       const phoneNormalized = normalizePublicBookingPhone(form.phone);
-      if (!form.parentName.trim())
-        nextErrors.parentName = messages.requiredField;
+      if (!form.parentFirstName.trim())
+        nextErrors.parentFirstName = messages.requiredField;
+      if (!form.parentLastName.trim())
+        nextErrors.parentLastName = messages.requiredField;
       if (!phoneNormalized) nextErrors.phone = messages.invalidPhone;
-      if (!form.childName.trim()) nextErrors.childName = messages.requiredField;
+      if (!form.childFirstName.trim())
+        nextErrors.childFirstName = messages.requiredField;
+      if (!form.childLastName.trim())
+        nextErrors.childLastName = messages.requiredField;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(form.childBirthDate))
         nextErrors.childBirthDate = messages.invalidBirthDate;
       if (phoneNormalized) {
+        const parentName = `${form.parentFirstName.trim()} ${form.parentLastName.trim()}`;
+        const childName = `${form.childFirstName.trim()} ${form.childLastName.trim()}`;
         client = {
           mode: "new",
-          parentName: form.parentName.trim(),
+          parentName,
+          parentFirstName: form.parentFirstName.trim(),
+          parentLastName: form.parentLastName.trim(),
           phone: form.phone.trim(),
-          childName: form.childName.trim(),
+          childName,
+          childFirstName: form.childFirstName.trim(),
+          childLastName: form.childLastName.trim(),
           childBirthDate: form.childBirthDate,
         };
       }
@@ -315,9 +328,11 @@ export function ServerLessonParticipantDialog({
               </div>
             ) : (
               <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-                {field("parentName", messages.representativeName)}
+                {field("parentFirstName", messages.representativeFirstName)}
+                {field("parentLastName", messages.representativeLastName)}
                 {field("phone", messages.representativePhone, "tel")}
-                {field("childName", messages.childName)}
+                {field("childFirstName", messages.childFirstName)}
+                {field("childLastName", messages.childLastName)}
                 {field("childBirthDate", messages.childBirthDate, "date")}
               </div>
             )}

@@ -39,12 +39,18 @@ export function ChildFormDialog({
   const messages = getBookingAdminMessages(
     workspace?.organization.locale ?? "ru-RU",
   );
-  const [form, setForm] = React.useState({ name: "", birthDate: "", note: "" });
+  const [form, setForm] = React.useState({
+    firstName: "",
+    lastName: "",
+    birthDate: "",
+    note: "",
+  });
   const [error, setError] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!open) return;
     setForm({
-      name: child?.displayName ?? "",
+      firstName: child?.firstName ?? child?.displayName ?? "",
+      lastName: child?.lastName ?? "",
       birthDate: child?.birthDate ?? "",
       note: child?.note ?? "",
     });
@@ -59,7 +65,9 @@ export function ChildFormDialog({
       id: child?.id ?? `child-${crypto.randomUUID()}`,
       organizationId: workspace.organization.id,
       familyId,
-      displayName: form.name,
+      displayName: `${form.firstName.trim()} ${form.lastName.trim()}`,
+      firstName: form.firstName,
+      lastName: form.lastName,
       birthDate: form.birthDate,
       ...(form.note.trim() ? { note: form.note } : {}),
       status: child?.status ?? "active",
@@ -68,7 +76,9 @@ export function ChildFormDialog({
     });
     if (!parsed.success) {
       setError(
-        !form.name.trim() ? messages.requiredField : messages.invalidBirthDate,
+        !form.firstName.trim() || !form.lastName.trim()
+          ? messages.requiredField
+          : messages.invalidBirthDate,
       );
       return;
     }
@@ -92,18 +102,44 @@ export function ChildFormDialog({
         </DialogHeader>
         <form className="space-y-4" onSubmit={(event) => void submit(event)}>
           <BookingFeedbackBanners />
-          <label className="grid gap-1.5 text-sm" htmlFor="airhop-child-name">
-            <span className="font-medium">{messages.childName}</span>
-            <Input
-              aria-label={messages.childName}
-              data-testid="airhop-child-name"
-              id="airhop-child-name"
-              onChange={(event) =>
-                setForm((current) => ({ ...current, name: event.target.value }))
-              }
-              value={form.name}
-            />
-          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label
+              className="grid gap-1.5 text-sm"
+              htmlFor="airhop-child-first-name"
+            >
+              <span className="font-medium">{messages.childFirstName}</span>
+              <Input
+                aria-label={messages.childFirstName}
+                data-testid="airhop-child-first-name"
+                id="airhop-child-first-name"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    firstName: event.target.value,
+                  }))
+                }
+                value={form.firstName}
+              />
+            </label>
+            <label
+              className="grid gap-1.5 text-sm"
+              htmlFor="airhop-child-last-name"
+            >
+              <span className="font-medium">{messages.childLastName}</span>
+              <Input
+                aria-label={messages.childLastName}
+                data-testid="airhop-child-last-name"
+                id="airhop-child-last-name"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    lastName: event.target.value,
+                  }))
+                }
+                value={form.lastName}
+              />
+            </label>
+          </div>
           <label
             className="grid gap-1.5 text-sm"
             htmlFor="airhop-child-birth-date"

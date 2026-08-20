@@ -57,6 +57,9 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
   timeZoneAutomatic: (timeZone) => `Detect automatically — ${timeZone}`,
   timeZoneHint:
     "Choose an IANA time zone from the list or detect it automatically.",
+  staffWorkingHours: "Staff working hours",
+  staffWorkingHoursHint:
+    "When a manager or administrator normally responds. Hermes remains available 24/7; class schedules are configured separately for branches and groups.",
   trialPolicy: "Default trial class",
   trialDisabled: "Unavailable",
   trialFree: "Free",
@@ -561,6 +564,8 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
   representativePhone: "Phone",
   representativeChannel: "Contact channel",
   childName: "Child's name",
+  childFirstName: "Child's first name",
+  childLastName: "Child's last name",
   childBirthDate: "Date of birth",
   childNote: "Note",
   addRepresentative: "Add representative",

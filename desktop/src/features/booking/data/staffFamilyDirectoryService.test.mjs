@@ -35,11 +35,21 @@ function validPage() {
         primaryRepresentative: {
           id: IDS.representative,
           displayName: "Мария Иванова",
+          firstName: "Мария",
+          lastName: "Иванова",
           phoneNormalized: "+79991234567",
           phoneDisplay: "+7 999 123-45-67",
           preferredContactChannel: "telegram",
         },
-        children: [{ id: IDS.child, displayName: "Анна", status: "active" }],
+        children: [
+          {
+            id: IDS.child,
+            displayName: "Анна",
+            firstName: "Анна",
+            lastName: "Петрова",
+            status: "active",
+          },
+        ],
         bookingCount: 2,
         activeEnrollmentCount: 1,
         hasPendingDuplicate: false,

@@ -45,7 +45,8 @@ export function ServerRepresentativeFormDialog({
     () => createHttpStaffFamilyCommandService(),
     [],
   );
-  const [name, setName] = React.useState("");
+  const [firstName, setFirstName] = React.useState("");
+  const [lastName, setLastName] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [channel, setChannel] =
     React.useState<StaffRepresentativeContactChannel>("phone");
@@ -54,7 +55,10 @@ export function ServerRepresentativeFormDialog({
 
   React.useEffect(() => {
     if (!open) return;
-    setName(representative?.displayName ?? "");
+    setFirstName(
+      representative?.firstName ?? representative?.displayName ?? "",
+    );
+    setLastName(representative?.lastName ?? "");
     setPhone(representative?.phoneDisplay ?? "");
     setChannel(representative?.preferredContactChannel ?? "phone");
     setError(null);
@@ -62,7 +66,7 @@ export function ServerRepresentativeFormDialog({
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!name.trim()) {
+    if (!firstName.trim() || !lastName.trim()) {
       setError(messages.requiredField);
       return;
     }
@@ -73,19 +77,24 @@ export function ServerRepresentativeFormDialog({
     setIsSaving(true);
     setError(null);
     try {
+      const displayName = `${firstName.trim()} ${lastName.trim()}`;
       if (representative) {
         await service.updateRepresentative({
           familyId,
           representativeId: representative.id,
           expectedVersion: representative.version,
-          displayName: name,
+          displayName,
+          firstName,
+          lastName,
           phone,
           preferredContactChannel: channel,
         });
       } else {
         await service.addRepresentative({
           familyId,
-          displayName: name,
+          displayName,
+          firstName,
+          lastName,
           phone,
           preferredContactChannel: channel,
         });
@@ -120,19 +129,38 @@ export function ServerRepresentativeFormDialog({
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={(event) => void submit(event)}>
-          <label
-            className="grid gap-1.5 text-sm"
-            htmlFor="airhop-server-representative-name"
-          >
-            <span className="font-medium">{messages.representativeName}</span>
-            <Input
-              data-testid="airhop-server-representative-name"
-              id="airhop-server-representative-name"
-              maxLength={160}
-              onChange={(event) => setName(event.target.value)}
-              value={name}
-            />
-          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label
+              className="grid gap-1.5 text-sm"
+              htmlFor="airhop-server-representative-first-name"
+            >
+              <span className="font-medium">
+                {messages.representativeFirstName}
+              </span>
+              <Input
+                data-testid="airhop-server-representative-first-name"
+                id="airhop-server-representative-first-name"
+                maxLength={80}
+                onChange={(event) => setFirstName(event.target.value)}
+                value={firstName}
+              />
+            </label>
+            <label
+              className="grid gap-1.5 text-sm"
+              htmlFor="airhop-server-representative-last-name"
+            >
+              <span className="font-medium">
+                {messages.representativeLastName}
+              </span>
+              <Input
+                data-testid="airhop-server-representative-last-name"
+                id="airhop-server-representative-last-name"
+                maxLength={80}
+                onChange={(event) => setLastName(event.target.value)}
+                value={lastName}
+              />
+            </label>
+          </div>
           <label
             className="grid gap-1.5 text-sm"
             htmlFor="airhop-server-representative-phone"

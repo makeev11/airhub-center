@@ -6,7 +6,6 @@ import {
 import { EN_BOOKING_ADMIN_MESSAGES } from "@/features/booking/lib/bookingAdminLocale.en";
 import { loadAirHopLocale } from "@/shared/locale/airhopLocale";
 import type { BookingEnrollmentManagementMessages } from "@/features/booking/lib/bookingEnrollmentLocale";
-
 export type BookingAdminMessages = BookingPaymentMessages &
   BookingEnrollmentManagementMessages & {
     productName: string;
@@ -55,6 +54,8 @@ export type BookingAdminMessages = BookingPaymentMessages &
     timeZone: string;
     timeZoneAutomatic: (timeZone: string) => string;
     timeZoneHint: string;
+    staffWorkingHours: string;
+    staffWorkingHoursHint: string;
     trialPolicy: string;
     trialDisabled: string;
     trialFree: string;
@@ -403,6 +404,8 @@ export type BookingAdminMessages = BookingPaymentMessages &
     representativePhone: string;
     representativeChannel: string;
     childName: string;
+    childFirstName: string;
+    childLastName: string;
     childBirthDate: string;
     childNote: string;
     addRepresentative: string;
@@ -433,7 +436,6 @@ export type BookingAdminMessages = BookingPaymentMessages &
     participantActionFailed: string;
     weekdayNames: Record<Weekday, string>;
   };
-
 const ru: BookingAdminMessages = {
   productName: "Airhop",
   navSchedule: "Расписание",
@@ -489,6 +491,9 @@ const ru: BookingAdminMessages = {
   timeZoneAutomatic: (timeZone) => `Определить автоматически — ${timeZone}`,
   timeZoneHint:
     "Выберите часовой пояс IANA из списка или определите его автоматически.",
+  staffWorkingHours: "Часы работы сотрудников",
+  staffWorkingHoursHint:
+    "Когда руководитель или администратор обычно отвечает. Гермес работает круглосуточно; расписание занятий задаётся отдельно в филиалах и группах.",
   trialPolicy: "Пробное занятие по умолчанию",
   trialDisabled: "Недоступно",
   trialFree: "Бесплатно",
@@ -934,6 +939,8 @@ const ru: BookingAdminMessages = {
   representativePhone: "Телефон",
   representativeChannel: "Канал связи",
   childName: "Имя ребёнка",
+  childFirstName: "Имя ребёнка",
+  childLastName: "Фамилия ребёнка",
   childBirthDate: "Дата рождения",
   childNote: "Заметка",
   addRepresentative: "Добавить представителя",
@@ -975,12 +982,10 @@ const ru: BookingAdminMessages = {
     sunday: "Воскресенье",
   },
 };
-
 const messagesByLanguage: Partial<Record<string, BookingAdminMessages>> = {
   en: EN_BOOKING_ADMIN_MESSAGES,
   ru,
 };
-
 function bookingLanguage(locale: string): string {
   try {
     const canonical = Intl.getCanonicalLocales(locale)[0] ?? "ru-RU";

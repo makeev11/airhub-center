@@ -42,6 +42,13 @@ const transferRequestSchema = z.object({
   requestedAt: dateTimeSchema,
   comment: z.string().max(1_000).optional(),
 });
+const personNamePartSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .nullish()
+  .transform((value) => value ?? null);
 
 export const staffFamilyDetailSchema = z.object({
   organization: z.object({
@@ -64,6 +71,8 @@ export const staffFamilyDetailSchema = z.object({
     z.object({
       id: uuidSchema,
       displayName: z.string().min(1).max(160),
+      firstName: personNamePartSchema,
+      lastName: personNamePartSchema,
       phoneNormalized: z.string().regex(/^\+[1-9]\d{9,14}$/),
       phoneDisplay: z.string().min(1).max(80),
       preferredContactChannel: contactChannelSchema,
@@ -78,6 +87,8 @@ export const staffFamilyDetailSchema = z.object({
     z.object({
       id: uuidSchema,
       displayName: z.string().min(1).max(160),
+      firstName: personNamePartSchema,
+      lastName: personNamePartSchema,
       birthDate: dateSchema,
       note: z.string().max(4_000).nullable(),
       status: entityStatusSchema,

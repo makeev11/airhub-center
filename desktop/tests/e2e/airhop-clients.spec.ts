@@ -76,7 +76,8 @@ test("clients directory persists family edits and roster shows active bookings",
 
   await page.getByTestId("airhop-add-child").click();
   const childForm = page.getByTestId("airhop-child-form");
-  await childForm.getByTestId("airhop-child-name").fill("Анна Соколова");
+  await childForm.getByTestId("airhop-child-first-name").fill("Анна");
+  await childForm.getByTestId("airhop-child-last-name").fill("Соколова");
   await childForm.getByTestId("airhop-child-birth-date").fill("02.03.2022");
   await childForm.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByText("Анна Соколова", { exact: true })).toBeVisible();
@@ -87,8 +88,11 @@ test("clients directory persists family edits and roster shows active bookings",
   await representative.click();
   const representativeForm = page.getByTestId("airhop-representative-form");
   await representativeForm
-    .getByTestId("airhop-representative-name")
-    .fill("Мария Иванова");
+    .getByTestId("airhop-representative-first-name")
+    .fill("Мария");
+  await representativeForm
+    .getByTestId("airhop-representative-last-name")
+    .fill("Иванова");
   await representativeForm.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByText("Мария Иванова", { exact: true })).toBeVisible();
   await page.reload();
@@ -106,7 +110,7 @@ test("clients directory persists family edits and roster shows active bookings",
   await expectNoHorizontalOverflow(page);
 });
 
-test("new family keeps the representative surname and uses the Airhop calendar", async ({
+test("new family keeps independent family and member names and uses the Airhop calendar", async ({
   page,
 }) => {
   await page.goto("/#/booking/clients");
@@ -125,12 +129,17 @@ test("new family keeps the representative surname and uses the Airhop calendar",
 
   await form.getByLabel("Имя представителя").fill("Мария");
   await form.getByLabel("Фамилия представителя").fill("Соколова");
+  await form.getByLabel("Название семьи").fill("Соколовы и Петровы");
   await form.getByLabel("Телефон").fill("+7 999 123-45-67");
-  await form.getByLabel("Имя ребёнка").fill("Лев Соколов");
+  await form.getByLabel("Имя ребёнка").fill("Лев");
+  await form.getByLabel("Фамилия ребёнка").fill("Петров");
   await form.getByLabel("Дата рождения", { exact: true }).fill("10.08.2020");
   await form.getByRole("button", { name: "Сохранить" }).click();
 
   await expect(page).toHaveURL(/#\/booking\/clients\/family-/);
-  await expect(page.getByText("Соколова", { exact: true })).toBeVisible();
-  await expect(page.getByText("Соколова Мария", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Соколовы и Петровы", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Мария Соколова", { exact: true })).toBeVisible();
+  await expect(page.getByText("Лев Петров", { exact: true })).toBeVisible();
 });

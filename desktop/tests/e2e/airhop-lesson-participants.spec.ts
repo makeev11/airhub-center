@@ -3,6 +3,9 @@ import { expect, test } from "@playwright/test";
 import { installMockBridge } from "../helpers/bridge";
 
 test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("airhop.locale.v1", "ru-RU");
+  });
   await page.clock.setFixedTime(new Date("2026-08-04T09:00:00.000Z"));
   await installMockBridge(page);
 });
@@ -27,10 +30,16 @@ test("staff adds new and existing children to lessons and records attendance", a
     dialog.getByTestId("airhop-participant-visit-kind"),
   ).toBeVisible();
   await dialog.getByTestId("airhop-participant-new-mode").click();
-  await dialog.getByTestId("airhop-participant-parent-name").fill("Ирина");
+  await dialog
+    .getByTestId("airhop-participant-parent-first-name")
+    .fill("Ирина");
+  await dialog
+    .getByTestId("airhop-participant-parent-last-name")
+    .fill("Соколова");
   await dialog.getByTestId("airhop-participant-phone").fill("+7 999 123-45-67");
-  await dialog.getByTestId("airhop-participant-child-name").fill("Миша");
-  await dialog.getByTestId("airhop-participant-birth-date").fill("2020-08-03");
+  await dialog.getByTestId("airhop-participant-child-first-name").fill("Миша");
+  await dialog.getByTestId("airhop-participant-child-last-name").fill("Петров");
+  await dialog.getByTestId("airhop-participant-birth-date").fill("03.08.2020");
   await dialog
     .getByTestId("airhop-participant-visit-kind")
     .selectOption("single");

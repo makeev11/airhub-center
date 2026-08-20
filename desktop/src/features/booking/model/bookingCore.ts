@@ -114,6 +114,7 @@ export const organizationSchema = z.object({
     .min(1)
     .max(80)
     .refine(isValidTimeZone, "Invalid IANA time zone"),
+  staffWorkingHours: weeklyWorkingHoursSchema.default({}),
   defaultTrialPolicy: trialPolicySchema,
   trackAttendanceByDefault: z.boolean(),
   allowSingleVisitsByDefault: z.boolean(),
@@ -323,6 +324,8 @@ export const representativeSchema = z.object({
   organizationId: bookingIdSchema,
   familyId: bookingIdSchema,
   displayName: z.string().trim().min(1).max(160),
+  firstName: z.string().trim().min(1).max(80).optional(),
+  lastName: z.string().trim().min(1).max(80).optional(),
   phoneNormalized: z.string().regex(/^\+[1-9]\d{9,14}$/),
   phoneDisplay: z.string().trim().min(1).max(80),
   preferredContactChannel: preferredContactChannelSchema,
@@ -345,6 +348,8 @@ export const childSchema = z.object({
   organizationId: bookingIdSchema,
   familyId: bookingIdSchema,
   displayName: z.string().trim().min(1).max(160),
+  firstName: z.string().trim().min(1).max(80).optional(),
+  lastName: z.string().trim().min(1).max(80).optional(),
   birthDate: isoDateSchema,
   note: z.string().trim().max(4_000).optional(),
   status: z.enum(["active", "archived"]),
@@ -370,9 +375,13 @@ export const duplicateCandidateSchema = z.object({
 
 export const bookingApplicantSnapshotSchema = z.object({
   parentName: z.string().trim().min(1).max(160),
+  parentFirstName: z.string().trim().min(1).max(80).optional(),
+  parentLastName: z.string().trim().min(1).max(80).optional(),
   phoneNormalized: z.string().regex(/^\+[1-9]\d{9,14}$/),
   phoneDisplay: z.string().trim().min(1).max(80),
   childName: z.string().trim().min(1).max(160),
+  childFirstName: z.string().trim().min(1).max(80).optional(),
+  childLastName: z.string().trim().min(1).max(80).optional(),
   childBirthDate: isoDateSchema,
   consentVersion: z.string().trim().min(1).max(80),
   consentAcceptedAt: z.string().datetime({ offset: true }),

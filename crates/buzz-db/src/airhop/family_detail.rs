@@ -62,6 +62,10 @@ pub struct StaffFamilyRepresentative {
     pub id: Uuid,
     /// Current display name.
     pub display_name: String,
+    /// Exact first name when confirmed by staff.
+    pub first_name: Option<String>,
+    /// Exact last name when confirmed by staff.
+    pub last_name: Option<String>,
     /// E.164 phone retained for staff operations.
     pub phone_normalized: String,
     /// Human-readable phone.
@@ -88,6 +92,10 @@ pub struct StaffFamilyChild {
     pub id: Uuid,
     /// Current display name.
     pub display_name: String,
+    /// Exact first name when confirmed by staff.
+    pub first_name: Option<String>,
+    /// Exact last name when confirmed by staff.
+    pub last_name: Option<String>,
     /// Exact birth date visible only to authenticated staff.
     pub birth_date: NaiveDate,
     /// Optional operational note.
@@ -343,6 +351,7 @@ async fn load_representatives(
 ) -> Result<Vec<StaffFamilyRepresentative>> {
     sqlx::query(
         "SELECT representative.id, representative.display_name, \
+                representative.first_name, representative.last_name, \
                 representative.phone_normalized, representative.phone_display, \
                 representative.preferred_contact_channel, representative.status, \
                 representative.version, representative.created_at, representative.updated_at, \
@@ -376,6 +385,8 @@ async fn load_representatives(
         Ok(StaffFamilyRepresentative {
             id: row.try_get("id")?,
             display_name: row.try_get("display_name")?,
+            first_name: row.try_get("first_name")?,
+            last_name: row.try_get("last_name")?,
             phone_normalized: row.try_get("phone_normalized")?,
             phone_display: row.try_get("phone_display")?,
             preferred_contact_channel,
@@ -396,7 +407,7 @@ async fn load_children(
     family_id: Uuid,
 ) -> Result<Vec<StaffFamilyChild>> {
     sqlx::query(
-        "SELECT id, display_name, birth_date, note, status, version, created_at, updated_at \
+        "SELECT id, display_name, first_name, last_name, birth_date, note, status, version, created_at, updated_at \
          FROM airhop_children \
          WHERE community_id = $1 AND organization_id = $2 AND family_id = $3 \
          ORDER BY status, display_name, id",
@@ -413,6 +424,8 @@ async fn load_children(
         Ok(StaffFamilyChild {
             id: row.try_get("id")?,
             display_name: row.try_get("display_name")?,
+            first_name: row.try_get("first_name")?,
+            last_name: row.try_get("last_name")?,
             birth_date: row.try_get("birth_date")?,
             note: row.try_get("note")?,
             status,

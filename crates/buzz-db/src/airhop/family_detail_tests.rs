@@ -22,6 +22,8 @@ fn representative_serialization_exposes_channels_but_not_provider_identity() {
     let representative = StaffFamilyRepresentative {
         id: Uuid::new_v4(),
         display_name: "Мария".to_owned(),
+        first_name: Some("Мария".to_owned()),
+        last_name: Some("Иванова".to_owned()),
         phone_normalized: "+79990000000".to_owned(),
         phone_display: "+7 999 000-00-00".to_owned(),
         preferred_contact_channel: "telegram".to_owned(),
@@ -33,6 +35,8 @@ fn representative_serialization_exposes_channels_but_not_provider_identity() {
     };
     let value = serde_json::to_value(representative).unwrap();
     assert_eq!(value["verifiedMessengerChannels"], json!(["telegram"]));
+    assert_eq!(value["firstName"], json!("Мария"));
+    assert_eq!(value["lastName"], json!("Иванова"));
     assert!(value.get("externalUserId").is_none());
     assert!(value.get("displayHandle").is_none());
 }
@@ -73,10 +77,20 @@ async fn family_detail_is_tenant_scoped_coherent_and_privacy_bounded() {
     );
     assert_eq!(detail.representatives.len(), 1);
     assert_eq!(
+        detail.representatives[0].first_name.as_deref(),
+        Some("Мария")
+    );
+    assert_eq!(
+        detail.representatives[0].last_name.as_deref(),
+        Some("Соколова")
+    );
+    assert_eq!(
         detail.representatives[0].verified_messenger_channels,
         vec!["telegram"]
     );
     assert_eq!(detail.children.len(), 1);
+    assert_eq!(detail.children[0].first_name.as_deref(), Some("Лев"));
+    assert_eq!(detail.children[0].last_name.as_deref(), Some("Петров"));
     assert_eq!(detail.children[0].note.as_deref(), Some("Любит футбол"));
     assert_eq!(detail.enrollments.len(), 1);
     assert_eq!(detail.enrollments[0].schedule.len(), 1);
@@ -155,8 +169,9 @@ async fn insert_family_fixture(
     sqlx::query(
         "INSERT INTO airhop_representatives (\
              community_id, organization_id, id, family_id, display_name,\
-             phone_normalized, phone_display, phone_match_digest, preferred_contact_channel\
-         ) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 'telegram')",
+             first_name, last_name, phone_normalized, phone_display, phone_match_digest,\
+             preferred_contact_channel\
+         ) VALUES ($1, $2, $3, $4, $5, 'Мария', 'Соколова', $6, $6, $7, 'telegram')",
     )
     .bind(community_id)
     .bind(organization_id)
@@ -174,8 +189,9 @@ async fn insert_family_fixture(
     .expect("insert representative");
     sqlx::query(
         "INSERT INTO airhop_children (\
-             community_id, organization_id, id, family_id, display_name, birth_date, note\
-         ) VALUES ($1, $2, $3, $4, $5, '2020-05-20', $6)",
+             community_id, organization_id, id, family_id, display_name, first_name, last_name,\
+             birth_date, note\
+         ) VALUES ($1, $2, $3, $4, $5, 'Лев', 'Петров', '2020-05-20', $6)",
     )
     .bind(community_id)
     .bind(organization_id)
@@ -293,6 +309,17 @@ async fn insert_operational_fixtures(
     .execute(&mut **transaction)
     .await
     .expect("insert recurrence rule");
+    sqlx::query(
+        "INSERT INTO airhop_recurrence_weekdays (\
+             community_id, organization_id, recurrence_rule_id, weekday\
+         ) VALUES ($1, $2, $3, 'thursday')",
+    )
+    .bind(community_id)
+    .bind(organization_id)
+    .bind(rule_id)
+    .execute(&mut **transaction)
+    .await
+    .expect("insert recurrence weekday");
     sqlx::query(
         "INSERT INTO airhop_lesson_occurrences (\
              community_id, organization_id, id, recurrence_rule_id, original_date, group_id,\

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use airhop_core::{
     ExistingStudentsOnboardingStatus, OrganizationSettings, PublicBookingAppearance,
-    PublicBookingPurpose, TrialPolicy, Weekday,
+    PublicBookingPurpose, TrialPolicy, Weekday, WeeklyStaffWorkingHours,
 };
 use buzz_core::TenantContext;
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
@@ -212,6 +212,8 @@ struct PutOrganizationSettingsCommand {
     payments_buzz_channel_id: Option<Uuid>,
     #[serde(default)]
     analytics_buzz_channel_id: Option<Uuid>,
+    #[serde(default)]
+    staff_working_hours: WeeklyStaffWorkingHours,
     default_trial_policy: TrialPolicy,
     track_attendance_by_default: bool,
     allow_single_visits_by_default: bool,
@@ -329,12 +331,16 @@ struct CreateTariffCommand {
 struct CreateFamilyCommand {
     display_name: String,
     representative_name: String,
+    representative_first_name: String,
+    representative_last_name: String,
     phone: String,
     phone_normalized: String,
     phone_match_digest: String,
     #[serde(default = "default_phone_contact_channel")]
     preferred_contact_channel: String,
     child_name: String,
+    child_first_name: String,
+    child_last_name: String,
     child_birth_date: NaiveDate,
     #[serde(default)]
     child_note: Option<String>,
@@ -863,6 +869,7 @@ pub(crate) async fn commit_airhop_agent_action_from_reaction(
                     payments_buzz_channel_id: command.payments_buzz_channel_id,
                     analytics_buzz_channel_id: command.analytics_buzz_channel_id,
                     settings: OrganizationSettings {
+                        staff_working_hours: command.staff_working_hours,
                         default_trial_policy: command.default_trial_policy,
                         track_attendance_by_default: command.track_attendance_by_default,
                         allow_single_visits_by_default: command.allow_single_visits_by_default,
@@ -1056,11 +1063,15 @@ pub(crate) async fn commit_airhop_agent_action_from_reaction(
                 &CreateFamilyInput {
                     display_name: command.display_name,
                     representative_name: command.representative_name,
+                    representative_first_name: Some(command.representative_first_name),
+                    representative_last_name: Some(command.representative_last_name),
                     phone_normalized: command.phone_normalized,
                     phone_display: command.phone,
                     phone_match_digest,
                     preferred_contact_channel: command.preferred_contact_channel,
                     child_name: command.child_name,
+                    child_first_name: Some(command.child_first_name),
+                    child_last_name: Some(command.child_last_name),
                     child_birth_date: command.child_birth_date,
                     child_note: command.child_note,
                     idempotency_digest: action_command_idempotency_digest(
@@ -1609,11 +1620,15 @@ mod tests {
                     "input": {
                         "displayName": "Smith",
                         "representativeName": "Sam",
+                        "representativeFirstName": "Sam",
+                        "representativeLastName": "Smith",
                         "phone": "+12025550123",
                         "phoneNormalized": "+12025550123",
                         "phoneMatchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                         "preferredContactChannel": "phone",
                         "childName": "Kim",
+                        "childFirstName": "Kim",
+                        "childLastName": "Smith",
                         "childBirthDate": "2020-01-02",
                         "childNote": null
                     }
@@ -2240,11 +2255,15 @@ mod tests {
             "input": {
                 "displayName": "Smith",
                 "representativeName": "Sam",
+                "representativeFirstName": "Sam",
+                "representativeLastName": "Smith",
                 "phone": "+12025550123",
                 "phoneNormalized": "+12025550123",
                 "phoneMatchDigest": hex::encode([0xaa_u8; 32]),
                 "preferredContactChannel": "phone",
                 "childName": "Kim",
+                "childFirstName": "Kim",
+                "childLastName": "Smith",
                 "childBirthDate": "2020-01-02",
                 "childNote": null
             }

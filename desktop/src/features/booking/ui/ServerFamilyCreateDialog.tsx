@@ -8,6 +8,7 @@ import {
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import { airHopTodayIsoDate } from "@/features/booking/lib/airHopDateInput";
 import { normalizePublicBookingPhone } from "@/features/booking/model/publicBooking";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
@@ -22,18 +23,22 @@ import {
 import { Input } from "@/shared/ui/input";
 
 type FormState = {
+  familyName: string;
   representativeFirstName: string;
   representativeLastName: string;
   phone: string;
-  childName: string;
+  childFirstName: string;
+  childLastName: string;
   childBirthDate: string;
 };
 
 const EMPTY_FORM: FormState = {
+  familyName: "",
   representativeFirstName: "",
   representativeLastName: "",
   phone: "",
-  childName: "",
+  childFirstName: "",
+  childLastName: "",
   childBirthDate: "",
 };
 
@@ -47,7 +52,8 @@ export function ServerFamilyCreateDialog({
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
-  const messages = getBookingAdminMessages("ru-RU");
+  const locale = useAirHopLocale();
+  const messages = getBookingAdminMessages(locale);
   const service = React.useMemo(
     () => createHttpStaffFamilyLifecycleService(),
     [],
@@ -68,12 +74,16 @@ export function ServerFamilyCreateDialog({
     event.preventDefault();
     const phoneNormalized = normalizePublicBookingPhone(form.phone);
     const nextErrors: Record<string, string> = {};
+    if (!form.familyName.trim()) nextErrors.familyName = messages.requiredField;
     if (!form.representativeFirstName.trim())
       nextErrors.representativeFirstName = messages.requiredField;
     if (!form.representativeLastName.trim())
       nextErrors.representativeLastName = messages.requiredField;
     if (!phoneNormalized) nextErrors.phone = messages.invalidPhone;
-    if (!form.childName.trim()) nextErrors.childName = messages.requiredField;
+    if (!form.childFirstName.trim())
+      nextErrors.childFirstName = messages.requiredField;
+    if (!form.childLastName.trim())
+      nextErrors.childLastName = messages.requiredField;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(form.childBirthDate)) {
       nextErrors.childBirthDate = messages.invalidBirthDate;
     }
@@ -84,14 +94,22 @@ export function ServerFamilyCreateDialog({
     setRequestError(null);
     try {
       const representativeName = [
-        form.representativeLastName.trim(),
         form.representativeFirstName.trim(),
+        form.representativeLastName.trim(),
+      ].join(" ");
+      const childName = [
+        form.childFirstName.trim(),
+        form.childLastName.trim(),
       ].join(" ");
       const result = await service.createFamily({
-        displayName: form.representativeLastName.trim(),
+        displayName: form.familyName.trim(),
         representativeName,
+        representativeFirstName: form.representativeFirstName,
+        representativeLastName: form.representativeLastName,
         phone: form.phone,
-        childName: form.childName,
+        childName,
+        childFirstName: form.childFirstName,
+        childLastName: form.childLastName,
         childBirthDate: form.childBirthDate,
       });
       toast.success(messages.familyCreated);
@@ -165,13 +183,17 @@ export function ServerFamilyCreateDialog({
               <AlertDescription>{requestError}</AlertDescription>
             </Alert>
           ) : null}
+          {field("familyName", messages.familyName)}
           <div className="grid gap-4 sm:grid-cols-2">
             {field("representativeFirstName", messages.representativeFirstName)}
             {field("representativeLastName", messages.representativeLastName)}
           </div>
           {field("phone", messages.representativePhone, "tel")}
           <div className="grid gap-4 sm:grid-cols-2">
-            {field("childName", messages.childName)}
+            {field("childFirstName", messages.childFirstName)}
+            {field("childLastName", messages.childLastName)}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
             {field("childBirthDate", messages.childBirthDate, "date")}
           </div>
           <DialogFooter>

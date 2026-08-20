@@ -38,7 +38,12 @@ function withResolution(workspace, resolution) {
 test("first booking applicant creates a linked family, representative, and child", () => {
   const resolution = resolveBookingApplicantIdentity(
     DEMO_BOOKING_WORKSPACE,
-    applicant(),
+    applicant({
+      parentFirstName: "Ирина",
+      parentLastName: "Соколова",
+      childFirstName: "Маша",
+      childLastName: "Петрова",
+    }),
     { now: NOW, idFactory: sequence("1", "2", "3") },
   );
 
@@ -55,8 +60,12 @@ test("first booking applicant creates a linked family, representative, and child
   );
   assert.equal(resolution.representatives[0].familyId, "family-1");
   assert.equal(resolution.representatives[0].displayName, "Ирина Соколова");
+  assert.equal(resolution.representatives[0].firstName, "Ирина");
+  assert.equal(resolution.representatives[0].lastName, "Соколова");
   assert.equal(resolution.children[0].familyId, "family-1");
   assert.equal(resolution.children[0].displayName, "Маша Соколова");
+  assert.equal(resolution.children[0].firstName, "Маша");
+  assert.equal(resolution.children[0].lastName, "Петрова");
 });
 
 test("same phone and normalized child identity reuse all records stably", () => {

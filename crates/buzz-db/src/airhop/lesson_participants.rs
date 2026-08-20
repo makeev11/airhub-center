@@ -118,7 +118,7 @@ pub enum StaffLessonParticipantClient {
     /// New staff-entered applicant, matched with the public identity rules.
     New {
         /// Normalized applicant fields.
-        applicant: PublicBookingApplicant,
+        applicant: Box<PublicBookingApplicant>,
         /// Tenant-keyed exact-phone digest.
         phone_match_digest: [u8; 32],
     },
@@ -1228,7 +1228,7 @@ async fn resolve_staff_identity(
             applicant,
             phone_match_digest,
         } => {
-            let applicant = normalize_applicant(applicant, current_date)?;
+            let applicant = normalize_applicant(applicant.as_ref(), current_date)?;
             acquire_identity_lock(
                 transaction,
                 tenant,
@@ -2022,9 +2022,13 @@ mod tests {
     fn new_staff_applicant_keeps_phone_contact_semantics() {
         let applicant = PublicBookingApplicant {
             parent_name: "Анна".to_owned(),
+            parent_first_name: None,
+            parent_last_name: None,
             phone_normalized: "+79991234567".to_owned(),
             phone_display: "+7 999 123-45-67".to_owned(),
             child_name: "Маша".to_owned(),
+            child_first_name: None,
+            child_last_name: None,
             child_birth_date: NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
             preferred_contact_channel: super::super::public_booking::PreferredContactChannel::Phone,
             consent_policy_version: "staff-entry-v1".to_owned(),

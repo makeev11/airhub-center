@@ -39,9 +39,11 @@ type SelectedClient = {
 };
 
 const EMPTY_FORM = {
-  parentName: "",
+  parentFirstName: "",
+  parentLastName: "",
   phone: "",
-  childName: "",
+  childFirstName: "",
+  childLastName: "",
   childBirthDate: "",
 };
 
@@ -120,10 +122,15 @@ export function LessonParticipantDialog({
       else client = { mode: "existing", ...selectedClient };
     } else {
       const phoneNormalized = normalizePublicBookingPhone(form.phone);
-      if (!form.parentName.trim())
-        nextErrors.parentName = messages.requiredField;
+      if (!form.parentFirstName.trim())
+        nextErrors.parentFirstName = messages.requiredField;
+      if (!form.parentLastName.trim())
+        nextErrors.parentLastName = messages.requiredField;
       if (!phoneNormalized) nextErrors.phone = messages.invalidPhone;
-      if (!form.childName.trim()) nextErrors.childName = messages.requiredField;
+      if (!form.childFirstName.trim())
+        nextErrors.childFirstName = messages.requiredField;
+      if (!form.childLastName.trim())
+        nextErrors.childLastName = messages.requiredField;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(form.childBirthDate))
         nextErrors.childBirthDate = messages.invalidBirthDate;
       if (phoneNormalized) {
@@ -131,10 +138,14 @@ export function LessonParticipantDialog({
         client = {
           mode: "new",
           applicant: {
-            parentName: form.parentName.trim(),
+            parentName: `${form.parentFirstName.trim()} ${form.parentLastName.trim()}`,
+            parentFirstName: form.parentFirstName.trim(),
+            parentLastName: form.parentLastName.trim(),
             phoneNormalized,
             phoneDisplay: form.phone.trim(),
-            childName: form.childName.trim(),
+            childName: `${form.childFirstName.trim()} ${form.childLastName.trim()}`,
+            childFirstName: form.childFirstName.trim(),
+            childLastName: form.childLastName.trim(),
             childBirthDate: form.childBirthDate,
             consentVersion: "staff-entry-v1",
             consentAcceptedAt: now,
@@ -200,7 +211,7 @@ export function LessonParticipantDialog({
             errors[key] ? `airhop-participant-${key}-error` : undefined
           }
           aria-invalid={Boolean(errors[key])}
-          data-testid={`airhop-participant-${key.replace("childBirthDate", "birth-date").replace("parentName", "parent-name").replace("childName", "child-name")}`}
+          data-testid={`airhop-participant-${key.replace("childBirthDate", "birth-date").replace("parentFirstName", "parent-first-name").replace("parentLastName", "parent-last-name").replace("childFirstName", "child-first-name").replace("childLastName", "child-last-name")}`}
           id={`airhop-participant-${key}`}
           locale={workspace.organization.locale}
           max={airHopTodayIsoDate()}
@@ -216,7 +227,7 @@ export function LessonParticipantDialog({
             errors[key] ? `airhop-participant-${key}-error` : undefined
           }
           aria-invalid={Boolean(errors[key])}
-          data-testid={`airhop-participant-${key.replace("childBirthDate", "birth-date").replace("parentName", "parent-name").replace("childName", "child-name")}`}
+          data-testid={`airhop-participant-${key.replace("childBirthDate", "birth-date").replace("parentFirstName", "parent-first-name").replace("parentLastName", "parent-last-name").replace("childFirstName", "child-first-name").replace("childLastName", "child-last-name")}`}
           id={`airhop-participant-${key}`}
           onChange={(event) =>
             setForm((current) => ({ ...current, [key]: event.target.value }))
@@ -334,9 +345,13 @@ export function LessonParticipantDialog({
               </div>
             ) : (
               <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-                {field("parentName", messages.representativeName)}
-                {field("phone", messages.representativePhone, "tel")}
-                {field("childName", messages.childName)}
+                {field("parentFirstName", messages.representativeFirstName)}
+                {field("parentLastName", messages.representativeLastName)}
+                <div className="sm:col-span-2">
+                  {field("phone", messages.representativePhone, "tel")}
+                </div>
+                {field("childFirstName", messages.childFirstName)}
+                {field("childLastName", messages.childLastName)}
                 {field("childBirthDate", messages.childBirthDate, "date")}
               </div>
             )}

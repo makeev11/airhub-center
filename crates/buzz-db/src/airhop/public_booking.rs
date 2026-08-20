@@ -78,12 +78,20 @@ impl PublicBookingSurface {
 pub struct PublicBookingApplicant {
     /// Parent or other representative display name.
     pub parent_name: String,
+    /// Exact representative first name when staff supplied structured identity.
+    pub parent_first_name: Option<String>,
+    /// Exact representative last name when staff supplied structured identity.
+    pub parent_last_name: Option<String>,
     /// E.164 phone number used for exact matching after keyed digest lookup.
     pub phone_normalized: String,
     /// Phone formatting shown by the applicant at submission time.
     pub phone_display: String,
     /// Child display name.
     pub child_name: String,
+    /// Exact child first name when staff supplied structured identity.
+    pub child_first_name: Option<String>,
+    /// Exact child last name when staff supplied structured identity.
+    pub child_last_name: Option<String>,
     /// Child date of birth.
     pub child_birth_date: NaiveDate,
     /// Preferred route for operational follow-up.
@@ -148,9 +156,13 @@ struct OrganizationClock {
 #[derive(Debug)]
 pub(super) struct NormalizedApplicant {
     pub(super) parent_name: String,
+    pub(super) parent_first_name: Option<String>,
+    pub(super) parent_last_name: Option<String>,
     pub(super) phone_normalized: String,
     pub(super) phone_display: String,
     pub(super) child_name: String,
+    pub(super) child_first_name: Option<String>,
+    pub(super) child_last_name: Option<String>,
     normalized_child_name: String,
     pub(super) child_birth_date: NaiveDate,
     pub(super) preferred_contact_channel: PreferredContactChannel,
@@ -445,6 +457,16 @@ pub(super) fn normalize_applicant(
 ) -> Result<NormalizedApplicant> {
     let parent_name = bounded_text(&input.parent_name, 160, "representative name")?;
     let child_name = bounded_text(&input.child_name, 160, "child name")?;
+    let (parent_first_name, parent_last_name) = normalize_structured_name(
+        input.parent_first_name.as_deref(),
+        input.parent_last_name.as_deref(),
+        "representative",
+    )?;
+    let (child_first_name, child_last_name) = normalize_structured_name(
+        input.child_first_name.as_deref(),
+        input.child_last_name.as_deref(),
+        "child",
+    )?;
     let phone_display = bounded_text(&input.phone_display, 80, "phone display")?;
     let consent_policy_version =
         bounded_text(&input.consent_policy_version, 80, "consent policy version")?;
@@ -457,10 +479,14 @@ pub(super) fn normalize_applicant(
     }
     Ok(NormalizedApplicant {
         parent_name,
+        parent_first_name,
+        parent_last_name,
         phone_normalized,
         phone_display,
         normalized_child_name: normalize_name(&child_name),
         child_name,
+        child_first_name,
+        child_last_name,
         child_birth_date: input.child_birth_date,
         preferred_contact_channel: input.preferred_contact_channel,
         consent_policy_version,
@@ -473,6 +499,27 @@ fn bounded_text(value: &str, maximum_chars: usize, label: &str) -> Result<String
         return Err(DbError::InvalidData(format!("AirHub {label} is invalid")));
     }
     Ok(normalized)
+}
+
+fn normalize_structured_name(
+    first_name: Option<&str>,
+    last_name: Option<&str>,
+    label: &str,
+) -> Result<(Option<String>, Option<String>)> {
+    match (first_name, last_name) {
+        (None, None) => Ok((None, None)),
+        (Some(first_name), Some(last_name)) => Ok((
+            Some(bounded_text(
+                first_name,
+                80,
+                &format!("{label} first name"),
+            )?),
+            Some(bounded_text(last_name, 80, &format!("{label} last name"))?),
+        )),
+        _ => Err(DbError::InvalidData(format!(
+            "AirHub {label} structured name is incomplete"
+        ))),
+    }
 }
 
 fn collapse_whitespace(value: &str) -> String {
@@ -606,15 +653,17 @@ pub(super) async fn resolve_identity(
             sqlx::query(
                 "INSERT INTO airhop_representatives ( \
                      community_id, organization_id, id, family_id, display_name, \
-                     phone_normalized, phone_display, phone_match_digest, \
+                     first_name, last_name, phone_normalized, phone_display, phone_match_digest, \
                      preferred_contact_channel \
-                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
             )
             .bind(tenant.community().as_uuid())
             .bind(organization_id)
             .bind(representative_id)
             .bind(family_id)
             .bind(&applicant.parent_name)
+            .bind(&applicant.parent_first_name)
+            .bind(&applicant.parent_last_name)
             .bind(&applicant.phone_normalized)
             .bind(&applicant.phone_display)
             .bind(consent.phone_match_digest.as_slice())
@@ -738,14 +787,17 @@ async fn insert_child(
     let child_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO airhop_children ( \
-             community_id, organization_id, id, family_id, display_name, birth_date \
-         ) VALUES ($1, $2, $3, $4, $5, $6)",
+             community_id, organization_id, id, family_id, display_name, first_name, last_name, \
+             birth_date \
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(tenant.community().as_uuid())
     .bind(organization_id)
     .bind(child_id)
     .bind(family_id)
     .bind(&applicant.child_name)
+    .bind(&applicant.child_first_name)
+    .bind(&applicant.child_last_name)
     .bind(applicant.child_birth_date)
     .execute(&mut **transaction)
     .await?;
@@ -1027,9 +1079,13 @@ mod tests {
             },
             applicant: PublicBookingApplicant {
                 parent_name: " Мария   Иванова ".to_owned(),
+                parent_first_name: None,
+                parent_last_name: None,
                 phone_normalized: "+79991234567".to_owned(),
                 phone_display: "+7 999 123-45-67".to_owned(),
                 child_name: " Анна ".to_owned(),
+                child_first_name: None,
+                child_last_name: None,
                 child_birth_date: NaiveDate::from_ymd_opt(2019, 5, 20).expect("valid birth date"),
                 preferred_contact_channel: PreferredContactChannel::Telegram,
                 consent_policy_version: "booking-v1".to_owned(),

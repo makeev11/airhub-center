@@ -94,7 +94,16 @@ impl AirhopAgentCommand {
             Self::CreateTeacher(_) => &["displayName"],
             Self::CreateGroup(_) => &["group.name"],
             Self::CreateTariff(_) => &["name", "currency"],
-            Self::CreateFamily(_) => &["displayName", "representativeName", "phone", "childName"],
+            Self::CreateFamily(_) => &[
+                "displayName",
+                "representativeName",
+                "representativeFirstName",
+                "representativeLastName",
+                "phone",
+                "childName",
+                "childFirstName",
+                "childLastName",
+            ],
             Self::EnrollParticipant(_) => &[],
             Self::MutatePayment { .. } => &[],
         };
@@ -102,6 +111,9 @@ impl AirhopAgentCommand {
             let Some(value) = value_at_path(input, path) else {
                 return Err("required command field is missing");
             };
+            if value.is_null() {
+                return Err("required command field is missing");
+            }
             if value.as_str().is_some_and(|value| value.trim().is_empty()) {
                 return Err("required command text must not be blank");
             }
@@ -1013,8 +1025,12 @@ mod tests {
             "input": {
                 "displayName": "Smith",
                 "representativeName": "Sam",
+                "representativeFirstName": "Sam",
+                "representativeLastName": "Smith",
                 "phone": "+1 (202) 555-0123",
                 "childName": "Kim",
+                "childFirstName": "Kim",
+                "childLastName": "Smith",
                 "childBirthDate": "2020-01-02"
             }
         }))
@@ -1031,6 +1047,26 @@ mod tests {
                 &community_id,
                 "+12025550123",
             ))
+        );
+    }
+
+    #[test]
+    fn family_command_requires_structured_person_names() {
+        let command: AirhopAgentCommand = serde_json::from_value(json!({
+            "type": "create_family",
+            "input": {
+                "displayName": "Smith family",
+                "representativeName": "Sam Smith",
+                "phone": "+1 (202) 555-0123",
+                "childName": "Kim Smith",
+                "childBirthDate": "2020-01-02"
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            command.validate_required_fields(),
+            Err("required command field is missing")
         );
     }
 

@@ -26,8 +26,12 @@ function createInput() {
   return {
     displayName: "  Семья Ивановых  ",
     representativeName: "  Мария Иванова  ",
+    representativeFirstName: "  Мария  ",
+    representativeLastName: "  Иванова  ",
     phone: "  +7 999 123-45-67  ",
     childName: "  Анна  ",
+    childFirstName: "  Анна  ",
+    childLastName: "  Иванова  ",
     childBirthDate: "2019-05-20",
     childNote: "  Аллергия на орехи  ",
     idempotencyKey: "family-create-1",
@@ -62,9 +66,13 @@ test("family creation signs the exact POST payload and URL", async () => {
   const expectedBody = JSON.stringify({
     displayName: "Семья Ивановых",
     representativeName: "Мария Иванова",
+    representativeFirstName: "Мария",
+    representativeLastName: "Иванова",
     phone: "+7 999 123-45-67",
     preferredContactChannel: "phone",
     childName: "Анна",
+    childFirstName: "Анна",
+    childLastName: "Иванова",
     childBirthDate: "2019-05-20",
     childNote: "Аллергия на орехи",
   });

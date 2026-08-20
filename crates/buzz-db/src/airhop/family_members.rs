@@ -24,6 +24,10 @@ pub struct AddFamilyRepresentativeInput {
     pub family_id: Uuid,
     /// Representative name.
     pub display_name: String,
+    /// Exact first name when supplied by the staff client.
+    pub first_name: Option<String>,
+    /// Exact last name when supplied by the staff client.
+    pub last_name: Option<String>,
     /// E.164 phone produced by the trusted HTTP boundary.
     pub phone_normalized: String,
     /// Human-readable phone entered by staff.
@@ -58,6 +62,10 @@ pub struct AddFamilyChildInput {
     pub family_id: Uuid,
     /// Child name.
     pub display_name: String,
+    /// Exact first name when supplied by the staff client.
+    pub first_name: Option<String>,
+    /// Exact last name when supplied by the staff client.
+    pub last_name: Option<String>,
     /// Exact birth date.
     pub birth_date: NaiveDate,
     /// Optional internal staff note.
@@ -131,15 +139,17 @@ impl Db {
         let representative_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO airhop_representatives (community_id, organization_id, id, \
-                 family_id, display_name, phone_normalized, phone_display, \
+                 family_id, display_name, first_name, last_name, phone_normalized, phone_display, \
                  phone_match_digest, preferred_contact_channel) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(tenant.community().as_uuid())
         .bind(organization_id)
         .bind(representative_id)
         .bind(input.family_id)
         .bind(input.display_name.trim())
+        .bind(normalized_name_part(input.first_name.as_deref()))
+        .bind(normalized_name_part(input.last_name.as_deref()))
         .bind(&input.phone_normalized)
         .bind(input.phone_display.trim())
         .bind(input.phone_match_digest.as_slice())
@@ -239,13 +249,16 @@ impl Db {
         let child_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO airhop_children (community_id, organization_id, id, family_id, \
-                 display_name, birth_date, note) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                 display_name, first_name, last_name, birth_date, note) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
         .bind(tenant.community().as_uuid())
         .bind(organization_id)
         .bind(child_id)
         .bind(input.family_id)
         .bind(input.display_name.trim())
+        .bind(normalized_name_part(input.first_name.as_deref()))
+        .bind(normalized_name_part(input.last_name.as_deref()))
         .bind(input.birth_date)
         .bind(normalized_note(input.note.as_deref()))
         .execute(&mut *transaction)
@@ -438,6 +451,7 @@ fn validate_representative(input: &AddFamilyRepresentativeInput) -> Result<()> {
     if input.family_id.is_nil()
         || input.actor.kind != ActorKind::Staff
         || !bounded(&input.display_name, 160)
+        || !valid_structured_name(input.first_name.as_deref(), input.last_name.as_deref())
         || !bounded(&input.phone_display, 80)
         || !valid_e164(&input.phone_normalized)
         || !matches!(
@@ -457,6 +471,7 @@ fn validate_child(input: &AddFamilyChildInput) -> Result<()> {
     if input.family_id.is_nil()
         || input.actor.kind != ActorKind::Staff
         || !bounded(&input.display_name, 160)
+        || !valid_structured_name(input.first_name.as_deref(), input.last_name.as_deref())
         || input
             .note
             .as_ref()
@@ -472,6 +487,18 @@ fn validate_child(input: &AddFamilyChildInput) -> Result<()> {
 fn bounded(value: &str, max: usize) -> bool {
     let value = value.trim();
     !value.is_empty() && value.chars().count() <= max
+}
+
+fn valid_structured_name(first_name: Option<&str>, last_name: Option<&str>) -> bool {
+    match (first_name, last_name) {
+        (None, None) => true,
+        (Some(first_name), Some(last_name)) => bounded(first_name, 80) && bounded(last_name, 80),
+        _ => false,
+    }
+}
+
+fn normalized_name_part(value: Option<&str>) -> Option<String> {
+    value.map(str::trim).map(ToOwned::to_owned)
 }
 
 fn valid_e164(value: &str) -> bool {
@@ -506,6 +533,8 @@ mod tests {
         let representative = AddFamilyRepresentativeInput {
             family_id: Uuid::new_v4(),
             display_name: "Мария".to_owned(),
+            first_name: Some("Мария".to_owned()),
+            last_name: Some("Иванова".to_owned()),
             phone_normalized: "+79991234567".to_owned(),
             phone_display: "+7 999 123-45-67".to_owned(),
             phone_match_digest: [2; 32],
@@ -516,6 +545,11 @@ mod tests {
         };
         assert!(validate_representative(&representative).is_ok());
         assert!(validate_representative(&AddFamilyRepresentativeInput {
+            last_name: None,
+            ..representative.clone()
+        })
+        .is_err());
+        assert!(validate_representative(&AddFamilyRepresentativeInput {
             phone_normalized: "8999".to_owned(),
             ..representative
         })
@@ -524,6 +558,8 @@ mod tests {
         let child = AddFamilyChildInput {
             family_id: Uuid::new_v4(),
             display_name: "Анна".to_owned(),
+            first_name: Some("Анна".to_owned()),
+            last_name: Some("Иванова".to_owned()),
             birth_date: NaiveDate::from_ymd_opt(2019, 5, 20).expect("date"),
             note: Some(" Аллергия ".to_owned()),
             idempotency_digest: [5; 32],

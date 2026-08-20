@@ -143,14 +143,16 @@ export function ServerChildFormDialog({
     () => createHttpStaffFamilyCommandService(),
     [],
   );
-  const [name, setName] = React.useState("");
+  const [firstName, setFirstName] = React.useState("");
+  const [lastName, setLastName] = React.useState("");
   const [birthDate, setBirthDate] = React.useState("");
   const [note, setNote] = React.useState("");
   const [isSaving, setIsSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!open) return;
-    setName(child?.displayName ?? "");
+    setFirstName(child?.firstName ?? child?.displayName ?? "");
+    setLastName(child?.lastName ?? "");
     setBirthDate(child?.birthDate ?? "");
     setNote(child?.note ?? "");
     setError(null);
@@ -159,31 +161,39 @@ export function ServerChildFormDialog({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (
-      !name.trim() ||
+      !firstName.trim() ||
+      !lastName.trim() ||
       !birthDate ||
       birthDate > detail.organization.currentDate
     ) {
       setError(
-        !name.trim() ? messages.requiredField : messages.invalidBirthDate,
+        !firstName.trim() || !lastName.trim()
+          ? messages.requiredField
+          : messages.invalidBirthDate,
       );
       return;
     }
     setIsSaving(true);
     setError(null);
     try {
+      const displayName = `${firstName.trim()} ${lastName.trim()}`;
       if (child) {
         await service.updateChild({
           familyId: detail.family.id,
           childId: child.id,
           expectedVersion: child.version,
-          displayName: name,
+          displayName,
+          firstName,
+          lastName,
           birthDate,
           note,
         });
       } else {
         await service.addChild({
           familyId: detail.family.id,
-          displayName: name,
+          displayName,
+          firstName,
+          lastName,
           birthDate,
           note,
         });
@@ -210,18 +220,32 @@ export function ServerChildFormDialog({
           <DialogDescription>{messages.familyChildren}</DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={(event) => void submit(event)}>
-          <label
-            className="grid gap-1.5 text-sm"
-            htmlFor="airhop-server-child-name"
-          >
-            <span className="font-medium">{messages.childName}</span>
-            <Input
-              id="airhop-server-child-name"
-              maxLength={160}
-              onChange={(event) => setName(event.target.value)}
-              value={name}
-            />
-          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label
+              className="grid gap-1.5 text-sm"
+              htmlFor="airhop-server-child-first-name"
+            >
+              <span className="font-medium">{messages.childFirstName}</span>
+              <Input
+                id="airhop-server-child-first-name"
+                maxLength={80}
+                onChange={(event) => setFirstName(event.target.value)}
+                value={firstName}
+              />
+            </label>
+            <label
+              className="grid gap-1.5 text-sm"
+              htmlFor="airhop-server-child-last-name"
+            >
+              <span className="font-medium">{messages.childLastName}</span>
+              <Input
+                id="airhop-server-child-last-name"
+                maxLength={80}
+                onChange={(event) => setLastName(event.target.value)}
+                value={lastName}
+              />
+            </label>
+          </div>
           <label
             className="grid gap-1.5 text-sm"
             htmlFor="airhop-server-child-birth-date"

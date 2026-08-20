@@ -54,6 +54,8 @@ function validDetail() {
       {
         id: IDS.representative,
         displayName: "Мария Иванова",
+        firstName: "Мария",
+        lastName: "Иванова",
         phoneNormalized: "+79991234567",
         phoneDisplay: "+7 999 123-45-67",
         preferredContactChannel: "telegram",
@@ -68,6 +70,8 @@ function validDetail() {
       {
         id: IDS.child,
         displayName: "Анна",
+        firstName: "Анна",
+        lastName: "Петрова",
         birthDate: "2019-05-20",
         note: "Любит футбол",
         status: "active",
@@ -162,6 +166,8 @@ test("staff family detail signs and fetches the exact tenant-bound URL", async (
     false,
   );
   assert.equal(detail.family.displayName, "Семья Ивановых");
+  assert.equal(detail.representatives[0].firstName, "Мария");
+  assert.equal(detail.children[0].lastName, "Петрова");
   assert.deepEqual(detail.representatives[0].verifiedMessengerChannels, [
     "telegram",
   ]);

@@ -141,6 +141,59 @@ test("direct participant command binds identity, payload and idempotency", async
   ]);
 });
 
+test("new lesson participant preserves independent representative and child names", async () => {
+  let requested;
+  const service = new HttpStaffLessonService({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async (url, init) => {
+      requested = { url, init };
+      return new Response(
+        JSON.stringify({
+          familyId: IDS.family,
+          representativeId: IDS.representative,
+          childId: IDS.child,
+          bookingId: IDS.booking,
+          participantStatus: "confirmed",
+          visitKind: "single",
+          replayed: false,
+        }),
+      );
+    },
+  });
+
+  await service.addParticipant({
+    lessonRef: LESSON,
+    client: {
+      mode: "new",
+      parentName: "Ирина Соколова",
+      parentFirstName: "Ирина",
+      parentLastName: "Соколова",
+      phone: "+7 999 123-45-67",
+      childName: "Миша Петров",
+      childFirstName: "Миша",
+      childLastName: "Петров",
+      childBirthDate: "2020-08-03",
+    },
+    visitKind: "single",
+  });
+
+  assert.deepEqual(JSON.parse(requested.init.body), {
+    client: {
+      mode: "new",
+      parentName: "Ирина Соколова",
+      parentFirstName: "Ирина",
+      parentLastName: "Соколова",
+      phone: "+7 999 123-45-67",
+      childName: "Миша Петров",
+      childFirstName: "Миша",
+      childLastName: "Петров",
+      childBirthDate: "2020-08-03",
+    },
+    visitKind: "single",
+  });
+});
+
 test("attendance command addresses one child and can clear a mark", async () => {
   let requested;
   const service = new HttpStaffLessonService({

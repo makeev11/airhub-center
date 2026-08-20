@@ -2333,9 +2333,13 @@ mod tests {
                     },
                     applicant: PublicBookingApplicant {
                         parent_name: "Мария Иванова".to_owned(),
+                        parent_first_name: None,
+                        parent_last_name: None,
                         phone_normalized: "+79991234567".to_owned(),
                         phone_display: "+7 999 123-45-67".to_owned(),
                         child_name: "Анна".to_owned(),
+                        child_first_name: None,
+                        child_last_name: None,
                         child_birth_date: original_date
                             .checked_sub_months(chrono::Months::new(96))
                             .expect("child birth date"),

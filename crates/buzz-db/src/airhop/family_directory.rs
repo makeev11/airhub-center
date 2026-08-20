@@ -63,6 +63,10 @@ pub struct StaffFamilyDirectoryRepresentative {
     pub id: Uuid,
     /// Current display name.
     pub display_name: String,
+    /// Exact first name when confirmed by staff.
+    pub first_name: Option<String>,
+    /// Exact last name when confirmed by staff.
+    pub last_name: Option<String>,
     /// E.164 phone retained for authenticated staff operations.
     pub phone_normalized: String,
     /// Human-readable phone.
@@ -79,6 +83,10 @@ pub struct StaffFamilyDirectoryChild {
     pub id: Uuid,
     /// Current display name.
     pub display_name: String,
+    /// Exact first name when confirmed by staff.
+    pub first_name: Option<String>,
+    /// Exact last name when confirmed by staff.
+    pub last_name: Option<String>,
     /// `active` or `archived`.
     pub status: String,
 }
@@ -140,6 +148,8 @@ impl Db {
                    lower(family.display_name) AS sort_name,
                    representative.id AS representative_id,
                    representative.display_name AS representative_name,
+                   representative.first_name AS representative_first_name,
+                   representative.last_name AS representative_last_name,
                    representative.phone_normalized, representative.phone_display,
                    representative.preferred_contact_channel,
                    COALESCE(child_rows.children, '[]'::JSONB) AS children,
@@ -161,6 +171,8 @@ impl Db {
                     jsonb_build_object(
                         'id', child.id,
                         'displayName', child.display_name,
+                        'firstName', child.first_name,
+                        'lastName', child.last_name,
                         'status', child.status
                     ) ORDER BY lower(child.display_name), child.id
                 ) AS children
@@ -229,6 +241,8 @@ impl Db {
                         AND search_representative.family_id = family.id
                         AND (
                             search_representative.display_name ILIKE $3 ESCAPE '\'
+                            OR search_representative.first_name ILIKE $3 ESCAPE '\'
+                            OR search_representative.last_name ILIKE $3 ESCAPE '\'
                             OR search_representative.phone_display ILIKE $3 ESCAPE '\'
                             OR search_representative.phone_normalized ILIKE $3 ESCAPE '\'
                         )
@@ -238,7 +252,11 @@ impl Db {
                       WHERE search_child.community_id = family.community_id
                         AND search_child.organization_id = family.organization_id
                         AND search_child.family_id = family.id
-                        AND search_child.display_name ILIKE $3 ESCAPE '\'
+                        AND (
+                            search_child.display_name ILIKE $3 ESCAPE '\'
+                            OR search_child.first_name ILIKE $3 ESCAPE '\'
+                            OR search_child.last_name ILIKE $3 ESCAPE '\'
+                        )
                   )
               )
               AND (
@@ -337,6 +355,8 @@ fn parse_directory_item(row: sqlx::postgres::PgRow) -> Result<StaffFamilyDirecto
         primary_representative: StaffFamilyDirectoryRepresentative {
             id: row.try_get("representative_id")?,
             display_name: row.try_get("representative_name")?,
+            first_name: row.try_get("representative_first_name")?,
+            last_name: row.try_get("representative_last_name")?,
             phone_normalized: row.try_get("phone_normalized")?,
             phone_display: row.try_get("phone_display")?,
             preferred_contact_channel,

@@ -15,6 +15,13 @@ const contactChannelSchema = z.enum([
   "phone",
   "none",
 ]);
+const personNamePartSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .nullish()
+  .transform((value) => value ?? null);
 
 const cursorSchema = z.object({
   sortName: z.string().min(1).max(200),
@@ -29,6 +36,8 @@ const directoryItemSchema = z.object({
   primaryRepresentative: z.object({
     id: uuidSchema,
     displayName: z.string().min(1).max(160),
+    firstName: personNamePartSchema,
+    lastName: personNamePartSchema,
     phoneNormalized: z.string().regex(/^\+[1-9]\d{9,14}$/),
     phoneDisplay: z.string().min(1).max(80),
     preferredContactChannel: contactChannelSchema,
@@ -37,6 +46,8 @@ const directoryItemSchema = z.object({
     z.object({
       id: uuidSchema,
       displayName: z.string().min(1).max(160),
+      firstName: personNamePartSchema,
+      lastName: personNamePartSchema,
       status: statusSchema,
     }),
   ),

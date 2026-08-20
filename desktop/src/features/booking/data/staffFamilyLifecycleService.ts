@@ -25,9 +25,13 @@ const statusOutcomeSchema = z.object({
 export type CreateStaffFamilyInput = {
   displayName: string;
   representativeName: string;
+  representativeFirstName: string;
+  representativeLastName: string;
   phone: string;
   preferredContactChannel?: "telegram" | "max" | "whatsapp" | "phone" | "none";
   childName: string;
+  childFirstName: string;
+  childLastName: string;
   childBirthDate: string;
   childNote?: string | null;
   idempotencyKey?: string;
@@ -138,8 +142,12 @@ export class HttpStaffFamilyLifecycleService
     if (
       !bounded(input.displayName, 200) ||
       !bounded(input.representativeName, 160) ||
+      !bounded(input.representativeFirstName, 80) ||
+      !bounded(input.representativeLastName, 80) ||
       !bounded(input.phone, 80) ||
       !bounded(input.childName, 160) ||
+      !bounded(input.childFirstName, 80) ||
+      !bounded(input.childLastName, 80) ||
       !date.success ||
       (input.childNote?.trim().length ?? 0) > 4_000
     ) {
@@ -154,9 +162,13 @@ export class HttpStaffFamilyLifecycleService
       {
         displayName: input.displayName.trim(),
         representativeName: input.representativeName.trim(),
+        representativeFirstName: input.representativeFirstName.trim(),
+        representativeLastName: input.representativeLastName.trim(),
         phone: input.phone.trim(),
         preferredContactChannel: input.preferredContactChannel ?? "phone",
         childName: input.childName.trim(),
+        childFirstName: input.childFirstName.trim(),
+        childLastName: input.childLastName.trim(),
         childBirthDate: date.data,
         childNote: input.childNote?.trim() || null,
       },

@@ -111,6 +111,8 @@ export type SetStaffFamilyChildStatusInput = {
 export type AddStaffFamilyRepresentativeInput = {
   familyId: string;
   displayName: string;
+  firstName: string;
+  lastName: string;
   phone: string;
   preferredContactChannel: StaffRepresentativeContactChannel;
   idempotencyKey?: string;
@@ -119,6 +121,8 @@ export type AddStaffFamilyRepresentativeInput = {
 export type AddStaffFamilyChildInput = {
   familyId: string;
   displayName: string;
+  firstName: string;
+  lastName: string;
   birthDate: string;
   note: string | null;
   idempotencyKey?: string;
@@ -136,6 +140,8 @@ export type UpdateStaffFamilyChildInput = {
   childId: string;
   expectedVersion: number;
   displayName: string;
+  firstName: string;
+  lastName: string;
   birthDate: string;
   note: string | null;
   idempotencyKey?: string;
@@ -146,6 +152,8 @@ export type UpdateStaffFamilyRepresentativeInput = {
   representativeId: string;
   expectedVersion: number;
   displayName: string;
+  firstName: string;
+  lastName: string;
   phone: string;
   preferredContactChannel: StaffRepresentativeContactChannel;
   idempotencyKey?: string;
@@ -271,6 +279,10 @@ export class HttpStaffFamilyCommandService
       !birthDate.success ||
       !displayName ||
       displayName.length > 160 ||
+      !input.firstName.trim() ||
+      input.firstName.trim().length > 80 ||
+      !input.lastName.trim() ||
+      input.lastName.trim().length > 80 ||
       (note?.length ?? 0) > 4_000
     ) {
       throw new StaffFamilyCommandApiError(
@@ -281,7 +293,13 @@ export class HttpStaffFamilyCommandService
     return this.request(
       "POST",
       `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/children`,
-      { displayName, birthDate: birthDate.data, note },
+      {
+        displayName,
+        firstName: input.firstName.trim(),
+        lastName: input.lastName.trim(),
+        birthDate: birthDate.data,
+        note,
+      },
       childCreateOutcomeSchema,
       input.idempotencyKey,
     );
@@ -299,6 +317,10 @@ export class HttpStaffFamilyCommandService
       !channel.success ||
       !input.displayName.trim() ||
       input.displayName.trim().length > 160 ||
+      !input.firstName.trim() ||
+      input.firstName.trim().length > 80 ||
+      !input.lastName.trim() ||
+      input.lastName.trim().length > 80 ||
       !input.phone.trim() ||
       input.phone.trim().length > 80
     ) {
@@ -312,6 +334,8 @@ export class HttpStaffFamilyCommandService
       `/api/airhop/staff/v1/families/${encodeURIComponent(familyId.data)}/representatives`,
       {
         displayName: input.displayName.trim(),
+        firstName: input.firstName.trim(),
+        lastName: input.lastName.trim(),
         phone: input.phone.trim(),
         preferredContactChannel: channel.data,
       },
@@ -434,6 +458,10 @@ export class HttpStaffFamilyCommandService
       !validVersion(input.expectedVersion) ||
       !displayName ||
       displayName.length > 160 ||
+      !input.firstName.trim() ||
+      input.firstName.trim().length > 80 ||
+      !input.lastName.trim() ||
+      input.lastName.trim().length > 80 ||
       (note?.length ?? 0) > 4_000
     ) {
       throw invalidUpdate("child");
@@ -444,6 +472,8 @@ export class HttpStaffFamilyCommandService
       {
         expectedVersion: input.expectedVersion,
         displayName,
+        firstName: input.firstName.trim(),
+        lastName: input.lastName.trim(),
         birthDate: birthDate.data,
         note,
       },
@@ -467,6 +497,10 @@ export class HttpStaffFamilyCommandService
       !validVersion(input.expectedVersion) ||
       !input.displayName.trim() ||
       input.displayName.trim().length > 160 ||
+      !input.firstName.trim() ||
+      input.firstName.trim().length > 80 ||
+      !input.lastName.trim() ||
+      input.lastName.trim().length > 80 ||
       !input.phone.trim() ||
       input.phone.trim().length > 80
     ) {
@@ -481,6 +515,8 @@ export class HttpStaffFamilyCommandService
       {
         expectedVersion: input.expectedVersion,
         displayName: input.displayName.trim(),
+        firstName: input.firstName.trim(),
+        lastName: input.lastName.trim(),
         phone: input.phone.trim(),
         preferredContactChannel: channel.data,
       },

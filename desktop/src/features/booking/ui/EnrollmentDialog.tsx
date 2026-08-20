@@ -48,7 +48,8 @@ type NewClientForm = {
   parentFirstName: string;
   parentLastName: string;
   phone: string;
-  childName: string;
+  childFirstName: string;
+  childLastName: string;
   childBirthDate: string;
 };
 
@@ -61,12 +62,13 @@ const EMPTY_NEW_CLIENT: NewClientForm = {
   parentFirstName: "",
   parentLastName: "",
   phone: "",
-  childName: "",
+  childFirstName: "",
+  childLastName: "",
   childBirthDate: "",
 };
 
 function newClientRepresentativeName(form: NewClientForm): string {
-  return [form.parentLastName.trim(), form.parentFirstName.trim()]
+  return [form.parentFirstName.trim(), form.parentLastName.trim()]
     .filter(Boolean)
     .join(" ");
 }
@@ -301,7 +303,8 @@ export function EnrollmentDialog({
       !newClient.parentFirstName.trim() ||
       !newClient.parentLastName.trim() ||
       !phoneNormalized ||
-      !newClient.childName.trim() ||
+      !newClient.childFirstName.trim() ||
+      !newClient.childLastName.trim() ||
       !/^\d{4}-\d{2}-\d{2}$/.test(newClient.childBirthDate)
     ) {
       return null;
@@ -310,9 +313,13 @@ export function EnrollmentDialog({
       mode: "new",
       applicant: {
         parentName: newClientRepresentativeName(newClient),
+        parentFirstName: newClient.parentFirstName.trim(),
+        parentLastName: newClient.parentLastName.trim(),
         phoneNormalized,
         phoneDisplay: newClient.phone.trim(),
-        childName: newClient.childName.trim(),
+        childName: `${newClient.childFirstName.trim()} ${newClient.childLastName.trim()}`,
+        childFirstName: newClient.childFirstName.trim(),
+        childLastName: newClient.childLastName.trim(),
         childBirthDate: newClient.childBirthDate,
         consentVersion: "staff-enrollment-v1",
         consentAcceptedAt: new Date().toISOString(),
@@ -334,8 +341,10 @@ export function EnrollmentDialog({
           nextErrors.parentLastName = messages.requiredField;
         if (!normalizePublicBookingPhone(newClient.phone))
           nextErrors.phone = messages.invalidPhone;
-        if (!newClient.childName.trim())
-          nextErrors.childName = messages.requiredField;
+        if (!newClient.childFirstName.trim())
+          nextErrors.childFirstName = messages.requiredField;
+        if (!newClient.childLastName.trim())
+          nextErrors.childLastName = messages.requiredField;
         if (!/^\d{4}-\d{2}-\d{2}$/.test(newClient.childBirthDate)) {
           nextErrors.childBirthDate = messages.invalidBirthDate;
         }
@@ -617,7 +626,14 @@ export function EnrollmentDialog({
                               "tel",
                             )}
                           </div>
-                          {newClientField("childName", messages.childName)}
+                          {newClientField(
+                            "childFirstName",
+                            messages.childFirstName,
+                          )}
+                          {newClientField(
+                            "childLastName",
+                            messages.childLastName,
+                          )}
                           {newClientField(
                             "childBirthDate",
                             messages.childBirthDate,

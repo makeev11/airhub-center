@@ -6,7 +6,7 @@ use std::sync::Arc;
 use airhop_core::{
     BookingStatus, ExistingStudentsOnboardingStatus, NullableOverride, OccurrenceOverride,
     OrganizationSettings, PublicBookingAppearance, PublicBookingPurpose, StableLessonReference,
-    TrialPolicy, Weekday,
+    TrialPolicy, Weekday, WeeklyStaffWorkingHours,
 };
 use axum::body::Bytes;
 use axum::extract::rejection::QueryRejection;
@@ -102,6 +102,10 @@ pub(crate) struct BindMessengerAccountBody {
 pub(crate) struct UpdateFamilyRepresentativeBody {
     expected_version: i64,
     display_name: String,
+    #[serde(default)]
+    first_name: Option<String>,
+    #[serde(default)]
+    last_name: Option<String>,
     phone: String,
     preferred_contact_channel: String,
 }
@@ -118,6 +122,10 @@ pub(crate) struct UpdateFamilyBody {
 pub(crate) struct UpdateFamilyChildBody {
     expected_version: i64,
     display_name: String,
+    #[serde(default)]
+    first_name: Option<String>,
+    #[serde(default)]
+    last_name: Option<String>,
     birth_date: chrono::NaiveDate,
     #[serde(default)]
     note: Option<String>,
@@ -128,10 +136,18 @@ pub(crate) struct UpdateFamilyChildBody {
 pub(crate) struct CreateFamilyBody {
     display_name: String,
     representative_name: String,
+    #[serde(default)]
+    representative_first_name: Option<String>,
+    #[serde(default)]
+    representative_last_name: Option<String>,
     phone: String,
     #[serde(default = "default_phone_channel")]
     preferred_contact_channel: String,
     child_name: String,
+    #[serde(default)]
+    child_first_name: Option<String>,
+    #[serde(default)]
+    child_last_name: Option<String>,
     child_birth_date: chrono::NaiveDate,
     #[serde(default)]
     child_note: Option<String>,
@@ -148,6 +164,10 @@ pub(crate) struct SetFamilyStatusBody {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AddFamilyRepresentativeBody {
     display_name: String,
+    #[serde(default)]
+    first_name: Option<String>,
+    #[serde(default)]
+    last_name: Option<String>,
     phone: String,
     #[serde(default = "default_phone_channel")]
     preferred_contact_channel: String,
@@ -157,6 +177,10 @@ pub(crate) struct AddFamilyRepresentativeBody {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AddFamilyChildBody {
     display_name: String,
+    #[serde(default)]
+    first_name: Option<String>,
+    #[serde(default)]
+    last_name: Option<String>,
     birth_date: chrono::NaiveDate,
     #[serde(default)]
     note: Option<String>,
@@ -187,6 +211,8 @@ pub(crate) struct PutOrganizationSettingsBody {
     payments_buzz_channel_id: Option<Uuid>,
     #[serde(default)]
     analytics_buzz_channel_id: Option<Uuid>,
+    #[serde(default)]
+    staff_working_hours: WeeklyStaffWorkingHours,
     default_trial_policy: TrialPolicy,
     track_attendance_by_default: bool,
     allow_single_visits_by_default: bool,
@@ -388,8 +414,16 @@ pub(crate) enum StaffLessonParticipantClientBody {
     },
     New {
         parent_name: String,
+        #[serde(default)]
+        parent_first_name: Option<String>,
+        #[serde(default)]
+        parent_last_name: Option<String>,
         phone: String,
         child_name: String,
+        #[serde(default)]
+        child_first_name: Option<String>,
+        #[serde(default)]
+        child_last_name: Option<String>,
         child_birth_date: chrono::NaiveDate,
     },
 }
@@ -744,6 +778,7 @@ pub(crate) async fn put_organization_settings(
         payments_buzz_channel_id: request.payments_buzz_channel_id,
         analytics_buzz_channel_id: request.analytics_buzz_channel_id,
         settings: OrganizationSettings {
+            staff_working_hours: request.staff_working_hours,
             default_trial_policy: request.default_trial_policy,
             track_attendance_by_default: request.track_attendance_by_default,
             allow_single_visits_by_default: request.allow_single_visits_by_default,
@@ -1605,8 +1640,12 @@ pub(crate) async fn add_lesson_participant(
         },
         StaffLessonParticipantClientBody::New {
             parent_name,
+            parent_first_name,
+            parent_last_name,
             phone,
             child_name,
+            child_first_name,
+            child_last_name,
             child_birth_date,
         } => {
             let phone_normalized = super::airhop_public::normalize_airhop_phone(&phone)
@@ -1633,15 +1672,19 @@ pub(crate) async fn add_lesson_participant(
                     tenant.community().as_uuid(),
                     &phone_normalized,
                 ),
-                applicant: PublicBookingApplicant {
+                applicant: Box::new(PublicBookingApplicant {
                     parent_name,
+                    parent_first_name,
+                    parent_last_name,
                     phone_normalized,
                     phone_display: phone,
                     child_name,
+                    child_first_name,
+                    child_last_name,
                     child_birth_date,
                     preferred_contact_channel: PreferredContactChannel::Phone,
                     consent_policy_version: "staff-entry-v1".to_owned(),
-                },
+                }),
             }
         }
     };
@@ -1982,11 +2025,15 @@ pub(crate) async fn create_family(
             &CreateFamilyInput {
                 display_name: request.display_name,
                 representative_name: request.representative_name,
+                representative_first_name: request.representative_first_name,
+                representative_last_name: request.representative_last_name,
                 phone_normalized,
                 phone_display,
                 phone_match_digest,
                 preferred_contact_channel: request.preferred_contact_channel,
                 child_name: request.child_name,
+                child_first_name: request.child_first_name,
+                child_last_name: request.child_last_name,
                 child_birth_date: request.child_birth_date,
                 child_note: request.child_note,
                 idempotency_digest: scoped_digest(
@@ -2045,6 +2092,8 @@ pub(crate) async fn add_family_representative(
             &AddFamilyRepresentativeInput {
                 family_id,
                 display_name: request.display_name,
+                first_name: request.first_name,
+                last_name: request.last_name,
                 phone_normalized,
                 phone_display,
                 phone_match_digest,
@@ -2089,6 +2138,8 @@ pub(crate) async fn add_family_child(
             &AddFamilyChildInput {
                 family_id,
                 display_name: request.display_name,
+                first_name: request.first_name,
+                last_name: request.last_name,
                 birth_date: request.birth_date,
                 note: request.note,
                 idempotency_digest: scoped_digest(
@@ -2233,6 +2284,8 @@ pub(crate) async fn update_family_child(
                 child_id,
                 expected_version: request.expected_version,
                 display_name: request.display_name.trim().to_owned(),
+                first_name: request.first_name,
+                last_name: request.last_name,
                 birth_date: request.birth_date,
                 note: request.note,
                 idempotency_digest: scoped_digest(
@@ -2425,6 +2478,8 @@ pub(crate) async fn update_family_representative(
                 representative_id,
                 expected_version: request.expected_version,
                 display_name,
+                first_name: request.first_name,
+                last_name: request.last_name,
                 phone_normalized,
                 phone_display,
                 phone_match_digest,
@@ -3229,6 +3284,7 @@ fn organization_json(
         "name": name,
         "locale": locale,
         "timeZone": time_zone,
+        "staffWorkingHours": settings.staff_working_hours,
         "defaultTrialPolicy": settings.default_trial_policy,
         "trackAttendanceByDefault": settings.track_attendance_by_default,
         "allowSingleVisitsByDefault": settings.allow_single_visits_by_default,
@@ -3501,6 +3557,7 @@ mod tests {
     #[test]
     fn organization_settings_payload_matches_the_desktop_contract() {
         let settings = OrganizationSettings {
+            staff_working_hours: Default::default(),
             default_trial_policy: TrialPolicy::Free,
             track_attendance_by_default: true,
             allow_single_visits_by_default: false,
@@ -3542,6 +3599,7 @@ mod tests {
             payload["organization"]["existingStudentsOnboarding"]["status"],
             "not_started"
         );
+        assert_eq!(payload["organization"]["staffWorkingHours"], json!({}));
         assert_eq!(payload["version"], 3);
     }
 
@@ -3881,5 +3939,35 @@ mod tests {
             cursor_family_id: None,
         };
         assert!(family_directory_filter(half).is_err());
+    }
+
+    #[test]
+    fn family_member_bodies_preserve_structured_names_and_legacy_display_names() {
+        let create: CreateFamilyBody = serde_json::from_value(json!({
+            "displayName": "Соколовы и Петровы",
+            "representativeName": "Соколова Мария",
+            "representativeFirstName": "Мария",
+            "representativeLastName": "Соколова",
+            "phone": "+7 999 123-45-67",
+            "preferredContactChannel": "phone",
+            "childName": "Петров Лев",
+            "childFirstName": "Лев",
+            "childLastName": "Петров",
+            "childBirthDate": "2020-08-10"
+        }))
+        .expect("valid structured family body");
+        assert_eq!(create.display_name, "Соколовы и Петровы");
+        assert_eq!(create.representative_first_name.as_deref(), Some("Мария"));
+        assert_eq!(create.representative_last_name.as_deref(), Some("Соколова"));
+        assert_eq!(create.child_first_name.as_deref(), Some("Лев"));
+        assert_eq!(create.child_last_name.as_deref(), Some("Петров"));
+
+        let legacy: AddFamilyChildBody = serde_json::from_value(json!({
+            "displayName": "Анна",
+            "birthDate": "2021-04-03"
+        }))
+        .expect("legacy client body remains accepted");
+        assert_eq!(legacy.first_name, None);
+        assert_eq!(legacy.last_name, None);
     }
 }

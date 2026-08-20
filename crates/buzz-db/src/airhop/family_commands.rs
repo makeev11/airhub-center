@@ -61,6 +61,10 @@ pub struct UpdateFamilyChildInput {
     pub expected_version: i64,
     /// Current child name.
     pub display_name: String,
+    /// Exact first name when confirmed by staff.
+    pub first_name: Option<String>,
+    /// Exact last name when confirmed by staff.
+    pub last_name: Option<String>,
     /// Exact birth date, never a derived age.
     pub birth_date: NaiveDate,
     /// Optional internal staff note.
@@ -95,6 +99,10 @@ pub struct UpdateFamilyRepresentativeInput {
     pub expected_version: i64,
     /// Current representative name.
     pub display_name: String,
+    /// Exact first name when confirmed by staff.
+    pub first_name: Option<String>,
+    /// Exact last name when confirmed by staff.
+    pub last_name: Option<String>,
     /// E.164 phone produced by the trusted HTTP boundary.
     pub phone_normalized: String,
     /// Human-readable phone entered by staff.
@@ -150,6 +158,8 @@ struct StoredChildUpdateResult {
 struct CurrentRepresentative {
     version: i64,
     display_name: String,
+    first_name: Option<String>,
+    last_name: Option<String>,
     phone_normalized: String,
     phone_display: String,
     preferred_contact_channel: String,
@@ -289,7 +299,8 @@ impl Db {
             }
         };
         let row = sqlx::query(
-            "SELECT child.version, child.display_name, child.birth_date, child.note, \
+            "SELECT child.version, child.display_name, child.first_name, child.last_name, \
+                    child.birth_date, child.note, \
                     (now() AT TIME ZONE organization.time_zone)::date AS current_date \
              FROM airhop_children child \
              JOIN airhop_families family \
@@ -324,11 +335,21 @@ impl Db {
         let display_name = input.display_name.trim();
         let note = normalized_note(input.note.as_deref());
         let current_name: String = row.try_get("display_name")?;
+        let current_first_name: Option<String> = row.try_get("first_name")?;
+        let current_last_name: Option<String> = row.try_get("last_name")?;
+        let first_name = normalized_name_part(input.first_name.as_deref());
+        let last_name = normalized_name_part(input.last_name.as_deref());
         let current_birth_date: NaiveDate = row.try_get("birth_date")?;
         let current_note: Option<String> = row.try_get("note")?;
-        let mut changed_fields = Vec::with_capacity(3);
+        let mut changed_fields = Vec::with_capacity(5);
         if current_name != display_name {
             changed_fields.push("display_name");
+        }
+        if current_first_name != first_name {
+            changed_fields.push("first_name");
+        }
+        if current_last_name != last_name {
+            changed_fields.push("last_name");
         }
         if current_birth_date != input.birth_date {
             changed_fields.push("birth_date");
@@ -341,10 +362,10 @@ impl Db {
         } else {
             let version = sqlx::query_scalar(
                 "UPDATE airhop_children \
-                 SET display_name = $5, birth_date = $6, note = $7, \
-                     version = version + 1, updated_at = $8 \
+                 SET display_name = $5, first_name = $6, last_name = $7, \
+                     birth_date = $8, note = $9, version = version + 1, updated_at = $10 \
                  WHERE community_id = $1 AND organization_id = $2 \
-                   AND family_id = $3 AND id = $4 AND version = $9 \
+                   AND family_id = $3 AND id = $4 AND version = $11 \
                  RETURNING version",
             )
             .bind(tenant.community().as_uuid())
@@ -352,6 +373,8 @@ impl Db {
             .bind(input.family_id)
             .bind(input.child_id)
             .bind(display_name)
+            .bind(&first_name)
+            .bind(&last_name)
             .bind(input.birth_date)
             .bind(&note)
             .bind(occurred_at)
@@ -433,6 +456,7 @@ impl Db {
 
         let row = sqlx::query(
             "SELECT representative.version, representative.display_name, \
+                    representative.first_name, representative.last_name, \
                     representative.phone_normalized, representative.phone_display, \
                     representative.preferred_contact_channel \
              FROM airhop_representatives representative \
@@ -458,6 +482,8 @@ impl Db {
         let current = CurrentRepresentative {
             version: row.try_get("version")?,
             display_name: row.try_get("display_name")?,
+            first_name: row.try_get("first_name")?,
+            last_name: row.try_get("last_name")?,
             phone_normalized: row.try_get("phone_normalized")?,
             phone_display: row.try_get("phone_display")?,
             preferred_contact_channel: row.try_get("preferred_contact_channel")?,
@@ -472,11 +498,12 @@ impl Db {
         } else {
             sqlx::query_scalar(
                 "UPDATE airhop_representatives \
-                 SET display_name = $5, phone_normalized = $6, phone_display = $7, \
-                     phone_match_digest = $8, preferred_contact_channel = $9, \
-                     version = version + 1, updated_at = $10 \
+                 SET display_name = $5, first_name = $6, last_name = $7, \
+                     phone_normalized = $8, phone_display = $9, \
+                     phone_match_digest = $10, preferred_contact_channel = $11, \
+                     version = version + 1, updated_at = $12 \
                  WHERE community_id = $1 AND organization_id = $2 \
-                   AND family_id = $3 AND id = $4 AND version = $11 \
+                   AND family_id = $3 AND id = $4 AND version = $13 \
                  RETURNING version",
             )
             .bind(tenant.community().as_uuid())
@@ -484,6 +511,8 @@ impl Db {
             .bind(input.family_id)
             .bind(input.representative_id)
             .bind(input.display_name.trim())
+            .bind(normalized_name_part(input.first_name.as_deref()))
+            .bind(normalized_name_part(input.last_name.as_deref()))
             .bind(&input.phone_normalized)
             .bind(input.phone_display.trim())
             .bind(input.phone_match_digest.as_slice())
@@ -562,9 +591,15 @@ fn changed_fields(
     current: &CurrentRepresentative,
     input: &UpdateFamilyRepresentativeInput,
 ) -> Vec<&'static str> {
-    let mut fields = Vec::with_capacity(4);
+    let mut fields = Vec::with_capacity(6);
     if current.display_name != input.display_name.trim() {
         fields.push("display_name");
+    }
+    if current.first_name != normalized_name_part(input.first_name.as_deref()) {
+        fields.push("first_name");
+    }
+    if current.last_name != normalized_name_part(input.last_name.as_deref()) {
+        fields.push("last_name");
     }
     if current.phone_normalized != input.phone_normalized {
         fields.push("phone");
@@ -736,6 +771,7 @@ fn validate_child_input(input: &UpdateFamilyChildInput) -> Result<()> {
         || input.actor.kind != ActorKind::Staff
         || display_name.is_empty()
         || display_name.chars().count() > 160
+        || !valid_structured_name(input.first_name.as_deref(), input.last_name.as_deref())
         || input
             .note
             .as_ref()
@@ -754,6 +790,25 @@ fn normalized_note(note: Option<&str>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn valid_structured_name(first_name: Option<&str>, last_name: Option<&str>) -> bool {
+    match (first_name, last_name) {
+        (None, None) => true,
+        (Some(first_name), Some(last_name)) => {
+            bounded_name_part(first_name) && bounded_name_part(last_name)
+        }
+        _ => false,
+    }
+}
+
+fn bounded_name_part(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty() && value.chars().count() <= 80
+}
+
+fn normalized_name_part(value: Option<&str>) -> Option<String> {
+    value.map(str::trim).map(ToOwned::to_owned)
+}
+
 fn validate_input(input: &UpdateFamilyRepresentativeInput) -> Result<()> {
     input.actor.validate()?;
     let display_name = input.display_name.trim();
@@ -764,6 +819,7 @@ fn validate_input(input: &UpdateFamilyRepresentativeInput) -> Result<()> {
         || input.actor.kind != ActorKind::Staff
         || display_name.is_empty()
         || display_name.chars().count() > 160
+        || !valid_structured_name(input.first_name.as_deref(), input.last_name.as_deref())
         || phone_display.is_empty()
         || phone_display.chars().count() > 80
         || !valid_e164(&input.phone_normalized)
@@ -798,6 +854,8 @@ mod tests {
             representative_id: Uuid::new_v4(),
             expected_version: 2,
             display_name: "Мария Иванова".to_owned(),
+            first_name: Some("Мария".to_owned()),
+            last_name: Some("Иванова".to_owned()),
             phone_normalized: "+79991234567".to_owned(),
             phone_display: "+7 999 123-45-67".to_owned(),
             phone_match_digest: [3; 32],
@@ -816,6 +874,11 @@ mod tests {
     #[test]
     fn representative_update_requires_staff_identity_and_valid_values() {
         assert!(validate_input(&input()).is_ok());
+        assert!(validate_input(&UpdateFamilyRepresentativeInput {
+            last_name: None,
+            ..input()
+        })
+        .is_err());
         assert!(validate_input(&UpdateFamilyRepresentativeInput {
             expected_version: 0,
             ..input()
@@ -859,6 +922,8 @@ mod tests {
             child_id: Uuid::new_v4(),
             expected_version: 1,
             display_name: "Анна".to_owned(),
+            first_name: Some("Анна".to_owned()),
+            last_name: Some("Иванова".to_owned()),
             birth_date: NaiveDate::from_ymd_opt(2019, 5, 20).expect("valid date"),
             note: Some(" Аллергия ".to_owned()),
             idempotency_digest: [3; 32],

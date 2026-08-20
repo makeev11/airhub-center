@@ -28,6 +28,8 @@ function updateInput() {
     representativeId: REPRESENTATIVE_ID,
     expectedVersion: 3,
     displayName: "  Мария Иванова  ",
+    firstName: "  Мария  ",
+    lastName: "  Иванова  ",
     phone: "  +7 999 123-45-67  ",
     preferredContactChannel: "telegram",
     idempotencyKey: "representative-update-1",
@@ -61,6 +63,8 @@ test("representative update signs the exact PUT payload and URL", async () => {
   const expectedBody = JSON.stringify({
     expectedVersion: 3,
     displayName: "Мария Иванова",
+    firstName: "Мария",
+    lastName: "Иванова",
     phone: "+7 999 123-45-67",
     preferredContactChannel: "telegram",
   });
@@ -173,6 +177,8 @@ test("child update normalizes an empty note and signs its child resource", async
     childId: CHILD_ID,
     expectedVersion: 4,
     displayName: " Анна ",
+    firstName: " Анна ",
+    lastName: " Иванова ",
     birthDate: "2019-05-20",
     note: "   ",
   });
@@ -181,6 +187,8 @@ test("child update normalizes an empty note and signs its child resource", async
   assert.deepEqual(JSON.parse(requested.init.body), {
     expectedVersion: 4,
     displayName: "Анна",
+    firstName: "Анна",
+    lastName: "Иванова",
     birthDate: "2019-05-20",
     note: null,
   });
@@ -213,6 +221,8 @@ test("representative creation signs its POST collection resource", async () => {
   await service.addRepresentative({
     familyId: FAMILY_ID,
     displayName: "  Иван Иванов  ",
+    firstName: "  Иван  ",
+    lastName: "  Иванов  ",
     phone: "  +7 999 111-22-33  ",
     preferredContactChannel: "phone",
     idempotencyKey: "representative-create-1",
@@ -222,6 +232,8 @@ test("representative creation signs its POST collection resource", async () => {
   assert.equal(requested.init.method, "POST");
   assert.deepEqual(JSON.parse(requested.init.body), {
     displayName: "Иван Иванов",
+    firstName: "Иван",
+    lastName: "Иванов",
     phone: "+7 999 111-22-33",
     preferredContactChannel: "phone",
   });
@@ -258,6 +270,8 @@ test("child creation normalizes its note and signs its POST collection resource"
   await service.addChild({
     familyId: FAMILY_ID,
     displayName: "  Пётр  ",
+    firstName: "  Пётр  ",
+    lastName: "  Иванов  ",
     birthDate: "2020-03-02",
     note: "  Нужна адаптация  ",
     idempotencyKey: "child-create-1",
@@ -267,6 +281,8 @@ test("child creation normalizes its note and signs its POST collection resource"
   assert.equal(requested.init.method, "POST");
   assert.deepEqual(JSON.parse(requested.init.body), {
     displayName: "Пётр",
+    firstName: "Пётр",
+    lastName: "Иванов",
     birthDate: "2020-03-02",
     note: "Нужна адаптация",
   });

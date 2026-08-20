@@ -37,10 +37,12 @@ export function FamilyCreateDialog({
     workspace?.organization.locale ?? "ru-RU",
   );
   const [form, setForm] = React.useState({
+    familyName: "",
     representativeFirstName: "",
     representativeLastName: "",
     phone: "",
-    childName: "",
+    childFirstName: "",
+    childLastName: "",
     childBirthDate: "",
   });
   const [errors, setErrors] = React.useState<Record<string, string>>({});
@@ -48,10 +50,12 @@ export function FamilyCreateDialog({
   React.useEffect(() => {
     if (!open) return;
     setForm({
+      familyName: "",
       representativeFirstName: "",
       representativeLastName: "",
       phone: "",
-      childName: "",
+      childFirstName: "",
+      childLastName: "",
       childBirthDate: "",
     });
     setErrors({});
@@ -62,12 +66,16 @@ export function FamilyCreateDialog({
     event.preventDefault();
     const phoneNormalized = normalizePublicBookingPhone(form.phone);
     const nextErrors: Record<string, string> = {};
+    if (!form.familyName.trim()) nextErrors.familyName = messages.requiredField;
     if (!form.representativeFirstName.trim())
       nextErrors.representativeFirstName = messages.requiredField;
     if (!form.representativeLastName.trim())
       nextErrors.representativeLastName = messages.requiredField;
     if (!phoneNormalized) nextErrors.phone = messages.invalidPhone;
-    if (!form.childName.trim()) nextErrors.childName = messages.requiredField;
+    if (!form.childFirstName.trim())
+      nextErrors.childFirstName = messages.requiredField;
+    if (!form.childLastName.trim())
+      nextErrors.childLastName = messages.requiredField;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(form.childBirthDate))
       nextErrors.childBirthDate = messages.invalidBirthDate;
     setErrors(nextErrors);
@@ -79,13 +87,17 @@ export function FamilyCreateDialog({
     const childId = `child-${suffix}`;
     const now = new Date().toISOString();
     const representativeDisplayName = [
-      form.representativeLastName.trim(),
       form.representativeFirstName.trim(),
+      form.representativeLastName.trim(),
+    ].join(" ");
+    const childDisplayName = [
+      form.childFirstName.trim(),
+      form.childLastName.trim(),
     ].join(" ");
     const family = familySchema.parse({
       id: familyId,
       organizationId: workspace.organization.id,
-      displayName: form.representativeLastName.trim(),
+      displayName: form.familyName.trim(),
       primaryRepresentativeId: representativeId,
       status: "active",
       createdAt: now,
@@ -96,6 +108,8 @@ export function FamilyCreateDialog({
       organizationId: workspace.organization.id,
       familyId,
       displayName: representativeDisplayName,
+      firstName: form.representativeFirstName,
+      lastName: form.representativeLastName,
       phoneNormalized,
       phoneDisplay: form.phone.trim(),
       preferredContactChannel: "phone",
@@ -110,7 +124,9 @@ export function FamilyCreateDialog({
       id: childId,
       organizationId: workspace.organization.id,
       familyId,
-      displayName: form.childName,
+      displayName: childDisplayName,
+      firstName: form.childFirstName,
+      lastName: form.childLastName,
       birthDate: form.childBirthDate,
       status: "active",
       createdAt: now,
@@ -188,13 +204,17 @@ export function FamilyCreateDialog({
         </DialogHeader>
         <form className="space-y-4" onSubmit={(event) => void submit(event)}>
           <BookingFeedbackBanners />
+          {field("familyName", messages.familyName)}
           <div className="grid gap-4 sm:grid-cols-2">
             {field("representativeFirstName", messages.representativeFirstName)}
             {field("representativeLastName", messages.representativeLastName)}
           </div>
           {field("phone", messages.representativePhone, "tel")}
           <div className="grid gap-4 sm:grid-cols-2">
-            {field("childName", messages.childName)}
+            {field("childFirstName", messages.childFirstName)}
+            {field("childLastName", messages.childLastName)}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
             {field("childBirthDate", messages.childBirthDate, "date")}
           </div>
           <DialogFooter>

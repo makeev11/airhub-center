@@ -40,7 +40,8 @@ export function RepresentativeFormDialog({
   const messages = getBookingAdminMessages(
     workspace?.organization.locale ?? "ru-RU",
   );
-  const [name, setName] = React.useState("");
+  const [firstName, setFirstName] = React.useState("");
+  const [lastName, setLastName] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [makePrimary, setMakePrimary] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -52,7 +53,10 @@ export function RepresentativeFormDialog({
     representative.id === family?.primaryRepresentativeId;
   React.useEffect(() => {
     if (!open) return;
-    setName(representative?.displayName ?? "");
+    setFirstName(
+      representative?.firstName ?? representative?.displayName ?? "",
+    );
+    setLastName(representative?.lastName ?? "");
     setPhone(representative?.phoneDisplay ?? "");
     setMakePrimary(isCurrentPrimary);
     setError(null);
@@ -62,8 +66,12 @@ export function RepresentativeFormDialog({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     const phoneNormalized = normalizePublicBookingPhone(phone);
-    if (!name.trim() || !phoneNormalized) {
-      setError(!name.trim() ? messages.requiredField : messages.invalidPhone);
+    if (!firstName.trim() || !lastName.trim() || !phoneNormalized) {
+      setError(
+        !firstName.trim() || !lastName.trim()
+          ? messages.requiredField
+          : messages.invalidPhone,
+      );
       return;
     }
     const now = new Date().toISOString();
@@ -71,7 +79,9 @@ export function RepresentativeFormDialog({
       id: representative?.id ?? `representative-${crypto.randomUUID()}`,
       organizationId: workspace.organization.id,
       familyId,
-      displayName: name,
+      displayName: `${firstName.trim()} ${lastName.trim()}`,
+      firstName,
+      lastName,
       phoneNormalized,
       phoneDisplay: phone.trim(),
       preferredContactChannel:
@@ -125,19 +135,38 @@ export function RepresentativeFormDialog({
         </DialogHeader>
         <form className="space-y-4" onSubmit={(event) => void submit(event)}>
           <BookingFeedbackBanners />
-          <label
-            className="grid gap-1.5 text-sm"
-            htmlFor="airhop-representative-name"
-          >
-            <span className="font-medium">{messages.representativeName}</span>
-            <Input
-              aria-label={messages.representativeName}
-              data-testid="airhop-representative-name"
-              id="airhop-representative-name"
-              onChange={(event) => setName(event.target.value)}
-              value={name}
-            />
-          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label
+              className="grid gap-1.5 text-sm"
+              htmlFor="airhop-representative-first-name"
+            >
+              <span className="font-medium">
+                {messages.representativeFirstName}
+              </span>
+              <Input
+                aria-label={messages.representativeFirstName}
+                data-testid="airhop-representative-first-name"
+                id="airhop-representative-first-name"
+                onChange={(event) => setFirstName(event.target.value)}
+                value={firstName}
+              />
+            </label>
+            <label
+              className="grid gap-1.5 text-sm"
+              htmlFor="airhop-representative-last-name"
+            >
+              <span className="font-medium">
+                {messages.representativeLastName}
+              </span>
+              <Input
+                aria-label={messages.representativeLastName}
+                data-testid="airhop-representative-last-name"
+                id="airhop-representative-last-name"
+                onChange={(event) => setLastName(event.target.value)}
+                value={lastName}
+              />
+            </label>
+          </div>
           <label
             className="grid gap-1.5 text-sm"
             htmlFor="airhop-representative-phone"

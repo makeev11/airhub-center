@@ -102,8 +102,12 @@ export type StaffLessonParticipantClient =
   | {
       mode: "new";
       parentName: string;
+      parentFirstName: string;
+      parentLastName: string;
       phone: string;
       childName: string;
+      childFirstName: string;
+      childLastName: string;
       childBirthDate: string;
     };
 
@@ -396,10 +400,18 @@ function validateClient(
   if (
     !client.parentName.trim() ||
     client.parentName.trim().length > 160 ||
+    !client.parentFirstName.trim() ||
+    client.parentFirstName.trim().length > 80 ||
+    !client.parentLastName.trim() ||
+    client.parentLastName.trim().length > 80 ||
     !client.phone.trim() ||
     client.phone.trim().length > 80 ||
     !client.childName.trim() ||
     client.childName.trim().length > 160 ||
+    !client.childFirstName.trim() ||
+    client.childFirstName.trim().length > 80 ||
+    !client.childLastName.trim() ||
+    client.childLastName.trim().length > 80 ||
     !z.string().date().safeParse(client.childBirthDate).success
   ) {
     throw new StaffLessonApiError(400, "Invalid new AirHub participant.");
@@ -407,8 +419,12 @@ function validateClient(
   return {
     ...client,
     parentName: client.parentName.trim(),
+    parentFirstName: client.parentFirstName.trim(),
+    parentLastName: client.parentLastName.trim(),
     phone: client.phone.trim(),
     childName: client.childName.trim(),
+    childFirstName: client.childFirstName.trim(),
+    childLastName: client.childLastName.trim(),
   };
 }
 

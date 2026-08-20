@@ -646,9 +646,13 @@ pub(crate) async fn create_public_booking(
         lesson_ref: request.lesson_ref,
         applicant: PublicBookingApplicant {
             parent_name: request.applicant.parent_name,
+            parent_first_name: None,
+            parent_last_name: None,
             phone_normalized,
             phone_display: request.applicant.phone,
             child_name: request.applicant.child_name,
+            child_first_name: None,
+            child_last_name: None,
             child_birth_date: request.applicant.child_birth_date,
             preferred_contact_channel: request.preferred_contact_channel.into(),
             consent_policy_version: request.applicant.consent_policy_version,
