@@ -1,8 +1,13 @@
 import * as React from "react";
 
 import {
+  hasAirHopActivationDiscovery,
+  resolveAirHopActivationRelay,
+} from "@/features/onboarding/airhopActivationDiscovery";
+import {
   AIRHOP_OWNER_LOCALES,
   airHopOwnerCopy,
+  airHopOwnerError,
   airHopOwnerLanguageLabel,
   loadAirHopOwnerLocale,
   persistAirHopOwnerLocale,
@@ -18,40 +23,65 @@ import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 export type AirHopOwnerSetupProps = {
   defaultRelayUrl: string;
   onStart: (relayUrl: string, code: string) => void;
+  resolveRelayUrl?: (code: string) => Promise<string>;
 };
 
 export function AirHopOwnerSetup({
   defaultRelayUrl,
   onStart,
+  resolveRelayUrl = hasAirHopActivationDiscovery()
+    ? resolveAirHopActivationRelay
+    : undefined,
 }: AirHopOwnerSetupProps) {
   const [locale, setLocale] = React.useState<AirHopOwnerLocale | null>(
     loadAirHopOwnerLocale,
   );
   const [code, setCode] = React.useState("");
   const [hasInvalidCode, setHasInvalidCode] = React.useState(false);
+  const [connectionError, setConnectionError] = React.useState<string | null>(
+    null,
+  );
+  const [isResolving, setIsResolving] = React.useState(false);
   const copy = airHopOwnerCopy(locale ?? "en-US");
 
   const selectLocale = React.useCallback((nextLocale: AirHopOwnerLocale) => {
     persistAirHopOwnerLocale(nextLocale);
     setLocale(nextLocale);
     setHasInvalidCode(false);
+    setConnectionError(null);
   }, []);
 
-  const submit = React.useCallback(() => {
+  const submit = React.useCallback(async () => {
     const parsed = parseInviteInput(code);
     if (!parsed) {
       setHasInvalidCode(true);
       return;
     }
-    const relayUrl =
-      "relayWsUrl" in parsed ? parsed.relayWsUrl : defaultRelayUrl;
     const normalizedCode = parsed.code.trim();
-    if (!relayUrl.trim() || !normalizedCode) {
+    if (!normalizedCode) {
       setHasInvalidCode(true);
       return;
     }
-    onStart(relayUrl, normalizedCode);
-  }, [code, defaultRelayUrl, onStart]);
+    setConnectionError(null);
+    setIsResolving(true);
+    try {
+      const relayUrl =
+        "relayWsUrl" in parsed
+          ? parsed.relayWsUrl
+          : resolveRelayUrl
+            ? await resolveRelayUrl(normalizedCode)
+            : defaultRelayUrl;
+      if (!relayUrl.trim()) {
+        setHasInvalidCode(true);
+        return;
+      }
+      onStart(relayUrl, normalizedCode);
+    } catch (error) {
+      setConnectionError(airHopOwnerError(locale ?? "en-US", error));
+    } finally {
+      setIsResolving(false);
+    }
+  }, [code, defaultRelayUrl, locale, onStart, resolveRelayUrl]);
 
   return (
     <main
@@ -112,7 +142,7 @@ export function AirHopOwnerSetup({
               className="mt-7 space-y-4"
               onSubmit={(event) => {
                 event.preventDefault();
-                submit();
+                void submit();
               }}
             >
               <label
@@ -129,6 +159,7 @@ export function AirHopOwnerSetup({
                   onChange={(event) => {
                     setCode(event.target.value);
                     setHasInvalidCode(false);
+                    setConnectionError(null);
                   }}
                   placeholder={copy.codePlaceholder}
                   spellCheck={false}
@@ -145,20 +176,31 @@ export function AirHopOwnerSetup({
                 </p>
               ) : null}
 
+              {connectionError ? (
+                <p
+                  className="rounded-xl border border-red-300/30 bg-red-950/55 p-3 text-sm leading-5 text-red-50"
+                  role="alert"
+                >
+                  {connectionError}
+                </p>
+              ) : null}
+
               <Button
                 className="h-12 w-full rounded-xl bg-white text-slate-950 shadow-none hover:bg-white/90"
                 data-testid="airhop-owner-connect"
-                disabled={code.trim().length === 0}
+                disabled={code.trim().length === 0 || isResolving}
                 type="submit"
               >
-                {copy.connect}
+                {isResolving ? copy.checkingCode : copy.connect}
               </Button>
               <Button
                 className="h-9 w-full text-white/65 shadow-none hover:bg-white/10 hover:text-white"
                 onClick={() => {
                   setLocale(null);
                   setHasInvalidCode(false);
+                  setConnectionError(null);
                 }}
+                disabled={isResolving}
                 type="button"
                 variant="ghost"
               >
