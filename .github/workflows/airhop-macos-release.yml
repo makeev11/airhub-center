@@ -1,0 +1,146 @@
+name: AirHop Center macOS Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version to publish, for example 0.6.0
+        required: true
+        type: string
+
+concurrency:
+  group: airhop-macos-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Sign, notarize, and publish Apple Silicon DMG
+    if: github.repository == 'makeev11/airhub-center'
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ inputs.version }}
+      TARGET: aarch64-apple-darwin
+      VITE_AIRHOP_HQ_API_URL: ${{ vars.AIRHOP_HQ_API_URL }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: cashapp/activate-hermit@cea9af7913204a965fd488637a8d1811bba2e616 # v1
+
+      - name: Validate release inputs and required credentials
+        run: |
+          set -euo pipefail
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version '$VERSION' is not semantic versioning"
+            exit 1
+          fi
+          case "$VITE_AIRHOP_HQ_API_URL" in
+            https://*) ;;
+            *) echo "::error::Repository variable AIRHOP_HQ_API_URL must be an HTTPS URL"; exit 1 ;;
+          esac
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Required GitHub secret $name is missing"
+              exit 1
+            fi
+          done
+
+      - name: Install desktop dependencies
+        run: just desktop-install-ci
+
+      - name: Patch application version
+        run: |
+          cd desktop
+          node scripts/set-version-from-tag.mjs "$VERSION"
+          cd src-tauri
+          cargo update --workspace
+
+      - name: Install Apple signing certificate
+        uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Build bundled agent sidecars
+        run: |
+          cargo build --release --target "$TARGET" \
+            -p buzz-acp \
+            -p buzz-agent \
+            -p buzz-dev-mcp \
+            -p buzz-cli
+          ./scripts/bundle-sidecars.sh "$TARGET"
+
+      - name: Build, sign, notarize, and create GitHub release
+        id: tauri
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+          MACOSX_DEPLOYMENT_TARGET: "12.0"
+          CMAKE_OSX_DEPLOYMENT_TARGET: "12.0"
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
+        with:
+          projectPath: desktop
+          tagName: airhop-desktop-v__VERSION__
+          releaseName: AirHop Center __VERSION__
+          releaseBody: Signed and notarized AirHop Center for Apple Silicon Macs.
+          releaseDraft: false
+          prerelease: false
+          generateReleaseNotes: true
+          uploadUpdaterJson: false
+          releaseAssetNamePattern: AirHop-Center_[version]_[arch].[ext]
+          args: --target aarch64-apple-darwin --bundles app,dmg --config src-tauri/tauri.airhop-release.conf.json
+
+      - name: Verify the signed application and notarization ticket
+        run: |
+          set -euo pipefail
+          APP=$(find desktop/src-tauri/target/"$TARGET"/release/bundle/macos -name '*.app' -type d | head -1)
+          DMG=$(find desktop/src-tauri/target/"$TARGET"/release/bundle/dmg -name '*.dmg' -type f | head -1)
+          [[ -n "$APP" && -n "$DMG" ]]
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          spctl --assess --type execute --verbose=4 "$APP"
+          xcrun stapler validate "$APP"
+          xcrun stapler validate "$DMG"
+
+      - name: Publish website download manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="airhop-desktop-v${VERSION}"
+          DMG=$(find desktop/src-tauri/target/"$TARGET"/release/bundle/dmg -name '*.dmg' -type f | head -1)
+          ASSET_NAME=$(gh release view "$TAG" --json assets --jq '.assets[] | select(.name | endswith(".dmg")) | .name' | head -1)
+          [[ -n "$DMG" && -n "$ASSET_NAME" ]]
+          ASSET_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET_NAME}"
+          SHA=$(shasum -a 256 "$DMG" | awk '{print $1}')
+          PUBLISHED_AT=$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')
+          MANIFEST="$RUNNER_TEMP/airhop-desktop-manifest.json"
+          node desktop/scripts/write-airhop-desktop-manifest.mjs \
+            --version "$VERSION" \
+            --published-at "$PUBLISHED_AT" \
+            --macos-url "$ASSET_URL" \
+            --macos-sha256 "$SHA" \
+            --macos-minimum-os "macOS 12 or newer, Apple Silicon" \
+            --output "$MANIFEST"
+          gh release upload "$TAG" "$MANIFEST" --clobber
+
+      - name: Release summary
+        env:
+          RELEASE_URL: ${{ steps.tauri.outputs.releaseHtmlUrl }}
+        run: |
+          {
+            echo "## AirHop Center $VERSION"
+            echo
+            echo "Signed and notarized Apple Silicon DMG: $RELEASE_URL"
+            echo "Website manifest: https://github.com/$GITHUB_REPOSITORY/releases/latest/download/airhop-desktop-manifest.json"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -85,3 +85,39 @@ test("a full invite keeps its signed Center destination", async () => {
   ]);
   cleanup();
 });
+
+test("a universal build resolves a bare code before starting the signed claim", async () => {
+  const { createElement } = await import("react");
+  const { cleanup, fireEvent, render, waitFor } = await import(
+    "@testing-library/react"
+  );
+  const { AirHopOwnerSetup } = await import("./AirHopOwnerSetup.tsx");
+  localStorage.clear();
+  const resolvedCodes = [];
+  const starts = [];
+  const view = render(
+    createElement(AirHopOwnerSetup, {
+      defaultRelayUrl: "ws://localhost:3000",
+      async resolveRelayUrl(code) {
+        resolvedCodes.push(code);
+        return "wss://center.ritm.example";
+      },
+      onStart: (relayUrl, code) => starts.push({ relayUrl, code }),
+    }),
+  );
+  fireEvent.click(view.getByRole("button", { name: "English" }));
+  fireEvent.change(view.getByLabelText("Organization code"), {
+    target: { value: "ahc_1_owner-code" },
+  });
+  fireEvent.click(view.getByRole("button", { name: "Connect center" }));
+  assert.equal(
+    view.getByRole("button", { name: "Checking the code…" }).disabled,
+    true,
+  );
+  await waitFor(() => assert.equal(starts.length, 1));
+  assert.deepEqual(resolvedCodes, ["ahc_1_owner-code"]);
+  assert.deepEqual(starts, [
+    { relayUrl: "wss://center.ritm.example", code: "ahc_1_owner-code" },
+  ]);
+  cleanup();
+});
