@@ -1,4 +1,5 @@
 {
-  "identifier": "ru.airhop.centers.dev",
-  "productName": "AirHop Center Dev"
+  "identifier": "ru.airhop.centers.app.dev",
+  "productName": "AirHop Center Dev",
+  "mainBinaryName": "buzz-desktop"
 }

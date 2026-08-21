@@ -275,20 +275,26 @@ airhop-center-open: bootstrap
     [[ -d "$APP_PATH" ]] || { echo "Error: canonical release bundle was not created" >&2; exit 1; }
     [[ "$APP_PATH" == */target/release/* ]] || { echo "Error: refusing to open a non-release bundle" >&2; exit 1; }
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$PLIST")" == "AirHop Center" ]] || { echo "Error: unexpected app display name" >&2; exit 1; }
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")" == "ru.airhop.centers" ]] || { echo "Error: unexpected app identifier" >&2; exit 1; }
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")" == "ru.airhop.centers.app" ]] || { echo "Error: unexpected app identifier" >&2; exit 1; }
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")" == "airhop-center" ]] || { echo "Error: unexpected app executable" >&2; exit 1; }
+    osascript -e 'tell application id "ru.airhop.centers.app" to quit' >/dev/null 2>&1 || true
     osascript -e 'tell application id "ru.airhop.centers" to quit' >/dev/null 2>&1 || true
+    PROCESS_PATTERN='/AirHop Center.app/Contents/MacOS/(airhop-center|buzz-desktop)'
     for _ in $(seq 1 20); do
-        pgrep -f '/AirHop Center.app/Contents/MacOS/buzz-desktop' >/dev/null 2>&1 || break
+        pgrep -f "$PROCESS_PATTERN" >/dev/null 2>&1 || break
         sleep 0.25
     done
-    if pgrep -f '/AirHop Center.app/Contents/MacOS/buzz-desktop' >/dev/null 2>&1; then
+    if pgrep -f "$PROCESS_PATTERN" >/dev/null 2>&1; then
         echo "Error: the previous AirHop Center process did not exit" >&2
         exit 1
     fi
     mkdir -p "$INSTALL_PATH"
     rsync -a --delete "$APP_PATH/" "$INSTALL_PATH/"
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$INSTALL_PATH/Contents/Info.plist")" == "AirHop Center" ]] || { echo "Error: installed app has an unexpected display name" >&2; exit 1; }
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INSTALL_PATH/Contents/Info.plist")" == "ru.airhop.centers" ]] || { echo "Error: installed app has an unexpected bundle identifier" >&2; exit 1; }
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INSTALL_PATH/Contents/Info.plist")" == "ru.airhop.centers.app" ]] || { echo "Error: installed app has an unexpected bundle identifier" >&2; exit 1; }
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$INSTALL_PATH/Contents/Info.plist")" == "airhop-center" ]] || { echo "Error: installed app has an unexpected executable" >&2; exit 1; }
+    [[ -x "$INSTALL_PATH/Contents/MacOS/airhop-center" ]] || { echo "Error: canonical AirHop executable is missing" >&2; exit 1; }
+    [[ ! -e "$INSTALL_PATH/Contents/MacOS/buzz-desktop" ]] || { echo "Error: stale Buzz executable survived installation" >&2; exit 1; }
     # Keep only the installed bundle. Leaving another .app with the same bundle
     # identifier under target makes LaunchServices treat the build artifact as
     # a second launchable application.

@@ -203,7 +203,7 @@ fn tray_airhop_icon() -> Image<'static> {
 }
 
 fn is_airhop_brand(product_name: Option<&str>, identifier: &str) -> bool {
-    identifier.eq_ignore_ascii_case("ru.airhop.centers")
+    identifier.eq_ignore_ascii_case("ru.airhop.centers.app")
         || product_name.is_some_and(|name| {
             name.eq_ignore_ascii_case("airhop") || name.eq_ignore_ascii_case("airhop center")
         })
@@ -659,7 +659,10 @@ mod tests {
 
     #[test]
     fn airhop_center_product_uses_airhop_tray_branding() {
-        assert!(is_airhop_brand(Some("AirHop Center"), "ru.airhop.centers"));
+        assert!(is_airhop_brand(
+            Some("AirHop Center"),
+            "ru.airhop.centers.app"
+        ));
         assert!(is_airhop_brand(Some("Airhop"), "com.example.preview"));
         assert!(!is_airhop_brand(Some("Buzz"), "com.example.buzz"));
     }

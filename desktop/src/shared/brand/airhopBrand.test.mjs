@@ -57,18 +57,38 @@ test("Tauri packages an independent Airhop application", () => {
   const development = JSON.parse(
     readFileSync("src-tauri/tauri.dev.conf.json", "utf8"),
   );
+  const nativeE2e = JSON.parse(
+    readFileSync("src-tauri/tauri.wdio.conf.json", "utf8"),
+  );
   const plist = readFileSync("src-tauri/Info.plist", "utf8");
 
   assert.equal(release.productName, "AirHop Center");
-  assert.equal(release.identifier, "ru.airhop.centers");
+  assert.equal(release.identifier, "ru.airhop.centers.app");
+  assert.equal(release.mainBinaryName, "airhop-center");
   assert.deepEqual(release.plugins["deep-link"].desktop.schemes, ["airhop"]);
   assert.equal(development.productName, "AirHop Center Dev");
-  assert.equal(development.identifier, "ru.airhop.centers.dev");
+  assert.equal(development.identifier, "ru.airhop.centers.app.dev");
+  assert.equal(development.mainBinaryName, "buzz-desktop");
+  assert.equal(nativeE2e.mainBinaryName, "buzz-desktop");
   assert.match(
     plist,
     /<key>CFBundleDisplayName<\/key>\s*<string>AirHop Center<\/string>/,
   );
   assert.doesNotMatch(plist, /<string>Buzz<\/string>/);
+});
+
+test("local launches cannot mix the AirHop release with Buzz dev storage", () => {
+  const instanceEnv = readFileSync("../scripts/instance-env.sh", "utf8");
+  const justfile = readFileSync("../Justfile", "utf8");
+
+  assert.match(instanceEnv, /\\"mainBinaryName\\":\\"buzz-desktop\\"/);
+  assert.match(justfile, /CFBundleExecutable[^\n]+airhop-center/);
+  assert.match(
+    justfile,
+    /PROCESS_PATTERN='\/AirHop Center\.app\/Contents\/MacOS\/\(airhop-center\|buzz-desktop\)'/,
+  );
+  assert.match(justfile, /Contents\/MacOS\/airhop-center/);
+  assert.match(justfile, /stale Buzz executable survived installation/);
 });
 
 test("first launch presents AirHop instead of the inherited Buzz wordmark", () => {

@@ -1,7 +1,7 @@
 //! Launch-time migration and reconciliation for AirHop Desktop.
 //!
 //! Worktree sync links the current dev data directory to
-//! `ru.airhop.centers.dev` when `BUZZ_SHARE_IDENTITY=1` and
+//! `ru.airhop.centers.app.dev` when `BUZZ_SHARE_IDENTITY=1` and
 //! `BUZZ_PRIVATE_KEY` is set, so dev instances share agent state. Other passes
 //! update persisted Sprout/Buzz command names and reconcile known provider MCP
 //! commands without changing custom agents.
@@ -12,8 +12,8 @@ use tauri::Manager;
 
 use crate::util::replace_with_symlink;
 
-const AIRHOP_RELEASE_IDENTIFIER: &str = "ru.airhop.centers";
-const AIRHOP_DEV_IDENTIFIER: &str = "ru.airhop.centers.dev";
+const AIRHOP_RELEASE_IDENTIFIER: &str = "ru.airhop.centers.app";
+const AIRHOP_DEV_IDENTIFIER: &str = "ru.airhop.centers.app.dev";
 const LEGACY_BUZZ_RELEASE_IDENTIFIER: &str = "xyz.block.buzz.app";
 const LEGACY_BUZZ_DEV_IDENTIFIER: &str = "xyz.block.buzz.app.dev";
 const CANONICAL_DEV_IDENTIFIER: &str = AIRHOP_DEV_IDENTIFIER;
@@ -34,8 +34,8 @@ const SHARED_AGENT_DIRS: &[&str] = &["agents/teams"];
 
 /// Returns `true` when `name` is a dev data dir name — i.e. it is exactly the
 /// canonical dev identifier or a worktree variant separated by a `.` (e.g.
-/// `ru.airhop.centers.dev.my-branch`). Rejects prefix-collisions such as
-/// `ru.airhop.centers.developer`. This is the authoritative dev/prod
+/// `ru.airhop.centers.app.dev.my-branch`). Rejects prefix-collisions such as
+/// `ru.airhop.centers.app.developer`. This is the authoritative dev/prod
 /// discriminator shared by `run_boot_migrations`, `sync_shared_agent_data`,
 /// and `reconcile_target_dir`.
 pub(crate) fn is_dev_data_dir_name(name: &str) -> bool {
