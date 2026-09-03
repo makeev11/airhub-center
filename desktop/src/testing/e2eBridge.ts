@@ -11211,6 +11211,29 @@ export function maybeInstallE2eTauriMocks() {
         return;
       case "fetch_join_policy":
         return activeConfig?.mock?.joinPolicy ?? null;
+      case "post_invite_http": {
+        const request = payload as {
+          url: string;
+          authorization?: string | null;
+          body: string;
+        };
+        const headers: Record<string, string> = {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        };
+        if (request.authorization) {
+          headers.Authorization = request.authorization;
+        }
+        const response = await fetch(request.url, {
+          method: "POST",
+          headers,
+          body: request.body,
+        });
+        return {
+          status: response.status,
+          body: await response.json().catch(() => ({})),
+        };
+      }
       case "apply_workspace": {
         const applyDelayMs = activeConfig?.mock?.applyCommunityDelayMs ?? 0;
         if (applyDelayMs > 0) {

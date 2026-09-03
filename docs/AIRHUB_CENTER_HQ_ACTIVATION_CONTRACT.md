@@ -140,6 +140,10 @@ tenant. Повторный выпуск атомарно отзывает пре
 
 - `POST /api/invites/claim` — единый host-bound, rate-limited и payload-bound
   NIP-98 claim. Тело содержит `code` и необязательный `policy_receipt`.
+- В packaged desktop клиенте invite-запросы (`mint`, `accept-policy`, `claim`)
+  уходят напрямую в Center через ограниченный native HTTPS transport: URL
+  разрешены только для invite-маршрутов, редиректы запрещены, размеры тела и
+  ответа ограничены. Web-клиент сохраняет обычный browser `fetch` и CORS.
 - Код `ahc_1_...` вызывает owner enrollment; обычный invite вызывает добавление
   сотрудника. Клиент не передаёт `installationId`, organization, environment,
   release profile или желаемую роль: это уже зафиксировано сервером при выпуске.

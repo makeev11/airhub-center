@@ -1,4 +1,5 @@
 import { relayHttpFromWs } from "@/shared/api/inviteHelpers";
+import { isTauri } from "@tauri-apps/api/core";
 import {
   getRelayHttpUrl,
   invokeTauri,
@@ -20,6 +21,11 @@ const NIP98_KIND = 27235;
 // invite-loading UI within seconds instead of hanging for the OS-level
 // connect timeout (a minute or more on macOS).
 const INVITE_REQUEST_TIMEOUT_MS = 15_000;
+
+type InviteHttpResponse = {
+  status: number;
+  body: Record<string, unknown>;
+};
 
 export type MintedInvite = {
   code: string;
@@ -82,6 +88,21 @@ async function invitePost<T>(
 ): Promise<T> {
   const url = `${httpBase.replace(/\/+$/, "")}${path}`;
   const authorization = await nip98PostHeader(url, body);
+  if (isTauri()) {
+    const response = await invokeTauri<InviteHttpResponse>("post_invite_http", {
+      url,
+      authorization,
+      body,
+    });
+    if (response.status < 200 || response.status >= 300) {
+      const message =
+        typeof response.body.error === "string"
+          ? response.body.error
+          : `HTTP ${response.status}`;
+      throw new Error(message);
+    }
+    return response.body as T;
+  }
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -174,18 +195,28 @@ export async function acceptJoinPolicy(
   ageConfirmed: boolean,
 ): Promise<string> {
   const base = relayHttpFromWs(relayWsUrl);
-  const response = await fetch(
-    `${base.replace(/\/+$/, "")}/api/invites/accept-policy`,
-    {
+  const url = `${base.replace(/\/+$/, "")}/api/invites/accept-policy`;
+  const body = JSON.stringify({
+    code,
+    policy_version: policyVersion,
+    age_confirmed: ageConfirmed,
+  });
+  if (isTauri()) {
+    const response = await invokeTauri<InviteHttpResponse>("post_invite_http", {
+      url,
+      authorization: null,
+      body,
+    });
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return (response.body as { receipt: string }).receipt;
+  }
+  const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        code,
-        policy_version: policyVersion,
-        age_confirmed: ageConfirmed,
-      }),
-    },
-  );
+      body,
+    });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return ((await response.json()) as { receipt: string }).receipt;
 }
