@@ -117,7 +117,10 @@ binding → отметить код использованным → сдела�
 - `POST /operator/airhop/center-activation-grants/revoke` — идемпотентно
   отозвать непогашенный grant по `host` и `grantId`.
 - `GET /operator/airhop/center-installations?host=…&installationId=…` — получить
-  безопасные metadata установки и историю grants без кодов и digests.
+  безопасные metadata установки и историю grants без кодов и digests. Поля
+  `activationVersion` и `verificationVersion` — целые счётчики, а
+  `configVersion` — непустая строка или `null` до первой успешной signed-health
+  проверки.
 - `POST /operator/airhop/center-installations/health-challenges` — необязательная
   техническая диагностика deployment. Она не выдаётся владельцу, не вводится в
   приложении и не участвует в допуске пользователя.
@@ -144,6 +147,10 @@ tenant. Повторный выпуск атомарно отзывает пре
   уходят напрямую в Center через ограниченный native HTTPS transport: URL
   разрешены только для invite-маршрутов, редиректы запрещены, размеры тела и
   ответа ограничены. Web-клиент сохраняет обычный browser `fetch` и CORS.
+- Пока остальные owner-сценарии Center (настройки организации и регистрация
+  Welcome-команды) используют WebView `fetch`, production relay обязан включать
+  точный origin `tauri://localhost` в `BUZZ_CORS_ORIGINS`. Wildcard-origin для
+  packaged desktop не используется.
 - Код `ahc_1_...` вызывает owner enrollment; обычный invite вызывает добавление
   сотрудника. Клиент не передаёт `installationId`, organization, environment,
   release profile или желаемую роль: это уже зафиксировано сервером при выпуске.
