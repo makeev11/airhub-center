@@ -89,7 +89,7 @@ pub struct CenterInstallationMetadataQuery {
 }
 
 const fn default_activation_ttl_seconds() -> i64 {
-    900
+    24 * 60 * 60
 }
 
 const OPERATOR_REPLAY_SCOPE: &str = "operator-management";
@@ -863,7 +863,7 @@ mod tests {
     const INGRESS_HOST: &str = "operator-ingress.example";
 
     #[test]
-    fn activation_issue_contract_is_closed_and_defaults_to_fifteen_minutes() {
+    fn activation_issue_contract_is_closed_and_defaults_to_twenty_four_hours() {
         let body = serde_json::json!({
             "host": "center.example",
             "installationId": Uuid::new_v4(),
@@ -873,7 +873,7 @@ mod tests {
         });
         let request: super::IssueCenterActivationGrantRequest =
             serde_json::from_value(body.clone()).expect("valid issue fixture");
-        assert_eq!(request.ttl_seconds, 900);
+        assert_eq!(request.ttl_seconds, 24 * 60 * 60);
 
         let mut with_unknown = body;
         with_unknown["activationCode"] = Value::String("must-not-be-accepted".to_owned());
