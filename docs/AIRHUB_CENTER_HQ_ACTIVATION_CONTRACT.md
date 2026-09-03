@@ -109,7 +109,9 @@ binding → отметить код использованным → сдела�
   code. Требует
   `Idempotency-Key` и NIP-98 payload binding. Тело содержит `host`,
   `installationId`, `environment`, `releaseProfile`, `releaseVersion` и
-  необязательный `ttlSeconds` (по умолчанию 900, допустимо 60–3600). Ответ `201`
+  необязательный `ttlSeconds` (по умолчанию 86400, допустимо 60–86400). Код
+  действует 24 часа с момента выпуска; после погашения owner identity не имеет
+  TTL и остаётся активной до явного отзыва. Ответ `201`
   единственный раз содержит `activationCode`; идемпотентный replay возвращает
   `200` с теми же metadata без кода.
 - `POST /operator/airhop/center-activation-grants/revoke` — идемпотентно

@@ -16,7 +16,7 @@ use crate::{Db, DbError, Result};
 /// Minimum lifetime accepted for a Center activation grant.
 pub const MIN_ACTIVATION_GRANT_TTL_SECONDS: i64 = 60;
 /// Maximum lifetime accepted for a Center activation grant.
-pub const MAX_ACTIVATION_GRANT_TTL_SECONDS: i64 = 3_600;
+pub const MAX_ACTIVATION_GRANT_TTL_SECONDS: i64 = 24 * 60 * 60;
 
 /// Deployment environment sealed into one installation activation ceremony.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -937,6 +937,10 @@ mod tests {
         let mut input = issue_input();
         input.ttl_seconds = MAX_ACTIVATION_GRANT_TTL_SECONDS + 1;
         assert!(validate_issue_input(&input).is_err());
+
+        input = issue_input();
+        input.ttl_seconds = MAX_ACTIVATION_GRANT_TTL_SECONDS;
+        assert!(validate_issue_input(&input).is_ok());
 
         input = issue_input();
         input.release_profile = "  ".to_owned();
