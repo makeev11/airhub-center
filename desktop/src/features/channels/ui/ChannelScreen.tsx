@@ -75,6 +75,7 @@ import { useElementWidth } from "@/shared/hooks/use-mobile";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
 import { AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX } from "@/shared/layout/AuxiliaryPanel";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { AIRHOP_CONTENT_MARKETER_PERSONA_ID } from "@/features/messages/lib/siteContentConfirmation";
 import { useChannelActivityTyping } from "./useChannelActivityTyping";
 import { useChannelAgentSessions } from "./useChannelAgentSessions";
 import { useMessageProfiles } from "./useMessageProfiles";
@@ -237,10 +238,6 @@ export function ChannelScreen({
     activeDmPresenceStatus,
     activeChannelEphemeralDisplay,
   } = useActiveChannelHeader(activeChannel, currentPubkey);
-  const sendMessageMutation = useSendMessageMutation(
-    activeChannel,
-    currentIdentity,
-  );
   const toggleReactionMutation = useToggleReactionMutation();
   const deleteMessageMutation = useDeleteMessageMutation(activeChannel);
   const editMessageMutation = useEditMessageMutation(activeChannel);
@@ -297,6 +294,14 @@ export function ChannelScreen({
   const channelMembers = channelMembersQuery.data;
   const managedAgentsQuery = useManagedAgentsQuery();
   const managedAgents = managedAgentsQuery.data ?? [];
+  const contentMarketerPubkey = managedAgents.find(
+    (agent) => agent.personaId === AIRHOP_CONTENT_MARKETER_PERSONA_ID,
+  )?.pubkey;
+  const sendMessageMutation = useSendMessageMutation(
+    activeChannel,
+    currentIdentity,
+    contentMarketerPubkey,
+  );
   const welcomeGuideAgent = React.useMemo(
     () => pickWelcomeGuideAgent(managedAgents),
     [managedAgents],

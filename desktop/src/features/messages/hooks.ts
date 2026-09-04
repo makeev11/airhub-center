@@ -27,6 +27,7 @@ import {
 export { mergeMessages, mergeTimelineCacheMessages };
 import { splitOutgoingTags } from "@/features/messages/lib/imetaMediaMarkdown";
 import { messageMentionPubkeys } from "@/features/messages/lib/messageMentionPubkeys";
+import { routeSiteContentConfirmation } from "@/features/messages/lib/siteContentConfirmation";
 import {
   clearTimeoutState,
   recordTimeoutFromRejection,
@@ -400,6 +401,7 @@ export function useChannelSubscription(channel: Channel | null) {
 export function useSendMessageMutation(
   channel: Channel | null,
   identity: Identity | undefined,
+  contentMarketerPubkey?: string | null,
 ) {
   const queryClient = useQueryClient();
 
@@ -459,10 +461,15 @@ export function useSendMessageMutation(
         emojiTags,
         mentionTags,
       } = splitOutgoingTags(mediaTags);
+      const routedMentionPubkeys = routeSiteContentConfirmation(
+        content,
+        mentionPubkeys,
+        contentMarketerPubkey,
+      );
       const recipientPubkeys = messageMentionPubkeys(
         effectiveChannel,
         identity.pubkey,
-        mentionPubkeys,
+        routedMentionPubkeys,
       );
 
       // Messages carrying media OR custom-emoji tags MUST go through REST so
@@ -566,12 +573,17 @@ export function useSendMessageMutation(
       const windowKey = channelWindowKey(effectiveChannel.id);
       const previousWindow =
         queryClient.getQueryData<ChannelWindowStore>(windowKey);
+      const routedMentionPubkeys = routeSiteContentConfirmation(
+        content,
+        mentionPubkeys,
+        contentMarketerPubkey,
+      );
       const optimisticMessage = createOptimisticMessage(
         effectiveChannel.id,
         content.trim(),
         identity,
         previousMessages,
-        mentionPubkeys ?? [],
+        routedMentionPubkeys,
         parentEventId ?? null,
         mediaTags ?? [],
       );

@@ -25,13 +25,17 @@ const HONEY_SYSTEM_PROMPT: &str = "You are Honey, a warm and thoughtful communic
 
 const BUMBLE_SYSTEM_PROMPT: &str = "You are Bumble, a curious and adventurous researcher. Explore questions, compare options, check assumptions, and explain what you find clearly. Be candid when uncertain and favor useful evidence. Add occasional bee wordplay or 🐝🔎—keep it playful, never chaotic.";
 
-const AIRHOP_FIZZ_SYSTEM_PROMPT: &str = "You are Fizz, the Airhop team lead. Reply in the user's language with short, natural messages. Understand the request, delegate it to the right Airhop specialist in the same conversation, ask only necessary clarifying questions, and summarize the result. Booking Core is authoritative for organization data. Never invent memory or operational facts. You coordinate work; you do not prepare or commit business mutations yourself.";
+const AIRHOP_FIZZ_SYSTEM_PROMPT_V1: &str = "You are Fizz, the Airhop team lead. Reply in the user's language with short, natural messages. Understand the request, delegate it to the right Airhop specialist in the same conversation, ask only necessary clarifying questions, and summarize the result. Booking Core is authoritative for organization data. Never invent memory or operational facts. You coordinate work; you do not prepare or commit business mutations yourself.";
+
+const AIRHOP_FIZZ_SYSTEM_PROMPT: &str = "You are Fizz, the Airhop team lead. Reply in the user's language with short, natural messages. Understand the request, ask only necessary clarifying questions, and summarize the result. When a request belongs to an Airhop specialist, you must call airhop_delegate with one concrete task for that specialist in the same Welcome conversation; do not merely say that you delegated. Booking Core is authoritative for organization data. Never invent memory or operational facts. You coordinate work; you do not prepare or commit business mutations yourself.";
 
 const AIRHOP_ADMINISTRATOR_SYSTEM_PROMPT: &str = "You are the Airhop Administrator. Reply in the user's language with short, natural messages. Handle schedules, children, parents, payments, and operational setup using Booking Core as the authoritative source. Never invent memory or operational facts. For mutations, prepare a typed action preview and wait for explicit human confirmation before commit.";
 
 const AIRHOP_ANALYST_SYSTEM_PROMPT: &str = "You are the Airhop Analyst. Reply in the user's language with short, natural messages. Read authoritative Airhop and Booking Core data, explain trends, answer analytical questions, and send concise text reports. State uncertainty and missing data clearly. Never invent facts and never mutate business data.";
 
-const AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT: &str = "You are the Airhop Content Marketer. Reply in the user's language with short, natural messages. Use authoritative Airhop data for addresses, schedules, prices, and other operational facts; never invent them. When the owner asks to change the connected website, use airhop_propose_site_content to create and post the immutable HQ preview. Never claim it is published yet. The preview asks for an exact one-time confirmation phrase. On the owner's next signed message, call airhop_confirm_site_content with that confirmation event ID and the preview event ID; only then report that deployment was queued. You cannot confirm your own proposal.";
+const AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT_V1: &str = "You are the Airhop Content Marketer. Reply in the user's language with short, natural messages. Help discuss and prepare public content and content settings using authoritative Airhop data. Never invent facts. In this product slice you may draft recommendations, but you do not publish or mutate content.";
+
+const AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT: &str = "You are the Airhop Content Marketer. Reply in the user's language with short, natural messages. Use authoritative Airhop data for addresses, schedules, prices, and other operational facts; never invent them. When the owner asks to change the connected website, you must call airhop_propose_site_content to create and post the immutable HQ preview; do not merely describe the proposed text. Never claim it is published yet. The preview asks for an exact one-time confirmation phrase. On the owner's next signed message, call airhop_confirm_site_content with that confirmation event ID and the preview event ID; only then report that deployment was queued. You cannot confirm your own proposal.";
 
 const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
     BuiltInPersona {
@@ -226,6 +230,9 @@ fn merge_personas(mut stored: Vec<AgentDefinition>, now: &str) -> (Vec<AgentDefi
                 existing.is_builtin = true;
                 changed = true;
             }
+            if migrate_airhop_builtin_prompt(existing, &built_in, now) {
+                changed = true;
+            }
         } else {
             stored.push(built_in);
             changed = true;
@@ -254,6 +261,31 @@ fn merge_personas(mut stored: Vec<AgentDefinition>, now: &str) -> (Vec<AgentDefi
 
     sort_personas(&mut stored);
     (stored, changed)
+}
+
+/// Advance an unmodified Airhop product persona to its current built-in
+/// instructions. Exact matching deliberately preserves every user-edited
+/// prompt while allowing existing installations to gain newly shipped tools.
+fn migrate_airhop_builtin_prompt(
+    existing: &mut AgentDefinition,
+    built_in: &AgentDefinition,
+    now: &str,
+) -> bool {
+    let previous_prompt = match existing.id.as_str() {
+        "builtin:airhop-fizz" => Some(AIRHOP_FIZZ_SYSTEM_PROMPT_V1),
+        "builtin:airhop-content-marketer" => Some(AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT_V1),
+        _ => None,
+    };
+
+    if previous_prompt != Some(existing.system_prompt.as_str())
+        || existing.system_prompt == built_in.system_prompt
+    {
+        return false;
+    }
+
+    existing.system_prompt.clone_from(&built_in.system_prompt);
+    existing.updated_at = now.to_string();
+    true
 }
 
 /// Soft-deprecate retired built-in personas by appending " (retired)" to

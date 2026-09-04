@@ -274,6 +274,18 @@ pub(crate) fn reap_dead_instance_agents(our_instance_id: &str, skip_pids: &[u32]
         if info.pbi_uid != my_uid {
             continue;
         }
+        // Fast-path our own instance with the same raw marker matcher used by
+        // the periodic same-instance sweep.  `extract_buzz_marker_value`
+        // parses KERN_PROCARGS2's argc/argv/env layout; on some packaged macOS
+        // launches that parser can land on the wrong env entry and make a live
+        // local harness look like it belongs to a dead foreign instance.  A
+        // false foreign classification is destructive (the whole process
+        // group is terminated), so the exact marker match is the primary
+        // ownership gate and the extracted value is only needed for genuinely
+        // foreign instances.
+        if process_has_buzz_marker(upid, our_instance_id) {
+            continue;
+        }
         // Extract the instance ID from this agent's env.
         // Do NOT name-gate via process_belongs_to_us — custom harnesses use
         // arbitrary binary names and BUZZ_MANAGED_AGENT is the authoritative
@@ -333,6 +345,12 @@ pub(crate) fn reap_dead_instance_agents(our_instance_id: &str, skip_pids: &[u32]
         };
         use std::os::unix::fs::MetadataExt;
         if meta.uid() != my_uid {
+            continue;
+        }
+        // Keep the exact current-instance marker as the primary ownership
+        // gate, symmetric with macOS above.  Parsing the marker value is only
+        // necessary after this process is known not to belong to us.
+        if process_has_buzz_marker(upid, our_instance_id) {
             continue;
         }
         // Do NOT name-gate via process_belongs_to_us — custom harnesses use

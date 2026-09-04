@@ -1,7 +1,9 @@
 use super::{
     built_in_persona_records, ensure_persona_ids_are_active, ensure_persona_is_active,
     merge_personas, migrate_retired_personas, validate_persona_activation_change,
-    validate_persona_deletion, BUILT_IN_PERSONAS, RETIRED_PERSONAS,
+    validate_persona_deletion, AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT,
+    AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT_V1, AIRHOP_FIZZ_SYSTEM_PROMPT,
+    AIRHOP_FIZZ_SYSTEM_PROMPT_V1, BUILT_IN_PERSONAS, RETIRED_PERSONAS,
 };
 use crate::managed_agents::discovery::{default_agent_command, effective_agent_command};
 use crate::managed_agents::AgentDefinition;
@@ -143,6 +145,50 @@ fn merge_personas_preserves_builtin_edits() {
     assert_eq!(fizz.name_pool, edited_builtin.name_pool);
     assert_eq!(fizz.env_vars, edited_builtin.env_vars);
     assert_eq!(fizz.is_active, edited_builtin.is_active);
+}
+
+#[test]
+fn merge_personas_upgrades_unmodified_airhop_product_prompts() {
+    let mut fizz = custom_persona("builtin:airhop-fizz", "Fizz");
+    fizz.is_builtin = true;
+    fizz.system_prompt = AIRHOP_FIZZ_SYSTEM_PROMPT_V1.to_string();
+    let mut marketer = custom_persona("builtin:airhop-content-marketer", "Content Marketer");
+    marketer.is_builtin = true;
+    marketer.system_prompt = AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT_V1.to_string();
+
+    let (records, changed) = merge_personas(vec![fizz, marketer], "2026-09-04T13:00:00Z");
+
+    assert!(changed);
+    let fizz = records
+        .iter()
+        .find(|record| record.id == "builtin:airhop-fizz")
+        .expect("Fizz should exist");
+    assert_eq!(fizz.system_prompt, AIRHOP_FIZZ_SYSTEM_PROMPT);
+    assert_eq!(fizz.updated_at, "2026-09-04T13:00:00Z");
+    let marketer = records
+        .iter()
+        .find(|record| record.id == "builtin:airhop-content-marketer")
+        .expect("Content Marketer should exist");
+    assert_eq!(
+        marketer.system_prompt,
+        AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT
+    );
+    assert_eq!(marketer.updated_at, "2026-09-04T13:00:00Z");
+}
+
+#[test]
+fn merge_personas_preserves_custom_airhop_product_prompts() {
+    let mut marketer = custom_persona("builtin:airhop-content-marketer", "My Marketer");
+    marketer.is_builtin = true;
+    marketer.system_prompt = "My custom publication workflow".to_string();
+
+    let (records, _) = merge_personas(vec![marketer], "2026-09-04T13:00:00Z");
+
+    let marketer = records
+        .iter()
+        .find(|record| record.id == "builtin:airhop-content-marketer")
+        .expect("Content Marketer should exist");
+    assert_eq!(marketer.system_prompt, "My custom publication workflow");
 }
 
 #[test]

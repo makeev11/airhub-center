@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import {
   useManagedAgentsQuery,
+  useSetManagedAgentStartOnAppLaunchMutation,
   useStartManagedAgentMutation,
   useStopManagedAgentMutation,
 } from "@/features/agents/hooks";
@@ -148,8 +149,10 @@ export function AirhopAgentsScreen({
   const locale = useAirHopLocale();
   const copy = COPY[locale];
   const managedAgents = useManagedAgentsQuery();
-  const startAgent = useStartManagedAgentMutation();
-  const stopAgent = useStopManagedAgentMutation();
+  const { mutateAsync: startAgent } = useStartManagedAgentMutation();
+  const { mutateAsync: stopAgent } = useStopManagedAgentMutation();
+  const { mutateAsync: setStartOnLaunch } =
+    useSetManagedAgentStartOnAppLaunchMutation();
   const [pending, setPending] = React.useState<Set<string>>(() => new Set());
   const cards = React.useMemo(
     () => materializeAirhopAgentCards(managedAgents.data ?? [], locale),
@@ -165,8 +168,28 @@ export function AirhopAgentsScreen({
       const pubkey = card.pubkey;
       setPending((current) => new Set(current).add(pubkey));
       try {
-        if (enable) await startAgent.mutateAsync(pubkey);
-        else await stopAgent.mutateAsync(pubkey);
+        if (enable) {
+          // The simple Airhop switch represents an enabled service, not a
+          // one-off process launch. Persist the choice before spawning so the
+          // agent survives app restarts and the runtime reconciler keeps the
+          // pair warm for this organization.
+          await setStartOnLaunch({ pubkey, startOnAppLaunch: true });
+          try {
+            await startAgent(pubkey);
+          } catch (error) {
+            // Do not leave a failed start silently armed for the next launch.
+            await setStartOnLaunch({
+              pubkey,
+              startOnAppLaunch: false,
+            }).catch(() => undefined);
+            throw error;
+          }
+        } else {
+          // Disarm auto-start first so a concurrent reconciliation cannot
+          // immediately recreate the process the user is turning off.
+          await setStartOnLaunch({ pubkey, startOnAppLaunch: false });
+          await stopAgent(pubkey);
+        }
         return true;
       } catch {
         toast.error(copy.actionError);
@@ -179,7 +202,7 @@ export function AirhopAgentsScreen({
         });
       }
     },
-    [copy.actionError, startAgent, stopAgent],
+    [copy.actionError, setStartOnLaunch, startAgent, stopAgent],
   );
 
   const toggleAll = React.useCallback(async () => {

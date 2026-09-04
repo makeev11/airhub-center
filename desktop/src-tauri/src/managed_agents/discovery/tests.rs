@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use super::overrides::{divergent_agent_command_override, update_time_agent_command_override};
 use super::{
     apply_agent_command_update, classify_runtime, codex_adapter_availability,
-    codex_adapter_is_outdated, create_time_agent_command_override, default_agent_command,
-    effective_agent_command, find_nvm_default_bin, find_via_login_shell,
+    codex_adapter_is_outdated, command_search_dirs_for, create_time_agent_command_override,
+    default_agent_command, effective_agent_command, find_nvm_default_bin, find_via_login_shell,
     is_login_shell_path_uninit, is_safe_nvm_tag, managed_agent_avatar_url, normalize_agent_args,
     parse_semver_tag, probe_codex_acp_version, record_agent_command, refresh_login_shell_path,
     try_record_agent_command, BUZZ_AGENT_AVATAR_URL, CLAUDE_CODE_AVATAR_URL, CODEX_AVATAR_URL,
@@ -92,6 +92,32 @@ fn normalizes_buzz_agent_args_to_empty() {
         normalize_agent_args("buzz-agent", vec!["acp".into()]),
         Vec::<String>::new()
     );
+}
+
+#[test]
+fn release_command_search_prefers_bundled_sidecars() {
+    let workspace = PathBuf::from("/workspace");
+    let current = PathBuf::from("/working-directory");
+    let bundle = PathBuf::from("/Applications/AirHop Center.app/Contents/MacOS");
+
+    let dirs = command_search_dirs_for(&workspace, Some(&current), Some(&bundle), true);
+
+    assert_eq!(dirs.first(), Some(&bundle));
+    assert!(dirs
+        .iter()
+        .any(|path| path == &workspace.join("target/release")));
+}
+
+#[test]
+fn debug_command_search_prefers_workspace_sidecars() {
+    let workspace = PathBuf::from("/workspace");
+    let current = PathBuf::from("/working-directory");
+    let bundle = PathBuf::from("/Applications/AirHop Center.app/Contents/MacOS");
+
+    let dirs = command_search_dirs_for(&workspace, Some(&current), Some(&bundle), false);
+
+    assert_eq!(dirs.first(), Some(&workspace.join("target/debug")));
+    assert_eq!(dirs.last(), Some(&bundle));
 }
 
 #[test]

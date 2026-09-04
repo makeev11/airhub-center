@@ -86,7 +86,9 @@ impl AirhopRole {
             ),
             Self::ContentMarketer => matches!(
                 resource,
-                ReadResource::OrganizationSettings | ReadResource::PublicBookingSettings
+                ReadResource::OrganizationSettings
+                    | ReadResource::Schedule
+                    | ReadResource::PublicBookingSettings
             ),
         }
     }
@@ -260,8 +262,61 @@ pub struct ProposeSiteContentParams {
     pub channel_id: Uuid,
     /// Hex event ID of the owner's request that caused this proposal.
     pub triggering_event_id: String,
-    /// HQ-validated typed site-content changes.
-    pub changes: Vec<Value>,
+    /// HQ-validated typed site-content changes. For a visible page heading use
+    /// `marketing.headline`; for the browser/search title use
+    /// `marketing.seo_title`.
+    pub changes: Vec<SiteContentChange>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SiteContentChange {
+    pub key: SiteContentKey,
+    pub value: Value,
+}
+
+/// Public site field changed by the Content Marketer. The serialized values
+/// are the canonical HQ contract; common model guesses for a visible heading
+/// are accepted as input aliases and always normalized before signing.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, JsonSchema,
+)]
+pub enum SiteContentKey {
+    #[serde(rename = "business.public_name")]
+    BusinessPublicName,
+    #[serde(rename = "business.public_address")]
+    BusinessPublicAddress,
+    #[serde(rename = "contacts.public_phone")]
+    ContactsPublicPhone,
+    #[serde(rename = "contacts.public_email")]
+    ContactsPublicEmail,
+    #[serde(rename = "contacts.telegram")]
+    ContactsTelegram,
+    #[serde(rename = "contacts.whatsapp")]
+    ContactsWhatsapp,
+    #[serde(rename = "operations.hours")]
+    OperationsHours,
+    #[serde(rename = "operations.schedule")]
+    OperationsSchedule,
+    #[serde(rename = "operations.prices")]
+    OperationsPrices,
+    #[serde(rename = "links.booking")]
+    LinksBooking,
+    #[serde(
+        rename = "marketing.headline",
+        alias = "headline",
+        alias = "title",
+        alias = "site_title"
+    )]
+    MarketingHeadline,
+    #[serde(rename = "marketing.summary")]
+    MarketingSummary,
+    #[serde(rename = "marketing.faq")]
+    MarketingFaq,
+    #[serde(rename = "marketing.seo_title")]
+    MarketingSeoTitle,
+    #[serde(rename = "marketing.seo_description")]
+    MarketingSeoDescription,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -823,7 +878,8 @@ impl AirhopService {
             .and_then(Value::as_i64)
             .filter(|value| *value > 0)
             .ok_or_else(|| AirhopError("HQ site content has no valid revision".to_owned()))?;
-        let changes = Value::Array(params.changes);
+        let changes = serde_json::to_value(params.changes)
+            .map_err(|error| AirhopError(format!("changes serialization failed: {error}")))?;
         let request_digest = hex::encode(Sha256::digest(
             serde_json::to_vec(&changes)
                 .map_err(|error| AirhopError(format!("changes serialization failed: {error}")))?,
@@ -985,43 +1041,13 @@ fn validate_hex_event_id(value: &str, name: &str) -> Result<(), AirhopError> {
     }
 }
 
-fn validate_site_content_changes(changes: &[Value]) -> Result<(), AirhopError> {
-    const KEYS: &[&str] = &[
-        "business.public_name",
-        "business.public_address",
-        "contacts.public_phone",
-        "contacts.public_email",
-        "contacts.telegram",
-        "contacts.whatsapp",
-        "operations.hours",
-        "operations.schedule",
-        "operations.prices",
-        "links.booking",
-        "marketing.headline",
-        "marketing.summary",
-        "marketing.faq",
-        "marketing.seo_title",
-        "marketing.seo_description",
-    ];
+fn validate_site_content_changes(changes: &[SiteContentChange]) -> Result<(), AirhopError> {
     if changes.is_empty() || changes.len() > 100 {
         return Err(AirhopError("changes must contain 1..=100 items".to_owned()));
     }
     let mut seen = BTreeSet::new();
     for change in changes {
-        let object = change
-            .as_object()
-            .ok_or_else(|| AirhopError("each site-content change must be an object".to_owned()))?;
-        if object.len() != 2 || !object.contains_key("value") {
-            return Err(AirhopError(
-                "each site-content change must contain only key and value".to_owned(),
-            ));
-        }
-        let key = object
-            .get("key")
-            .and_then(Value::as_str)
-            .filter(|key| KEYS.contains(key))
-            .ok_or_else(|| AirhopError("unsupported site-content key".to_owned()))?;
-        if !seen.insert(key) {
+        if !seen.insert(change.key) {
             return Err(AirhopError("site-content keys must be unique".to_owned()));
         }
     }
@@ -1192,7 +1218,7 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_propose_site_content",
-        description = "Content Marketer only: create an immutable HQ site-content preview and post the exact confirmation prompt in the Airhop Welcome channel. Does not publish."
+        description = "Content Marketer only: create an immutable HQ site-content preview and post the exact confirmation prompt in the Airhop Welcome channel. Does not publish. Use marketing.headline for the visible main page heading and marketing.seo_title only for the browser/search title."
     )]
     async fn propose_site_content(
         &self,
@@ -1371,25 +1397,59 @@ mod tests {
 
     #[test]
     fn site_content_changes_are_closed_and_role_safe() {
-        let valid = vec![json!({
-            "key": "operations.schedule",
-            "value": [{"title": "Рисование", "days": "Вт, Чт", "time": "19:00"}]
-        })];
-        assert!(validate_site_content_changes(&valid).is_ok());
+        let valid: ProposeSiteContentParams = serde_json::from_value(json!({
+            "channelId": Uuid::new_v4(),
+            "triggeringEventId": "ab".repeat(32),
+            "changes": [{
+                "key": "operations.schedule",
+                "value": [{"title": "Рисование", "days": "Вт, Чт", "time": "19:00"}]
+            }]
+        }))
+        .expect("canonical site content should parse");
+        assert!(validate_site_content_changes(&valid.changes).is_ok());
         assert!(validate_site_content_changes(&[]).is_err());
-        assert!(validate_site_content_changes(&[
-            json!({"key": "internal.ssh_key", "value": "secret"})
-        ])
+        assert!(serde_json::from_value::<ProposeSiteContentParams>(json!({
+            "channelId": Uuid::new_v4(),
+            "triggeringEventId": "ab".repeat(32),
+            "changes": [{"key": "internal.ssh_key", "value": "secret"}]
+        }))
         .is_err());
-        assert!(validate_site_content_changes(&[
-            json!({"key": "marketing.headline", "value": "A", "publish": true})
-        ])
+        assert!(serde_json::from_value::<ProposeSiteContentParams>(json!({
+            "channelId": Uuid::new_v4(),
+            "triggeringEventId": "ab".repeat(32),
+            "changes": [{"key": "marketing.headline", "value": "A", "publish": true}]
+        }))
         .is_err());
-        assert!(validate_site_content_changes(&[
-            json!({"key": "marketing.headline", "value": "A"}),
-            json!({"key": "marketing.headline", "value": "B"})
-        ])
-        .is_err());
+
+        let duplicate: ProposeSiteContentParams = serde_json::from_value(json!({
+            "channelId": Uuid::new_v4(),
+            "triggeringEventId": "ab".repeat(32),
+            "changes": [
+                {"key": "marketing.headline", "value": "A"},
+                {"key": "marketing.headline", "value": "B"}
+            ]
+        }))
+        .expect("duplicate keys are a semantic validation error");
+        assert!(validate_site_content_changes(&duplicate.changes).is_err());
+    }
+
+    #[test]
+    fn site_content_heading_aliases_normalize_to_hq_contract() {
+        for alias in ["headline", "title", "site_title"] {
+            let change: SiteContentChange = serde_json::from_value(json!({
+                "key": alias,
+                "value": "Проверка публикации"
+            }))
+            .expect("common heading alias should parse");
+            assert_eq!(change.key, SiteContentKey::MarketingHeadline);
+            assert_eq!(
+                serde_json::to_value(change).expect("change should serialize"),
+                json!({
+                    "key": "marketing.headline",
+                    "value": "Проверка публикации"
+                })
+            );
+        }
     }
 
     #[test]
@@ -1502,6 +1562,7 @@ mod tests {
         assert!(AirhopRole::Administrator.allows(&ReadResource::Schedule));
         assert!(AirhopRole::Analyst.allows(&ReadResource::PaymentAnalytics));
         assert!(AirhopRole::Analyst.allows(&ReadResource::BookingFunnel));
+        assert!(AirhopRole::ContentMarketer.allows(&ReadResource::Schedule));
         assert!(AirhopRole::ContentMarketer.allows(&ReadResource::PublicBookingSettings));
         assert!(
             !AirhopRole::ContentMarketer.allows(&ReadResource::FamilyDetail {

@@ -65,6 +65,7 @@ use buzz_db::airhop::tariff_directory::{
 use buzz_db::airhop::teacher_directory::{
     AirhopTeacher, CreateTeacherInput, PutTeacherInput, TeacherStatus,
 };
+use buzz_db::airhop::welcome_agents::AirhopWelcomeRole;
 use buzz_db::airhop::{ActorKind, AirhopActor};
 use chrono::{DateTime, NaiveTime, Utc};
 use hmac::digest::KeyInit;
@@ -2753,8 +2754,19 @@ async fn authenticate(
     body: Option<&[u8]>,
     access: Access,
 ) -> Result<(buzz_core::TenantContext, nostr::PublicKey), (StatusCode, Json<Value>)> {
-    let principal =
-        super::airhop_auth::authenticate_airhop(state, headers, method, path, body).await?;
+    // Read-only staff resources are also the authoritative source for the
+    // built-in Airhop team. NIP-OA agents are accepted only when they are in
+    // the tenant's exact Welcome manifest and their registered role is allowed
+    // to read this specific path. Mutations and connector APIs remain direct
+    // workspace-member operations.
+    let principal = if matches!(access, Access::Staff) && method == "GET" {
+        super::airhop_auth::authenticate_airhop_agent(state, headers, method, path, body).await?
+    } else {
+        super::airhop_auth::authenticate_airhop(state, headers, method, path, body).await?
+    };
+    if matches!(access, Access::Staff) && principal.member_role == "agent" {
+        authorize_registered_agent_read(state, &principal.tenant, &principal.pubkey, path).await?;
+    }
     if matches!(access, Access::Integration)
         && principal.member_role != "owner"
         && principal.member_role != "admin"
@@ -2765,6 +2777,68 @@ async fn authenticate(
         ));
     }
     Ok((principal.tenant, principal.pubkey))
+}
+
+async fn authorize_registered_agent_read(
+    state: &Arc<AppState>,
+    tenant: &buzz_core::TenantContext,
+    pubkey: &nostr::PublicKey,
+    path: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let manifest = state
+        .db
+        .get_airhop_welcome_team(tenant)
+        .await
+        .map_err(map_db_error)?
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::FORBIDDEN,
+                "registered Airhop agent access required",
+            )
+        })?;
+    let role = manifest
+        .members
+        .iter()
+        .find_map(|(role, candidate)| (candidate.as_slice() == pubkey.as_bytes()).then_some(*role))
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::FORBIDDEN,
+                "registered Airhop agent access required",
+            )
+        })?;
+    if registered_agent_role_allows_path(role, path) {
+        Ok(())
+    } else {
+        Err(api_error(
+            StatusCode::FORBIDDEN,
+            "Airhop agent role cannot read this resource",
+        ))
+    }
+}
+
+fn registered_agent_role_allows_path(role: AirhopWelcomeRole, path: &str) -> bool {
+    let path = path.split('?').next().unwrap_or(path);
+    match path {
+        "/api/airhop/staff/v1/settings" => true,
+        "/api/airhop/staff/v1/branches" => matches!(
+            role,
+            AirhopWelcomeRole::Fizz
+                | AirhopWelcomeRole::Administrator
+                | AirhopWelcomeRole::ContentMarketer
+        ),
+        "/api/airhop/staff/v1/payment-analytics"
+        | "/api/airhop/staff/v1/booking-funnel-analytics" => {
+            matches!(role, AirhopWelcomeRole::Fizz | AirhopWelcomeRole::Analyst)
+        }
+        "/api/airhop/staff/v1/families" => role == AirhopWelcomeRole::Administrator,
+        _ => path
+            .strip_prefix("/api/airhop/staff/v1/families/")
+            .is_some_and(|family_id| {
+                !family_id.contains('/')
+                    && Uuid::parse_str(family_id).is_ok()
+                    && role == AirhopWelcomeRole::Administrator
+            }),
+    }
 }
 
 fn booking_queue_filter(
@@ -3527,6 +3601,48 @@ const fn default_retry_seconds() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn registered_agent_reads_are_server_side_role_scoped() {
+        let family_id = Uuid::new_v4();
+        let family_path = format!("/api/airhop/staff/v1/families/{family_id}");
+
+        for role in AirhopWelcomeRole::ALL {
+            assert!(registered_agent_role_allows_path(
+                role,
+                "/api/airhop/staff/v1/settings"
+            ));
+        }
+        assert!(registered_agent_role_allows_path(
+            AirhopWelcomeRole::ContentMarketer,
+            "/api/airhop/staff/v1/branches"
+        ));
+        assert!(registered_agent_role_allows_path(
+            AirhopWelcomeRole::Administrator,
+            &family_path
+        ));
+        assert!(registered_agent_role_allows_path(
+            AirhopWelcomeRole::Analyst,
+            "/api/airhop/staff/v1/payment-analytics"
+        ));
+
+        assert!(!registered_agent_role_allows_path(
+            AirhopWelcomeRole::ContentMarketer,
+            "/api/airhop/staff/v1/families"
+        ));
+        assert!(!registered_agent_role_allows_path(
+            AirhopWelcomeRole::Analyst,
+            "/api/airhop/staff/v1/branches"
+        ));
+        assert!(!registered_agent_role_allows_path(
+            AirhopWelcomeRole::Administrator,
+            &format!("{family_path}/children")
+        ));
+        assert!(!registered_agent_role_allows_path(
+            AirhopWelcomeRole::Fizz,
+            "/api/airhop/staff/v1/payments"
+        ));
+    }
 
     #[test]
     fn scoped_digests_are_tenant_and_principal_bound() {
