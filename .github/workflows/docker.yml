@@ -73,11 +73,14 @@ concurrency:
 permissions: {}
 
 env:
-  # Single source of truth for the image name. Set GHCR_IMAGE as a repo
-  # variable to override (e.g., for forks that want to push to their own
-  # namespace without forking this file).
-  IMAGE_NAME: ${{ vars.GHCR_IMAGE != '' && vars.GHCR_IMAGE || format('ghcr.io/{0}/buzz', github.repository_owner) }}
-  PUSH_GATEWAY_IMAGE_NAME: ${{ vars.GHCR_PUSH_GATEWAY_IMAGE != '' && vars.GHCR_PUSH_GATEWAY_IMAGE || format('ghcr.io/{0}/buzz-push-gateway', github.repository_owner) }}
+  # Keep the default package names repository-specific. A personal-account
+  # namespace can contain several forks, but GITHUB_TOKEN receives package
+  # access only for the repository linked to that package. Reusing the
+  # upstream `buzz` package name therefore makes a second product repository
+  # fail with GHCR `permission_denied: read_package` even though it owns the
+  # namespace. Repository variables can still override both destinations.
+  IMAGE_NAME: ${{ vars.GHCR_IMAGE != '' && vars.GHCR_IMAGE || format('ghcr.io/{0}/{1}', github.repository_owner, github.event.repository.name) }}
+  PUSH_GATEWAY_IMAGE_NAME: ${{ vars.GHCR_PUSH_GATEWAY_IMAGE != '' && vars.GHCR_PUSH_GATEWAY_IMAGE || format('ghcr.io/{0}/{1}-push-gateway', github.repository_owner, github.event.repository.name) }}
 
 jobs:
   build:
