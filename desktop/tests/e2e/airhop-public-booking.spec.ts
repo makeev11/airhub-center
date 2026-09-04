@@ -188,7 +188,7 @@ test("standalone public booking completes without employee shell or onboarding",
   ).toHaveCount(0);
   await expect(page.getByTestId("airhop-public-brand-mark")).toHaveAttribute(
     "src",
-    "/airhop/mark.svg",
+    "/airhop/mark.png",
   );
   await expect(page.getByTestId("airhop-public-age-5")).toBeVisible();
   await expect(page.getByTestId("airhop-public-age-0")).toHaveAccessibleName(

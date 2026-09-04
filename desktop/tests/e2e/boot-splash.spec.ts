@@ -30,7 +30,7 @@ test("boot splash overlay holds with the AirHop mark, then dismisses", async ({
 
   const mark = overlay.getByTestId("airhop-loading-mark");
   await expect(mark).toBeVisible();
-  await expect(mark.locator("img")).toHaveAttribute("src", "/airhop/mark.svg");
+  await expect(mark.locator("img")).toHaveAttribute("src", "/airhop/mark.png");
   await expect(mark).toHaveCSS("animation-name", "airhop-mark-breathe");
 
   // The app mounts and loads beneath the overlay — boot is not delayed.
