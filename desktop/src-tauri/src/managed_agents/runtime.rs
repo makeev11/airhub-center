@@ -35,6 +35,8 @@ pub(crate) use sweep::sweep_untracked_bundle_harnesses;
 type RespondToEnv = (Vec<(&'static str, String)>, Vec<&'static str>);
 
 mod process;
+#[cfg(any(test, target_os = "macos"))]
+pub(crate) use process::nul_delimited_entry_value;
 #[cfg(test)]
 use process::{
     buzz_marker_entry, name_matches_interpreter, name_matches_known_binary,
@@ -44,8 +46,6 @@ pub(crate) use process::{
     current_instance_id, process_belongs_to_us, process_has_buzz_marker, process_is_running,
     terminate_process, terminate_untracked_pair_runtime, valid_agent_runtime_receipt,
 };
-#[cfg(any(test, target_os = "macos"))]
-pub(crate) use process::nul_delimited_entry_value;
 
 mod orphan_sweep;
 #[cfg(target_os = "macos")]
