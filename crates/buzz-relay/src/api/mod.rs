@@ -2,8 +2,10 @@
 
 pub mod admin;
 pub mod airhop_activation;
+pub mod airhop_agent_backend;
 pub mod airhop_agents;
 pub mod airhop_auth;
+pub mod airhop_channel_gateway;
 pub mod airhop_public;
 pub mod airhop_staff;
 pub mod bridge;

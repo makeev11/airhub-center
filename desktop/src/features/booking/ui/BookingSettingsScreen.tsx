@@ -7,6 +7,7 @@ import {
 } from "@/features/booking/data/BookingWorkspaceProvider";
 import { createHttpBookingSettingsRepository } from "@/features/booking/data/httpBookingSettingsRepository";
 import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
+import { CommunicationChannelsSettings } from "@/features/airhop-agents/ui/CommunicationChannelsSettings";
 import {
   cloneWorkingHours,
   currencyMinorUnitExponent,
@@ -40,6 +41,7 @@ import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { PageHeader } from "@/shared/ui/PageHeader";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Switch } from "@/shared/ui/switch";
 import { cn } from "@/shared/lib/cn";
 
@@ -584,14 +586,31 @@ function SettingsFormContent({
 }
 
 type BookingSettingsScreenProps = {
-  section: "organization" | "public-booking";
+  section: "channels" | "organization" | "public-booking";
 };
 
 function BookingSettingsScreenContent({ section }: BookingSettingsScreenProps) {
   const booking = useBookingWorkspace();
+  const locale = useAirHopLocale();
   const messages = getBookingAdminMessages(
     booking.workspace?.organization.locale ?? "ru-RU",
   );
+  const channelsTitle =
+    locale === "ru-RU"
+      ? "Каналы связи"
+      : locale === "pt-BR"
+        ? "Canais de comunicação"
+        : locale === "tr-TR"
+          ? "İletişim kanalları"
+          : "Communication channels";
+  const channelsDescription =
+    locale === "ru-RU"
+      ? "Подключите мессенджеры, через которые центр общается с родителями."
+      : locale === "pt-BR"
+        ? "Conecte os mensageiros usados pelo centro para falar com responsáveis."
+        : locale === "tr-TR"
+          ? "Merkezin velilerle iletişim kurduğu mesajlaşma kanallarını bağlayın."
+          : "Connect the messengers your center uses to talk with parents.";
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-tl-xl bg-background">
       <header className="shrink-0 border-b border-border/70 px-6 py-5">
@@ -599,12 +618,16 @@ function BookingSettingsScreenContent({ section }: BookingSettingsScreenProps) {
           description={
             section === "organization"
               ? messages.settingsDescription
-              : messages.publicBookingCardDescription
+              : section === "channels"
+                ? channelsDescription
+                : messages.publicBookingCardDescription
           }
           title={
             section === "organization"
               ? messages.settingsTitle
-              : messages.publicBookingCardTitle
+              : section === "channels"
+                ? channelsTitle
+                : messages.publicBookingCardTitle
           }
         />
         <BookingSettingsNav active={section} className="mt-4" />
@@ -612,7 +635,15 @@ function BookingSettingsScreenContent({ section }: BookingSettingsScreenProps) {
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-4xl">
           <BookingWorkspaceGate>
-            {() => <SettingsFormContent section={section} />}
+            {() =>
+              section === "channels" ? (
+                <CommunicationChannelsSettings
+                  serverEnabled={currentAirhopStaffDataRuntime() === "server"}
+                />
+              ) : (
+                <SettingsFormContent section={section} />
+              )
+            }
           </BookingWorkspaceGate>
         </div>
       </div>

@@ -435,6 +435,17 @@ impl RestClient {
             .map_err(|error| RelayError::Http(error.to_string()))
     }
 
+    /// POST a JSON Airhop command with the agent's NIP-98/NIP-OA identity.
+    pub(crate) async fn post_json(&self, path: &str, body: &Value) -> Result<Value, RelayError> {
+        let body = serde_json::to_vec(body)
+            .map_err(|error| RelayError::Http(format!("JSON serialization failed: {error}")))?;
+        self.bridge_post(path, &body)
+            .await?
+            .json()
+            .await
+            .map_err(|error| RelayError::Http(error.to_string()))
+    }
+
     /// Query events via the HTTP bridge: `POST /query` with NIP-98 auth.
     ///
     /// Accepts a slice of `nostr::Filter` (serialized as JSON array).

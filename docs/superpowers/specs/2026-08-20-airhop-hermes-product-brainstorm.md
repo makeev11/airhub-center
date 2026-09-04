@@ -82,14 +82,19 @@ happy path через Booking Core, не притворяясь человеко
 
 ### HERMES-GOAL-002 — Что считать успешным разговором
 
-**Открыто:** выбрать один или несколько outcomes:
+**Решено:** каждый завершённый cycle получает один основной outcome и ссылки на
+фактические domain results:
 
-- родитель получил проверенный ответ;
-- создан `IntakeRequest`;
-- создана booking на подтверждение;
-- корректно выполнена разрешённая self-service операция;
-- разговор передан человеку с полным контекстом;
-- spam/abuse безопасно завершён.
+- `answered_by_hermes` — родитель получил проверенный ответ;
+- `domain_action_completed` — создан intake, Booking либо выполнена другая
+  разрешённая self-service операция; точный вид берётся из domain link;
+- `handed_off` — разговор передан человеку с полным контекстом;
+- `failed` — разговор не завершён из-за system/delivery failure;
+- `spam_or_abuse` — обращение безопасно завершено без действия.
+
+Повторное обращение после resolution, staff correction и quality reaction не
+переписывают outcome молча: они фиксируются отдельными событиями и входят в
+метрики качества.
 
 ### HERMES-GOAL-003 — Чего Гермес никогда не делает
 
@@ -108,15 +113,22 @@ happy path через Booking Core, не притворяясь человеко
 
 ### HERMES-PERSONA-001 — Имя в продукте
 
-**Рекомендация:** стабильное продуктовое имя «Администратор Гермес» внутри
-Center; родителю — «Гермес, онлайн-администратор центра».
+**Решено:** стабильное продуктовое имя — **«Администратор Гермес»** внутри
+AirHop Center. В parent-facing сообщениях он представляется как **«Гермес,
+онлайн-администратор центра»**. Имя, avatar, author label и mention `@Гермес`
+остаются едиными во всех пространствах, чтобы команда всегда понимала, кто
+именно ведёт переписку.
 
 ### HERMES-PERSONA-002 — Можно ли переименовать
 
-**Открыто:** оставить Гермеса неизменяемым или разрешить display alias вида
-«Гермес · AirHop Kids». Рекомендация первого среза — имя стабильно, название
-центра подставляется автоматически; произвольная маскировка под человека
-запрещена.
+**Решено для первого среза:** переименование и произвольный display alias не
+поддерживаются. Название центра подставляется автоматически в представление,
+например: «Я Гермес, онлайн-администратор AirHop Kids». Во внешнем business
+profile WhatsApp или Telegram может показываться название самого центра, потому
+что родитель обращается к организации, но автор сообщений внутри AirHop всегда
+обозначается как «Гермес». В будущем допустимо добавить только поясняющий суффикс
+вида «Гермес · AirHop Kids», не меняющий корневое имя, `@Гермес` и команды вроде
+`@Гермес продолжай`. Маскировка Гермеса под реального сотрудника запрещена.
 
 ### HERMES-PERSONA-003 — Явно ли говорить, что это AI
 
@@ -238,13 +250,23 @@ conversations, provider/status, последний контакт, открыт�
 
 ### HERMES-SURFACE-006 — Наблюдение в реальном времени
 
-**Открыто:** показывать typing/«Гермес готовит ответ» всем viewers или только
-watchers. Рекомендация — лёгкий live status в открытом треде без глобального
-уведомления.
+**Решено:** не создавать отдельную Hermes-систему live status. В открытом
+parent thread переиспользуется существующий Buzz `kind:20002`, его thread scope,
+TTL, подавление после сообщения, `TypingIndicatorRow` и composer activity rail.
+Индикатор видят участники, у которых открыт этот тред; он не создаёт unread,
+push, Inbox event или долговечный status. Существующий channel-scoped observer
+не используется для показа подробностей другого parent thread.
+
+Тот же lifecycle turn зеркалится наружу через готовый typing lifecycle Hermes
+Agent Messaging Gateway и provider adapter. Telegram и официальный WhatsApp
+Cloud показывают свой нативный typing, а Buzz показывает существующую локальную
+индикацию от identity Гермеса. После первого ответа, terminal failure или
+takeover оба индикатора прекращаются. Новая watcher-модель для этого не нужна.
 
 ### HERMES-SURFACE-007 — Видно ли model confidence
 
-**Рекомендация:** не показывать ложный процент уверенности. Показывать только
+**Решено:** не показывать ложный процент уверенности и не использовать его как
+бизнес-метрику. Показывать только
 проверяемые основания: «по данным расписания», «по опубликованным материалам»
 или «нужен сотрудник».
 
@@ -335,14 +357,16 @@ system row, управляющий текст клиенту не доставл
 назначает автора. Простое открытие треда, typing indicator или внутренняя
 заметка без этой команды состояние не меняют.
 
-Узкое исключение существует для преподавателя, которому Гермес создал open
-`TeacherMessageRequest` в этом же треде. Его следующий plain outbound без
-structured mention связывается с request и считается одним
-`teacher_touchpoint`, а не бессрочным takeover. После durable outbox commit
-Гермес автоматически готов обработать следующее inbound, поэтому преподавателю
-не нужно помнить `@Гермес продолжай`. Обычное сообщение вне request сохраняет
-общий takeover rule; явный `@Гермес остановись` позволяет преподавателю забрать
-разговор полностью.
+Для преподавателя исключения нет. Его plain outbound по open
+`TeacherMessageRequest` связывается с ребёнком/занятием для provenance, но
+выполняет тот же generic human takeover, что и ответ любого сотрудника. После
+отправки преподаватель вручную пишет внутреннее `@Гермес продолжай`. Если он
+этого не сделал, Гермес остаётся остановлен.
+
+Resume не порождает внешний текст. Следующий parent inbound обрабатывается с
+последним релевантным teacher message в bounded context. Благодарность получает
+короткий естественный ответ, операционный вопрос обрабатывает Гермес, а вопрос
+по существу занятия вне его компетенции создаёт обычный handoff преподавателю.
 
 ### HERMES-CONV-012 — Единое правило внутренних упоминаний
 
@@ -558,13 +582,37 @@ conversation. Он остаётся staff-authored evidence и не превра
    по подтверждённым или повторяющимся evidence. Субъективная фраза не
    превращается в выдуманный числовой процент прогресса.
 
-Первая реализация teacher touchpoint заканчивается на первом каноническом слое.
+Первая реализация teacher feedback заканчивается на первом каноническом слое.
 Candidate extraction, confirmation UI, инфографика и экспорт идут отдельным
 следующим этапом и не усложняют обычный composer преподавателя.
 
 Shareable report и передача в другой образовательный продукт требуют явного
 parent consent и purpose-bound export/API. Прямого общего доступа к базе AirHop
 нет.
+
+### HERMES-KNOW-017 — Кто видит историю ребёнка
+
+**Решено:** основной родитель управляет destination, но не получает больше прав
+на family-shared данные. Успешно отправленный `TeacherParentMessage` становится
+фактом Child/Family. Любой active verified Representative этой Family может
+попросить Гермеса показать такой отзыв, однако contents другого личного
+conversation, его preferences и индивидуальные claims не раскрываются.
+
+Visibility classes:
+
+- `family_shared`: Booking, Attendance и доставленные teacher observations;
+- `representative_private`: личный conversation, preferences и обращения;
+- `staff_internal`: mentions, handoff, drafts, notes и quality incidents;
+- `sensitive_child`: observations/projections с family membership, role и audit
+  checks.
+
+Гермес получает только parent-safe `family_shared` evidence конкретного Child
+после authorization текущего Representative. Преподаватель видит request,
+минимальные данные занятия и собственные observations, но назначение не
+открывает ему Family Timeline или тексты коллег. Сотрудник ограничен разрешённым
+branch/role, owner/admin организацией. AirHop HQ по умолчанию получает только
+минимизированную PII-redacted диагностику; raw доступ требует отдельной
+audited support policy.
 
 ## 9. Identity, доступ и приватность родителя
 
@@ -628,9 +676,19 @@ Telegram следующий отзыв идёт в Telegram. Fallback допус
 
 ### HERMES-ID-007 — Удаление и блокировка
 
-**Открыто:** право удалить/экспортировать conversation по policy, provider block,
-internal block и audit tombstone. История Booking не должна исчезать вместе с
-операционным тредом, если закон требует её сохранить.
+**Решено для первого среза:** Гермес не имеет delete/export/correct-personal-data
+tools. Любая явная просьба показать, исправить, выгрузить или удалить
+персональные данные сразу создаёт обычный `normal` handoff owner/admin без
+уточняющего допроса. Он говорит: **«Хорошо, я сейчас позову ответственного,
+чтобы мы всё правильно оформили»**, публикует internal mention и переходит в
+`waiting_staff`. Первый plain ответ ответственного запускает обычный human
+takeover в том же треде.
+
+Отдельного privacy-request кабинета и state machine в первом срезе нет. Запрос
+на блокировку provider identity, подозрение на чужой доступ или утечку остаются
+urgent security handoff. Точные retention, export, deletion, provider block и
+audit tombstone определяются отдельной jurisdiction/legal policy; история
+Booking не исчезает только из-за фразы в чате.
 
 ### HERMES-ID-008 — Согласие на AI и обработку данных
 
@@ -877,6 +935,19 @@ verified identity, domain links, уже выполненные tools, ожида
 Shadow-подсказки можно отдельно исследовать после надёжного handoff; они никогда
 не включаются неявно обычным ответом сотрудника.
 
+### HERMES-HANDOFF-008 — Родитель спорит с отзывом преподавателя
+
+**Решено:** отдельной dispute-модели нет. Гермес не решает, кто прав, и не
+создаёт цепочку `disputed|corrected|confirmed`. Он предлагает: **«Если хотите,
+я сейчас позову преподавателя, чтобы вы могли всё уточнить»**. Согласие создаёт
+обычный `waiting_staff` handoff и internal structured mention автора отзыва. При
+прямой просьбе позвать преподавателя повторный вопрос не нужен.
+
+Первый plain ответ преподавателя выполняет generic human takeover, после чего
+он общается с родителем в том же треде. Любое уточнение остаётся следующим обычным сообщением в
+хронологии, без скрытого редактирования старого. После разговора преподаватель
+может вернуть ведение командой `@Гермес продолжай`.
+
 ## 12. Проактивные сообщения
 
 ### HERMES-OUT-001 — Кто начинает диалог
@@ -966,11 +1037,11 @@ Occurrence/Attendance/conversation IDs, append-only события и provenance
 Оба сценария создают один `TeacherMessageRequest`, не отправленный родителю.
 Преподаватель пишет обычное сообщение в том же composer. Structured mention
 оставляет его внутренним; plain text уходит родителю по общему правилу. Open
-request связывает этот outbound с ребёнком/занятием и после durable commit
-автоматически возвращает ведение Гермесу для следующего inbound. Отдельная
-команда `@Гермес продолжай` не требуется. При нескольких преподавателях первый
-допустимый ответ закрывает общую задачу. Без ответа нет повторного напоминания и
-нет автоматически сгенерированного текста.
+request связывает этот outbound с ребёнком/занятием, но не меняет общий takeover
+rule. После отправки преподаватель вручную пишет внутреннее
+`@Гермес продолжай`; без команды Гермес остаётся остановлен. При нескольких
+преподавателях первый допустимый ответ закрывает общую задачу. Без ответа нет
+повторного напоминания и нет автоматически сгенерированного текста.
 
 Для отзывов безопасная частота после включения равна одному запросу на ребёнка
 за семь дней; состоявшееся первое пробное всегда eligible. Владелец может явно
@@ -985,7 +1056,7 @@ send.
 из родительских чатов или показывать без отдельной модели доступа, согласия и
 review.
 
-### HERMES-OUT-009 — Получатель teacher touchpoint
+### HERMES-OUT-009 — Получатель сообщения преподавателя
 
 **Решено:** `TeacherMessageRequest` заранее фиксирует
 `serviceContactRepresentativeId` и один recipient conversation. Сначала
@@ -1215,7 +1286,8 @@ outbound получает `superseded` и родителю не отправля
 
 ### HERMES-FAIL-005 — Ответ устарел во время генерации
 
-**Рекомендация:** volatile данные перечитываются перед send/tool commit. При
+**Решено:** volatile данные и conversation input version перечитываются перед
+send/tool commit. При
 изменении мест ответ перестраивается или сообщает новое состояние.
 
 ### HERMES-FAIL-006 — Hermes и человек ответили одновременно
@@ -1368,20 +1440,50 @@ delivery. Secrets, raw credentials и hidden chain-of-thought не логиру�
 
 ### HERMES-QA-002 — Основные метрики
 
-**Открыто:** containment без повторного обращения, handoff rate, time to first
-response, time to human takeover, resolution, booking/intake conversion,
-delivery failure, correction/reopen и cost per resolved cycle.
+**Решено для первого релиза:** метрики строятся из фактических cycle outcomes и
+domain/delivery events, а не из самооценки модели:
+
+- доля `answered_by_hermes`, `domain_action_completed`, `handed_off`, `failed`
+  и `spam_or_abuse`;
+- time to first Hermes response и time to human takeover;
+- booking/intake conversion по точным domain links;
+- provider delivery failure и system failure;
+- correction, новый cycle в том же conversation вскоре после resolution и
+  staff reactions 👎/🚨;
+- внутренний cost per resolved cycle.
+
+Containment считается только если Гермес завершил вопрос без handoff и без
+скорого повторного обращения. В v1 это внутренняя эксплуатационная телеметрия
+AirHop; отдельный аналитический кабинет центра не создаётся.
 
 ### HERMES-QA-003 — Guardrails
 
-**Рекомендация:** wrong-center/tenant leak, invented availability/price,
-unauthorized personal data, prohibited action, missed handoff, duplicate send и
-message sent after takeover — zero-tolerance release gates.
+**Решено:** следующие сценарии являются zero-tolerance release gates:
+
+1. раскрытие данных другого центра или другой Family;
+2. выдуманные цена, время, наличие места или факт оплаты;
+3. действие без capability либо за пределами разрешённой policy;
+4. сообщение об успешной записи, отмене или ином действии без authoritative
+   Core result;
+5. внешний ответ Гермеса после human takeover;
+6. повторная отправка сообщения или повторное выполнение одной команды;
+7. пропущенный handoff при явной просьбе о человеке, риске безопасности или
+   подозрении на чужой доступ/утечку данных.
+
+Каждый сценарий имеет regression/eval. Любое воспроизведение блокирует выпуск
+версии Гермеса. В production подтверждённое dangerous нарушение останавливает
+только активный conversation cycle, создаёт/эскалирует
+`HermesQualityIncident`, зовёт ответственного и уведомляет owner. Автоматическое
+глобальное отключение не используется: системную проблему подтверждает команда
+и вручную выключает Гермеса существующим общим control.
 
 ### HERMES-QA-004 — Review sample
 
-**Открыто:** owner/admin может просматривать разговоры по обычным правам канала;
-отдельная выборка качества должна быть privacy-safe и не расширять доступ HQ.
+**Решено для первого релиза:** автоматическая центральная выборка полных
+родительских переписок не создаётся. Owner/admin просматривает точный тред только
+по обычным правам центра. AirHop HQ по умолчанию получает агрегаты и
+PII-redacted diagnostic signals. Полный разговор доступен HQ только при обычном
+tenant membership либо через отдельный time-bounded audited support grant.
 
 ### HERMES-QA-005 — Feedback
 
@@ -1408,14 +1510,43 @@ reviewed proposal → regression/golden dialogues → versioned publication.
 
 ### HERMES-QA-006 — Evals
 
-**Рекомендация:** golden dialogues ru/pt-BR, adversarial identity/data cases,
-provider replay, stale availability, human race, handoff, complaints, payments,
-minors и prompt injection.
+**Решено:** перед каждой версией прогоняется постоянный набор golden dialogues
+на `ru`, `pt-BR` и `en`. Минимальная матрица включает:
+
+- первичную запись и подтверждение после перехода с сайта;
+- перенос, отмену, «не придём» и «опоздаем»;
+- цену, способы и факт оплаты;
+- linking второго родителя;
+- благодарность и вопрос после сообщения преподавателя;
+- явную просьбу позвать человека;
+- недоступность Booking Core;
+- voice и неизвестное вложение;
+- попытку получить данные другой Family;
+- human takeover во время генерации;
+- duplicate/out-of-order provider event для Telegram и WhatsApp.
+
+Проверки не требуют неизменного текста. Assertions относятся к смыслу ответа,
+правильному typed action/domain result, delivery/takeover state, отсутствию
+запрещённых данных и естественности выбранного языка. Семь dangerous guardrails
+проходят строго без единого нарушения. После root-cause подтверждённые 👎/🚨
+превращаются в минимизированные PII-free regression fixtures и остаются в
+наборе следующих релизов.
 
 ### HERMES-QA-007 — Cost controls
 
-**Открыто:** model routing, max turns/cycle, context budget, media transcription
-budget и anomaly alert. Cost limit не должен обрывать разговор без handoff.
+**Решено для первого релиза:** жёсткого лимита turns на весь cycle нет. Расходы
+ограничиваются на один входящий turn: bounded context, конечное число model/tool
+rounds и retry. Duplicate/status/control events, proactive service triggers и
+unsupported media handoff проходят детерминированно без model turn. Быстрая
+серия parent messages коалесцируется в один inbound batch.
+
+Одна основная модель обслуживает свободный диалог; сложный model routing не
+вводится до пилота. Более дешёвый execution route разрешается позже только для
+явного типа задачи после прохождения того же eval corpus, а не по model
+confidence. Usage ledger раздельно учитывает model input/cache/output,
+transcription duration, provider delivery/template и media processing на
+organization/cycle/outcome/model version. Anomaly создаёт внутренний alert;
+budget guard не оставляет родителя без ответа, а выполняет естественный handoff.
 
 ## 18. Архитектурные вопросы
 
@@ -1431,8 +1562,20 @@ transport inbound. UI не изображает parent как Nostr user.
 
 ### HERMES-ARCH-003 — Turn ownership
 
-**Рекомендация:** server-side atomic receipt `(cycleId, inboundEventId)` → один
-Hermes turn. Replay/parallel workers получают existing outcome.
+**Решено:** Gateway сохраняет упорядоченные inbound events, а coordinator
+собирает быстро следующую серию в один bounded batch с quiet window и hard
+deadline. На `(cycleId, inputBatchId)` атомарно существует один
+`HermesTurnReceipt`; в conversation одновременно арендуется не более одного
+Hermes turn. Replay и parallel workers получают existing receipt/outcome.
+
+Новый inbound до domain/outbox commit инвалидирует несохранённый draft и входит
+в перестроенный batch. Если typed Core action уже committed, его receipt
+сохраняется и никогда не исполняется повторно; новое сообщение обрабатывается
+следующим turn с этим результатом. Staff takeover/pause инвалидирует любой
+неотправленный Hermes outbound. Send gate проверяет input/conversation version,
+поэтому устаревший draft не может уйти после более нового сообщения или смены
+владельца. Hard aggregation deadline не позволяет бесконечно ждать, пока
+родитель дописывает; более поздние сообщения образуют следующий ordered batch.
 
 ### HERMES-ARCH-004 — Outbound boundary
 
@@ -1456,13 +1599,96 @@ PII policy. Invisible model memory никогда не является един
 
 ### HERMES-ARCH-007 — Policy version pinning
 
-**Рекомендация:** каждый turn фиксирует версии persona, policy и knowledge;
-середина turn не переключается на новую policy молча.
+**Решено:** при старте каждый turn сохраняет неизменяемый
+`HermesTurnConfigurationSnapshot`: persona, policy, selected published knowledge
+bundle, model provider/id/mode и tool-schema versions. Внутри одного model/tool
+loop версии не смешиваются. Snapshot является provenance, но не выдаёт вечных
+прав: перед каждым read/action и provider outbox commit сервер перечитывает
+Hermes enabled, connection, conversation ownership, capability и fresh Core
+state.
+
+Глобальное сравнение versions запрещено. Turn хранит `HermesDecisionReadSet` из
+конкретных Core field/fact digests, selected knowledge artifact IDs/versions и
+capabilities, использованных в решении. Unrelated knowledge publish, новая
+capability, persona wording или model deployment применяются только со
+следующего turn. Пересборка нужна при смене ownership/identity, hard disable,
+отзыве необходимого capability/policy либо изменении факта из read set.
+
+Собственный Core action возвращает durable `ActionReceipt`, заменяет старую
+dependency новым authoritative state и не считается внешним конфликтом.
+Mutation не повторяется; итоговое service message по возможности собирается из
+receipt без нового model call. На один input batch допускается максимум один
+automatic conflict rebuild. Второй конфликт прекращает model loop и создаёт
+обычный handoff. Provider-accepted outbound не отзывается; audit сохраняет
+snapshot/read set, а следующий turn использует новые версии.
+
+`HermesFollowUpTask` после восстановления не оживляет старую policy. Он хранит
+исходный intent/action receipt, но новый attempt получает текущий snapshot и
+полностью повторяет identity/capability/policy/Core validation. Изменившиеся
+условия приводят к новому подтверждению или handoff.
 
 ### HERMES-ARCH-008 — Data residency/retention
 
-**Исследовать:** Brazil LGPD, provider terms, LLM processor location и retention;
-решение влияет на media, transcripts, raw payload и eval samples.
+**Решено как production gate, legal review остаётся:** `DeepSeek V4 Flash`
+становится первым техническим кандидатом и может использоваться на synthetic и
+PII-free evals. Прямой hosted API DeepSeek не получает реальные parent/child
+данные, пока письменные условия не подтверждают DPA/processor role, допустимый
+international transfer/data location, no-training, retention/deletion,
+subprocessors и incident obligations для Brazil LGPD.
+
+Публичная DeepSeek Privacy Policy на 2026-08-20 указывает обработку/хранение в
+КНР и говорит, что сервис не предназначен для sensitive personal data, включая
+children's data; публичные Open Platform terms не дают достаточного для AirHop
+явного no-training/zero-retention обязательства для downstream payload.
+Источники: [Privacy Policy](https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html),
+[Open Platform Terms](https://cdn.deepseek.com/policies/en-US/deepseek-open-platform-terms-of-service.html).
+
+Допустимы enterprise-условия DeepSeek, compliant third-party hosting либо
+self-host открытых MIT weights, если выбранный вариант проходит тот же privacy,
+security, reliability и eval gate. Self-host не является default первого
+релиза из-за размера модели и инфраструктуры.
+
+### HERMES-ARCH-009 — Hermes Agent как готовый agent runtime
+
+**Решено:** AirHop не создаёт собственные agent loop, memory engine или набор
+model-provider clients. Администратор Гермес исполняется upstream
+[`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent), уже
+интегрированным с Buzz через `hermes-acp` и native Buzz platform. Hermes Agent
+даёт reasoning loop, работу с моделями, skills, session state и память. Выбор
+конкретной LLM, включая первый eval-кандидат `deepseek-v4-flash`, является
+конфигурацией существующего provider layer Hermes Agent, а не новым AirHop
+`ModelGateway`.
+
+Hermes Agent Messaging Gateway также является фактической базой transport:
+Telegram, официальный `whatsapp_cloud`, read receipt, start/refresh/stop typing,
+media normalization, formatting, chunking и reconnect не реализуются повторно.
+AirHop добавляет тонкий bridge/plugin, который связывает provider session с
+`ExternalConversation` и каноническим Buzz-тредом, зеркалит реальные сообщения,
+применяет takeover и пропускает исходящую доставку через AirHop outbox.
+Неофициальный Baileys adapter `whatsapp` не используется для production-номера.
+
+Граница источников истины проходит по типу данных. Hermes session history,
+skills и scoped agent memory используются как рабочая память сотрудника и могут
+быть восстановлены. Buzz хранит каноническую переписку и audit; Booking Core
+хранит Family, Child, Booking, PaymentClaim и остальные authoritative facts;
+AirHop policy определяет permissions, capability и допустимые tools. Memory
+Hermes Agent всегда namespace-scoped минимум по tenant и conversation/family,
+не является основанием для доменной мутации и не заменяет fresh Core read.
+Полные messaging toolsets с terminal access родительскому runtime не выдаются:
+он получает только allowlisted AirHop tools.
+
+Upstream `whatsapp_cloud` берётся как transport-база, но не как полностью
+готовый AirHop delivery contract: в текущей реализации нет отправки Meta
+templates за пределами 24-часового окна и собственного outbound rate limiter.
+Template sync/send, service-window policy, tenant quota и idempotent retry
+остаются расширением AirHop Channel Gateway/outbox.
+
+Первый candidate runtime использует явный id `deepseek-v4-flash`, а не legacy
+aliases. Обычный диалог начинает с non-thinking policy; reasoning-enabled policy
+для tool-heavy turns допускается только после сравнения latency/cost/quality на
+golden dialogues. Beta strict tool calling не считается security boundary:
+каждый аргумент повторно проверяется AirHop. Смена provider/model не меняет
+доменный контракт Гермеса и не переносит его память к поставщику модели.
 
 ## 19. Пограничные сценарии для отдельного разбора
 

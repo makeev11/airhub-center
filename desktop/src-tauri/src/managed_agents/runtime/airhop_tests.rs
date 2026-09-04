@@ -12,7 +12,7 @@ fn connection_preserves_configured_loopback_authority() {
 }
 
 #[test]
-fn builtin_welcome_agents_use_airhop_mcp() {
+fn builtin_welcome_agents_use_airhop_mcp_with_trusted_runtimes() {
     for (persona_id, role) in [
         ("builtin:airhop-fizz", "fizz"),
         ("builtin:airhop-administrator", "administrator"),
@@ -29,10 +29,12 @@ fn builtin_welcome_agents_use_airhop_mcp() {
             .env_vars
             .insert("BUZZ_AIRHOP_ROLE".into(), role.into());
 
-        assert_eq!(
-            super::airhop::effective_mcp_command(&record, "buzz-agent"),
-            "airhop-agent-mcp"
-        );
+        for command in ["buzz-agent", "hermes-acp"] {
+            assert_eq!(
+                super::airhop::effective_mcp_command(&record, command),
+                "airhop-agent-mcp"
+            );
+        }
     }
 }
 
@@ -51,5 +53,9 @@ fn non_welcome_agents_keep_catalog_mcp() {
     assert_eq!(
         super::airhop::effective_mcp_command(&record, "buzz-agent"),
         "buzz-dev-mcp"
+    );
+    assert_eq!(
+        super::airhop::effective_mcp_command(&record, "hermes-acp"),
+        ""
     );
 }

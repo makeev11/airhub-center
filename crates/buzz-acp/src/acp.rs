@@ -513,6 +513,12 @@ impl AcpClient {
             cmd.env("CODEX_CONFIG", merged);
         }
 
+        // The parent-turn grant is delivered only inside the explicit MCP
+        // server configuration for this ACP session. Do not also expose it as
+        // a general environment variable to the agent runtime or its tools.
+        cmd.env_remove("BUZZ_AIRHOP_CONTEXT_GRANT");
+        cmd.env_remove("BUZZ_AIRHOP_CONTEXT_GRANT_FILE");
+
         // Spawn the agent in its own process group so SIGKILL doesn't propagate
         // to the harness's own process group on Unix.
         // tokio::process::Command::process_group is a stable tokio API (no extra imports needed).
@@ -2954,6 +2960,21 @@ mod tests {
             spawn_named_and_read_child_env("other-agent", VAR, &[]).await,
             "<unset>",
             "non-Hermes spawns must not receive Hermes defaults"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn spawn_never_exposes_parent_context_grant_to_agent_process() {
+        const VAR: &str = "BUZZ_AIRHOP_CONTEXT_GRANT";
+        assert_eq!(
+            spawn_named_and_read_child_env(
+                "hermes-acp",
+                VAR,
+                &[(VAR.into(), "must-stay-in-mcp-config".into())],
+            )
+            .await,
+            "<unset>"
         );
     }
 

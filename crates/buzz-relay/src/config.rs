@@ -5,6 +5,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use nostr::PublicKey;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tracing::warn;
@@ -99,6 +100,37 @@ impl AirhopPublicBookingConfig {
     }
 }
 
+/// Opt-in encrypted credential store for self-service messaging connections.
+///
+/// Provider tokens are encrypted before they reach Postgres. The stable index
+/// key supports duplicate detection while the independent encryption keyring
+/// can rotate without changing connection identity.
+#[derive(Debug, Clone)]
+pub struct AirhopChannelGatewayConfig {
+    credential_index_key: AirhopSecret,
+    credential_keys: BTreeMap<i16, AirhopSecret>,
+    current_credential_key_version: i16,
+    telegram_connector_pubkey: [u8; 32],
+}
+
+impl AirhopChannelGatewayConfig {
+    pub(crate) const fn credential_index_key(&self) -> &[u8; 32] {
+        &self.credential_index_key.0
+    }
+
+    pub(crate) fn credential_key(&self, version: i16) -> Option<&[u8; 32]> {
+        self.credential_keys.get(&version).map(|secret| &secret.0)
+    }
+
+    pub(crate) const fn current_credential_key_version(&self) -> i16 {
+        self.current_credential_key_version
+    }
+
+    pub(crate) const fn telegram_connector_pubkey(&self) -> [u8; 32] {
+        self.telegram_connector_pubkey
+    }
+}
+
 /// Relay runtime configuration, loaded from environment variables.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -152,6 +184,8 @@ pub struct Config {
     pub auth: buzz_auth::AuthConfig,
     /// Public AirHub booking security configuration. Absent disables the endpoint.
     pub airhop_public_booking: Option<AirhopPublicBookingConfig>,
+    /// Encrypted self-service messaging credential configuration.
+    pub airhop_channel_gateway: Option<AirhopChannelGatewayConfig>,
     /// Whether REST API requests must present a valid token. Independent of
     /// WebSocket protocol auth, which is *always* required by REQ/EVENT/COUNT.
     pub require_auth_token: bool,
@@ -483,6 +517,89 @@ fn airhop_public_booking_config_from_env() -> Result<Option<AirhopPublicBookingC
         ip_requests_per_minute: positive_u64_from_env(IP_LIMIT_ENV, 10)?,
         phone_requests_per_hour: positive_u64_from_env(PHONE_LIMIT_ENV, 5)?,
         client_ip_header,
+    }))
+}
+
+fn airhop_channel_gateway_config_from_env(
+) -> Result<Option<AirhopChannelGatewayConfig>, ConfigError> {
+    const INDEX_KEY_ENV: &str = "BUZZ_AIRHOP_CHANNEL_CREDENTIAL_INDEX_KEY";
+    const CREDENTIAL_KEYS_ENV: &str = "BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS";
+    const CURRENT_VERSION_ENV: &str = "BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION";
+    const TELEGRAM_CONNECTOR_ENV: &str = "BUZZ_AIRHOP_TELEGRAM_CONNECTOR_PUBKEY";
+
+    let index_key = optional_unicode_env(INDEX_KEY_ENV)?;
+    let credential_keys = optional_unicode_env(CREDENTIAL_KEYS_ENV)?;
+    let current_version = optional_unicode_env(CURRENT_VERSION_ENV)?;
+    let telegram_connector = optional_unicode_env(TELEGRAM_CONNECTOR_ENV)?;
+    if index_key.is_none()
+        && credential_keys.is_none()
+        && current_version.is_none()
+        && telegram_connector.is_none()
+    {
+        return Ok(None);
+    }
+
+    let missing = || {
+        ConfigError::InvalidValue(format!(
+            "{INDEX_KEY_ENV}, {CREDENTIAL_KEYS_ENV}, {CURRENT_VERSION_ENV}, and {TELEGRAM_CONNECTOR_ENV} must be configured together"
+        ))
+    };
+    let credential_index_key = parse_airhop_secret(INDEX_KEY_ENV, &index_key.ok_or_else(missing)?)?;
+    let current_credential_key_version = current_version
+        .ok_or_else(missing)?
+        .parse::<i16>()
+        .ok()
+        .filter(|version| *version > 0)
+        .ok_or_else(|| {
+            ConfigError::InvalidValue(format!(
+                "{CURRENT_VERSION_ENV} must be a positive 16-bit integer"
+            ))
+        })?;
+
+    let mut parsed_credential_keys = BTreeMap::new();
+    for entry in credential_keys.ok_or_else(missing)?.split(',') {
+        let (version, raw_key) = entry.trim().split_once(':').ok_or_else(|| {
+            ConfigError::InvalidValue(format!(
+                "{CREDENTIAL_KEYS_ENV} entries must use version:64-hex-key"
+            ))
+        })?;
+        let version = version
+            .trim()
+            .parse::<i16>()
+            .ok()
+            .filter(|version| *version > 0)
+            .ok_or_else(|| {
+                ConfigError::InvalidValue(format!(
+                    "{CREDENTIAL_KEYS_ENV} versions must be positive 16-bit integers"
+                ))
+            })?;
+        let key = parse_airhop_secret(CREDENTIAL_KEYS_ENV, raw_key.trim())?;
+        if parsed_credential_keys.insert(version, key).is_some() {
+            return Err(ConfigError::InvalidValue(format!(
+                "{CREDENTIAL_KEYS_ENV} contains duplicate version {version}"
+            )));
+        }
+    }
+    if !parsed_credential_keys.contains_key(&current_credential_key_version) {
+        return Err(ConfigError::InvalidValue(format!(
+            "{CURRENT_VERSION_ENV} must select a version present in {CREDENTIAL_KEYS_ENV}"
+        )));
+    }
+
+    let telegram_connector = telegram_connector.ok_or_else(missing)?;
+    let telegram_connector_pubkey = PublicKey::from_hex(&telegram_connector)
+        .map_err(|_| {
+            ConfigError::InvalidValue(format!(
+                "{TELEGRAM_CONNECTOR_ENV} must be a valid 64-character x-only public key"
+            ))
+        })?
+        .to_bytes();
+
+    Ok(Some(AirhopChannelGatewayConfig {
+        credential_index_key,
+        credential_keys: parsed_credential_keys,
+        current_credential_key_version,
+        telegram_connector_pubkey,
     }))
 }
 
@@ -822,6 +939,7 @@ impl Config {
             rate_limits: rate_limit_config_from_env()?,
         };
         let airhop_public_booking = airhop_public_booking_config_from_env()?;
+        let airhop_channel_gateway = airhop_channel_gateway_config_from_env()?;
 
         if !require_auth_token {
             warn!(
@@ -1139,6 +1257,7 @@ impl Config {
             slow_client_grace_limit,
             auth,
             airhop_public_booking,
+            airhop_channel_gateway,
             require_auth_token,
             cors_origins,
             relay_private_key,
@@ -1204,6 +1323,7 @@ mod tests {
         assert!(config.send_buffer_size > 0);
         assert_eq!(config.max_frame_bytes, DEFAULT_MAX_FRAME_BYTES);
         assert!(config.airhop_public_booking.is_none());
+        assert!(config.airhop_channel_gateway.is_none());
         assert!(config.slow_client_grace_limit > 0);
         assert!(
             !config.pubkey_allowlist_enabled,
@@ -1306,6 +1426,55 @@ mod tests {
         assert!(!debug.contains(&index_key));
         assert!(!debug.contains(&first_management_key));
         assert!(!debug.contains(&second_management_key));
+        assert!(debug.contains("REDACTED"));
+
+        for (name, value) in names.into_iter().zip(previous) {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+
+    #[test]
+    fn airhop_channel_credential_keyring_is_opt_in_rotatable_and_redacted() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let names = [
+            "BUZZ_AIRHOP_CHANNEL_CREDENTIAL_INDEX_KEY",
+            "BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS",
+            "BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION",
+            "BUZZ_AIRHOP_TELEGRAM_CONNECTOR_PUBKEY",
+        ];
+        let previous = names.map(std::env::var_os);
+        for name in names {
+            std::env::remove_var(name);
+        }
+        std::env::set_var("BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION", "1");
+        assert!(airhop_channel_gateway_config_from_env().is_err());
+
+        let index_key = "44".repeat(32);
+        let first_key = "55".repeat(32);
+        let second_key = "66".repeat(32);
+        let connector = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+        std::env::set_var("BUZZ_AIRHOP_CHANNEL_CREDENTIAL_INDEX_KEY", &index_key);
+        std::env::set_var(
+            "BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS",
+            format!("1:{first_key},2:{second_key}"),
+        );
+        std::env::set_var("BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION", "2");
+        std::env::set_var("BUZZ_AIRHOP_TELEGRAM_CONNECTOR_PUBKEY", connector);
+
+        let config = airhop_channel_gateway_config_from_env()
+            .expect("valid channel credential config")
+            .expect("channel credential store enabled");
+        assert_eq!(config.current_credential_key_version(), 2);
+        assert!(config.credential_key(1).is_some());
+        assert!(config.credential_key(2).is_some());
+        assert_eq!(hex::encode(config.telegram_connector_pubkey()), connector);
+        let debug = format!("{config:?}");
+        assert!(!debug.contains(&index_key));
+        assert!(!debug.contains(&first_key));
+        assert!(!debug.contains(&second_key));
         assert!(debug.contains("REDACTED"));
 
         for (name, value) in names.into_iter().zip(previous) {

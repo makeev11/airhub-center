@@ -1,0 +1,75 @@
+diff --git a/acp_adapter/server.py b/acp_adapter/server.py
+index d558d289d..4861caea0 100644
+--- a/acp_adapter/server.py
++++ b/acp_adapter/server.py
+@@ -1008,8 +1008,11 @@ class HermesACPAgent(acp.Agent):
+             from model_tools import get_tool_definitions
+             from agent.memory_manager import inject_memory_provider_tools
+ 
++            base_toolsets = getattr(state.agent, "enabled_toolsets", None)
++            if base_toolsets is None:
++                base_toolsets = ["hermes-acp"]
+             enabled_toolsets = _expand_acp_enabled_toolsets(
+-                getattr(state.agent, "enabled_toolsets", None) or ["hermes-acp"],
++                base_toolsets,
+                 mcp_server_names=[server.name for server in mcp_servers],
+             )
+             state.agent.enabled_toolsets = enabled_toolsets
+@@ -2193,9 +2196,10 @@ class HermesACPAgent(acp.Agent):
+             from types import SimpleNamespace
+             from agent.memory_manager import inject_memory_provider_tools
+ 
+-            toolsets = _expand_acp_enabled_toolsets(
+-                getattr(state.agent, "enabled_toolsets", None) or ["hermes-acp"]
+-            )
++            base_toolsets = getattr(state.agent, "enabled_toolsets", None)
++            if base_toolsets is None:
++                base_toolsets = ["hermes-acp"]
++            toolsets = _expand_acp_enabled_toolsets(base_toolsets)
+             tools = get_tool_definitions(enabled_toolsets=toolsets, quiet_mode=True)
+             tool_view = SimpleNamespace(
+                 tools=list(tools or []),
+diff --git a/acp_adapter/session.py b/acp_adapter/session.py
+index 870ec950b..c58c322ea 100644
+--- a/acp_adapter/session.py
++++ b/acp_adapter/session.py
+@@ -143,7 +143,8 @@ def _expand_acp_enabled_toolsets(
+ ) -> List[str]:
+     """Return ACP toolsets plus explicit MCP server toolsets for this session."""
+     expanded: List[str] = []
+-    for name in list(toolsets or ["hermes-acp"]):
++    base_toolsets = ["hermes-acp"] if toolsets is None else toolsets
++    for name in list(base_toolsets):
+         if name and name not in expanded:
+             expanded.append(name)
+ 
+@@ -631,17 +632,28 @@ class SessionManager:
+             for name, cfg in (config.get("mcp_servers") or {}).items()
+             if not isinstance(cfg, dict) or cfg.get("enabled", True) is not False
+         ]
++        raw_builtin_toolsets = os.environ.get("HERMES_ACP_BUILTIN_TOOLSETS")
++        builtin_toolsets = (
++            ["hermes-acp"]
++            if raw_builtin_toolsets is None
++            else [name.strip() for name in raw_builtin_toolsets.split(",") if name.strip()]
++        )
++        max_iterations = max(
++            1,
++            min(90, int(os.environ.get("HERMES_ACP_MAX_ITERATIONS", "90"))),
++        )
+ 
+         kwargs = {
+             "platform": "acp",
+             "enabled_toolsets": _expand_acp_enabled_toolsets(
+-                ["hermes-acp"],
++                builtin_toolsets,
+                 mcp_server_names=configured_mcp_servers,
+             ),
+             "quiet_mode": True,
+             "session_id": session_id,
+             "session_db": self._get_db(),
+             "model": model or default_model,
++            "max_iterations": max_iterations,
+         }
+ 
+         try:

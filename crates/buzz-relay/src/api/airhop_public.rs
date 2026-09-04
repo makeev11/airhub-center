@@ -847,25 +847,8 @@ fn parse_management_credential(
         .filter(|_| values.next().is_none())
         .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or_else(invalid_management_token)?;
-    let mut token_parts = authorization.split('_');
-    let prefix = token_parts.next();
-    let version = token_parts
-        .next()
-        .and_then(|value| value.parse::<i16>().ok())
-        .filter(|value| *value > 0);
-    let material = token_parts.next();
-    if prefix != Some("ahb")
-        || material.is_none_or(|value| {
-            value.len() != 43
-                || !value
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-        })
-        || token_parts.next().is_some()
-    {
-        return Err(invalid_management_token());
-    }
-    let version = version.ok_or_else(invalid_management_token)?;
+    let version =
+        parse_management_token_version(authorization).ok_or_else(invalid_management_token)?;
     let key = state
         .config
         .airhop_public_booking
@@ -880,6 +863,27 @@ fn parse_management_credential(
             &[authorization.as_bytes()],
         ),
     })
+}
+
+fn parse_management_token_version(authorization: &str) -> Option<i16> {
+    let mut token_parts = authorization.splitn(3, '_');
+    let prefix = token_parts.next();
+    let version = token_parts
+        .next()
+        .and_then(|value| value.parse::<i16>().ok())
+        .filter(|value| *value > 0);
+    let material = token_parts.next();
+    if prefix != Some("ahb")
+        || material.is_none_or(|value| {
+            value.len() != 43
+                || !value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
+    {
+        return None;
+    }
+    version
 }
 
 fn public_management_card_response(
@@ -1355,6 +1359,18 @@ mod tests {
         assert_ne!(first, other_tenant);
         assert!(first.0.starts_with("ahb_2_"));
         assert!(!first.0.contains('='));
+    }
+
+    #[test]
+    fn management_token_parser_accepts_url_safe_underscores_in_material() {
+        let token = format!("ahb_2_{}", "a_b".repeat(14) + "a");
+        assert_eq!(token.len(), 49);
+        assert_eq!(parse_management_token_version(&token), Some(2));
+        assert_eq!(
+            parse_management_token_version("ahb_0_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            None
+        );
+        assert_eq!(parse_management_token_version("ahb_2_short"), None);
     }
 
     #[test]
