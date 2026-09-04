@@ -149,6 +149,7 @@ pub(super) fn buzz_marker_entry(instance_id: &str) -> Vec<u8> {
 /// varied across packaged launches. Matching the complete, private env-style
 /// key is both narrower and more robust than trying to rediscover the environ
 /// offset.
+#[cfg(any(test, target_os = "macos"))]
 pub(crate) fn nul_delimited_entry_value<'a>(buf: &'a [u8], prefix: &[u8]) -> Option<&'a [u8]> {
     buf.split(|&byte| byte == 0)
         .find_map(|entry| entry.strip_prefix(prefix))

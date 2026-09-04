@@ -41,10 +41,11 @@ use process::{
     terminate_runtime_receipt_with, valid_agent_runtime_receipt_with,
 };
 pub(crate) use process::{
-    current_instance_id, nul_delimited_entry_value, process_belongs_to_us, process_has_buzz_marker,
-    process_is_running, terminate_process, terminate_untracked_pair_runtime,
-    valid_agent_runtime_receipt,
+    current_instance_id, process_belongs_to_us, process_has_buzz_marker, process_is_running,
+    terminate_process, terminate_untracked_pair_runtime, valid_agent_runtime_receipt,
 };
+#[cfg(any(test, target_os = "macos"))]
+pub(crate) use process::nul_delimited_entry_value;
 
 mod orphan_sweep;
 #[cfg(target_os = "macos")]
