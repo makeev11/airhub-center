@@ -125,6 +125,37 @@ organization must be provisioned deliberately; the real owner activation code
 is then issued through the signed operator API described in
 `docs/AIRHUB_CENTER_HQ_ACTIVATION_CONTRACT.md`.
 
+### Attach Hermes to an existing demo Center
+
+When a deliberately isolated Center demo already owns its relay, Postgres,
+Redis, MinIO, public `wss://` host, and active organization, do not create a
+second data stack. Merge `compose.existing.yml` after that deployment's base
+and host override files. It adds only the hosted Hermes runtime, Telegram
+gateway, two dedicated state volumes, and the relay's channel-credential
+configuration.
+
+Build and pin three immutable images from the same source revision: the root
+Dockerfile's `runtime-airhop` target, the parent runtime, and the Telegram
+gateway. Add the channel encryption keys, dedicated Hermes/connector keypairs,
+DeepSeek key, model id, public relay URLs, and those three image tags to the
+existing deployment environment. The add-on explicitly blanks model/provider
+private credentials in the relay container.
+
+Validate the fully merged configuration before changing containers:
+
+```bash
+docker compose --env-file /absolute/path/to/.env \
+  -f /absolute/path/to/base-compose.yml \
+  -f /absolute/path/to/host-override.yml \
+  -f /absolute/path/to/compose.existing.yml \
+  --profile hermes --profile telegram config --quiet
+```
+
+Update the relay first and wait for readiness/migrations. Then run the normal
+Hermes bootstrap against that same merged Compose project and start the two
+profile services. This path is appropriate for `demo.airhop.ru`; production
+remains a separate release decision.
+
 The relay accepts a Telegram token only through the owner/admin write-only
 self-service endpoint, verifies it, and stores AES-256-GCM ciphertext. The
 encryption/index keys stay in deployment secrets outside Postgres. The

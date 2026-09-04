@@ -1,0 +1,97 @@
+services:
+  relay:
+    environment:
+      # The hosted runtime and provider connector keep their private keys in
+      # separate processes. The relay receives only the credential encryption
+      # material and the connector public identity needed for exact retrieval.
+      AIRHOP_HERMES_AGENT_SECRET_KEY: ""
+      DEEPSEEK_API_KEY: ""
+      AIRHOP_TELEGRAM_CONNECTOR_SECRET_KEY: ""
+      AIRHOP_TELEGRAM_BOT_TOKEN: ""
+      AIRHOP_TELEGRAM_WEBHOOK_SECRET: ""
+      BUZZ_AIRHOP_CHANNEL_CREDENTIAL_INDEX_KEY: ${BUZZ_AIRHOP_CHANNEL_CREDENTIAL_INDEX_KEY:?set BUZZ_AIRHOP_CHANNEL_CREDENTIAL_INDEX_KEY}
+      BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS: ${BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS:?set BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS}
+      BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION: ${BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION:-1}
+      BUZZ_AIRHOP_TELEGRAM_CONNECTOR_PUBKEY: ${AIRHOP_TELEGRAM_CONNECTOR_PUBKEY:?set AIRHOP_TELEGRAM_CONNECTOR_PUBKEY}
+
+  hermes-parent-runtime:
+    profiles: [hermes]
+    image: ${AIRHOP_HERMES_RUNTIME_IMAGE:?set AIRHOP_HERMES_RUNTIME_IMAGE}
+    environment:
+      BUZZ_RELAY_URL: ${AIRHOP_HERMES_RELAY_URL:?set AIRHOP_HERMES_RELAY_URL}
+      BUZZ_PRIVATE_KEY: ${AIRHOP_HERMES_AGENT_SECRET_KEY:?set AIRHOP_HERMES_AGENT_SECRET_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY}
+      BUZZ_ACP_AGENT_COMMAND: hermes-acp
+      BUZZ_ACP_AGENT_ARGS: ""
+      BUZZ_ACP_MCP_COMMAND: airhop-agent-mcp
+      BUZZ_AIRHOP_ROLE: parent_administrator
+      BUZZ_ACP_SYSTEM_PROMPT_FILE: /opt/airhop-hermes/persona.md
+      BUZZ_ACP_SESSION_TITLE: Администратор Гермес
+      BUZZ_ACP_DISPLAY_NAME: Администратор Гермес
+      BUZZ_ACP_MODEL: ${AIRHOP_HERMES_MODEL:-deepseek-v4-flash}
+      BUZZ_ACP_SUBSCRIBE: all
+      BUZZ_ACP_NO_MENTION_FILTER: "true"
+      BUZZ_ACP_RESPOND_TO: anyone
+      BUZZ_ACP_DEDUP: queue
+      BUZZ_ACP_MULTIPLE_EVENT_HANDLING: queue
+      BUZZ_ACP_AGENTS: "1"
+      BUZZ_ACP_NO_MEMORY: "true"
+      BUZZ_ACP_NO_BASE_PROMPT: "true"
+      BUZZ_ACP_HEARTBEAT_INTERVAL: "0"
+      BUZZ_ACP_IDLE_TIMEOUT: ${AIRHOP_HERMES_IDLE_TIMEOUT_SECONDS:-180}
+      BUZZ_ACP_MAX_TURN_DURATION: ${AIRHOP_HERMES_MAX_TURN_SECONDS:-300}
+      HERMES_ACP_MAX_ITERATIONS: ${AIRHOP_HERMES_MAX_ITERATIONS:-8}
+      RUST_LOG: ${AIRHOP_HERMES_RUST_LOG:-buzz_acp=info,buzz_dev_mcp=info}
+    volumes:
+      - airhop-hermes-runtime-data:/var/lib/airhop-hermes-runtime
+    depends_on:
+      relay:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+      start_period: 20s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    mem_limit: 1536m
+    cpus: 1.5
+    networks: [buzz-net]
+
+  telegram-gateway:
+    profiles: [telegram]
+    image: ${AIRHOP_TELEGRAM_GATEWAY_IMAGE:?set AIRHOP_TELEGRAM_GATEWAY_IMAGE}
+    environment:
+      AIRHOP_RELAY_URL: ${AIRHOP_GATEWAY_RELAY_URL:?set AIRHOP_GATEWAY_RELAY_URL}
+      AIRHOP_CONNECTION_ID: ${AIRHOP_TELEGRAM_CONNECTION_ID:-}
+      AIRHOP_CONNECTOR_SECRET_KEY: ${AIRHOP_TELEGRAM_CONNECTOR_SECRET_KEY:?set AIRHOP_TELEGRAM_CONNECTOR_SECRET_KEY}
+      TELEGRAM_BOT_TOKEN: ${AIRHOP_TELEGRAM_BOT_TOKEN:-}
+      AIRHOP_GATEWAY_STATE_ROOT: /var/lib/airhop-channel-gateway/connections
+      TELEGRAM_WEBHOOK_URL: ${AIRHOP_TELEGRAM_WEBHOOK_URL:-}
+      TELEGRAM_WEBHOOK_SECRET: ${AIRHOP_TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_WEBHOOK_HOST: 0.0.0.0
+      TELEGRAM_WEBHOOK_PORT: "8443"
+    volumes:
+      - airhop-telegram-gateway-data:/var/lib/airhop-channel-gateway
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    mem_limit: 512m
+    cpus: 0.5
+    networks: [buzz-net]
+
+volumes:
+  airhop-hermes-runtime-data:
+  airhop-telegram-gateway-data:
