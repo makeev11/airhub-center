@@ -221,6 +221,9 @@ export function AppShell() {
     if (
       hasRestoredCommunityDestinationRef.current ||
       !channelsQuery.isSuccess ||
+      !channelsQuery.isFetchedAfterMount ||
+      channelsQuery.isRefetchError ||
+      channelsQuery.fetchStatus !== "idle" ||
       channelsQuery.dataUpdatedAt === 0 ||
       !activeCommunityId
     ) {
@@ -256,6 +259,9 @@ export function AppShell() {
     }
   }, [
     channelsQuery.dataUpdatedAt,
+    channelsQuery.fetchStatus,
+    channelsQuery.isFetchedAfterMount,
+    channelsQuery.isRefetchError,
     channelsQuery.isSuccess,
     communitiesHook.activeCommunity?.id,
     goChannel,
