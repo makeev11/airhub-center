@@ -198,6 +198,21 @@ fn workspace_relay_change_trips_hash_even_for_stored_record_relay() {
 }
 
 #[test]
+fn equivalent_workspace_relay_spellings_do_not_trip_hash() {
+    let rec = record();
+    assert_eq!(
+        spawn_config_hash(
+            &rec,
+            &[],
+            &[],
+            " WSS://Relay.Example:443/ ",
+            &Default::default()
+        ),
+        spawn_config_hash(&rec, &[], &[], "wss://relay.example", &Default::default())
+    );
+}
+
+#[test]
 fn stored_record_relay_does_not_affect_hash() {
     // Editing the (ignored) stored pin must not badge a restart: what a
     // restart would run is identical either way.

@@ -101,7 +101,15 @@ pub(crate) fn spawn_config_hash(
     // Record fields the spawn env writes read directly. The relay is hashed
     // resolved: every record spawns on the workspace relay (legacy pins
     // ignored), so a workspace relay change must trip the badge.
-    crate::relay::effective_agent_relay_url(&record.relay_url, workspace_relay).hash(&mut hasher);
+    let effective_relay =
+        crate::relay::effective_agent_relay_url(&record.relay_url, workspace_relay);
+    // Runtime keys canonicalize relay identity (notably removing a root `/`).
+    // Hash the same canonical value so a process spawned from the configured
+    // connection URL (`wss://relay/`) does not immediately look stale when its
+    // runtime key is later used to build the summary (`wss://relay`).
+    let relay_identity =
+        buzz_core_pkg::relay::normalize_relay_url(&effective_relay).unwrap_or(effective_relay);
+    relay_identity.hash(&mut hasher);
     // Team instructions use the same resolver as spawn.
     effective_team_instructions(record, teams).hash(&mut hasher);
     // Prompt, model, and provider all come from ONE `resolve_effective_config`
