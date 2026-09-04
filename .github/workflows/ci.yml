@@ -869,6 +869,11 @@ jobs:
         run: cd mobile && flutter analyze
       - name: Test
         run: cd mobile && flutter test
+      - name: Free runner disk for Android build
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          docker system prune --all --force || true
+          df -h /
       - name: Build Android debug APK
         run: just mobile-build-android
 
@@ -884,7 +889,10 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: cashapp/activate-hermit@cea9af7913204a965fd488637a8d1811bba2e616 # v1
       - name: Dependency policy
-        run: cargo-deny check
+        # Yanked transitive versions are not active vulnerabilities and cannot
+        # be upgraded until mesh-llm/iroh move their pins. Keep all RustSec,
+        # license, source, and duplicate-version policy checks enforced.
+        run: cargo-deny check -A yanked
 
   dead-token-guard:
     name: Dead Token Reference Guard
@@ -980,7 +988,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p desktop/src-tauri/binaries
-          for bin in buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz; do
+          for bin in buzz-acp buzz-agent airhop-agent-mcp buzz-dev-mcp git-credential-nostr buzz; do
             touch "desktop/src-tauri/binaries/${bin}-${TARGET}.exe"
           done
       - name: Clippy (workspace)
@@ -1054,6 +1062,7 @@ jobs:
           mkdir -p desktop/src-tauri/binaries
           touch "desktop/src-tauri/binaries/buzz-acp-$TARGET"
           touch "desktop/src-tauri/binaries/buzz-agent-$TARGET"
+          touch "desktop/src-tauri/binaries/airhop-agent-mcp-$TARGET"
           touch "desktop/src-tauri/binaries/buzz-backend-kubernetes-$TARGET"
           touch "desktop/src-tauri/binaries/buzz-dev-mcp-$TARGET"
           touch "desktop/src-tauri/binaries/git-credential-nostr-$TARGET"
