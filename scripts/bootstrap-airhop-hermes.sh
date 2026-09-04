@@ -4,6 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${AIRHOP_ENV_FILE:-${REPO_ROOT}/deploy/airhop/.env}"
 COMPOSE_FILE="${AIRHOP_COMPOSE_FILE:-${REPO_ROOT}/deploy/airhop/compose.yml}"
+COMPOSE_FILES="${AIRHOP_COMPOSE_FILES:-${COMPOSE_FILE}}"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "AirHop environment file not found: ${ENV_FILE}" >&2
@@ -14,6 +15,16 @@ read_env() {
   local name="$1"
   sed -n "s/^${name}=//p" "${ENV_FILE}" | tail -n 1
 }
+
+IFS=':' read -r -a compose_file_paths <<<"${COMPOSE_FILES}"
+compose=(docker compose --env-file "${ENV_FILE}")
+for compose_file_path in "${compose_file_paths[@]}"; do
+  if [[ ! -f "${compose_file_path}" ]]; then
+    echo "AirHop Compose file not found: ${compose_file_path}" >&2
+    exit 1
+  fi
+  compose+=(-f "${compose_file_path}")
+done
 
 relay_url="$(read_env RELAY_URL)"
 case "${relay_url}" in
@@ -77,11 +88,16 @@ if [[ ! "${model_revision}" =~ ^[a-zA-Z0-9._:/@+-]{1,120}$ ]]; then
   exit 1
 fi
 
-compose=(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}")
-
-echo "Building the pinned Hermes runtime and Telegram gateway images..."
-AIRHOP_ENV_FILE="${ENV_FILE}" "${compose[@]}" --profile hermes --profile telegram build \
-  hermes-parent-runtime telegram-gateway
+case "${AIRHOP_SKIP_IMAGE_BUILD:-0}" in
+  1 | true | yes)
+    echo "Using prebuilt pinned Hermes runtime and Telegram gateway images..."
+    ;;
+  *)
+    echo "Building the pinned Hermes runtime and Telegram gateway images..."
+    AIRHOP_ENV_FILE="${ENV_FILE}" "${compose[@]}" --profile hermes --profile telegram build \
+      hermes-parent-runtime telegram-gateway
+    ;;
+esac
 
 derive_public_key='import os; from cryptography.hazmat.primitives.asymmetric import ec; name=os.environ["AIRHOP_KEY_ENV"]; secret=os.environ[name]; key=ec.derive_private_key(int(secret, 16), ec.SECP256K1()); print(key.public_key().public_numbers().x.to_bytes(32, "big").hex())'
 derived_agent_pubkey="$(AIRHOP_ENV_FILE="${ENV_FILE}" "${compose[@]}" --profile hermes run \
@@ -165,4 +181,4 @@ AIRHOP_ENV_FILE="${ENV_FILE}" "${compose[@]}" exec -T postgres \
     -f /dev/stdin < "${REPO_ROOT}/deploy/airhop/hermes-bootstrap.sql"
 
 echo "Hermes deployment is ready. Start it with:"
-echo "docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE} --profile hermes up -d hermes-parent-runtime"
+echo "AIRHOP_ENV_FILE=${ENV_FILE} AIRHOP_COMPOSE_FILES=${COMPOSE_FILES} docker compose ... --profile hermes up -d hermes-parent-runtime"

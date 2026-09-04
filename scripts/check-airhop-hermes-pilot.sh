@@ -4,6 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${AIRHOP_ENV_FILE:-${REPO_ROOT}/deploy/airhop/.env}"
 COMPOSE_FILE="${AIRHOP_COMPOSE_FILE:-${REPO_ROOT}/deploy/airhop/compose.yml}"
+COMPOSE_FILES="${AIRHOP_COMPOSE_FILES:-${COMPOSE_FILE}}"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "AirHop environment file not found: ${ENV_FILE}" >&2
@@ -14,6 +15,17 @@ read_env() {
   local name="$1"
   sed -n "s/^${name}=//p" "${ENV_FILE}" | tail -n 1
 }
+
+IFS=':' read -r -a compose_file_paths <<<"${COMPOSE_FILES}"
+compose=(docker compose --env-file "${ENV_FILE}")
+for compose_file_path in "${compose_file_paths[@]}"; do
+  if [[ ! -f "${compose_file_path}" ]]; then
+    echo "AirHop Compose file not found: ${compose_file_path}" >&2
+    exit 1
+  fi
+  compose+=(-f "${compose_file_path}")
+done
+compose+=(--profile hermes --profile telegram)
 
 relay_url="$(read_env RELAY_URL)"
 community_host="${AIRHOP_DEMO_HOST:-${relay_url#ws://}}"
@@ -28,14 +40,6 @@ if [[ -z "${community_host}" || "${community_host}" == *"CHANGE_ME"* ]]; then
   echo "Set a concrete RELAY_URL or AIRHOP_DEMO_HOST." >&2
   exit 1
 fi
-
-compose=(
-  docker compose
-  --env-file "${ENV_FILE}"
-  -f "${COMPOSE_FILE}"
-  --profile hermes
-  --profile telegram
-)
 
 AIRHOP_ENV_FILE="${ENV_FILE}" "${compose[@]}" config --quiet
 
