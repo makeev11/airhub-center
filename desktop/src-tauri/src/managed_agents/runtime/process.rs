@@ -164,8 +164,7 @@ pub(crate) fn process_has_buzz_marker(pid: u32, instance_id: &str) -> bool {
     let Some(buf) = sweep::procargs2_buffer(pid) else {
         return false;
     };
-    nul_delimited_entry_value(&buf, PREFIX)
-        .is_some_and(|value| value == instance_id.as_bytes())
+    nul_delimited_entry_value(&buf, PREFIX).is_some_and(|value| value == instance_id.as_bytes())
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]

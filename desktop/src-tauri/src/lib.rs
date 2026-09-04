@@ -537,44 +537,14 @@ pub fn run() {
                     .store(true, Ordering::Release);
             }
 
-            // Periodic sweep: reap confirmed same-instance orphans every 60s.
-            // Foreign dead-instance cleanup remains a boot-time operation in
-            // restore_managed_agents. Running that destructive classifier on
-            // every tick can terminate a freshly tracked packaged-app harness
-            // if macOS briefly exposes incomplete KERN_PROCARGS2 metadata.
-            let sweep_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                use std::collections::HashSet;
-                use std::time::Duration;
-                use tauri::Manager;
-                let instance_id = managed_agents::current_instance_id(&sweep_handle);
-                let state = sweep_handle.state::<AppState>();
-                // Two-tick grace: only reap same-instance orphans seen on two
-                // consecutive sweeps. Prevents killing a legitimately-starting
-                // agent that spawned between the skip-list snapshot and the scan.
-                let mut prev_orphans: HashSet<u32> = HashSet::new();
-                loop {
-                    tokio::time::sleep(Duration::from_secs(60)).await;
-                    // Collect PIDs of our own live agents to avoid killing them.
-                    let skip_pids: Vec<u32> = state
-                        .managed_agent_processes
-                        .lock()
-                        .map(|runtimes| runtimes.values().map(|rt| rt.child.id()).collect())
-                        .unwrap_or_default();
-                    let prev = prev_orphans.clone();
-                    let inst = instance_id.clone();
-                    // Run the blocking syscall work off the async executor.
-                    let new_orphans = tauri::async_runtime::spawn_blocking(move || {
-                        let orphans = managed_agents::sweep_system_agent_processes_with_grace(
-                            &inst, &skip_pids, &prev,
-                        );
-                        orphans
-                    })
-                    .await
-                    .unwrap_or_default();
-                    prev_orphans = new_orphans;
-                }
-            });
+            // Agent orphan cleanup is deliberately boot-time only (inside
+            // restore_managed_agents). A live periodic process-table sweep is
+            // destructive and cannot be made race-free: the macOS process
+            // metadata snapshot can temporarily omit a tracked ancestor while
+            // its descendants remain visible. In packaged builds that caused a
+            // healthy harness process group to receive SIGTERM on the minute.
+            // Runtime receipts plus the next app launch provide a safe cleanup
+            // boundary without risking an active agent turn.
 
             // Drain events the retention store flagged `pending_sync` (UI
             // create/edit, delete tombstones, launch reconcile) to the relay.

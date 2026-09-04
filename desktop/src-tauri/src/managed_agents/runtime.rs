@@ -41,18 +41,15 @@ use process::{
     terminate_runtime_receipt_with, valid_agent_runtime_receipt_with,
 };
 pub(crate) use process::{
-    current_instance_id, nul_delimited_entry_value, process_belongs_to_us,
-    process_has_buzz_marker, process_is_running, terminate_process,
-    terminate_untracked_pair_runtime, valid_agent_runtime_receipt,
+    current_instance_id, nul_delimited_entry_value, process_belongs_to_us, process_has_buzz_marker,
+    process_is_running, terminate_process, terminate_untracked_pair_runtime,
+    valid_agent_runtime_receipt,
 };
 
 mod orphan_sweep;
 #[cfg(target_os = "macos")]
 use orphan_sweep::proc_pidinfo;
-pub(crate) use orphan_sweep::{
-    sweep_orphaned_agent_processes, sweep_system_agent_processes,
-    sweep_system_agent_processes_with_grace,
-};
+pub(crate) use orphan_sweep::{sweep_orphaned_agent_processes, sweep_system_agent_processes};
 #[cfg(target_os = "macos")]
 use orphan_sweep::{BSDInfo, PROC_PIDTBSDINFO};
 #[cfg(unix)]
