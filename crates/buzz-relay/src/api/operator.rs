@@ -682,6 +682,19 @@ pub async fn get_center_installation_metadata(
         .await
         .map_err(map_activation_operator_error)?
         .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "installation not found"))?;
+    let welcome_team = state
+        .db
+        .get_airhop_welcome_team(&tenant)
+        .await
+        .map_err(|error| internal_error(&format!("Welcome team lookup failed: {error}")))?
+        .filter(|team| team.organization_id == installation.organization_id);
+    let welcome_channel_id = welcome_team.as_ref().map(|team| team.channel_id);
+    let welcome_team_version = welcome_team.as_ref().map(|team| team.version);
+    let content_marketer_pubkey = welcome_team.as_ref().and_then(|team| {
+        team.members
+            .get(&buzz_db::airhop::welcome_agents::AirhopWelcomeRole::ContentMarketer)
+            .map(hex::encode)
+    });
     let now = Utc::now();
     Ok(Json(serde_json::json!({
         "installationId": installation.id,
@@ -690,6 +703,9 @@ pub async fn get_center_installation_metadata(
         "releaseProfile": installation.release_profile,
         "releaseVersion": installation.release_version,
         "installationPubkey": installation.installation_pubkey.map(hex::encode),
+        "welcomeChannelId": welcome_channel_id,
+        "contentMarketerPubkey": content_marketer_pubkey,
+        "welcomeTeamVersion": welcome_team_version,
         "status": installation.status.as_str(),
         "activationVersion": installation.activation_version,
         "verificationVersion": installation.verification_version,

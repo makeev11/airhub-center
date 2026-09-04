@@ -92,6 +92,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(api::airhop_agents::get_welcome_team).put(api::airhop_agents::put_welcome_team),
         )
         .route(
+            "/api/airhop/agents/v1/site-content/context",
+            get(api::airhop_agents::get_site_content_context),
+        )
+        .route(
             "/api/airhop/agents/v1/routes/{event_id}/claim",
             post(api::airhop_agents::claim_welcome_route),
         )

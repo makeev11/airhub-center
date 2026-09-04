@@ -21,6 +21,7 @@ use super::{api_error, internal_error};
 
 const WELCOME_TEAM_PATH: &str = "/api/airhop/agents/v1/welcome-team";
 const WELCOME_ROUTE_PREFIX: &str = "/api/airhop/agents/v1/routes";
+const SITE_CONTENT_CONTEXT_PATH: &str = "/api/airhop/agents/v1/site-content/context";
 
 pub(crate) use crate::airhop_agent_actions::prepare_agent_action;
 
@@ -115,6 +116,83 @@ pub(crate) async fn get_welcome_team(
             )
         })?;
     Ok(Json(manifest_json(&manifest)))
+}
+
+/// Returns only the public bridge coordinates needed by the registered
+/// content marketer. The agent key remains scoped by HQ to this installation.
+pub(crate) async fn get_site_content_context(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let principal =
+        authenticate_airhop_agent(&state, &headers, "GET", SITE_CONTENT_CONTEXT_PATH, None).await?;
+    let manifest = state
+        .db
+        .get_airhop_welcome_team(&principal.tenant)
+        .await
+        .map_err(map_db_error)?
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "Airhop Welcome team is not registered",
+            )
+        })?;
+    let content_marketer = manifest
+        .members
+        .get(&AirhopWelcomeRole::ContentMarketer)
+        .ok_or_else(|| api_error(StatusCode::FORBIDDEN, "content marketer is not registered"))?;
+    if content_marketer.as_slice() != principal.pubkey.as_bytes() {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            "only the registered content marketer may use the site-content bridge",
+        ));
+    }
+    let installation = state
+        .db
+        .get_active_airhop_center_installation_for_organization(
+            &principal.tenant,
+            manifest.organization_id,
+        )
+        .await
+        .map_err(map_db_error)?
+        .ok_or_else(|| api_error(StatusCode::CONFLICT, "AirHub Center is not activated"))?;
+    let hq_origin = normalized_hq_origin()?;
+    Ok(Json(json!({
+        "hqApiOrigin": hq_origin,
+        "installationId": installation.id,
+        "organizationId": installation.organization_id,
+        "welcomeChannelId": manifest.channel_id,
+        "welcomeTeamVersion": manifest.version,
+    })))
+}
+
+fn normalized_hq_origin() -> Result<String, (StatusCode, Json<Value>)> {
+    let raw = std::env::var("AIRHOP_HQ_API_ORIGIN").map_err(|_| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "HQ content bridge is not configured",
+        )
+    })?;
+    let url = reqwest::Url::parse(raw.trim()).map_err(|_| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "HQ content bridge is not configured",
+        )
+    })?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/"
+    {
+        return Err(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "HQ content bridge is not configured",
+        ));
+    }
+    Ok(url.origin().ascii_serialization())
 }
 
 fn require_owner(role: &str) -> Result<(), (StatusCode, Json<Value>)> {

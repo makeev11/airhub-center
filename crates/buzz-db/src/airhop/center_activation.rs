@@ -743,6 +743,30 @@ impl Db {
                 && installation.activation_version > 0
         }))
     }
+
+    /// Load the activated Center installation for one tenant organization.
+    pub async fn get_active_airhop_center_installation_for_organization(
+        &self,
+        tenant: &TenantContext,
+        organization_id: Uuid,
+    ) -> Result<Option<CenterInstallationMetadata>> {
+        let mut connection = self.pool.acquire().await?;
+        let row = sqlx::query(
+            "SELECT organization_id, id, environment, release_profile, release_version, \
+                    installation_pubkey, status, activation_version, activated_at, \
+                    verification_version, config_version, last_verified_at, sanitized_error_code \
+             FROM airhop_center_installations \
+             WHERE community_id = $1 AND organization_id = $2 \
+               AND activation_version > 0 AND installation_pubkey IS NOT NULL \
+               AND status != 'disabled' \
+             ORDER BY activation_version DESC, updated_at DESC LIMIT 1",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(organization_id)
+        .fetch_optional(&mut *connection)
+        .await?;
+        row.map(parse_installation_metadata_row).transpose()
+    }
 }
 
 #[derive(Debug)]

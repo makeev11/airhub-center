@@ -25,6 +25,7 @@ const MAX_MESSAGES: usize = 3;
 const MAX_MESSAGE_CHARS: usize = 1_200;
 const MAX_ASSIGNMENT_CHARS: usize = 4_000;
 const SETTINGS_PATH: &str = "/api/airhop/staff/v1/settings";
+const SITE_CONTENT_CONTEXT_PATH: &str = "/api/airhop/agents/v1/site-content/context";
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
@@ -252,6 +253,36 @@ pub struct PrepareActionParams {
     pub command: PrepareAgentCommand,
 }
 
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProposeSiteContentParams {
+    #[schemars(with = "String")]
+    pub channel_id: Uuid,
+    /// Hex event ID of the owner's request that caused this proposal.
+    pub triggering_event_id: String,
+    /// HQ-validated typed site-content changes.
+    pub changes: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConfirmSiteContentParams {
+    #[schemars(with = "String")]
+    pub channel_id: Uuid,
+    /// Event ID returned by `airhop_propose_site_content`.
+    pub preview_event_id: String,
+    /// Hex event ID of the owner's exact confirmation phrase.
+    pub confirmation_event_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SiteContentContext {
+    hq_api_origin: String,
+    installation_id: Uuid,
+    welcome_channel_id: Uuid,
+}
+
 /// Closed setup-command discriminator exposed to the Administrator model.
 /// The relay performs the authoritative per-command body parse using the same
 /// DTOs as its staff HTTP API.
@@ -455,6 +486,47 @@ impl AirhopConfig {
         }
         serde_json::from_slice(&bytes)
             .map_err(|error| AirhopError(format!("Airhop returned invalid JSON: {error}")))
+    }
+
+    async fn request_absolute_json(
+        &self,
+        method: Method,
+        url: &str,
+        body: Option<&Value>,
+    ) -> Result<Value, AirhopError> {
+        let body_bytes = body
+            .map(serde_json::to_vec)
+            .transpose()
+            .map_err(|error| AirhopError(format!("request serialization failed: {error}")))?;
+        let auth = self.nip98_header(&method, url, body_bytes.as_deref())?;
+        let mut request = self
+            .http
+            .request(method, url)
+            .header("Authorization", auth)
+            .header("Accept", "application/json");
+        if let Some(bytes) = body_bytes {
+            request = request
+                .header("Content-Type", "application/json")
+                .body(bytes);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| AirhopError(format!("HQ content request failed: {error}")))?;
+        let status = response.status();
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| AirhopError(format!("HQ content response failed: {error}")))?;
+        if !status.is_success() {
+            let detail = String::from_utf8_lossy(&bytes);
+            return Err(AirhopError(format!(
+                "HQ content request returned HTTP {status}: {}",
+                detail.chars().take(600).collect::<String>()
+            )));
+        }
+        serde_json::from_slice(&bytes)
+            .map_err(|error| AirhopError(format!("HQ content response is invalid: {error}")))
     }
 
     async fn get_json(&self, path: &str) -> Result<Value, AirhopError> {
@@ -711,6 +783,268 @@ impl AirhopService {
             )
             .await
     }
+
+    async fn site_content_context(&self) -> Result<SiteContentContext, AirhopError> {
+        let value = self.config.get_json(SITE_CONTENT_CONTEXT_PATH).await?;
+        let context: SiteContentContext = serde_json::from_value(value)
+            .map_err(|error| AirhopError(format!("invalid site-content context: {error}")))?;
+        if context.welcome_channel_id != self.config.channel_id {
+            return Err(AirhopError(
+                "site-content context is bound to another Welcome channel".to_owned(),
+            ));
+        }
+        Ok(context)
+    }
+
+    async fn propose_site_content(
+        &self,
+        params: ProposeSiteContentParams,
+    ) -> Result<Value, AirhopError> {
+        self.config.require_channel(params.channel_id)?;
+        if self.config.role != AirhopRole::ContentMarketer {
+            return Err(AirhopError(
+                "only the Content Marketer may prepare site content".to_owned(),
+            ));
+        }
+        validate_hex_event_id(&params.triggering_event_id, "triggeringEventId")?;
+        validate_site_content_changes(&params.changes)?;
+        let context = self.site_content_context().await?;
+        let base = format!(
+            "{}/api/hq/v1/center/installations/{}/site-content",
+            context.hq_api_origin.trim_end_matches('/'),
+            context.installation_id
+        );
+        let delivery = self
+            .config
+            .request_absolute_json(Method::GET, &base, None)
+            .await?;
+        let revision = delivery
+            .pointer("/content/revision")
+            .and_then(Value::as_i64)
+            .filter(|value| *value > 0)
+            .ok_or_else(|| AirhopError("HQ site content has no valid revision".to_owned()))?;
+        let changes = Value::Array(params.changes);
+        let request_digest = hex::encode(Sha256::digest(
+            serde_json::to_vec(&changes)
+                .map_err(|error| AirhopError(format!("changes serialization failed: {error}")))?,
+        ));
+        let proposal = self
+            .config
+            .request_absolute_json(
+                Method::POST,
+                &format!("{base}/previews"),
+                Some(&json!({
+                    "expectedContentRevision": revision,
+                    "changes": changes,
+                    "source": {
+                        "channel": "center",
+                        "conversationId": params.channel_id,
+                        "messageId": params.triggering_event_id,
+                    },
+                    "idempotencyKey": format!(
+                        "center-propose:{}:{}",
+                        params.triggering_event_id,
+                        &request_digest[..32]
+                    ),
+                })),
+            )
+            .await?;
+        let preview_id = required_json_str(&proposal, "/preview/id", "HQ preview id")?;
+        let preview_text = required_json_str(
+            &proposal,
+            "/centerConfirmation/previewText",
+            "HQ preview text",
+        )?;
+        let preview_digest = required_json_str(
+            &proposal,
+            "/centerConfirmation/previewDigest",
+            "HQ preview digest",
+        )?;
+        let confirmation_phrase = required_json_str(
+            &proposal,
+            "/centerConfirmation/confirmationPhrase",
+            "HQ confirmation phrase",
+        )?;
+        let channel = params.channel_id.to_string();
+        let installation = context.installation_id.to_string();
+        let event = self.config.sign_event(
+            EventBuilder::new(
+                Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16),
+                preview_text,
+            )
+            .tags([
+                parse_tag(["h", channel.as_str()])?,
+                parse_tag(["airhop-agent-turn", AirhopRole::ContentMarketer.as_str()])?,
+                parse_tag(["airhop-question", AirhopRole::ContentMarketer.as_str()])?,
+                parse_tag([
+                    "airhop-site-preview",
+                    installation.as_str(),
+                    preview_id,
+                    "1",
+                    preview_digest,
+                ])?,
+            ]),
+        )?;
+        self.config.submit_event(&event).await?;
+        Ok(json!({
+            "confirmationPhrase": confirmation_phrase,
+            "expiresAt": proposal.pointer("/preview/expiresAt"),
+            "hqPreviewId": preview_id,
+            "previewEventId": event.id.to_hex(),
+            "status": "waiting_for_owner_confirmation",
+        }))
+    }
+
+    async fn confirm_site_content(
+        &self,
+        params: ConfirmSiteContentParams,
+    ) -> Result<Value, AirhopError> {
+        self.config.require_channel(params.channel_id)?;
+        if self.config.role != AirhopRole::ContentMarketer {
+            return Err(AirhopError(
+                "only the Content Marketer may submit site confirmation".to_owned(),
+            ));
+        }
+        validate_hex_event_id(&params.preview_event_id, "previewEventId")?;
+        validate_hex_event_id(&params.confirmation_event_id, "confirmationEventId")?;
+        let context = self.site_content_context().await?;
+        let queried = self
+            .config
+            .post_json(
+                "/query",
+                &json!([{
+                    "ids": [params.preview_event_id, params.confirmation_event_id],
+                    "kinds": [buzz_core::kind::KIND_STREAM_MESSAGE],
+                }]),
+            )
+            .await?;
+        let events = queried
+            .as_array()
+            .ok_or_else(|| AirhopError("Center event query is not an array".to_owned()))?;
+        let preview_event = find_event(events, &params.preview_event_id)?;
+        let confirmation_event = find_event(events, &params.confirmation_event_id)?;
+        let preview_tag = preview_event
+            .get("tags")
+            .and_then(Value::as_array)
+            .and_then(|tags| {
+                tags.iter().find_map(|tag| {
+                    let parts = tag.as_array()?;
+                    (parts.first()?.as_str()? == "airhop-site-preview").then_some(parts)
+                })
+            })
+            .ok_or_else(|| AirhopError("preview event has no site-preview tag".to_owned()))?;
+        let tag_part = |index: usize| preview_tag.get(index).and_then(Value::as_str);
+        let installation_id = context.installation_id.to_string();
+        if tag_part(1) != Some(installation_id.as_str()) || tag_part(3) != Some("1") {
+            return Err(AirhopError(
+                "preview event belongs to another Center installation".to_owned(),
+            ));
+        }
+        let preview_id = tag_part(2)
+            .ok_or_else(|| AirhopError("preview event has no HQ preview id".to_owned()))?;
+        let url = format!(
+            "{}/api/hq/v1/center/installations/{}/site-content/previews/{preview_id}/confirm",
+            context.hq_api_origin.trim_end_matches('/'),
+            context.installation_id,
+        );
+        let result = self
+            .config
+            .request_absolute_json(
+                Method::POST,
+                &url,
+                Some(&json!({
+                    "idempotencyKey": format!(
+                        "center-confirm:{}:{}",
+                        preview_id,
+                        params.confirmation_event_id
+                    ),
+                    "centerEvidence": {
+                        "previewEvent": preview_event,
+                        "confirmationEvent": confirmation_event,
+                    },
+                })),
+            )
+            .await?;
+        Ok(json!({
+            "contentRevision": result.pointer("/content/revision"),
+            "deploymentJobId": result.pointer("/deploymentJob/id"),
+            "deploymentStatus": result.pointer("/deploymentJob/status"),
+            "hqPreviewId": preview_id,
+            "status": "confirmed_and_queued_for_deploy",
+        }))
+    }
+}
+
+fn validate_hex_event_id(value: &str, name: &str) -> Result<(), AirhopError> {
+    if value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Ok(())
+    } else {
+        Err(AirhopError(format!(
+            "{name} must be a 64-character hex event ID"
+        )))
+    }
+}
+
+fn validate_site_content_changes(changes: &[Value]) -> Result<(), AirhopError> {
+    const KEYS: &[&str] = &[
+        "business.public_name",
+        "business.public_address",
+        "contacts.public_phone",
+        "contacts.public_email",
+        "contacts.telegram",
+        "contacts.whatsapp",
+        "operations.hours",
+        "operations.schedule",
+        "operations.prices",
+        "links.booking",
+        "marketing.headline",
+        "marketing.summary",
+        "marketing.faq",
+        "marketing.seo_title",
+        "marketing.seo_description",
+    ];
+    if changes.is_empty() || changes.len() > 100 {
+        return Err(AirhopError("changes must contain 1..=100 items".to_owned()));
+    }
+    let mut seen = BTreeSet::new();
+    for change in changes {
+        let object = change
+            .as_object()
+            .ok_or_else(|| AirhopError("each site-content change must be an object".to_owned()))?;
+        if object.len() != 2 || !object.contains_key("value") {
+            return Err(AirhopError(
+                "each site-content change must contain only key and value".to_owned(),
+            ));
+        }
+        let key = object
+            .get("key")
+            .and_then(Value::as_str)
+            .filter(|key| KEYS.contains(key))
+            .ok_or_else(|| AirhopError("unsupported site-content key".to_owned()))?;
+        if !seen.insert(key) {
+            return Err(AirhopError("site-content keys must be unique".to_owned()));
+        }
+    }
+    Ok(())
+}
+
+fn required_json_str<'a>(
+    value: &'a Value,
+    pointer: &str,
+    label: &str,
+) -> Result<&'a str, AirhopError> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AirhopError(format!("{label} is missing")))
+}
+
+fn find_event<'a>(events: &'a [Value], event_id: &str) -> Result<&'a Value, AirhopError> {
+    events
+        .iter()
+        .find(|event| event.get("id").and_then(Value::as_str) == Some(event_id))
+        .ok_or_else(|| AirhopError(format!("Center event {event_id} was not found")))
 }
 
 async fn read_authoritative(
@@ -766,7 +1100,11 @@ fn tools_for(role: AirhopRole) -> BTreeSet<String> {
         AirhopRole::Administrator => {
             tools.insert("airhop_prepare_action".to_owned());
         }
-        AirhopRole::Analyst | AirhopRole::ContentMarketer => {}
+        AirhopRole::ContentMarketer => {
+            tools.insert("airhop_propose_site_content".to_owned());
+            tools.insert("airhop_confirm_site_content".to_owned());
+        }
+        AirhopRole::Analyst => {}
     }
     tools
 }
@@ -795,6 +1133,8 @@ impl AirhopMcp {
             "airhop_delegate",
             "airhop_read",
             "airhop_prepare_action",
+            "airhop_propose_site_content",
+            "airhop_confirm_site_content",
         ] {
             if !allowed.contains(name) {
                 tool_router.disable_route(name.to_owned());
@@ -848,6 +1188,32 @@ impl AirhopMcp {
         Parameters(params): Parameters<PrepareActionParams>,
     ) -> Result<CallToolResult, ErrorData> {
         Ok(as_tool_result(self.service.prepare_action(params).await))
+    }
+
+    #[tool(
+        name = "airhop_propose_site_content",
+        description = "Content Marketer only: create an immutable HQ site-content preview and post the exact confirmation prompt in the Airhop Welcome channel. Does not publish."
+    )]
+    async fn propose_site_content(
+        &self,
+        Parameters(params): Parameters<ProposeSiteContentParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(
+            self.service.propose_site_content(params).await,
+        ))
+    }
+
+    #[tool(
+        name = "airhop_confirm_site_content",
+        description = "Content Marketer only: submit the owner's exact signed confirmation message for an immutable Center preview. HQ verifies the owner proof and queues deployment."
+    )]
+    async fn confirm_site_content(
+        &self,
+        Parameters(params): Parameters<ConfirmSiteContentParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(
+            self.service.confirm_site_content(params).await,
+        ))
     }
 }
 
@@ -939,6 +1305,16 @@ mod tests {
         assert!(AirhopRole::parse_config("").is_err());
         assert!(AirhopRole::parse_config("owner").is_err());
 
+        assert_eq!(
+            tools_for(AirhopRole::ContentMarketer),
+            set(&[
+                "airhop_confirm_site_content",
+                "airhop_propose_site_content",
+                "airhop_read",
+                "airhop_send_messages",
+            ])
+        );
+
         for role in [
             AirhopRole::Fizz,
             AirhopRole::Administrator,
@@ -990,6 +1366,29 @@ mod tests {
             "channelId": channel_id,
             "command": {"type": "create_teacher", "input": {"displayName": "Ann"}}
         }))
+        .is_err());
+    }
+
+    #[test]
+    fn site_content_changes_are_closed_and_role_safe() {
+        let valid = vec![json!({
+            "key": "operations.schedule",
+            "value": [{"title": "Рисование", "days": "Вт, Чт", "time": "19:00"}]
+        })];
+        assert!(validate_site_content_changes(&valid).is_ok());
+        assert!(validate_site_content_changes(&[]).is_err());
+        assert!(validate_site_content_changes(&[
+            json!({"key": "internal.ssh_key", "value": "secret"})
+        ])
+        .is_err());
+        assert!(validate_site_content_changes(&[
+            json!({"key": "marketing.headline", "value": "A", "publish": true})
+        ])
+        .is_err());
+        assert!(validate_site_content_changes(&[
+            json!({"key": "marketing.headline", "value": "A"}),
+            json!({"key": "marketing.headline", "value": "B"})
+        ])
         .is_err());
     }
 
