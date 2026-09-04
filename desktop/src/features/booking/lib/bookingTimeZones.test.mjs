@@ -29,13 +29,22 @@ test("booking time zone detection accepts IANA zones and falls back to Moscow", 
 });
 
 test("booking time zone options are valid, unique, sorted and keep the current zone", () => {
+  const expected = [
+    ...new Set([
+      "America/New_York",
+      "Asia/Tokyo",
+      detectBookingTimeZone(),
+      "Europe/Moscow",
+      "UTC",
+    ]),
+  ].sort((left, right) => left.localeCompare(right, "en"));
   assert.deepEqual(
     bookingTimeZoneOptions("America/New_York", [
       "Asia/Tokyo",
       "Mars/Olympus",
       "Asia/Tokyo",
     ]),
-    ["America/New_York", "Asia/Tokyo", "Europe/Moscow", "UTC"],
+    expected,
   );
   assert.equal(
     bookingTimeZoneOptions("Europe/Moscow", []).includes(
