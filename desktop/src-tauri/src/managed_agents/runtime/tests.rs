@@ -85,6 +85,24 @@ fn marker_entry_is_namespaced_by_instance_id() {
 }
 
 #[test]
+fn marker_value_scan_tolerates_packaged_procargs_padding() {
+    let mut buf = vec![2, 0, 0, 0];
+    buf.extend_from_slice(b"/Applications/AirHop Center.app/Contents/MacOS/buzz-acp\0");
+    buf.extend_from_slice(&[0, 0, 0]);
+    buf.extend_from_slice(b"buzz-acp\0--flag\0EMPTY=\0");
+    buf.extend_from_slice(b"BUZZ_MANAGED_AGENT=ru.airhop.centers.app\0OTHER=value\0");
+
+    assert_eq!(
+        super::nul_delimited_entry_value(&buf, b"BUZZ_MANAGED_AGENT="),
+        Some(b"ru.airhop.centers.app".as_slice())
+    );
+    assert_ne!(
+        super::nul_delimited_entry_value(&buf, b"BUZZ_MANAGED_AGENT="),
+        Some(b"ru.airhop.centers".as_slice())
+    );
+}
+
+#[test]
 fn buzz_agent_has_mcp_hooks() {
     let p = known_acp_runtime("buzz-agent").expect("should resolve");
     assert!(p.mcp_hooks);

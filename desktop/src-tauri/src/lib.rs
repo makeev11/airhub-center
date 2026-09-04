@@ -537,10 +537,11 @@ pub fn run() {
                     .store(true, Ordering::Release);
             }
 
-            // Periodic sweep: reap orphaned agents from dead instances every 60s.
-            // Catches agents that escaped both the Justfile trap and boot-time
-            // reaping (e.g. a `just staging` Ctrl+C leak that only gets collected
-            // by a different instance's periodic sweep).
+            // Periodic sweep: reap confirmed same-instance orphans every 60s.
+            // Foreign dead-instance cleanup remains a boot-time operation in
+            // restore_managed_agents. Running that destructive classifier on
+            // every tick can terminate a freshly tracked packaged-app harness
+            // if macOS briefly exposes incomplete KERN_PROCARGS2 metadata.
             let sweep_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 use std::collections::HashSet;
@@ -567,7 +568,6 @@ pub fn run() {
                         let orphans = managed_agents::sweep_system_agent_processes_with_grace(
                             &inst, &skip_pids, &prev,
                         );
-                        managed_agents::reap_dead_instance_agents(&inst, &skip_pids);
                         orphans
                     })
                     .await

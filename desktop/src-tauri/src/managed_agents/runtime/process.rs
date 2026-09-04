@@ -138,8 +138,20 @@ pub(crate) fn current_instance_id(app: &AppHandle) -> String {
 /// Build the full `BUZZ_MANAGED_AGENT=<instance-id>` env entry we match
 /// against when scanning processes. Kept here so the spawn stamp and the sweep
 /// matcher can never drift apart.
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
 pub(super) fn buzz_marker_entry(instance_id: &str) -> Vec<u8> {
     format!("BUZZ_MANAGED_AGENT={instance_id}").into_bytes()
+}
+
+/// Return the value of an exact NUL-delimited `KEY=` entry from a process
+/// argument/environment buffer. macOS `KERN_PROCARGS2` includes both argv and
+/// environ as NUL-delimited entries, but the padding and argc traversal have
+/// varied across packaged launches. Matching the complete, private env-style
+/// key is both narrower and more robust than trying to rediscover the environ
+/// offset.
+pub(crate) fn nul_delimited_entry_value<'a>(buf: &'a [u8], prefix: &[u8]) -> Option<&'a [u8]> {
+    buf.split(|&byte| byte == 0)
+        .find_map(|entry| entry.strip_prefix(prefix))
 }
 
 /// Check if a running process is one of *our* managed agents: it must carry
@@ -148,46 +160,12 @@ pub(super) fn buzz_marker_entry(instance_id: &str) -> Vec<u8> {
 /// id belongs to another live Buzz app and must never be reaped here.
 #[cfg(target_os = "macos")]
 pub(crate) fn process_has_buzz_marker(pid: u32, instance_id: &str) -> bool {
-    let marker = buzz_marker_entry(instance_id);
+    const PREFIX: &[u8] = b"BUZZ_MANAGED_AGENT=";
     let Some(buf) = sweep::procargs2_buffer(pid) else {
         return false;
     };
-
-    // Buffer layout: [i32 argc][exec_path\0][null padding][argv\0...][env\0...]
-    if buf.len() < std::mem::size_of::<libc::c_int>() {
-        return false;
-    }
-    let mut n_args: libc::c_int = 0;
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            buf.as_ptr(),
-            &mut n_args as *mut libc::c_int as *mut u8,
-            std::mem::size_of::<libc::c_int>(),
-        );
-    }
-    let mut pos = std::mem::size_of::<libc::c_int>();
-
-    // Skip exec path (scan to first null).
-    while pos < buf.len() && buf[pos] != 0 {
-        pos += 1;
-    }
-    // Skip null padding between exec path and argv[0].
-    while pos < buf.len() && buf[pos] == 0 {
-        pos += 1;
-    }
-    // Skip argc argument strings.
-    let mut args_remaining = n_args;
-    while args_remaining > 0 && pos < buf.len() {
-        while pos < buf.len() && buf[pos] != 0 {
-            pos += 1;
-        }
-        while pos < buf.len() && buf[pos] == 0 {
-            pos += 1;
-        }
-        args_remaining -= 1;
-    }
-    // Remaining bytes are null-delimited environment strings.
-    buf[pos..].split(|&b| b == 0).any(|entry| entry == marker)
+    nul_delimited_entry_value(&buf, PREFIX)
+        .is_some_and(|value| value == instance_id.as_bytes())
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]

@@ -54,45 +54,8 @@ pub(super) fn buffer_contains_identifier(buf: &[u8], id: &[u8]) -> bool {
 fn extract_buzz_marker_value(pid: u32) -> Option<String> {
     let prefix = b"BUZZ_MANAGED_AGENT=";
     let buf = sweep::procargs2_buffer(pid)?;
-
-    if buf.len() < std::mem::size_of::<libc::c_int>() {
-        return None;
-    }
-    let mut n_args: libc::c_int = 0;
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            buf.as_ptr(),
-            &mut n_args as *mut libc::c_int as *mut u8,
-            std::mem::size_of::<libc::c_int>(),
-        );
-    }
-    let mut pos = std::mem::size_of::<libc::c_int>();
-
-    // Skip exec path.
-    while pos < buf.len() && buf[pos] != 0 {
-        pos += 1;
-    }
-    while pos < buf.len() && buf[pos] == 0 {
-        pos += 1;
-    }
-    // Skip argc argument strings.
-    let mut args_remaining = n_args;
-    while args_remaining > 0 && pos < buf.len() {
-        while pos < buf.len() && buf[pos] != 0 {
-            pos += 1;
-        }
-        while pos < buf.len() && buf[pos] == 0 {
-            pos += 1;
-        }
-        args_remaining -= 1;
-    }
-    // Search environment entries for our marker.
-    for entry in buf[pos..].split(|&b| b == 0) {
-        if entry.starts_with(prefix) {
-            return String::from_utf8(entry[prefix.len()..].to_vec()).ok();
-        }
-    }
-    None
+    let value = nul_delimited_entry_value(&buf, prefix)?;
+    String::from_utf8(value.to_vec()).ok()
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -274,15 +237,10 @@ pub(crate) fn reap_dead_instance_agents(our_instance_id: &str, skip_pids: &[u32]
         if info.pbi_uid != my_uid {
             continue;
         }
-        // Fast-path our own instance with the same raw marker matcher used by
-        // the periodic same-instance sweep.  `extract_buzz_marker_value`
-        // parses KERN_PROCARGS2's argc/argv/env layout; on some packaged macOS
-        // launches that parser can land on the wrong env entry and make a live
-        // local harness look like it belongs to a dead foreign instance.  A
-        // false foreign classification is destructive (the whole process
-        // group is terminated), so the exact marker match is the primary
-        // ownership gate and the extracted value is only needed for genuinely
-        // foreign instances.
+        // Fast-path our own instance with the exact marker matcher used by the
+        // same-instance sweep. A false foreign classification is destructive
+        // (the whole process group is terminated), so this is the primary
+        // ownership gate and extraction is only needed for foreign instances.
         if process_has_buzz_marker(upid, our_instance_id) {
             continue;
         }
