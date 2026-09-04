@@ -230,6 +230,40 @@ conversation binding, доменные события, надёжный outbox �
 - передаёт delivery receipts и health в Center;
 - содержит Telegram/WhatsApp adapters, но не бизнес-логику записей.
 
+AirHop Channel Gateway является deployment role поверх MIT-licensed
+[`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent), а не
+параллельным messaging framework. Hermes Agent даёт Gateway, provider adapters,
+sessions, memory, skills, reasoning и model-provider layer. Buzz уже умеет
+запускать его через `hermes-acp`, а native Buzz platform используется для
+постоянной agent identity и тредов. Telegram и официальный `whatsapp_cloud`,
+read receipt, start/refresh/stop typing, media, provider formatting, chunking и
+reconnect не реализуются повторно. Неофициальный Baileys adapter `whatsapp` не
+используется для production-номера.
+
+Нормативная runtime/data/learning архитектура вынесена в
+[`2026-08-21-airhop-agent-platform-hermes-architecture.md`](2026-08-21-airhop-agent-platform-hermes-architecture.md).
+Channel integration использует Buzz как обязательный event spine. Provider
+adapter не вызывает model loop напрямую: inbound сначала durable сохраняется и
+публикуется в канонический parent thread, затем Agent Supervisor запускает
+Hermes profile. Model output также не вызывает provider API: он проходит
+conversation ownership/version gate, сохраняется в AirHop outbox и только затем
+отправляется adapter-ом. Поэтому Telegram/WhatsApp не создают параллельные
+истории разговора и не могут обойти human takeover.
+
+Собственная часть AirHop здесь мала: bridge/plugin сопоставляет provider
+identity с `ExternalConversation` и Buzz root, зеркалит фактические inbound и
+outbound сообщения, применяет control version и human takeover, предоставляет
+богатый role-scoped AirHop Agent Backend и связывает отправку с AirHop outbox.
+Hermes сохраняет полноценные reasoning, sessions, skills и self-improvement;
+Buzz остаётся канонической перепиской/audit, а доменные факты принадлежат Booking
+Core. Parent-facing runtime не получает production shell и provider management
+tokens, потому что его рабочим пространством являются Agent Backend, knowledge и
+scoped memory, а не host filesystem.
+Текущий upstream `whatsapp_cloud` не реализует Meta templates за пределами
+24-часового окна и client-side outbound limiter, поэтому AirHop wrapper добавляет
+template sync/send, service-window policy, tenant quota и outbox retry поверх
+переиспользованного transport adapter.
+
 ### Provider adapter
 
 Единственная часть системы, знающая конкретный API. Новый канал добавляется
@@ -248,6 +282,8 @@ register_webhook(connection)
 disconnect(connection)
 normalize_webhook(request) -> normalized envelopes
 create_handoff_launch(connection, grant_public_code, locale) -> url + interaction
+mark_read(connection, provider message ref)
+set_typing(connection, external conversation ref, active)
 send_message(connection, message) -> provider message id
 send_template(connection, template, variables) -> provider message id
 fetch_media(connection, provider media ref) -> stream
@@ -259,6 +295,7 @@ Capabilities объявляются данными:
 - `text`, `image`, `audio`, `voice`, `video`, `document`;
 - `reply_context`, `buttons`, `location`, `contact_card`;
 - `delivery_receipt`, `read_receipt`;
+- `typing_indicator`;
 - `freeform_outbound`, `template_outbound`;
 - `customer_must_start`, `outbound_window`;
 - допустимые размеры, MIME types и длина текста.
@@ -398,6 +435,12 @@ Family catalog. Resolved history фильтруется membership канала 
 - назначенный сотрудник и причина handoff;
 - первый и последний message event ID этого цикла;
 - `openedAt`, `resolvedAt`, `resolvedBy`, outcome и необязательный summary.
+
+Основной outcome имеет закрытый набор
+`answered_by_hermes|domain_action_completed|handed_off|failed|spam_or_abuse`.
+Точный intake, Booking или иной результат хранится domain link. Reopen,
+correction и quality incident являются отдельными событиями и не переписывают
+исходный outcome.
 
 У conversation ровно один незавершённый cycle. После `resolved` тред сохраняется,
 но исчезает из активного inbox. Следующее входящее сообщение либо валидный
@@ -596,20 +639,36 @@ preferences и не раскрывает полную дату рождения 
 
 Outbox сохраняет `requestId`, Child, Family, occurrence/group, Teacher,
 conversation, kind, точный авторский текст, attribution, provider receipt,
-status `active|retracted` и privacy class `sensitive_child`. Поскольку provider
-показывает общий аккаунт центра, renderer добавляет видимое имя и роль автора,
-например **«Анна, преподаватель Платона»**.
+status `active|retracted`, privacy class `sensitive_child` и visibility
+`pending_delivery|family_shared|staff_only`. Только provider-accepted outbound
+становится `family_shared`; failed/pending текст не возвращается родителю как
+уже сообщённый. Поскольку provider показывает общий аккаунт центра, renderer
+добавляет видимое имя и роль автора, например **«Анна, преподаватель Платона»**.
 
 Перед commit проверяются member/branch access, request version, provider policy,
 recipient subscription, WhatsApp service window и допустимый template. Если
 персональный outbound сейчас запрещён, request не считается completed, а UI не
 изображает доставку. Hermes никогда не заполняет текст за преподавателя.
 
-Это специальное одноразовое касание, а не generic human takeover. Durable
-outbox commit закрывает request и автоматически разрешает Гермесу обработать
-следующее inbound. Отдельный `@Гермес продолжай` преподавателю не нужен.
-Обычный staff outbound вне request переводит cycle в `human`; явный
-`@Гермес остановись` позволяет преподавателю забрать разговор полностью.
+Связь с request используется только для provenance и не меняет conversation
+rules. Durable outbox commit закрывает request и выполняет обычный generic human
+takeover. Гермес полностью остановлен, пока преподаватель вручную не отправит
+внутреннее `@Гермес продолжай`.
+
+Resume command не создаёт parent outbound. Следующее входящее обрабатывается с
+последним релевантным teacher message в bounded context: благодарность получает
+короткий ответ, операционный вопрос идёт в обычные Hermes Core/knowledge tools,
+а вопрос к преподавателю вне компетенции Гермеса создаёт standard handoff.
+
+Если родитель после этого не согласен с отзывом, отдельной dispute state machine
+нет. Гермес предлагает позвать преподавателя; согласие создаёт обычный
+`waiting_staff` handoff и internal mention автора. Прямая просьба родителя
+сразу запускает тот же handoff. Первый plain ответ преподавателя является уже
+generic staff outbound, переводит cycle в `human` и позволяет продолжить живой
+разговор в том же треде. Уточнение хранится как следующее сообщение, исходное
+не редактируется молча. Для первого slice не вводятся
+`disputed|corrected|confirmed`, correction form или отдельная очередь review.
+Вернуть ведение после разговора можно обычным `@Гермес продолжай`.
 
 ### FamilyInteractionTimeline и RelationshipMemoryFact
 
@@ -644,6 +703,38 @@ provenance. Индивидуальный факт Representative не расши
 policy и review. Другой образовательный продукт получает выбранные данные через
 purpose-bound export/API с явным согласием родителя, а не через общий database
 access.
+
+### FamilyInformationVisibility
+
+Access projection разделяет четыре класса:
+
+- `family_shared`: Booking, Attendance и provider-accepted
+  `TeacherParentMessage`. Его может прочитать любой active verified
+  Representative той же Family через parent-safe tool;
+- `representative_private`: contents личного conversation, preferences и
+  индивидуальные обращения/claims. Другой Representative не получает их;
+- `staff_internal`: structured mentions, handoff, drafts, notes и quality
+  incidents. Эти события исключены из parent-safe retrieval;
+- `sensitive_child`: observations и development projections. Нужны exact Family
+  membership либо scoped branch/role, каждый read audited.
+
+`serviceContactRepresentativeId` выбирает только recipient notification и не
+ограничивает family-shared access. Поэтому второй подтверждённый родитель может
+спросить Гермеса о последнем отзыве преподавателя, не получая доступ к треду
+основного родителя.
+
+Teacher graph read возвращает только адресованный request, минимальные
+Child/occurrence данные и observations этого Teacher. Наличие назначения на
+занятие или branch thread membership само по себе не открывает Family Timeline
+и observations коллег. Обычный staff видит timeline только в разрешённых
+branch/role, owner/admin в пределах organization. Hermes context builder
+получает только `family_shared` evidence выбранного Child после проверки
+Representative membership и не получает staff notes.
+
+AirHop HQ по умолчанию не получает raw conversation, teacher text и child
+timeline. Разрешена минимизированная PII-redacted диагностика; полный доступ
+возможен только через отдельный time-bounded audited support grant. Другой
+продукт использует отдельный consent-based export/API.
 
 ### ConversationBookingDraft
 
@@ -842,6 +933,44 @@ tenant-контексте. AirHop HQ получает минимизирован
 signal; доступ к полному содержимому возможен только по отдельной
 support/privacy policy.
 
+В первом релизе из outcomes и событий считаются containment без скорого reopen,
+handoff rate, time to first response, time to human takeover, domain conversion,
+delivery/system failure, correction/reopen, 👎/🚨 и внутренний cost per resolved
+cycle. Model confidence не показывается и не используется как бизнес-метрика.
+Отдельного tenant-facing кабинета аналитики Гермеса нет.
+
+Полные parent conversations не копируются в центральную review sample. Точный
+тред виден owner/admin только по обычным tenant-правам. AirHop HQ по умолчанию
+получает агрегаты и PII-redacted diagnostic signals; полный текст требует
+обычного tenant membership либо time-bounded audited support grant.
+
+Release pipeline имеет семь zero-tolerance regression/eval gates:
+
+1. cross-center или cross-Family data leak;
+2. invented price, schedule, availability или payment fact;
+3. action без capability/policy;
+4. success claim без authoritative Core result;
+5. Hermes outbound после human takeover;
+6. duplicate send либо duplicate domain action;
+7. missed handoff при explicit human request, safety risk или suspected
+   unauthorized access/data leak.
+
+Любое воспроизведение блокирует версию. В production подтверждённое dangerous
+нарушение создаёт/эскалирует `HermesQualityIncident`, выполняет `PauseHermes`
+только для текущего active cycle, упоминает ответственного и уведомляет owner.
+Автоматического глобального shutdown по одному сигналу нет; системную проблему
+команда подтверждает и вручную выключает Гермеса существующим общим control.
+
+Pre-release semantic eval suite выполняет один и тот же golden dialogue corpus
+на `ru`, `pt-BR` и `en`. Он покрывает booking/handoff confirmation,
+transfer/cancel, absent/late, price/payment, второго родителя, teacher feedback,
+explicit human request, Core failure, voice/unknown media, cross-Family access,
+takeover race и duplicate/out-of-order Telegram/WhatsApp events. Assertions
+проверяют смысл, typed action и authoritative domain result, delivery/state,
+data boundary и natural locale, но не требуют байт-в-байт одинаковой фразы.
+Подтверждённые 👎/🚨 после root-cause сохраняются только как минимизированные
+PII-free regression fixtures.
+
 ## 8. Представление в Buzz
 
 При первом входящем сообщении Gateway идемпотентно создаёт служебный root в
@@ -995,9 +1124,11 @@ owner. Первый обычный ответ сотрудника станов�
 6. Gateway находит identity, conversation и открытый cycle либо создаёт их
    идемпотентно; после resolved начинается новый cycle в том же треде.
 7. Relay публикует сообщение в связанный тред и обновляет `lastInboundAt`.
-8. Включённый Гермес запускает ровно один turn, если текущий cycle не находится
-   в `human`/`waiting_staff`. Выключенный Гермес только уведомляет сотрудников.
-   В `waiting_system` coordinator не создаёт повтор уже сохранённого intent:
+8. Coordinator добавляет ordered event в bounded `HermesInputBatch`. После
+   quiet window либо hard deadline включённый Гермес арендует ровно один turn,
+   если cycle не находится в `human`/`waiting_staff`; parallel worker получает
+   existing receipt. Выключенный Гермес только уведомляет сотрудников. В
+   `waiting_system` coordinator не создаёт повтор уже сохранённого intent:
    связанный вопрос присоединяется к открытому `HermesFollowUpTask`, а отдельный
    безопасный вопрос может запустить самостоятельный turn.
 9. Доменное действие Гермеса отдельно создаёт/связывает семью, обновляет
@@ -1026,7 +1157,7 @@ owner. Первый обычный ответ сотрудника станов�
 Состояние принадлежит текущему conversation cycle, а не агентской памяти.
 
 - `automated`: Гермес может отвечать, сотрудники видят разговор;
-- обычный внешний ответ сотрудника, не связанный с open
+- любой обычный внешний ответ сотрудника, включая ответ преподавателя по open
   `TeacherMessageRequest`, атомарно переводит cycle в `human`, назначает этого
   сотрудника и только затем ставит его сообщение в provider outbox; отдельная
   обязательная кнопка «Забрать разговор» не нужна;
@@ -1048,10 +1179,11 @@ Handoff policy делит причины по необходимости реш�
 - `normal` handoff создаётся по явной просьбе человека, для
   скидки/перерасчёта/возврата, исключения из правил, исправления Core-данных,
   жалобы с человеческим решением, missing/conflicting knowledge,
-  `requires_staff` и запрещённого tool;
+  `requires_staff`, запрещённого tool и просьбы
+  показать/исправить/выгрузить/удалить персональные данные;
 - `urgent` handoff используется для здоровья/травмы/безопасности ребёнка,
-  угроз/насилия, подозрения на чужой доступ, серьёзной денежной претензии,
-  юридического требования и удаления/экспорта данных.
+  угроз/насилия, подозрения на чужой доступ или утечку, серьёзной денежной
+  претензии и юридического требования.
 
 Priority меняет routing/escalation, но не права Гермеса. Явная просьба человека
 передаётся сразу без попытки удержать разговор. В остальных неоднозначных
@@ -1060,6 +1192,14 @@ Priority меняет routing/escalation, но не права Гермеса. �
 Гермес может ответить на отдельный безопасный фактический вопрос. Первый
 внешний staff reply переводит весь cycle в `human` и полностью останавливает
 Гермеса.
+
+У Гермеса нет privacy mutation/export tools. На явный data request он без
+дополнительного опроса отвечает: **«Хорошо, я сейчас позову ответственного,
+чтобы мы всё правильно оформили»**, создаёт `normal` handoff owner/admin и
+internal mention. Первый plain ответ запускает обычный human takeover в том же
+треде. Отдельный privacy-request UI/state machine не входит в первый slice;
+точные retention/export/deletion выполняются только по отдельной
+jurisdiction/legal policy.
 
 Typed handoff event хранит reason, `normal|urgent`, relevant message IDs,
 verified identity, domain links, выполненные tools, ожидаемое решение сотрудника
@@ -1100,13 +1240,10 @@ mentions ответственных, а сотрудники обсуждают 
 staff-реплика без internal mentions остаётся внешней, назначает автора и
 переводит cycle в `human`. Typed controls могут отдельно изменить состояние.
 
-Единственное контекстное исключение из бессрочного takeover относится к open
-`TeacherMessageRequest`. Plain outbound упомянутого преподавателя остаётся
-обычным внешним сообщением по тому же правилу, но сервер маркирует его
-`teacher_touchpoint`, связывает с Child/occurrence и после durable outbox commit
-автоматически возвращает право следующего inbound Гермесу. Это не новый
-destination mode и не скрытая эвристика по тексту: нужны exact request,
-conversation и teacher principal. Вне request действует обычный human takeover.
+Исключения для преподавателя нет. Open `TeacherMessageRequest` связывает его
+plain outbound с Child/occurrence только для provenance, но сообщение всё равно
+назначает автора, переводит cycle в `human` и останавливает Гермеса. Возврат
+выполняется только отдельным internal `@Гермес продолжай`.
 
 Mention Гермеса в parent thread обрабатывается fail-safe до обычной отправки:
 
@@ -1130,13 +1267,11 @@ Mention Гермеса в parent thread обрабатывается fail-safe �
 
 Если сотрудник пишет, пока Гермес генерирует ответ, optimistic send gate
 сравнивает ожидаемую control version непосредственно перед Hermes outbox commit.
-Generic staff outbound сначала атомарно переводит cycle в `human` и увеличивает
-version, а затем фиксирует собственный outbox. `teacher_touchpoint` также
-увеличивает control version и инвалидирует конкурирующий unsent Hermes turn, но
-после durable outbox commit возвращает `automated` для следующего inbound.
-Несовпадение инвалидирует ещё не отправленный Hermes turn. Уже принятое
-провайдером сообщение не скрывается и остаётся видимым как состоявшаяся гонка;
-после generic takeover следующие automated turns остановлены.
+Любой staff outbound сначала атомарно переводит cycle в `human` и увеличивает
+version, а затем фиксирует собственный outbox. Несовпадение инвалидирует ещё не
+отправленный Hermes turn. Уже принятое провайдером сообщение не скрывается и
+остаётся видимым как состоявшаяся гонка; после takeover следующие automated
+turns остановлены до internal `@Гермес продолжай`.
 Открытие треда и typing являются только transient presence и сами по себе не
 меняют state, иначе незавершённый ответ сотрудника оставил бы родителя без
 помощи.
@@ -1184,6 +1319,16 @@ identity или доступа к нужному каналу. В ChannelConnect
 **«Администратор Гермес»** и занимается только внешними разговорами с клиентами.
 Он не входит во внутреннюю продуктовую команду, не принимает внутренние задачи
 и не конкурирует с Физом за ответы.
+
+Имя Гермеса не является настройкой центра. Внутренний product label всегда
+**«Администратор Гермес»**, а parent-facing роль всегда **«Гермес,
+онлайн-администратор центра»**. `organization.display_name` автоматически
+добавляется в представление, например: «Я Гермес, онлайн-администратор AirHop
+Kids». Business profile подключённого WhatsApp или Telegram может называться
+именем центра, но каждое сообщение в AirHop атрибутируется Гермесу. Произвольный
+alias и маскировка под реального сотрудника запрещены. В будущем можно разрешить
+только поясняющий суффикс вида «Гермес · AirHop Kids»; avatar, agent identity,
+`@Гермес` и typed-команды, включая `@Гермес продолжай`, при этом не меняются.
 
 Его канонический avatar хранится в `desktop/public/agents/hermes.png` и
 используется в Inbox «Клиенты», авторе сообщений, существующем разделе агентов и, при
@@ -1264,6 +1409,86 @@ active connection с `purpose = parent_communications` и глобальным
 structured mentions `@Гермес продолжай` и `@Гермес остановись` являются двумя
 v1-командами управления разговором. Relay перехватывает их до provider outbox и
 пишет typed control event, поэтому служебный текст не может уйти клиенту.
+
+### 11.2.1. Hermes Agent runtime
+
+Гермес является AirHop-persona на upstream Hermes Agent. Существующие agent
+loop, session store, memory, skills и model-provider connectors Hermes Agent
+переиспользуются напрямую; отдельный AirHop `ModelGateway` не создаётся. Первый
+eval model id `deepseek-v4-flash` является конфигурацией Hermes provider layer.
+AirHop формирует минимизированный context и allowlisted tool schemas. Relay
+повторно валидирует schema, tenant, identity, capability, policy version и fresh
+state до любого Core read/action.
+
+Runtime подключается к Buzz через `hermes-acp` или native Buzz platform, а
+Messaging Gateway ведёт Telegram и официальный WhatsApp Cloud. AirHop
+bridge/plugin связывает provider session с Buzz parent thread и outbox. На один
+turn он выдаёт единый lifecycle signal: существующий Buzz thread-scoped
+`kind:20002` и provider-native typing; terminal event или первый outbound
+прекращает оба. Hermes session/memory разрешены как scoped working state, но
+authoritative facts всегда перечитываются из Booking Core. Unrestricted platform
+toolsets и terminal tools для parent runtime выключены.
+
+Первый технический candidate использует явный model id `deepseek-v4-flash` и
+synthetic/PII-free eval corpus. Обычный диалог начинает с non-thinking policy;
+reasoning-enabled policy для tool-heavy turns допускается только после измерения
+quality/latency/cost на тех же golden dialogues. Provider JSON/strict mode,
+включая beta function strictness, не является security boundary.
+
+Production runtime не отправляет реальные parent/child данные в прямой hosted
+DeepSeek API до письменного подтверждения DPA/processor role, Brazil LGPD
+international transfer/data location, no-training, retention/deletion,
+subprocessors и incident obligations. Допустим enterprise contract, compliant
+third-party hosting или self-host MIT weights, если вариант проходит общий
+privacy/security/reliability gate. Model/provider заменяется без изменения
+доменного контракта и без переноса долговечной памяти из AirHop.
+
+Жёсткого лимита turns на весь cycle нет. Один inbound turn имеет bounded context,
+конечные model/tool rounds и retry. Duplicate/status/control events, proactive
+service jobs и unsupported-media handoff идут без LLM; быстрая серия parent
+messages коалесцируется. Usage ledger отдельно фиксирует model
+input/cache/output, transcription duration, provider delivery/template и media
+processing с organization/cycle/outcome/model version. Anomaly создаёт alert;
+cost guard завершает безопасный handoff, а не молчаливый отказ.
+
+Inbound events одного conversation сохраняются в provider order и собираются в
+bounded `HermesInputBatch` с quiet window и hard deadline. Atomic
+`HermesTurnReceipt(cycleId,inputBatchId)` и conversation-scoped lease разрешают
+ровно один active turn; webhook replay/parallel worker возвращают existing
+outcome. Новый inbound до domain/outbox commit инвалидирует unsaved draft и
+входит в rebuilt batch. После committed Core action новый turn использует
+durable action receipt и не повторяет mutation. Staff takeover/pause отменяет
+любой uncommitted Hermes outbound. Send gate сравнивает input/conversation
+version; stale draft не отправляется. После hard deadline более поздние messages
+становятся следующим ordered batch.
+
+Каждый turn начинает неизменяемый `HermesTurnConfigurationSnapshot` с
+`personaVersion`, `policyVersion`, selected `knowledgeBundleDigest`, model
+provider/id/mode и `toolSchemaVersion`. В одном model/tool loop версии не
+смешиваются. Snapshot служит provenance, а не authority: перед каждым read/action
+и provider outbox commit Relay заново проверяет Hermes enabled, connection,
+conversation ownership, live capability и fresh Core state.
+
+Send/action gate не сравнивает глобальные versions. `HermesDecisionReadSet`
+содержит только Core field/fact digests, selected knowledge artifact IDs/versions
+и capabilities, реально использованные решением. Unrelated knowledge publish,
+новая capability, persona wording или model deployment применяются со следующего
+turn и не вызывают rebuild. Unsent draft становится `stale` только при смене
+ownership/identity, выключении Hermes/connection, отзыве необходимого
+capability/policy или изменении dependency из read set.
+
+Committed Core mutation возвращает `ActionReceipt`, который заменяет pre-action
+dependency новым authoritative state. Собственное version increment не является
+конфликтом, mutation не повторяется, а service confirmation по возможности
+materialize-ится из receipt без нового LLM call. На input batch разрешён один
+автоматический conflict rebuild; второй конфликт создаёт human handoff.
+Provider-accepted outbound не отзывается; audit связывает его с точным прежним
+snapshot/read set, а следующий turn использует новые версии.
+
+Retry `HermesFollowUpTask` хранит исходный intent и durable action receipt, но
+создаёт текущий configuration snapshot и заново проходит
+identity/capability/policy/Core validation. Изменившиеся условия требуют нового
+parent confirmation либо human handoff.
 
 ### 11.3. Знания Гермеса
 
@@ -1725,8 +1950,9 @@ Child он может один раз за локальный год напом�
 
 Родителю уходит только plain `TeacherParentMessage`, который преподаватель
 написал в стандартном composer без structured mention. Open request связывает
-его с ребёнком и занятием; durable outbox commit закрывает request и
-автоматически возвращает ведение Гермесу для следующего inbound. Отправка имеет
+его с ребёнком и занятием; durable outbox commit закрывает request и выполняет
+обычный human takeover. Преподаватель вручную возвращает ведение внутренним
+`@Гермес продолжай`; без команды Гермес остаётся остановлен. Отправка имеет
 видимое attribution и проходит текущую provider policy. Закрытое WhatsApp
 service window без допустимого template не маскируется как доставка. Без ответа
 request истекает без повторного reminder и без текста, сочинённого Гермесом.
@@ -1855,6 +2081,9 @@ Health не равен одному цветному индикатору. Read 
 ### Этап A — фундамент Channel Hub
 
 - согласовать этот дизайн и event kinds;
+- настроить готовый Hermes Agent runtime, scoped memory, allowlisted AirHop
+  tools, usage ledger и synthetic/PII-free `deepseek-v4-flash` eval без
+  production PII; отдельные agent loop и `ModelGateway` не создавать;
 - добавить `ChannelConnection`, identity, conversation binding и cycle lifecycle;
 - добавить `waiting_system`, durable `HermesFollowUpTask`, retry/expiry worker и
   идемпотентный follow-up outbox;
@@ -1867,6 +2096,8 @@ Health не равен одному цветному индикатору. Read 
 
 ### Этап B — Telegram vertical slice
 
+- адаптировать и закрепить совместимый с AirHop срез Hermes Agent Telegram
+  adapter вместо повторной реализации messaging lifecycle;
 - token setup, `getMe`, webhook и self-test;
 - public success handoff grant, deep link binding и connected state;
 - включённый по умолчанию `autoConfirmOnlineBookings`, authoritative confirm
@@ -1894,9 +2125,12 @@ Health не равен одному цветному индикатору. Read 
 
 ### Этап C — WhatsApp pilot
 
+- адаптировать официальный Hermes Agent `whatsapp_cloud`; Baileys adapter не
+  использовать для production;
 - manual Cloud API connection;
 - inbound/outbound и delivery/read receipts;
-- 24-hour window и templates;
+- добавить отсутствующие в upstream template sync/send, 24-hour window policy и
+  tenant-aware outbound limiter;
 - media, reauthorization и health;
 - бразильский `pt-BR` E2E.
 
@@ -1913,8 +2147,10 @@ Health не равен одному цветному индикатору. Read 
 - default-off birthday request с yearly dedupe и active-enrollment gate;
 - основной родитель для сообщений и last-inbound destination resolver без
   family fan-out;
-- лёгкий request context над стандартным composer, автоматическая связь plain
-  teacher outbound и возврат управления Гермесу;
+- лёгкий request context над стандартным composer, связь plain teacher outbound
+  с provenance и ручной возврат через `@Гермес продолжай`;
+- `FamilyInformationVisibility` для family-shared, representative-private,
+  staff-internal и sensitive-child reads;
 - `TeacherParentMessage` как канонический evidence в Family **«История»** без
   автоматической оценки ребёнка или генерации weekly report.
 
@@ -2057,9 +2293,9 @@ Health не равен одному цветному индикатору. Read 
     допускают не более двух осмысленных уточнений; при раздражении — меньше.
     Handoff фиксирует `normal|urgent`, контекст и ожидаемое решение в том же
     треде. В `waiting_staff` Гермес не решает переданную проблему, но может
-    ответить на отдельный safe factual вопрос; первый внешний ответ сотрудника
-    переводит cycle в `human` и полностью останавливает Гермеса, кроме
-    одноразового `teacher_touchpoint`, связанного с open request.
+    ответить на отдельный safe factual вопрос; первый внешний ответ любого
+    сотрудника переводит cycle в `human` и полностью останавливает Гермеса до
+    ручного `@Гермес продолжай`.
 46. Proactive outbound создаётся только allowlisted Core trigger и перед send
     перечитывает source/version/subscription. Trial follow-up отправляется ровно
     один раз после `endsAt` и authoritative attendance `present`; absent,
@@ -2153,6 +2389,62 @@ Health не равен одному цветному индикатору. Read 
     cycle и уведомляет owner; обычная ошибка служит отладке. Reaction removal
     retracts incident с сохранением audit. Feedback никогда автоматически не
     меняет prompt/policy/knowledge и проходит reviewed regression pipeline.
+61. Просьба показать, исправить, выгрузить или удалить персональные данные не
+    вызывает Hermes tool. Она сразу создаёт normal owner/admin handoff и
+    internal mention без отдельной privacy state machine. Подозрение на чужой
+    доступ или утечку остаётся urgent security handoff.
+62. Каждый resolved cycle получает один проверяемый outcome и domain links.
+    Качество считается по outcomes, reopen/correction, delivery, времени ответа,
+    conversion и 👎/🚨, без model confidence. В v1 нет отдельного кабинета
+    аналитики Гермеса и нет центральной выборки полных parent conversations;
+    HQ получает агрегаты/PII-redacted diagnostics, а полный текст требует
+    tenant-права либо time-bounded audited support grant.
+63. Семь guardrail regressions блокируют release: cross-tenant/Family leak,
+    invented Core facts, unauthorized action, false success claim, outbound
+    after takeover, duplicate send/action и missed mandatory handoff. В
+    production dangerous нарушение останавливает только текущий cycle, зовёт
+    ответственного и уведомляет owner; глобальное выключение выполняется вручную.
+64. Каждая версия прогоняет постоянные golden dialogues на `ru`, `pt-BR` и
+    `en`, включая основные booking, identity, failure, media, takeover и provider
+    replay сценарии. Проверяются semantics/action/result/state/privacy/language,
+    а не дословный текст. Подтверждённые 👎/🚨 становятся PII-free regressions.
+65. Гермес работает на upstream Hermes Agent; его готовые agent loop, scoped
+    memory, skills и model-provider connectors переиспользуются напрямую.
+    `deepseek-v4-flash` является первой eval-конфигурацией Hermes, а не отдельным
+    AirHop adapter. Все typed tool calls валидируются сервером. Прямой hosted
+    DeepSeek API не получает реальные parent/child данные без DPA, LGPD
+    transfer/data-location, no-training, retention/deletion и
+    subprocessor/incident guarantees.
+66. Cost controls ограничивают один inbound turn, а не весь разговор.
+    Deterministic events обходятся без LLM, быстрые сообщения коалесцируются,
+    usage ledger разделяет model/transcription/provider/media, а anomaly всегда
+    приводит к alert и безопасному handoff вместо молчаливого обрыва.
+67. В conversation существует не более одного active Hermes turn. Быстрые
+    inbound объединяются bounded quiet/hard-deadline batch; replay/parallel
+    workers переиспользуют atomic receipt. Новый inbound инвалидирует unsent
+    draft, committed Core action не повторяется, а takeover блокирует pending
+    outbound. Send gate отклоняет stale input/conversation version.
+68. Один turn использует immutable configuration snapshot и точный
+    `HermesDecisionReadSet`. Только ownership/identity, hard disable/revocation
+    или изменение реально использованного Core/knowledge fact инвалидирует
+    draft; unrelated publish/persona/model/new capability ждут следующего turn.
+    `ActionReceipt` заменяет pre-action dependency и исключает повтор mutation.
+    Допустим один conflict rebuild, второй конфликт создаёт handoff. Accepted
+    outbound остаётся с прежним audit evidence, а follow-up retry всегда
+    валидируется по текущим условиям.
+69. Центр не может переименовать Гермеса или выдать его за реального сотрудника.
+    В AirHop используется имя «Администратор Гермес», родителю он представляется
+    как «Гермес, онлайн-администратор центра», а название организации
+    подставляется автоматически. Provider business profile может показывать
+    название центра, но avatar, author attribution, `@Гермес` и его typed-команды
+    сохраняют стабильную identity.
+70. Реализация переиспользует upstream Hermes Agent через `hermes-acp`/native
+    Buzz platform и его Telegram/официальный WhatsApp Cloud Messaging Gateway.
+    Hermes sessions и memory служат scoped рабочей памятью; Buzz остаётся
+    канонической перепиской, Booking Core хранит authoritative facts. Один turn
+    включает Buzz thread typing и provider-native typing; первый outbound,
+    terminal failure или takeover их прекращает. Parent runtime получает только
+    allowlisted AirHop tools без terminal access.
 
 ### 19.1. Критерии optional teacher relational slice
 
@@ -2172,16 +2464,32 @@ Health не равен одному цветному индикатору. Read 
    Гермесом отзыв. Он получает только явно отправленный преподавателем текст с
    видимым attribution и настоящим provider delivery state.
 5. Преподаватель отвечает в стандартном composer. Structured mention оставляет
-   сообщение внутренним, plain text уходит родителю. Exact open request
-   превращает его в один `teacher_touchpoint` и автоматически возвращает право
-   следующего inbound Гермесу. Обычный staff reply вне request сохраняет
-   стандартный takeover.
-6. Один shared request не создаёт дубли от нескольких преподавателей,
+   сообщение внутренним, plain text уходит родителю и выполняет стандартный
+   human takeover. Open request добавляет только Child/occurrence provenance.
+   Преподаватель обязан вручную вернуть ведение internal-командой
+   `@Гермес продолжай`.
+6. Команда возврата сама ничего не отправляет родителю. На его следующее
+   сообщение Гермес учитывает последний релевантный ответ преподавателя:
+   естественно принимает благодарность, отвечает на доступный ему вопрос или
+   снова зовёт преподавателя обычным handoff, если вопрос требует его участия.
+7. Один shared request не создаёт дубли от нескольких преподавателей,
    неотвеченный request не напоминает повторно, а закрытое provider window без
    допустимого template не изображается как успешная отправка.
-7. `TeacherParentMessage` появляется в Family timeline как staff-authored
+8. `TeacherParentMessage` появляется в Family timeline как staff-authored
    evidence с source/provenance. Он не становится автоматически целью,
    диагнозом или объективной оценкой ребёнка.
+9. Provider-accepted teacher observation доступен любому active verified
+   Representative этой Family через parent-safe read, но не раскрывает contents
+   личного conversation основного родителя. Failed/pending message не выдаётся
+   как уже сообщённый семье.
+10. Преподаватель не получает Family Timeline или observations коллег только из
+   факта назначения. Hermes не читает staff-internal data, а HQ не получает raw
+   child history без отдельного time-bounded audited support grant.
+10. Несогласие с отзывом не создаёт отдельные statuses/forms. Гермес предлагает
+    позвать преподавателя, согласие создаёт обычный handoff, а plain ответ
+    преподавателя запускает generic human takeover в том же треде. Уточнение
+    остаётся следующим сообщением, после чего `@Гермес продолжай` возвращает
+    автоматическое ведение.
 
 ### 19.2. Критерии development graph
 

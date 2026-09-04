@@ -84,13 +84,39 @@ pub enum IngestAuth {
         /// How the HTTP request was authenticated.
         auth_method: HttpAuthMethod,
     },
+    /// Trusted AirHop Channel Gateway transport principal. External parent
+    /// identity remains trusted conversation metadata rather than a fabricated
+    /// Nostr user/key.
+    AirhopGateway {
+        /// Exact authenticated connector principal.
+        connector_pubkey: nostr::PublicKey,
+        /// Connection desired-state identity.
+        connection_id: Uuid,
+        /// Tenant-keyed provider event id digest for durable deduplication.
+        provider_event_digest: [u8; 32],
+        /// Narrow write scopes granted to this delegated ingest.
+        scopes: Vec<Scope>,
+    },
+    /// Server-internal replay of an already committed Hermes outbound intent.
+    /// The database still validates the exact signed event before insertion.
+    HermesRecovery {
+        /// Exact deployed Hermes principal.
+        pubkey: nostr::PublicKey,
+        /// Narrow write scopes for normal ingest policy.
+        scopes: Vec<Scope>,
+    },
 }
 
 impl IngestAuth {
     /// The authenticated public key.
     pub fn pubkey(&self) -> &nostr::PublicKey {
         match self {
-            Self::Nip42 { pubkey, .. } | Self::Http { pubkey, .. } => pubkey,
+            Self::Nip42 { pubkey, .. }
+            | Self::Http { pubkey, .. }
+            | Self::HermesRecovery { pubkey, .. } => pubkey,
+            Self::AirhopGateway {
+                connector_pubkey, ..
+            } => connector_pubkey,
         }
     }
 
@@ -102,7 +128,10 @@ impl IngestAuth {
     /// Permission scopes for this auth context.
     pub fn scopes(&self) -> &[Scope] {
         match self {
-            Self::Nip42 { scopes, .. } | Self::Http { scopes, .. } => scopes,
+            Self::Nip42 { scopes, .. }
+            | Self::Http { scopes, .. }
+            | Self::AirhopGateway { scopes, .. }
+            | Self::HermesRecovery { scopes, .. } => scopes,
         }
     }
 
@@ -110,7 +139,7 @@ impl IngestAuth {
     pub fn conn_id(&self) -> Option<Uuid> {
         match self {
             Self::Nip42 { conn_id, .. } => Some(*conn_id),
-            Self::Http { .. } => None,
+            Self::Http { .. } | Self::AirhopGateway { .. } | Self::HermesRecovery { .. } => None,
         }
     }
 
@@ -129,7 +158,29 @@ impl IngestAuth {
 
     /// Whether this auth context is an HTTP request (not WebSocket).
     pub fn is_http(&self) -> bool {
-        matches!(self, Self::Http { .. })
+        matches!(self, Self::Http { .. } | Self::AirhopGateway { .. })
+    }
+
+    fn airhop_gateway_context(
+        &self,
+    ) -> Option<buzz_db::airhop::channel_gateway::GatewayInboundContext> {
+        match self {
+            Self::AirhopGateway {
+                connector_pubkey,
+                connection_id,
+                provider_event_digest,
+                ..
+            } => Some(buzz_db::airhop::channel_gateway::GatewayInboundContext {
+                connection_id: *connection_id,
+                provider_event_digest: *provider_event_digest,
+                connector_pubkey: connector_pubkey.to_bytes(),
+            }),
+            _ => None,
+        }
+    }
+
+    fn is_hermes_recovery(&self) -> bool {
+        matches!(self, Self::HermesRecovery { .. })
     }
 }
 
@@ -1820,6 +1871,12 @@ async fn ingest_event_inner(
     let kind_u32 = event_kind_u32(&event);
     debug!(event_id = %event_id_hex, kind = kind_u32, "ingest_event");
 
+    if matches!(&auth, IngestAuth::AirhopGateway { .. }) && kind_u32 != KIND_STREAM_MESSAGE {
+        return Err(IngestError::Rejected(
+            "invalid: AirHop gateway accepts only parent stream messages".into(),
+        ));
+    }
+
     if kind_u32 == KIND_AUTH {
         return Err(IngestError::Rejected(
             "invalid: AUTH events cannot be submitted".into(),
@@ -1865,7 +1922,7 @@ async fn ingest_event_inner(
     const MAX_TIMESTAMP_DRIFT_SECS: i64 = 900; // ±15 minutes
     let now = chrono::Utc::now().timestamp();
     let event_ts = event.created_at.as_secs() as i64;
-    if (event_ts - now).abs() > MAX_TIMESTAMP_DRIFT_SECS {
+    if !auth.is_hermes_recovery() && (event_ts - now).abs() > MAX_TIMESTAMP_DRIFT_SECS {
         return Err(IngestError::Rejected(
             "invalid: event timestamp too far from server time".into(),
         ));
@@ -2843,6 +2900,7 @@ async fn ingest_event_inner(
         });
     }
 
+    let gateway_inbound = auth.airhop_gateway_context();
     let (stored_event, was_inserted) = if buzz_core::kind::is_replaceable(kind_u32) {
         // NIP-16 replaceable event — atomic replace with stale-write protection.
         // channel_id is None for global kinds (0, 1, 3) due to step 5b above.
@@ -2867,17 +2925,64 @@ async fn ingest_event_inner(
             .await
             .map_err(|e| IngestError::Internal(format!("error: {e}")))?
     } else {
-        let thread_params = thread_meta.as_ref().map(|m| m.as_params());
-        match state
-            .db
-            .insert_event_with_thread_metadata(
-                tenant.community(),
-                &event,
-                channel_id,
-                thread_params,
-            )
-            .await
-        {
+        let insert_result = if kind_u32 == KIND_STREAM_MESSAGE {
+            if let Some(parent_channel_id) = channel_id {
+                match state
+                    .db
+                    .insert_airhop_external_conversation_event(
+                        tenant,
+                        &event,
+                        parent_channel_id,
+                        thread_meta.as_ref().map(|metadata| metadata.as_params()),
+                        gateway_inbound.as_ref(),
+                    )
+                    .await
+                {
+                    Ok(Some(insert)) => {
+                        debug!(
+                            event_id = %event_id_hex,
+                            channel_id = %parent_channel_id,
+                            projection = ?insert.projection,
+                            "AirHop external conversation event projected atomically"
+                        );
+                        Ok((insert.stored_event, insert.was_inserted))
+                    }
+                    Ok(None) => {
+                        state
+                            .db
+                            .insert_event_with_thread_metadata(
+                                tenant.community(),
+                                &event,
+                                channel_id,
+                                thread_meta.as_ref().map(|metadata| metadata.as_params()),
+                            )
+                            .await
+                    }
+                    Err(error) => Err(error),
+                }
+            } else {
+                state
+                    .db
+                    .insert_event_with_thread_metadata(
+                        tenant.community(),
+                        &event,
+                        channel_id,
+                        thread_meta.as_ref().map(|metadata| metadata.as_params()),
+                    )
+                    .await
+            }
+        } else {
+            state
+                .db
+                .insert_event_with_thread_metadata(
+                    tenant.community(),
+                    &event,
+                    channel_id,
+                    thread_meta.as_ref().map(|metadata| metadata.as_params()),
+                )
+                .await
+        };
+        match insert_result {
             Ok(result) => result,
             Err(e) => {
                 // Compensate: if we pre-created a channel for kind:9007,
@@ -2895,6 +3000,9 @@ async fn ingest_event_inner(
                 return Err(match e {
                     buzz_db::DbError::AuthEventRejected => {
                         IngestError::Rejected("invalid: AUTH events cannot be stored".into())
+                    }
+                    buzz_db::DbError::AccessDenied(message) => {
+                        IngestError::Rejected(format!("restricted: {message}"))
                     }
                     other => IngestError::Internal(format!("error: database error: {other}")),
                 });

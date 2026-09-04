@@ -1,0 +1,5 @@
+**
+!integrations/
+!integrations/hermes-airhop-channel-gateway/
+!integrations/hermes-airhop-channel-gateway/**
+integrations/hermes-airhop-channel-gateway/**/__pycache__/

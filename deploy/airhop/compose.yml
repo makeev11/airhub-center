@@ -1,11 +1,87 @@
-name: airhop-center-demo
+name: ${AIRHOP_COMPOSE_PROJECT_NAME:-airhop-center-demo}
 
 services:
+  hermes-parent-runtime:
+    profiles: [hermes]
+    build:
+      context: ../..
+      dockerfile: integrations/hermes-airhop-parent-runtime/Dockerfile
+    image: ${AIRHOP_HERMES_RUNTIME_IMAGE:-airhop-hermes-parent-runtime:local}
+    environment:
+      BUZZ_RELAY_URL: ${AIRHOP_HERMES_RELAY_URL:-}
+      BUZZ_PRIVATE_KEY: ${AIRHOP_HERMES_AGENT_SECRET_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      BUZZ_ACP_AGENT_COMMAND: hermes-acp
+      BUZZ_ACP_AGENT_ARGS: ""
+      BUZZ_ACP_MCP_COMMAND: airhop-agent-mcp
+      BUZZ_AIRHOP_ROLE: parent_administrator
+      BUZZ_ACP_SYSTEM_PROMPT_FILE: /opt/airhop-hermes/persona.md
+      BUZZ_ACP_SESSION_TITLE: Администратор Гермес
+      BUZZ_ACP_DISPLAY_NAME: Администратор Гермес
+      BUZZ_ACP_MODEL: ${AIRHOP_HERMES_MODEL:-deepseek-v4-flash}
+      BUZZ_ACP_SUBSCRIBE: all
+      BUZZ_ACP_NO_MENTION_FILTER: "true"
+      BUZZ_ACP_RESPOND_TO: anyone
+      BUZZ_ACP_DEDUP: queue
+      BUZZ_ACP_MULTIPLE_EVENT_HANDLING: queue
+      BUZZ_ACP_AGENTS: "1"
+      BUZZ_ACP_NO_MEMORY: "true"
+      BUZZ_ACP_NO_BASE_PROMPT: "true"
+      BUZZ_ACP_HEARTBEAT_INTERVAL: "0"
+      BUZZ_ACP_IDLE_TIMEOUT: ${AIRHOP_HERMES_IDLE_TIMEOUT_SECONDS:-180}
+      BUZZ_ACP_MAX_TURN_DURATION: ${AIRHOP_HERMES_MAX_TURN_SECONDS:-300}
+      HERMES_ACP_MAX_ITERATIONS: ${AIRHOP_HERMES_MAX_ITERATIONS:-8}
+      RUST_LOG: ${AIRHOP_HERMES_RUST_LOG:-buzz_acp=info,buzz_dev_mcp=info}
+    volumes:
+      - airhop-hermes-runtime-data:/var/lib/airhop-hermes-runtime
+    depends_on:
+      relay:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+      start_period: 20s
+    restart: unless-stopped
+    networks: [airhop-net]
+
+  telegram-gateway:
+    profiles: [telegram]
+    build:
+      context: ../..
+      dockerfile: integrations/hermes-airhop-channel-gateway/Dockerfile
+    image: ${AIRHOP_TELEGRAM_GATEWAY_IMAGE:-airhop-hermes-channel-gateway:local}
+    environment:
+      AIRHOP_RELAY_URL: ${AIRHOP_GATEWAY_RELAY_URL:-}
+      AIRHOP_CONNECTION_ID: ${AIRHOP_TELEGRAM_CONNECTION_ID:-}
+      AIRHOP_CONNECTOR_SECRET_KEY: ${AIRHOP_TELEGRAM_CONNECTOR_SECRET_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${AIRHOP_TELEGRAM_BOT_TOKEN:-}
+      AIRHOP_GATEWAY_STATE_ROOT: /var/lib/airhop-channel-gateway/connections
+      TELEGRAM_WEBHOOK_URL: ${AIRHOP_TELEGRAM_WEBHOOK_URL:-}
+      TELEGRAM_WEBHOOK_SECRET: ${AIRHOP_TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_WEBHOOK_HOST: 0.0.0.0
+      TELEGRAM_WEBHOOK_PORT: "8443"
+    volumes:
+      - airhop-telegram-gateway-data:/var/lib/airhop-channel-gateway
+    ports:
+      - "127.0.0.1:${AIRHOP_TELEGRAM_WEBHOOK_PORT:-8443}:8443"
+    restart: unless-stopped
+    networks: [airhop-net]
+
   relay:
     image: ${AIRHOP_IMAGE:?set AIRHOP_IMAGE}
     env_file:
       - ${AIRHOP_ENV_FILE:-.env}
     environment:
+      # The relay still consumes the shared deployment env file for its own
+      # optional tuning, but must not inherit credentials owned by the hosted
+      # model runtime or the provider gateway.
+      AIRHOP_HERMES_AGENT_SECRET_KEY: ""
+      DEEPSEEK_API_KEY: ""
+      AIRHOP_TELEGRAM_CONNECTOR_SECRET_KEY: ""
+      AIRHOP_TELEGRAM_BOT_TOKEN: ""
+      AIRHOP_TELEGRAM_WEBHOOK_SECRET: ""
       BUZZ_BIND_ADDR: 0.0.0.0:3000
       BUZZ_HEALTH_PORT: "8080"
       BUZZ_METRICS_PORT: "9102"
@@ -23,8 +99,20 @@ services:
       BUZZ_AIRHOP_PUBLIC_BOOKING_INDEX_KEY: ${BUZZ_AIRHOP_PUBLIC_BOOKING_INDEX_KEY:?set BUZZ_AIRHOP_PUBLIC_BOOKING_INDEX_KEY}
       BUZZ_AIRHOP_PUBLIC_BOOKING_MANAGEMENT_KEYS: ${BUZZ_AIRHOP_PUBLIC_BOOKING_MANAGEMENT_KEYS:?set BUZZ_AIRHOP_PUBLIC_BOOKING_MANAGEMENT_KEYS}
       BUZZ_AIRHOP_PUBLIC_BOOKING_CURRENT_KEY_VERSION: ${BUZZ_AIRHOP_PUBLIC_BOOKING_CURRENT_KEY_VERSION:-1}
+      BUZZ_AIRHOP_CHANNEL_CREDENTIAL_INDEX_KEY: ${BUZZ_AIRHOP_CHANNEL_CREDENTIAL_INDEX_KEY:?set BUZZ_AIRHOP_CHANNEL_CREDENTIAL_INDEX_KEY}
+      BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS: ${BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS:?set BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS}
+      BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION: ${BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION:-1}
+      BUZZ_AIRHOP_TELEGRAM_CONNECTOR_PUBKEY: ${AIRHOP_TELEGRAM_CONNECTOR_PUBKEY:?set AIRHOP_TELEGRAM_CONNECTOR_PUBKEY}
     ports:
       - "127.0.0.1:${AIRHOP_HTTP_PORT:-3300}:3000"
+    labels:
+      traefik.enable: "${AIRHOP_TRAEFIK_ENABLED:-false}"
+      traefik.docker.network: "${AIRHOP_DOCKER_NETWORK:-airhop-center-demo-net}"
+      traefik.http.routers.airhop-center.entrypoints: websecure
+      traefik.http.routers.airhop-center.rule: "Host(`${AIRHOP_PUBLIC_HOST:-demo.example.com}`)"
+      traefik.http.routers.airhop-center.tls: "true"
+      traefik.http.routers.airhop-center.tls.certresolver: letsencrypt
+      traefik.http.services.airhop-center.loadbalancer.server.port: "3000"
     volumes:
       - airhop-git-data:/data/git
     depends_on:
@@ -116,6 +204,8 @@ services:
     networks: [airhop-net]
 
 volumes:
+  airhop-hermes-runtime-data:
+  airhop-telegram-gateway-data:
   airhop-postgres-data:
   airhop-redis-data:
   airhop-minio-data:
@@ -123,4 +213,5 @@ volumes:
 
 networks:
   airhop-net:
+    name: ${AIRHOP_DOCKER_NETWORK:-airhop-center-demo-net}
     driver: bridge

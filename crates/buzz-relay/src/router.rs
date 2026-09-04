@@ -88,6 +88,39 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 
     let airhop_agents_router = Router::new()
         .route(
+            "/api/airhop/agents/v1/deployments",
+            get(api::airhop_agent_backend::get_current_deployment),
+        )
+        .route(
+            "/api/airhop/agents/v1/deployments/{deployment_id}",
+            get(api::airhop_agent_backend::get_deployment)
+                .put(api::airhop_agent_backend::put_deployment),
+        )
+        .route(
+            "/api/airhop/agents/v1/context-grants",
+            post(api::airhop_agent_backend::issue_context_grant),
+        )
+        .route(
+            "/api/airhop/agents/v1/conversations/{conversation_id}",
+            put(api::airhop_agent_backend::register_conversation),
+        )
+        .route(
+            "/api/airhop/agents/v1/supervisor/events/{event_id}/claim",
+            post(api::airhop_agent_backend::claim_parent_event),
+        )
+        .route(
+            "/api/airhop/agents/v1/turns/{turn_id}/finish",
+            post(api::airhop_agent_backend::finish_turn),
+        )
+        .route(
+            "/api/airhop/agents/v1/turns/{turn_id}/reply",
+            post(api::airhop_agent_backend::commit_reply),
+        )
+        .route(
+            "/api/airhop/agents/v1/backend",
+            post(api::airhop_agent_backend::call_backend),
+        )
+        .route(
             "/api/airhop/agents/v1/welcome-team",
             get(api::airhop_agents::get_welcome_team).put(api::airhop_agents::put_welcome_team),
         )
@@ -268,6 +301,50 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/airhop/integrations/v1/parent-notifications/{outbox_id}/complete",
             post(api::airhop_staff::complete_parent_notification),
+        )
+        .route(
+            "/api/airhop/integrations/v1/channel-connections",
+            get(api::airhop_channel_gateway::list_connections),
+        )
+        .route(
+            "/api/airhop/integrations/v1/channel-connections/telegram",
+            post(api::airhop_channel_gateway::connect_telegram),
+        )
+        .route(
+            "/api/airhop/integrations/v1/channel-connections/{connection_id}",
+            put(api::airhop_channel_gateway::put_connection),
+        )
+        .route(
+            "/api/airhop/integrations/v1/channel-connections/conversations/{conversation_id}",
+            put(api::airhop_channel_gateway::put_conversation_route),
+        )
+        .route(
+            "/api/airhop/integrations/v1/channel-gateway/assignments",
+            get(api::airhop_channel_gateway::list_gateway_assignments),
+        )
+        .route(
+            "/api/airhop/integrations/v1/channel-gateway/connections/{connection_id}/credential",
+            get(api::airhop_channel_gateway::get_gateway_credential),
+        )
+        .route(
+            "/api/airhop/integrations/v1/channel-gateway/connections/{connection_id}/heartbeat",
+            post(api::airhop_channel_gateway::observe_connection),
+        )
+        .route(
+            "/api/airhop/integrations/v1/channel-gateway/inbound",
+            post(api::airhop_channel_gateway::ingest_inbound),
+        )
+        .route(
+            "/api/airhop/integrations/v1/channel-gateway/routes/resolve",
+            post(api::airhop_channel_gateway::resolve_conversation_route),
+        )
+        .route(
+            "/api/airhop/integrations/v1/channel-gateway/outbound/claim",
+            post(api::airhop_channel_gateway::claim_external_messages),
+        )
+        .route(
+            "/api/airhop/integrations/v1/channel-gateway/outbound/{outbox_id}/complete",
+            post(api::airhop_channel_gateway::complete_external_message),
         )
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .with_state(state.clone());
@@ -471,7 +548,9 @@ fn is_airhop_public_booking_path(path: &str) -> bool {
 }
 
 fn should_serve_web_asset(path: &str, serve_airhop_public_web: bool) -> bool {
-    path.starts_with("/assets/") || (serve_airhop_public_web && path.starts_with("/airhop/"))
+    path.starts_with("/assets/")
+        || (serve_airhop_public_web
+            && (path.starts_with("/airhop/") || path == "/agents/hermes.png"))
 }
 
 fn should_serve_spa(path: &str, serve_git_web_gui: bool, serve_airhop_public_web: bool) -> bool {
@@ -747,6 +826,8 @@ mod tests {
         assert!(should_serve_web_asset("/assets/app.js", true));
         assert!(!should_serve_web_asset("/airhop/mark.png", false));
         assert!(should_serve_web_asset("/airhop/mark.png", true));
+        assert!(!should_serve_web_asset("/agents/hermes.png", false));
+        assert!(should_serve_web_asset("/agents/hermes.png", true));
         assert!(!should_serve_web_asset("/agents/fizz.png", true));
     }
 

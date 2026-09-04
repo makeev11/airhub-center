@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "airhop-hermes-channel-gateway"
+version = "0.1.0"
+description = "Thin AirHop Channel Gateway wrapper around Hermes Agent provider adapters"
+requires-python = ">=3.11,<3.14"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "coincurve==21.0.0",
+  "httpx==0.28.1",
+]
+
+[project.scripts]
+airhop-hermes-channel-gateway = "airhop_hermes_gateway.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/airhop_hermes_gateway"]
+

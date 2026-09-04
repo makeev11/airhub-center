@@ -2,6 +2,7 @@ use crate::managed_agents::{known_acp_runtime, ManagedAgentRecord};
 
 const WELCOME_TEAM_ID: &str = "builtin-team:welcome";
 const AGENT_MCP_COMMAND: &str = "airhop-agent-mcp";
+const HERMES_ACP_COMMAND: &str = "hermes-acp";
 
 fn is_builtin_welcome_agent(record: &ManagedAgentRecord) -> bool {
     if record.team_id.as_deref() != Some(WELCOME_TEAM_ID) {
@@ -34,13 +35,17 @@ pub(crate) fn effective_mcp_command(
     record: &ManagedAgentRecord,
     agent_command: &str,
 ) -> &'static str {
-    let Some(runtime) = known_acp_runtime(agent_command) else {
-        return "";
-    };
-    if runtime.id == "buzz-agent" && is_builtin_welcome_agent(record) {
+    let runtime = known_acp_runtime(agent_command);
+    // Hermes is a tier-2 preset, so it is intentionally absent from the
+    // tier-1 `known_acp_runtime` metadata table.
+    let trusted_product_runtime = runtime.is_some_and(|runtime| runtime.id == "buzz-agent")
+        || agent_command == HERMES_ACP_COMMAND;
+    if trusted_product_runtime && is_builtin_welcome_agent(record) {
         AGENT_MCP_COMMAND
     } else {
-        runtime.mcp_command.unwrap_or("")
+        runtime
+            .and_then(|runtime| runtime.mcp_command)
+            .unwrap_or("")
     }
 }
 

@@ -1565,6 +1565,11 @@ async fn tokio_main() -> Result<()> {
         startup_owner.clone(),
         relay.rest_client(),
     );
+    let parent_supervisor_gate = airhop::ParentSupervisorGate::new(
+        config.airhop_role,
+        config.airhop_context_grant_file.clone(),
+        relay.rest_client(),
+    );
 
     // Online means the harness can receive work, not merely that its socket is
     // connected. Publishing after channel subscriptions gives desktop callers
@@ -1853,8 +1858,14 @@ async fn tokio_main() -> Result<()> {
             // called on relay events or pool results, neither of which
             // arrive when the channel is silent.
             if queue.has_flushable_work() {
-                for (channel_id, thread_tags) in
-                    dispatch_pending(&mut pool, &mut queue, &ctx, &mut last_activity)
+                for (channel_id, thread_tags) in dispatch_pending(
+                    &mut pool,
+                    &mut queue,
+                    &ctx,
+                    &parent_supervisor_gate,
+                    &mut last_activity,
+                )
+                .await
                 {
                     typing_channels.insert(channel_id, thread_tags);
                 }
@@ -1891,8 +1902,14 @@ async fn tokio_main() -> Result<()> {
         // this, batches requeued during crash recovery sit idle until the
         // next relay event arrives — which can be minutes on quiet channels.
         if respawn_collected {
-            for (channel_id, thread_tags) in
-                dispatch_pending(&mut pool, &mut queue, &ctx, &mut last_activity)
+            for (channel_id, thread_tags) in dispatch_pending(
+                &mut pool,
+                &mut queue,
+                &ctx,
+                &parent_supervisor_gate,
+                &mut last_activity,
+            )
+            .await
             {
                 typing_channels.insert(channel_id, thread_tags);
             }
@@ -2349,7 +2366,14 @@ async fn tokio_main() -> Result<()> {
                             }
                             if pool_ready {
                                 for (channel_id, thread_tags) in
-                                    dispatch_pending(&mut pool, &mut queue, &ctx, &mut last_activity)
+                                    dispatch_pending(
+                                        &mut pool,
+                                        &mut queue,
+                                        &ctx,
+                                        &parent_supervisor_gate,
+                                        &mut last_activity,
+                                    )
+                                    .await
                                 {
                                     typing_channels.insert(channel_id, thread_tags);
                                 }
@@ -2399,7 +2423,14 @@ async fn tokio_main() -> Result<()> {
                     } else if queue.has_flushable_work() {
                         tracing::debug!("heartbeat_skipped_events");
                         for (channel_id, thread_tags) in
-                            dispatch_pending(&mut pool, &mut queue, &ctx, &mut last_activity)
+                            dispatch_pending(
+                                &mut pool,
+                                &mut queue,
+                                &ctx,
+                                &parent_supervisor_gate,
+                                &mut last_activity,
+                            )
+                            .await
                         {
                             typing_channels.insert(channel_id, thread_tags);
                         }
@@ -2497,8 +2528,14 @@ async fn tokio_main() -> Result<()> {
                 {
                     break;
                 }
-                for (channel_id, thread_tags) in
-                    dispatch_pending(&mut pool, &mut queue, &ctx, &mut last_activity)
+                for (channel_id, thread_tags) in dispatch_pending(
+                    &mut pool,
+                    &mut queue,
+                    &ctx,
+                    &parent_supervisor_gate,
+                    &mut last_activity,
+                )
+                .await
                 {
                     typing_channels.insert(channel_id, thread_tags);
                 }
@@ -2522,8 +2559,14 @@ async fn tokio_main() -> Result<()> {
                     tracing::error!("all agents dead — exiting");
                     break;
                 }
-                for (channel_id, thread_tags) in
-                    dispatch_pending(&mut pool, &mut queue, &ctx, &mut last_activity)
+                for (channel_id, thread_tags) in dispatch_pending(
+                    &mut pool,
+                    &mut queue,
+                    &ctx,
+                    &parent_supervisor_gate,
+                    &mut last_activity,
+                )
+                .await
                 {
                     typing_channels.insert(channel_id, thread_tags);
                 }
@@ -2666,8 +2709,14 @@ async fn tokio_main() -> Result<()> {
                 // tear down the in-flight task; on its completion the
                 // queue drains. We still try here in case the in-flight
                 // task has already returned.
-                for (channel_id, thread_tags) in
-                    dispatch_pending(&mut pool, &mut queue, &ctx, &mut last_activity)
+                for (channel_id, thread_tags) in dispatch_pending(
+                    &mut pool,
+                    &mut queue,
+                    &ctx,
+                    &parent_supervisor_gate,
+                    &mut last_activity,
+                )
+                .await
                 {
                     typing_channels.insert(channel_id, thread_tags);
                 }
@@ -2694,8 +2743,14 @@ async fn tokio_main() -> Result<()> {
                             "ready",
                             None,
                         );
-                        for (channel_id, thread_tags) in
-                            dispatch_pending(&mut pool, &mut queue, &ctx, &mut last_activity)
+                        for (channel_id, thread_tags) in dispatch_pending(
+                            &mut pool,
+                            &mut queue,
+                            &ctx,
+                            &parent_supervisor_gate,
+                            &mut last_activity,
+                        )
+                        .await
                         {
                             typing_channels.insert(channel_id, thread_tags);
                         }
@@ -3025,10 +3080,11 @@ fn try_native_steer(
 // ── dispatch_pending ──────────────────────────────────────────────────────────
 
 /// Flush queued work to available agents.
-fn dispatch_pending(
+async fn dispatch_pending(
     pool: &mut AgentPool,
     queue: &mut EventQueue,
     ctx: &Arc<PromptContext>,
+    parent_supervisor_gate: &airhop::ParentSupervisorGate,
     last_activity: &mut tokio::time::Instant,
 ) -> Vec<(Uuid, ThreadTags)> {
     let mut dispatched_channels = Vec::new();
@@ -3054,6 +3110,15 @@ fn dispatch_pending(
                 break;
             }
         };
+        if !parent_supervisor_gate.claim_batch(&batch).await {
+            tracing::debug!(
+                channel = %channel_id,
+                "AirHop parent supervisor rejected queued batch"
+            );
+            pool.return_agent(agent);
+            queue.mark_complete(channel_id);
+            continue;
+        }
         tracing::debug!(agent = agent.index, channel = %channel_id, affinity_hit, "agent_claimed");
 
         let recoverable_batch = match ctx.dedup_mode {
@@ -4352,16 +4417,29 @@ fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
             }
 
             // buzz-agent clears the inherited MCP environment. Give only the
-            // role-scoped Airhop sidecar the two already validated scope
-            // values it needs; generic MCP servers must not receive them.
+            // role-scoped Airhop sidecar its already validated scope. Generic
+            // MCP servers must not receive either Welcome scope or the
+            // short-lived parent context grant.
             if is_airhop_agent_mcp {
                 if let Some(role) = config.airhop_role {
-                    if config.flat_channel_ids.len() == 1 {
-                        if let Some(channel_id) = config.flat_channel_ids.iter().next() {
+                    env.push(EnvVar {
+                        name: "BUZZ_AIRHOP_ROLE".into(),
+                        value: role.as_str().into(),
+                    });
+                    if role == crate::airhop::AirhopRole::ParentAdministrator {
+                        if let Some(context_grant) = &config.airhop_context_grant {
                             env.push(EnvVar {
-                                name: "BUZZ_AIRHOP_ROLE".into(),
-                                value: role.as_str().into(),
+                                name: "BUZZ_AIRHOP_CONTEXT_GRANT".into(),
+                                value: context_grant.clone(),
                             });
+                        } else if let Some(path) = &config.airhop_context_grant_file {
+                            env.push(EnvVar {
+                                name: "BUZZ_AIRHOP_CONTEXT_GRANT_FILE".into(),
+                                value: path.display().to_string(),
+                            });
+                        }
+                    } else if config.flat_channel_ids.len() == 1 {
+                        if let Some(channel_id) = config.flat_channel_ids.iter().next() {
                             env.push(EnvVar {
                                 name: "BUZZ_AIRHOP_WELCOME_CHANNEL_ID".into(),
                                 value: channel_id.to_string(),
@@ -5153,6 +5231,8 @@ mod build_mcp_servers_tests {
             airhop_route_gate: false,
             flat_channel_ids: HashSet::new(),
             airhop_role: None,
+            airhop_context_grant: None,
+            airhop_context_grant_file: None,
             team_instructions: None,
             initial_message: None,
             subscribe_mode: config::SubscribeMode::All,
@@ -5230,16 +5310,63 @@ mod build_mcp_servers_tests {
     }
 
     #[test]
+    fn airhop_mcp_receives_parent_context_without_welcome_channel() {
+        let mut config = test_config();
+        config.mcp_command = "/opt/bin/airhop-agent-mcp".into();
+        config.airhop_role = Some(crate::airhop::AirhopRole::ParentAdministrator);
+        config.airhop_context_grant = Some("signed-short-lived-context".into());
+
+        let servers = build_mcp_servers(&config);
+        let server = &servers[0];
+        let env: std::collections::HashMap<_, _> = server
+            .env
+            .iter()
+            .map(|entry| (entry.name.as_str(), entry.value.as_str()))
+            .collect();
+
+        assert_eq!(env.get("BUZZ_AIRHOP_ROLE"), Some(&"parent_administrator"));
+        assert_eq!(
+            env.get("BUZZ_AIRHOP_CONTEXT_GRANT"),
+            Some(&"signed-short-lived-context")
+        );
+        assert!(!env.contains_key("BUZZ_AIRHOP_WELCOME_CHANNEL_ID"));
+    }
+
+    #[test]
+    fn airhop_mcp_receives_rotating_parent_context_file() {
+        let mut config = test_config();
+        config.mcp_command = "/opt/bin/airhop-agent-mcp".into();
+        config.airhop_role = Some(crate::airhop::AirhopRole::ParentAdministrator);
+        config.airhop_context_grant_file = Some("/tmp/airhop-hermes-context".into());
+
+        let server = &build_mcp_servers(&config)[0];
+        let env: std::collections::HashMap<_, _> = server
+            .env
+            .iter()
+            .map(|entry| (entry.name.as_str(), entry.value.as_str()))
+            .collect();
+        assert_eq!(
+            env.get("BUZZ_AIRHOP_CONTEXT_GRANT_FILE"),
+            Some(&"/tmp/airhop-hermes-context")
+        );
+        assert!(!env.contains_key("BUZZ_AIRHOP_CONTEXT_GRANT"));
+    }
+
+    #[test]
     fn generic_mcp_does_not_receive_airhop_scope() {
         let mut config = test_config();
         config.airhop_role = Some(crate::airhop::AirhopRole::Fizz);
+        config.airhop_context_grant = Some("must-not-leak".into());
         config.flat_channel_ids.insert(uuid::Uuid::new_v4());
         let server = &build_mcp_servers(&config)[0];
 
         assert!(!server.env.iter().any(|entry| {
             matches!(
                 entry.name.as_str(),
-                "BUZZ_AIRHOP_ROLE" | "BUZZ_AIRHOP_WELCOME_CHANNEL_ID"
+                "BUZZ_AIRHOP_ROLE"
+                    | "BUZZ_AIRHOP_WELCOME_CHANNEL_ID"
+                    | "BUZZ_AIRHOP_CONTEXT_GRANT"
+                    | "BUZZ_AIRHOP_CONTEXT_GRANT_FILE"
             )
         }));
     }
@@ -5418,6 +5545,8 @@ mod error_outcome_emission_tests {
             airhop_route_gate: false,
             flat_channel_ids: HashSet::new(),
             airhop_role: None,
+            airhop_context_grant: None,
+            airhop_context_grant_file: None,
             team_instructions: None,
             initial_message: None,
             subscribe_mode: config::SubscribeMode::All,

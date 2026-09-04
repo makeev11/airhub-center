@@ -1,7 +1,7 @@
 # AirHop Center demo deployment
 
 This stack is isolated from inherited Buzz deployments by its Compose project
-name, network, containers, and four named volumes. It runs the authoritative
+name, network, containers, and dedicated named volumes. It runs the authoritative
 Booking Core, PostgreSQL, Redis, MinIO, and the same React public booking flow
 at `/booking`. The employee UI remains the native AirHop Center application and
 connects to this relay via `RELAY_URL`.
@@ -9,10 +9,19 @@ connects to this relay via `RELAY_URL`.
 ## Prepare
 
 1. Copy `.env.example` to `.env` on the server.
-2. Replace every `CHANGE_ME` and set the real domain.
+2. Replace every `CHANGE_ME` and choose one stable host for the Center.
 3. Put an HTTPS reverse proxy or Cloudflare Tunnel in front of
-   `127.0.0.1:3300`; WebSocket upgrades must be preserved.
+   `127.0.0.1:3300`; WebSocket upgrades must be preserved. When the host already
+   runs Traefik's Docker provider, set `AIRHOP_TRAEFIK_ENABLED=true`,
+   `AIRHOP_PUBLIC_HOST`, and a unique `AIRHOP_DOCKER_NETWORK`; the bundled
+   labels route the relay without publishing its port to the internet.
 4. Point the desktop deployment configuration at the public `wss://` URL.
+
+A purchased domain is not required for a disposable Telegram engineering
+pilot: long polling has no inbound webhook requirement. A stable HTTPS host is
+still strongly preferred because the host is the tenant boundary, the employee
+client needs `wss://`, and changing it later creates a different community.
+Provider wildcard hosts are suitable for this first isolated pilot.
 
 Validate without starting anything:
 
@@ -20,6 +29,21 @@ Validate without starting anything:
 AIRHOP_ENV_FILE=.env docker compose --env-file deploy/airhop/.env \
   -f deploy/airhop/compose.yml config --quiet
 ```
+
+For a fresh isolated VPS pilot, generate the stable service keys and a dedicated
+Hermes/connector keypair without printing them:
+
+```bash
+./deploy/airhop/prepare-pilot-env.sh \
+  airhop-center.example.com \
+  OWNER_PUBLIC_KEY_HEX \
+  airhop-center-pilot-relay:RELEASE \
+  /opt/airhop-center-pilot/shared/.env
+```
+
+The command refuses to overwrite an existing environment. Store that file with
+the database and media backups; losing its encryption keys makes encrypted
+booking/channel material unrecoverable.
 
 Start or update:
 
@@ -30,10 +54,99 @@ AIRHOP_ENV_FILE=.env docker compose --env-file deploy/airhop/.env \
   -f deploy/airhop/compose.yml up -d --wait
 ```
 
+## Hosted Hermes administrator
+
+The optional `hermes` profile runs the real parent-facing Hermes Agent as an
+always-on service. It uses the pinned upstream ACP runtime for reasoning and
+session continuity, while the role-scoped Airhop MCP is its only action
+surface. Shell, filesystem, browser, code-execution and subagent toolsets are
+not available in this external profile.
+
+Generate a dedicated Nostr keypair for Hermes and add its secret/public halves,
+plus the DeepSeek key, to `.env` as shown in `.env.example`. Bring up the base
+stack, seed or provision the organization, then run the idempotent pilot
+bootstrap once:
+
+```bash
+AIRHOP_ENV_FILE=/absolute/path/to/.env ./scripts/bootstrap-airhop-hermes.sh
+```
+
+The bootstrap registers the Hermes and Telegram connector principals, publishes
+Hermes' signed Buzz profile with the product avatar and the organization's
+locale, and creates the initial organization-scoped deployment. Later
+enable/disable and booking-capability changes continue through the normal
+**Agents → Administrator Hermes** settings card.
+
+On the pilot VPS, enter the DeepSeek key directly in an interactive terminal so
+it never appears in chat or shell history:
+
+```bash
+./deploy/airhop/set-deepseek-key.sh /opt/airhop-center-pilot/shared/.env
+```
+
+Start the model runtime and Telegram gateway together:
+
+```bash
+AIRHOP_ENV_FILE=.env docker compose \
+  --env-file deploy/airhop/.env -f deploy/airhop/compose.yml \
+  --profile hermes --profile telegram \
+  up -d --build --wait hermes-parent-runtime telegram-gateway
+```
+
+After the bot has been connected in **Settings → Communication channels**, run
+the fail-closed pilot check. It verifies the six required services, the live
+Hermes deployment, a fresh Telegram gateway heartbeat and the runtime tool
+isolation without printing any credential:
+
+```bash
+AIRHOP_ENV_FILE=/absolute/path/to/.env ./scripts/check-airhop-hermes-pilot.sh
+```
+
+One persistent volume holds the Hermes ACP session database. Use encrypted VPS
+storage, back it up with the other stateful volumes, and never share it between
+organizations. The runtime has one worker, no autonomous heartbeat, an
+eight-iteration model cap and bounded idle/absolute turn deadlines by default.
+
+For a direct Telegram contact, no manual route row is required. The first
+private message atomically creates one unverified private Buzz conversation;
+Hermes then asks whether the person wants to book or is already a client. This
+does not yet consume a booking-completion handoff token, so a Family association
+must still pass the normal identity-verification flow.
+
+The deployable pilot boundary is therefore **Telegram text consultation for a
+new/unverified contact**, published knowledge, live booking-option lookup, the
+shared Buzz thread and manual staff takeover/resume. Do not treat the current
+slice as acceptance for post-booking identity binding, automatic confirmation,
+voice/media review or WhatsApp; those flows remain fail-closed until their typed
+handoff and adapter slices are implemented.
+
 Do not reuse the old `buzz-prod` database or volumes. A demo tenant and AirHop
 organization must be provisioned deliberately; the real owner activation code
 is then issued through the signed operator API described in
 `docs/AIRHUB_CENTER_HQ_ACTIVATION_CONTRACT.md`.
+
+The relay accepts a Telegram token only through the owner/admin write-only
+self-service endpoint, verifies it, and stores AES-256-GCM ciphertext. The
+encryption/index keys stay in deployment secrets outside Postgres. The
+optional `telegram` Compose profile runs a separate pinned Hermes messaging
+adapter and retrieves plaintext only as the exact configured connector through
+the NIP-98 API documented in `docs/AIRHOP_HERMES_CHANNEL_GATEWAY_CONTRACT.md`.
+
+Before enabling it, generate the credential index/encryption keys and one
+gateway signing key, configure the derived public key on Relay, and register
+that public key as an active workspace member. Start the hosted supervisor;
+owners can then paste BotFather tokens in **Settings → Communication channels**
+without another deployment:
+
+```bash
+AIRHOP_ENV_FILE=.env docker compose --profile telegram \
+  --env-file deploy/airhop/.env -f deploy/airhop/compose.yml \
+  up -d --build --wait telegram-gateway
+```
+
+Polling is the hosted multi-connection default. Webhook mode is reserved for
+the legacy single-connection deployment because every bot needs an independently
+routed webhook URL and secret.
 
 ## Local demo data
 

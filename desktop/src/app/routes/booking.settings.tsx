@@ -4,14 +4,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 type BookingSettingsSearch = {
-  section?: "public-booking";
+  section?: "channels" | "public-booking";
 };
 
 function validateBookingSettingsSearch(
   search: Record<string, unknown>,
 ): BookingSettingsSearch {
-  return search.section === "public-booking"
-    ? { section: "public-booking" }
+  return search.section === "channels" || search.section === "public-booking"
+    ? { section: search.section }
     : {};
 }
 

@@ -7,6 +7,9 @@ mod admission;
 /// AirHub monthly analytics publication.
 pub mod airhop_analytics;
 
+/// AirHop Channel Gateway publication recovery.
+pub mod airhop_gateway;
+
 /// Human-confirmed setup actions prepared by Airhop specialists.
 pub mod airhop_agent_actions;
 

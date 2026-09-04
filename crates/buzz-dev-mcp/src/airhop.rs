@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use base64::Engine as _;
@@ -26,6 +27,8 @@ const MAX_MESSAGE_CHARS: usize = 1_200;
 const MAX_ASSIGNMENT_CHARS: usize = 4_000;
 const SETTINGS_PATH: &str = "/api/airhop/staff/v1/settings";
 const SITE_CONTENT_CONTEXT_PATH: &str = "/api/airhop/agents/v1/site-content/context";
+const AGENT_BACKEND_PATH: &str = "/api/airhop/agents/v1/backend";
+const AGENT_CONTEXT_HEADER: &str = "x-airhop-agent-context";
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
@@ -36,6 +39,7 @@ pub enum AirhopRole {
     Administrator,
     Analyst,
     ContentMarketer,
+    ParentAdministrator,
 }
 
 impl AirhopRole {
@@ -45,6 +49,7 @@ impl AirhopRole {
             Self::Administrator => "administrator",
             Self::Analyst => "analyst",
             Self::ContentMarketer => "content_marketer",
+            Self::ParentAdministrator => "parent_administrator",
         }
     }
 
@@ -54,6 +59,7 @@ impl AirhopRole {
             "administrator" => Ok(Self::Administrator),
             "analyst" => Ok(Self::Analyst),
             "content_marketer" => Ok(Self::ContentMarketer),
+            "parent_administrator" => Ok(Self::ParentAdministrator),
             value => Err(AirhopError(format!(
                 "unsupported BUZZ_AIRHOP_ROLE value: {value}"
             ))),
@@ -90,6 +96,7 @@ impl AirhopRole {
                     | ReadResource::Schedule
                     | ReadResource::PublicBookingSettings
             ),
+            Self::ParentAdministrator => false,
         }
     }
 }
@@ -148,6 +155,12 @@ pub struct SendMessagesParams {
     pub expects_reply: bool,
     #[serde(default)]
     pub kickoff_stage: Option<WelcomeKickoffStage>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SendParentReplyParams {
+    pub messages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -369,6 +382,73 @@ pub enum PrepareAgentCommand {
     },
 }
 
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GetTurnContextParams {}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GetFamilyParams {}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BookingPurpose {
+    Trial,
+    Lesson,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ListBookingOptionsParams {
+    #[schemars(with = "Option<String>")]
+    pub branch_id: Option<Uuid>,
+    #[schemars(with = "Option<String>")]
+    pub group_id: Option<Uuid>,
+    pub purpose: Option<BookingPurpose>,
+    pub age_years: Option<u8>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SearchKnowledgeParams {
+    pub query: String,
+    pub locale: Option<String>,
+    #[serde(default = "default_parent_knowledge_limit")]
+    pub limit: u8,
+}
+
+const fn default_parent_knowledge_limit() -> u8 {
+    8
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ParentBookingAction {
+    Cancel,
+    RequestTransfer { comment: Option<String> },
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ManageBookingParams {
+    #[schemars(with = "String")]
+    pub booking_id: Uuid,
+    pub action: ParentBookingAction,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParentContextClaims {
+    channel_id: Uuid,
+    turn_id: Uuid,
+    turn_lease_token: Uuid,
+}
+
 #[derive(Debug, Clone)]
 pub struct AirhopError(String);
 
@@ -383,7 +463,9 @@ impl std::error::Error for AirhopError {}
 #[derive(Clone)]
 struct AirhopConfig {
     role: AirhopRole,
-    channel_id: Uuid,
+    channel_id: Option<Uuid>,
+    context_grant: Option<String>,
+    context_grant_file: Option<PathBuf>,
     relay_url: String,
     keys: Keys,
     auth_tag: Option<Tag>,
@@ -394,12 +476,42 @@ struct AirhopConfig {
 impl AirhopConfig {
     fn from_env() -> Result<Self, AirhopError> {
         let role = AirhopRole::parse_config(&required_env("BUZZ_AIRHOP_ROLE")?)?;
-        let channel_raw = required_env("BUZZ_AIRHOP_WELCOME_CHANNEL_ID")?;
-        let channel_id = Uuid::parse_str(&channel_raw).map_err(|_| {
-            AirhopError(format!(
-                "invalid BUZZ_AIRHOP_WELCOME_CHANNEL_ID: {channel_raw}"
-            ))
-        })?;
+        let channel_id = match env::var("BUZZ_AIRHOP_WELCOME_CHANNEL_ID") {
+            Ok(value) if !value.trim().is_empty() => {
+                let value = value.trim();
+                Some(Uuid::parse_str(value).map_err(|_| {
+                    AirhopError(format!("invalid BUZZ_AIRHOP_WELCOME_CHANNEL_ID: {value}"))
+                })?)
+            }
+            _ if role == AirhopRole::ParentAdministrator => None,
+            _ => {
+                return Err(AirhopError(
+                    "BUZZ_AIRHOP_WELCOME_CHANNEL_ID is required for Welcome agents".to_owned(),
+                ))
+            }
+        };
+        let context_grant = env::var("BUZZ_AIRHOP_CONTEXT_GRANT")
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        let context_grant_file = env::var("BUZZ_AIRHOP_CONTEXT_GRANT_FILE")
+            .ok()
+            .map(|value| PathBuf::from(value.trim()))
+            .filter(|value| !value.as_os_str().is_empty());
+        if context_grant.is_some() && context_grant_file.is_some() {
+            return Err(AirhopError(
+                "configure only one of BUZZ_AIRHOP_CONTEXT_GRANT and BUZZ_AIRHOP_CONTEXT_GRANT_FILE"
+                    .to_owned(),
+            ));
+        }
+        if role == AirhopRole::ParentAdministrator
+            && context_grant.is_none()
+            && context_grant_file.is_none()
+        {
+            return Err(AirhopError(
+                "parent_administrator requires an AirHop context grant source".to_owned(),
+            ));
+        }
         let relay_url = normalize_relay_url(&required_env("BUZZ_RELAY_URL")?)?;
         let private_key = required_env("BUZZ_PRIVATE_KEY")?;
         let keys = Keys::parse(&private_key)
@@ -426,6 +538,8 @@ impl AirhopConfig {
         Ok(Self {
             role,
             channel_id,
+            context_grant,
+            context_grant_file,
             relay_url,
             keys,
             auth_tag,
@@ -438,7 +552,9 @@ impl AirhopConfig {
     fn for_test(role: AirhopRole, channel_id: Uuid, relay_url: &str, keys: Keys) -> Self {
         Self {
             role,
-            channel_id,
+            channel_id: Some(channel_id),
+            context_grant: None,
+            context_grant_file: None,
             relay_url: relay_url.trim_end_matches('/').to_owned(),
             keys,
             auth_tag: None,
@@ -448,7 +564,7 @@ impl AirhopConfig {
     }
 
     fn require_channel(&self, channel_id: Uuid) -> Result<(), AirhopError> {
-        if channel_id == self.channel_id {
+        if self.channel_id == Some(channel_id) {
             Ok(())
         } else {
             Err(AirhopError(format!(
@@ -466,6 +582,25 @@ impl AirhopConfig {
         builder
             .sign_with_keys(&self.keys)
             .map_err(|error| AirhopError(format!("event signing failed: {error}")))
+    }
+
+    fn current_context_grant(&self) -> Result<Option<String>, AirhopError> {
+        if let Some(path) = &self.context_grant_file {
+            let value = std::fs::read_to_string(path).map_err(|error| {
+                AirhopError(format!(
+                    "cannot read AirHop context grant file {}: {error}",
+                    path.display()
+                ))
+            })?;
+            let value = value.trim();
+            if value.is_empty() || value.len() > 24_000 {
+                return Err(AirhopError(
+                    "AirHop context grant file is empty or oversized".to_owned(),
+                ));
+            }
+            return Ok(Some(value.to_owned()));
+        }
+        Ok(self.context_grant.clone())
     }
 
     fn nip98_header(
@@ -514,6 +649,9 @@ impl AirhopConfig {
             .header("Accept", "application/json");
         if let Some(auth_tag) = &self.auth_tag_json {
             request = request.header("x-auth-tag", auth_tag);
+        }
+        if let Some(context_grant) = self.current_context_grant()? {
+            request = request.header(AGENT_CONTEXT_HEADER, context_grant);
         }
         if let Some(bytes) = body_bytes {
             request = request
@@ -645,6 +783,48 @@ fn validate_messages(messages: &[String]) -> Result<(), AirhopError> {
     Ok(())
 }
 
+fn decode_parent_context(config: &AirhopConfig) -> Result<ParentContextClaims, AirhopError> {
+    let token = config.current_context_grant()?.ok_or_else(|| {
+        AirhopError("parent administrator has no active context grant".to_owned())
+    })?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&token)
+        .map_err(|_| AirhopError("parent context grant is malformed".to_owned()))?;
+    let envelope: Event = serde_json::from_slice(&bytes)
+        .map_err(|_| AirhopError("parent context grant envelope is malformed".to_owned()))?;
+    serde_json::from_str(&envelope.content)
+        .map_err(|_| AirhopError("parent context grant claims are malformed".to_owned()))
+}
+
+fn build_parent_reply_events(
+    config: &AirhopConfig,
+    claims: &ParentContextClaims,
+    messages: Vec<String>,
+) -> Result<Vec<Event>, AirhopError> {
+    validate_messages(&messages)?;
+    let channel = claims.channel_id.to_string();
+    let turn_id = claims.turn_id.to_string();
+    messages
+        .into_iter()
+        .map(|message| {
+            config.sign_event(
+                EventBuilder::new(
+                    Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16),
+                    message,
+                )
+                .tags([
+                    parse_tag(["h", channel.as_str()])?,
+                    parse_tag([
+                        "airhop-agent-turn",
+                        AirhopRole::ParentAdministrator.as_str(),
+                    ])?,
+                    parse_tag(["airhop-hermes-turn", turn_id.as_str()])?,
+                ]),
+            )
+        })
+        .collect()
+}
+
 fn build_message_events(
     config: &AirhopConfig,
     params: SendMessagesParams,
@@ -759,6 +939,26 @@ impl AirhopService {
         Ok(json!({ "eventIds": event_ids }))
     }
 
+    async fn send_parent_reply(&self, params: SendParentReplyParams) -> Result<Value, AirhopError> {
+        if self.config.role != AirhopRole::ParentAdministrator {
+            return Err(AirhopError(
+                "only the Parent Administrator may commit a parent reply".to_owned(),
+            ));
+        }
+        let claims = decode_parent_context(&self.config)?;
+        let events = build_parent_reply_events(&self.config, &claims, params.messages)?;
+        let path = format!("/api/airhop/agents/v1/turns/{}/reply", claims.turn_id);
+        self.config
+            .post_json(
+                &path,
+                &json!({
+                    "leaseToken": claims.turn_lease_token,
+                    "events": events,
+                }),
+            )
+            .await
+    }
+
     async fn delegate(&self, params: DelegateParams) -> Result<Value, AirhopError> {
         self.config.require_channel(params.channel_id)?;
         if self.config.role != AirhopRole::Fizz {
@@ -772,7 +972,7 @@ impl AirhopService {
             .await?;
         let manifest: WelcomeManifest = serde_json::from_value(manifest_value)
             .map_err(|error| AirhopError(format!("invalid Welcome manifest: {error}")))?;
-        if manifest.channel_id != self.config.channel_id {
+        if Some(manifest.channel_id) != self.config.channel_id {
             return Err(AirhopError(
                 "Welcome manifest channel does not match the configured channel".to_owned(),
             ));
@@ -1029,6 +1229,58 @@ impl AirhopService {
             "status": "confirmed_and_queued_for_deploy",
         }))
     }
+
+    async fn call_parent_backend(&self, request: Value) -> Result<Value, AirhopError> {
+        if self.config.role != AirhopRole::ParentAdministrator {
+            return Err(AirhopError(
+                "only the Parent Administrator may use the parent Agent Backend".to_owned(),
+            ));
+        }
+        self.config.post_json(AGENT_BACKEND_PATH, &request).await
+    }
+
+    async fn get_turn_context(&self) -> Result<Value, AirhopError> {
+        self.call_parent_backend(json!({ "operation": "get_turn_context" }))
+            .await
+    }
+
+    async fn get_family(&self) -> Result<Value, AirhopError> {
+        self.call_parent_backend(json!({ "operation": "get_family" }))
+            .await
+    }
+
+    async fn list_booking_options(
+        &self,
+        params: ListBookingOptionsParams,
+    ) -> Result<Value, AirhopError> {
+        self.call_parent_backend(json!({
+            "operation": "list_booking_options",
+            "branchId": params.branch_id,
+            "groupId": params.group_id,
+            "purpose": params.purpose,
+            "ageYears": params.age_years,
+        }))
+        .await
+    }
+
+    async fn search_knowledge(&self, params: SearchKnowledgeParams) -> Result<Value, AirhopError> {
+        self.call_parent_backend(json!({
+            "operation": "search_knowledge",
+            "query": params.query,
+            "locale": params.locale,
+            "limit": params.limit,
+        }))
+        .await
+    }
+
+    async fn manage_booking(&self, params: ManageBookingParams) -> Result<Value, AirhopError> {
+        self.call_parent_backend(json!({
+            "operation": "manage_booking",
+            "bookingId": params.booking_id,
+            "action": params.action,
+        }))
+        .await
+    }
 }
 
 fn validate_hex_event_id(value: &str, name: &str) -> Result<(), AirhopError> {
@@ -1118,6 +1370,16 @@ async fn read_authoritative(
 }
 
 fn tools_for(role: AirhopRole) -> BTreeSet<String> {
+    if role == AirhopRole::ParentAdministrator {
+        return BTreeSet::from([
+            "airhop_get_turn_context".to_owned(),
+            "airhop_get_family".to_owned(),
+            "airhop_list_booking_options".to_owned(),
+            "airhop_search_knowledge".to_owned(),
+            "airhop_manage_booking".to_owned(),
+            "airhop_send_parent_reply".to_owned(),
+        ]);
+    }
     let mut tools = BTreeSet::from(["airhop_read".to_owned(), "airhop_send_messages".to_owned()]);
     match role {
         AirhopRole::Fizz => {
@@ -1130,7 +1392,7 @@ fn tools_for(role: AirhopRole) -> BTreeSet<String> {
             tools.insert("airhop_propose_site_content".to_owned());
             tools.insert("airhop_confirm_site_content".to_owned());
         }
-        AirhopRole::Analyst => {}
+        AirhopRole::Analyst | AirhopRole::ParentAdministrator => {}
     }
     tools
 }
@@ -1161,6 +1423,12 @@ impl AirhopMcp {
             "airhop_prepare_action",
             "airhop_propose_site_content",
             "airhop_confirm_site_content",
+            "airhop_get_turn_context",
+            "airhop_get_family",
+            "airhop_list_booking_options",
+            "airhop_search_knowledge",
+            "airhop_manage_booking",
+            "airhop_send_parent_reply",
         ] {
             if !allowed.contains(name) {
                 tool_router.disable_route(name.to_owned());
@@ -1241,19 +1509,90 @@ impl AirhopMcp {
             self.service.confirm_site_content(params).await,
         ))
     }
+
+    #[tool(
+        name = "airhop_get_turn_context",
+        description = "Parent Administrator only: load the immutable server-authorized scope for this turn, including organization, verified Family summary, and granted capabilities. Call this before acting."
+    )]
+    async fn get_turn_context(
+        &self,
+        Parameters(_params): Parameters<GetTurnContextParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(self.service.get_turn_context().await))
+    }
+
+    #[tool(
+        name = "airhop_get_family",
+        description = "Parent Administrator only: load the parent-safe Family, children, enrollments, and bookings bound to this turn. The model cannot choose another Family."
+    )]
+    async fn get_family(
+        &self,
+        Parameters(_params): Parameters<GetFamilyParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(self.service.get_family().await))
+    }
+
+    #[tool(
+        name = "airhop_list_booking_options",
+        description = "Parent Administrator only: list current authoritative booking options. Optional filters narrow the result but cannot change the organization or Family scope."
+    )]
+    async fn list_booking_options(
+        &self,
+        Parameters(params): Parameters<ListBookingOptionsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(
+            self.service.list_booking_options(params).await,
+        ))
+    }
+
+    #[tool(
+        name = "airhop_search_knowledge",
+        description = "Parent Administrator only: search published parent-visible knowledge in the current organization and verified Family scope."
+    )]
+    async fn search_knowledge(
+        &self,
+        Parameters(params): Parameters<SearchKnowledgeParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(self.service.search_knowledge(params).await))
+    }
+
+    #[tool(
+        name = "airhop_manage_booking",
+        description = "Parent Administrator only: cancel or request transfer of one booking belonging to the verified Family in this turn. The server commits the action idempotently and returns an authoritative receipt."
+    )]
+    async fn manage_booking(
+        &self,
+        Parameters(params): Parameters<ManageBookingParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(self.service.manage_booking(params).await))
+    }
+
+    #[tool(
+        name = "airhop_send_parent_reply",
+        description = "Parent Administrator only: atomically commit and send the final one-to-three-message reply in the current parent conversation. Always use this for parent-facing output; the server rejects it after human takeover."
+    )]
+    async fn send_parent_reply(
+        &self,
+        Parameters(params): Parameters<SendParentReplyParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(self.service.send_parent_reply(params).await))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for AirhopMcp {
     fn get_info(&self) -> ServerInfo {
+        let instructions = if self.service.config.role == AirhopRole::ParentAdministrator {
+            "Use only the visible server-scoped Airhop tools. Load turn context first. Never infer or request identifiers outside the granted conversation and Family scope. Send parent-facing output only through airhop_send_parent_reply; never use a generic Buzz send tool."
+        } else {
+            "Use only the visible role-scoped Airhop tools. Keep Welcome flat and concise."
+        };
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(rmcp::model::Implementation::new(
                 "airhop-agent-mcp",
                 env!("CARGO_PKG_VERSION"),
             ))
-            .with_instructions(
-                "Use only the visible role-scoped Airhop tools. Keep Welcome flat and concise.",
-            )
+            .with_instructions(instructions)
     }
 }
 
@@ -1269,10 +1608,11 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
 
+    use axum::body::Bytes;
     use axum::extract::State;
     use axum::http::HeaderMap;
     use axum::response::Json;
-    use axum::routing::get;
+    use axum::routing::{get, post};
     use axum::Router;
     use nostr::Keys;
     use uuid::Uuid;
@@ -1328,6 +1668,18 @@ mod tests {
         assert!(!tools_for(AirhopRole::Fizz).contains("airhop_prepare_action"));
         assert!(tools_for(AirhopRole::Administrator).contains("airhop_prepare_action"));
         assert!(!tools_for(AirhopRole::ContentMarketer).contains("airhop_publish"));
+        assert_eq!(
+            tools_for(AirhopRole::ParentAdministrator),
+            set(&[
+                "airhop_get_turn_context",
+                "airhop_get_family",
+                "airhop_list_booking_options",
+                "airhop_search_knowledge",
+                "airhop_manage_booking",
+                "airhop_send_parent_reply",
+            ])
+        );
+        assert!(!tools_for(AirhopRole::ParentAdministrator).contains("airhop_read"));
         assert!(AirhopRole::parse_config("").is_err());
         assert!(AirhopRole::parse_config("owner").is_err());
 
@@ -1346,6 +1698,7 @@ mod tests {
             AirhopRole::Administrator,
             AirhopRole::Analyst,
             AirhopRole::ContentMarketer,
+            AirhopRole::ParentAdministrator,
         ] {
             let mcp = AirhopMcp::new(AirhopConfig::for_test(
                 role,
@@ -1361,6 +1714,95 @@ mod tests {
                 .collect();
             assert_eq!(listed, tools_for(role));
         }
+    }
+
+    #[test]
+    fn parent_backend_tool_wire_shapes_are_closed() {
+        let booking_id = Uuid::new_v4();
+        let options: ListBookingOptionsParams = serde_json::from_value(json!({
+            "branchId": Uuid::new_v4(),
+            "purpose": "trial",
+            "ageYears": 7,
+        }))
+        .expect("booking filters");
+        assert!(matches!(options.purpose, Some(BookingPurpose::Trial)));
+
+        let search: SearchKnowledgeParams = serde_json::from_value(json!({
+            "query": "что взять с собой"
+        }))
+        .expect("knowledge search");
+        assert_eq!(search.limit, default_parent_knowledge_limit());
+
+        let transfer: ManageBookingParams = serde_json::from_value(json!({
+            "bookingId": booking_id,
+            "action": {
+                "type": "request_transfer",
+                "comment": "Нужен другой день"
+            }
+        }))
+        .expect("transfer action");
+        assert_eq!(transfer.booking_id, booking_id);
+        assert!(matches!(
+            transfer.action,
+            ParentBookingAction::RequestTransfer { .. }
+        ));
+
+        assert!(serde_json::from_value::<ManageBookingParams>(json!({
+            "bookingId": booking_id,
+            "action": {"type": "delete"}
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<GetTurnContextParams>(json!({
+            "familyId": Uuid::new_v4()
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn parent_reply_uses_hidden_grant_scope_and_signed_top_level_events() {
+        let channel_id = Uuid::new_v4();
+        let turn_id = Uuid::new_v4();
+        let lease_token = Uuid::new_v4();
+        let keys = Keys::generate();
+        let grant = EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_AIRHOP_AGENT_CONTEXT_GRANT as u16),
+            json!({
+                "channelId": channel_id,
+                "turnId": turn_id,
+                "turnLeaseToken": lease_token,
+            })
+            .to_string(),
+        )
+        .sign_with_keys(&Keys::generate())
+        .unwrap();
+        let mut config = AirhopConfig::for_test(
+            AirhopRole::ParentAdministrator,
+            Uuid::new_v4(),
+            "http://127.0.0.1:3000",
+            keys,
+        );
+        config.channel_id = None;
+        config.context_grant = Some(
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&grant).unwrap()),
+        );
+        let claims = decode_parent_context(&config).unwrap();
+        assert_eq!(claims.channel_id, channel_id);
+        assert_eq!(claims.turn_id, turn_id);
+        assert_eq!(claims.turn_lease_token, lease_token);
+
+        let events = build_parent_reply_events(&config, &claims, vec!["Всё готово.".into()])
+            .expect("signed parent reply");
+        assert_eq!(events.len(), 1);
+        assert!(events[0].verify_signature());
+        assert!(events[0].tags.iter().any(|tag| {
+            let values = tag.as_slice();
+            values.len() >= 2 && values[0] == "h" && values[1] == channel_id.to_string()
+        }));
+        assert!(!events[0]
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice().first().is_some_and(|value| value == "e")));
     }
 
     #[test]
@@ -1594,6 +2036,24 @@ mod tests {
         Json(json!({ "analytics": { "expectedMinor": 4200 } }))
     }
 
+    #[derive(Clone, Default)]
+    struct ParentMockState {
+        requests: Arc<Mutex<Vec<(HeaderMap, Value)>>>,
+    }
+
+    async fn parent_backend(
+        State(state): State<ParentMockState>,
+        headers: HeaderMap,
+        body: Bytes,
+    ) -> Json<Value> {
+        let body = serde_json::from_slice(&body).unwrap();
+        state.requests.lock().unwrap().push((headers, body));
+        Json(json!({
+            "schemaVersion": "airhop.agent.read.v1",
+            "data": {"capabilities": ["read_organization_public"]}
+        }))
+    }
+
     #[tokio::test]
     async fn authoritative_read_uses_nip98_and_returns_locale_time_zone_and_json() {
         let state = MockState::default();
@@ -1623,6 +2083,48 @@ mod tests {
             .get("authorization")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.starts_with("Nostr "))));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn parent_tool_forwards_signed_context_and_server_scoped_operation() {
+        let state = ParentMockState::default();
+        let app = Router::new()
+            .route(AGENT_BACKEND_PATH, post(parent_backend))
+            .with_state(state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let mut config = AirhopConfig::for_test(
+            AirhopRole::ParentAdministrator,
+            Uuid::new_v4(),
+            &format!("http://{address}"),
+            Keys::generate(),
+        );
+        config.channel_id = None;
+        config.context_grant = Some("relay-signed-turn-context".into());
+        let result = AirhopService::new(config).get_turn_context().await.unwrap();
+        assert_eq!(
+            result["data"]["capabilities"][0],
+            "read_organization_public"
+        );
+
+        let requests = state.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].1, json!({"operation": "get_turn_context"}));
+        assert_eq!(
+            requests[0]
+                .0
+                .get(AGENT_CONTEXT_HEADER)
+                .and_then(|value| value.to_str().ok()),
+            Some("relay-signed-turn-context")
+        );
+        assert!(requests[0]
+            .0
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("Nostr ")));
         server.abort();
     }
 }

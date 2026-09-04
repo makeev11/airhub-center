@@ -34,6 +34,42 @@ pub struct PublicManagementCommand {
     pub request_hash: [u8; 32],
 }
 
+/// Server-scoped command used by the parent-facing AirHop agent backend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentFamilyManagementCommand {
+    /// Family derived from the short-lived server context grant.
+    pub family_id: Uuid,
+    /// Booking selected from that family's authoritative projection.
+    pub booking_id: Uuid,
+    /// Persisted deployment that owns the active turn.
+    pub deployment_id: Uuid,
+    /// Desired-state version captured in the signed context.
+    pub deployment_version: i64,
+    /// Durable Hermes turn identity.
+    pub turn_id: Uuid,
+    /// Exact active lease proof.
+    pub turn_lease_token: Uuid,
+    /// Retry-stable digest of the turn/action idempotency key.
+    pub idempotency_digest: [u8; 32],
+    /// Digest of the complete typed action request.
+    pub request_hash: [u8; 32],
+    /// Authenticated agent attribution.
+    pub actor: AirhopActor,
+}
+
+/// Durable result returned to the agent after a family-scoped booking action.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentFamilyManagementResult {
+    /// Booking changed or confirmed as already changed.
+    pub booking_id: Uuid,
+    /// Authoritative lifecycle after the transaction.
+    pub status: BookingStatus,
+    /// Optimistic booking version after the transaction.
+    pub version: i64,
+    /// Whether an earlier command receipt was replayed.
+    pub replayed: bool,
+}
+
 /// Parent-visible transfer request state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -280,6 +316,175 @@ impl Db {
             .await?
             .ok_or_else(|| DbError::NotFound("public booking management card".to_owned()))
     }
+
+    /// Applies a parent-safe booking action only when the booking belongs to
+    /// the Family carried by a verified agent context grant.
+    pub async fn apply_airhop_agent_family_management_action(
+        &self,
+        tenant: &TenantContext,
+        command: AgentFamilyManagementCommand,
+        action: PublicManagementAction,
+    ) -> Result<AgentFamilyManagementResult> {
+        if command.family_id.is_nil() || command.booking_id.is_nil() {
+            return Err(DbError::InvalidData(
+                "AirHub agent family and booking ids are required".to_owned(),
+            ));
+        }
+        command.actor.validate()?;
+        validate_action(&action)?;
+        let mut transaction = self.pool.begin().await?;
+        let guarded_organization_id =
+            lock_active_agent_turn_for_action(&mut transaction, tenant, &command).await?;
+        let mut booking = lock_family_booking(
+            &mut transaction,
+            tenant,
+            command.family_id,
+            command.booking_id,
+        )
+        .await?;
+        if booking.organization_id != guarded_organization_id {
+            return Err(DbError::AccessDenied(
+                "AirHub booking is outside the active Hermes turn".to_owned(),
+            ));
+        }
+        let command_input = NewAirhopCommand {
+            id: Uuid::new_v4(),
+            organization_id: booking.organization_id,
+            command_type: format!("Agent{}", action.command_type()),
+            idempotency_digest: command.idempotency_digest,
+            request_hash: command.request_hash,
+            actor: command.actor.clone(),
+            correlation_id: Uuid::new_v4(),
+        };
+        let command_row = match insert_pending_command(&mut transaction, tenant, &command_input)
+            .await?
+        {
+            CommandInsertOutcome::Inserted(command_row) => command_row,
+            CommandInsertOutcome::Existing(existing) => {
+                verify_replayed_management_command(&existing, booking.id)?;
+                transaction.commit().await?;
+                let mut result =
+                    load_family_booking_result(self, tenant, command.family_id, command.booking_id)
+                        .await?;
+                result.replayed = true;
+                return Ok(result);
+            }
+        };
+        let event =
+            apply_action(&mut transaction, tenant, &mut booking, &action, Utc::now()).await?;
+        if let Some(event) = event {
+            let event_id = Uuid::new_v4();
+            append_domain_event(
+                &mut transaction,
+                tenant,
+                &NewDomainEvent {
+                    id: event_id,
+                    organization_id: booking.organization_id,
+                    stream_type: "booking".to_owned(),
+                    stream_id: booking.id,
+                    stream_version: booking.version,
+                    event_type: event.event_type.to_owned(),
+                    schema_version: 1,
+                    occurred_at: event.occurred_at,
+                    actor: command.actor,
+                    causation_id: command_row.id,
+                    correlation_id: command_row.correlation_id,
+                    payload: event.payload.clone(),
+                    privacy_class: PrivacyClass::SensitiveChild,
+                },
+            )
+            .await?;
+            enqueue_outbox(
+                &mut transaction,
+                tenant,
+                &NewOutboxMessage {
+                    id: Uuid::new_v4(),
+                    organization_id: booking.organization_id,
+                    event_id,
+                    destination: event.destination.to_owned(),
+                    redacted_payload: event.payload,
+                    not_before: event.occurred_at,
+                },
+            )
+            .await?;
+        }
+        commit_command(
+            &mut transaction,
+            tenant,
+            booking.organization_id,
+            command_row.id,
+            &serde_json::to_value(StoredManagementResult {
+                booking_id: booking.id,
+            })?,
+        )
+        .await?;
+        transaction.commit().await?;
+        load_family_booking_result(self, tenant, command.family_id, command.booking_id).await
+    }
+}
+
+async fn lock_active_agent_turn_for_action(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    command: &AgentFamilyManagementCommand,
+) -> Result<Uuid> {
+    if command.deployment_id.is_nil()
+        || command.deployment_version <= 0
+        || command.turn_id.is_nil()
+        || command.turn_lease_token.is_nil()
+    {
+        return Err(DbError::InvalidData(
+            "AirHub Hermes action lease fields are invalid".to_owned(),
+        ));
+    }
+    let agent_pubkey = command.actor.agent_pubkey.ok_or_else(|| {
+        DbError::InvalidData("AirHub Hermes action requires agent attribution".to_owned())
+    })?;
+    let organization_id: Uuid = sqlx::query_scalar(
+        "SELECT deployment.organization_id
+         FROM airhop_agent_deployments deployment
+         JOIN airhop_organizations organization
+           ON organization.community_id = deployment.community_id
+          AND organization.id = deployment.organization_id
+         WHERE deployment.community_id = $1 AND deployment.id = $2
+           AND deployment.version = $3 AND deployment.agent_pubkey = $4
+           AND deployment.enabled AND NOT deployment.paused
+           AND deployment.manage_bookings
+           AND organization.status = 'active'
+         FOR SHARE OF deployment",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(command.deployment_id)
+    .bind(command.deployment_version)
+    .bind(agent_pubkey.as_slice())
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or_else(|| {
+        DbError::AccessDenied("AirHub Hermes deployment is no longer active".to_owned())
+    })?;
+    let turn_organization_id: Uuid = sqlx::query_scalar(
+        "SELECT turn.organization_id
+         FROM airhop_hermes_turn_receipts turn
+         WHERE turn.community_id = $1 AND turn.organization_id = $2
+           AND turn.id = $3 AND turn.deployment_id = $4
+           AND turn.lease_token = $5 AND turn.agent_pubkey = $6
+           AND turn.family_id = $7 AND turn.status = 'leased'
+           AND turn.lease_expires_at > now()
+         FOR SHARE OF turn",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(organization_id)
+    .bind(command.turn_id)
+    .bind(command.deployment_id)
+    .bind(command.turn_lease_token)
+    .bind(agent_pubkey.as_slice())
+    .bind(command.family_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or_else(|| {
+        DbError::AccessDenied("AirHub Hermes action lease is no longer active".to_owned())
+    })?;
+    Ok(turn_organization_id)
 }
 
 #[derive(Debug)]
@@ -335,6 +540,78 @@ async fn lock_booking(
             .transpose()?,
         version: row.try_get("version")?,
         occurrence_is_future: row.try_get("occurrence_is_future")?,
+    })
+}
+
+async fn lock_family_booking(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    family_id: Uuid,
+    booking_id: Uuid,
+) -> Result<LockedBooking> {
+    let row = sqlx::query(
+        "SELECT booking.id, booking.organization_id, booking.representative_id, \
+                booking.recurrence_rule_id, booking.original_date, booking.status, \
+                booking.transfer_request, booking.version, \
+                occurrence.starts_at > now() AS occurrence_is_future \
+         FROM airhop_bookings booking \
+         JOIN airhop_organizations organization \
+           ON organization.community_id = booking.community_id \
+          AND organization.id = booking.organization_id \
+         JOIN airhop_lesson_occurrences occurrence \
+           ON occurrence.community_id = booking.community_id \
+          AND occurrence.organization_id = booking.organization_id \
+          AND occurrence.recurrence_rule_id = booking.recurrence_rule_id \
+          AND occurrence.original_date = booking.original_date \
+         WHERE booking.community_id = $1 AND organization.status = 'active' \
+           AND booking.family_id = $2 AND booking.id = $3 \
+         FOR UPDATE OF booking",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(family_id)
+    .bind(booking_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or_else(|| DbError::NotFound("family-scoped AirHub booking".to_owned()))?;
+    Ok(LockedBooking {
+        id: row.try_get("id")?,
+        organization_id: row.try_get("organization_id")?,
+        representative_id: row.try_get("representative_id")?,
+        lesson_ref: StableLessonReference {
+            recurrence_rule_id: row.try_get("recurrence_rule_id")?,
+            original_date: row.try_get("original_date")?,
+        },
+        status: parse_status(row.try_get("status")?)?,
+        transfer_request: row
+            .try_get::<Option<Value>, _>("transfer_request")?
+            .map(serde_json::from_value)
+            .transpose()?,
+        version: row.try_get("version")?,
+        occurrence_is_future: row.try_get("occurrence_is_future")?,
+    })
+}
+
+async fn load_family_booking_result(
+    db: &Db,
+    tenant: &TenantContext,
+    family_id: Uuid,
+    booking_id: Uuid,
+) -> Result<AgentFamilyManagementResult> {
+    let row = sqlx::query(
+        "SELECT status, version FROM airhop_bookings \
+         WHERE community_id = $1 AND family_id = $2 AND id = $3",
+    )
+    .bind(tenant.community().as_uuid())
+    .bind(family_id)
+    .bind(booking_id)
+    .fetch_optional(&db.pool)
+    .await?
+    .ok_or_else(|| DbError::NotFound("family-scoped AirHub booking".to_owned()))?;
+    Ok(AgentFamilyManagementResult {
+        booking_id,
+        status: parse_status(row.try_get("status")?)?,
+        version: row.try_get("version")?,
+        replayed: false,
     })
 }
 
