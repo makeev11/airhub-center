@@ -163,6 +163,7 @@ pinned during the release:
 
 ```bash
 AIRHOP_ENV_FILE=/absolute/path/to/.env \
+AIRHOP_COMPOSE_PROJECT_NAME=existing-project-name \
 AIRHOP_COMPOSE_FILES=/absolute/path/to/base.yml:/absolute/path/to/host.yml:/absolute/path/to/compose.existing.yml \
 AIRHOP_SKIP_IMAGE_BUILD=1 \
 ./scripts/bootstrap-airhop-hermes.sh

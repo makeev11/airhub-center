@@ -18,6 +18,10 @@ read_env() {
 
 IFS=':' read -r -a compose_file_paths <<<"${COMPOSE_FILES}"
 compose=(docker compose --env-file "${ENV_FILE}")
+compose_project_name="${AIRHOP_COMPOSE_PROJECT_NAME:-$(read_env AIRHOP_COMPOSE_PROJECT_NAME)}"
+if [[ -n "${compose_project_name}" ]]; then
+  compose+=(--project-name "${compose_project_name}")
+fi
 for compose_file_path in "${compose_file_paths[@]}"; do
   if [[ ! -f "${compose_file_path}" ]]; then
     echo "AirHop Compose file not found: ${compose_file_path}" >&2
