@@ -213,10 +213,10 @@ export async function acceptJoinPolicy(
     return (response.body as { receipt: string }).receipt;
   }
   const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    });
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return ((await response.json()) as { receipt: string }).receipt;
 }

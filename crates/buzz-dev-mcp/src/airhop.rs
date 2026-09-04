@@ -1043,7 +1043,7 @@ impl AirhopService {
         let value = self.config.get_json(SITE_CONTENT_CONTEXT_PATH).await?;
         let context: SiteContentContext = serde_json::from_value(value)
             .map_err(|error| AirhopError(format!("invalid site-content context: {error}")))?;
-        if context.welcome_channel_id != self.config.channel_id {
+        if self.config.channel_id != Some(context.welcome_channel_id) {
             return Err(AirhopError(
                 "site-content context is bound to another Welcome channel".to_owned(),
             ));
