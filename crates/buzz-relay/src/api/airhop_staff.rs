@@ -25,7 +25,6 @@ use buzz_db::airhop::enrollment_lifecycle::{EnrollmentChange, MutateEnrollmentIn
 use buzz_db::airhop::family_commands::{
     UpdateFamilyChildInput, UpdateFamilyInput, UpdateFamilyRepresentativeInput,
 };
-use buzz_db::airhop::family_detail::StaffFamilyDetail;
 use buzz_db::airhop::family_directory::{
     StaffFamilyDirectoryCursor, StaffFamilyDirectoryFilter, StaffFamilyDirectoryPage,
     StaffFamilyDirectoryStatus,
@@ -2168,15 +2167,23 @@ pub(crate) async fn get_family_detail(
     State(state): State<Arc<AppState>>,
     Path(family_id): Path<Uuid>,
     headers: HeaderMap,
-) -> Result<Json<StaffFamilyDetail>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let path = format!("/api/airhop/staff/v1/families/{family_id}");
-    let (tenant, _) = authenticate(&state, &headers, "GET", &path, None, Access::Staff).await?;
-    state
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "GET", &path, None, Access::Staff).await?;
+    let detail = state
         .db
         .get_airhop_staff_family_detail(&tenant, family_id)
         .await
-        .map(Json)
-        .map_err(map_db_error)
+        .map_err(map_db_error)?;
+    let mut value =
+        serde_json::to_value(detail).map_err(|_| internal_error("family serialization failed"))?;
+    value["conversations"] = json!(state
+        .db
+        .list_airhop_family_conversations(&tenant, family_id, pubkey.to_bytes())
+        .await
+        .map_err(map_db_error)?);
+    Ok(Json(value))
 }
 
 /// Staff-only family-label replacement with optimistic concurrency and audit.

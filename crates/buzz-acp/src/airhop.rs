@@ -2,13 +2,17 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Mutex;
 
 use nostr::Event;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::queue::FlushBatch;
 use crate::relay::{BuzzEvent, RelayError, RestClient};
 
 /// Stable product role carried by managed-agent environment and relay APIs.
@@ -19,6 +23,7 @@ pub(crate) enum AirhopRole {
     Administrator,
     Analyst,
     ContentMarketer,
+    ParentAdministrator,
 }
 
 impl AirhopRole {
@@ -28,6 +33,7 @@ impl AirhopRole {
             "administrator" => Ok(Self::Administrator),
             "analyst" => Ok(Self::Analyst),
             "content_marketer" => Ok(Self::ContentMarketer),
+            "parent_administrator" => Ok(Self::ParentAdministrator),
             other => Err(format!("unknown Airhop role: {other}")),
         }
     }
@@ -38,6 +44,7 @@ impl AirhopRole {
             Self::Administrator => "administrator",
             Self::Analyst => "analyst",
             Self::ContentMarketer => "content_marketer",
+            Self::ParentAdministrator => "parent_administrator",
         }
     }
 }
@@ -67,6 +74,154 @@ pub(crate) enum RouteGate {
     Drop,
     DropDuplicate,
     Bypass,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParentClaimResponse {
+    token: String,
+}
+
+/// Dispatch-time hosted supervisor gate for the parent-facing Hermes role.
+/// The token file is visible to AirHop MCP only, never to the model process.
+pub(crate) struct ParentSupervisorGate {
+    enabled: bool,
+    context_file: Option<PathBuf>,
+    client: RestClient,
+}
+
+impl ParentSupervisorGate {
+    pub(crate) fn new(
+        role: Option<AirhopRole>,
+        context_file: Option<PathBuf>,
+        client: RestClient,
+    ) -> Self {
+        Self {
+            enabled: role == Some(AirhopRole::ParentAdministrator) && context_file.is_some(),
+            context_file,
+            client,
+        }
+    }
+
+    /// Claims the newest triggerable event in a coalesced batch. Receipts prove
+    /// that it is current parent input or an explicit authorized staff resume;
+    /// all other staff/internal events fail closed.
+    pub(crate) async fn claim_batch(&self, batch: &FlushBatch) -> bool {
+        if !self.enabled {
+            return true;
+        }
+        let source_event_ids = parent_batch_source_ids(batch);
+        let Some(event_id) = source_event_ids.first() else {
+            return false;
+        };
+        let input_batch_id = deterministic_batch_id(batch);
+        let path = format!("/api/airhop/agents/v1/supervisor/events/{event_id}/claim");
+        let response = self
+            .client
+            .post_json(
+                &path,
+                &serde_json::json!({
+                    "inputBatchId": input_batch_id,
+                    "sourceEventIds": source_event_ids,
+                    "leaseSeconds": 600,
+                    "ttlSeconds": 300,
+                }),
+            )
+            .await
+            .and_then(|value| serde_json::from_value(value).map_err(RelayError::Json));
+        match response {
+            Ok(ParentClaimResponse { token }) => {
+                let Some(path) = self.context_file.as_deref() else {
+                    return false;
+                };
+                match write_context_grant(path, &token) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        tracing::error!(
+                            event_id,
+                            error = %error,
+                            "AirHop supervisor could not hand context to MCP"
+                        );
+                        false
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::debug!(
+                    event_id,
+                    error = %bounded_error(&error),
+                    "AirHop supervisor dropped non-triggerable event batch"
+                );
+                false
+            }
+        }
+    }
+}
+
+fn parent_batch_source_ids(batch: &FlushBatch) -> Vec<String> {
+    let mut seen = HashSet::new();
+    batch
+        .events
+        .iter()
+        .rev()
+        .chain(batch.cancelled_events.iter().rev())
+        .map(|source| source.event.id.to_hex())
+        .filter(|id| seen.insert(id.clone()))
+        .collect()
+}
+
+fn deterministic_batch_id(batch: &FlushBatch) -> Uuid {
+    let mut hasher = Sha256::new();
+    hasher.update(b"airhop.hermes.input-batch.v1");
+    hasher.update(batch.channel_id.as_bytes());
+    for event in batch.cancelled_events.iter().chain(&batch.events) {
+        hasher.update(event.event.id.as_bytes());
+    }
+    let digest = hasher.finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
+}
+
+fn write_context_grant(path: &Path, token: &str) -> std::io::Result<()> {
+    if token.trim().is_empty() || token.len() > 24_000 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "context grant is empty or oversized",
+        ));
+    }
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "context path has no parent",
+        )
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let temporary = parent.join(format!(
+        ".{}.{}.tmp",
+        path.file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("context"),
+        Uuid::new_v4()
+    ));
+    let mut options = std::fs::OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary)?;
+    file.write_all(token.trim().as_bytes())?;
+    file.sync_all()?;
+    drop(file);
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
+    Ok(())
 }
 
 type ClientFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, RelayError>> + Send + 'a>>;
@@ -501,5 +656,62 @@ mod tests {
                 .unwrap(),
         };
         assert_eq!(make_gate().evaluate(&forged).await, RouteGate::Drop);
+    }
+
+    #[test]
+    fn parent_input_batch_identity_is_stable_and_order_sensitive() {
+        use crate::queue::BatchEvent;
+        use std::time::Instant;
+
+        let channel_id = Uuid::new_v4();
+        let first = event(channel_id).event;
+        let second = event(channel_id).event;
+        let batch = FlushBatch {
+            channel_id,
+            events: vec![
+                BatchEvent {
+                    event: first,
+                    prompt_tag: "parent".into(),
+                    received_at: Instant::now(),
+                },
+                BatchEvent {
+                    event: second,
+                    prompt_tag: "parent".into(),
+                    received_at: Instant::now(),
+                },
+            ],
+            cancelled_events: Vec::new(),
+            cancel_reason: None,
+        };
+        assert_eq!(
+            deterministic_batch_id(&batch),
+            deterministic_batch_id(&batch)
+        );
+        assert_eq!(
+            parent_batch_source_ids(&batch),
+            vec![
+                batch.events[1].event.id.to_hex(),
+                batch.events[0].event.id.to_hex()
+            ]
+        );
+        let merged = FlushBatch {
+            cancelled_events: batch.events.clone(),
+            ..batch.clone()
+        };
+        assert_eq!(
+            parent_batch_source_ids(&merged),
+            parent_batch_source_ids(&batch)
+        );
+
+        let reversed = FlushBatch {
+            channel_id,
+            events: batch.events.iter().cloned().rev().collect(),
+            cancelled_events: Vec::new(),
+            cancel_reason: None,
+        };
+        assert_ne!(
+            deterministic_batch_id(&batch),
+            deterministic_batch_id(&reversed)
+        );
     }
 }

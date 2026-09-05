@@ -52,7 +52,10 @@ test("join deep link is acknowledged without claiming before setup", async ({
   });
   await installMockBridge(
     page,
-    { pendingCommunityDeepLinks: [PENDING_JOIN_LINK] },
+    {
+      identityLost: true,
+      pendingCommunityDeepLinks: [PENDING_JOIN_LINK],
+    },
     { skipCommunitySeed: true, skipOnboardingSeed: true },
   );
   await page.goto("/");
@@ -83,7 +86,10 @@ test("connect deep link shows a static acknowledgment during setup", async ({
   // acknowledges the link and waits for the user instead of auto-advancing.
   await installMockBridge(
     page,
-    { pendingCommunityDeepLinks: [PENDING_CONNECT_LINK] },
+    {
+      identityLost: true,
+      pendingCommunityDeepLinks: [PENDING_CONNECT_LINK],
+    },
     { skipCommunitySeed: true, skipOnboardingSeed: true },
   );
   await page.goto("/");
@@ -301,16 +307,18 @@ test("Welcome failure retries once before allowing starter channel setup to be s
   );
   await page.goto("/");
 
-  for (const name of ["fizz", "honey", "bumble"]) {
-    const character = page.getByTestId(`starter-persona-${name}`);
+  for (const [role, image] of [
+    ["fizz", "fizz"],
+    ["administrator", "administrator"],
+    ["analyst", "analyst"],
+    ["content-marketer", "editor"],
+  ] as const) {
+    const character = page.getByTestId(`starter-persona-${role}`);
     await expect(character).toBeVisible();
-    await expect(character).toHaveAttribute(
-      "src",
-      `/onboarding/starter-team/${name}.png`,
-    );
+    await expect(character).toHaveAttribute("src", `/agents/${image}.png`);
   }
 
-  const enterButton = page.getByRole("button", { name: "Take me to Buzz" });
+  const enterButton = page.getByRole("button", { name: "Take me to Airhop" });
   await enterButton.click();
 
   await expect(page.getByText(`${welcomeError} Try again.`)).toBeVisible();
@@ -404,7 +412,7 @@ test("persisted deep-link invite hands off to Joining after machine onboarding",
   // Machine onboarding is complete, so the transaction owns the screen.
   await expect(page.getByTestId("community-onboarding-flow")).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Joining hive" }),
+    page.getByRole("heading", { name: "Connecting to hive" }),
   ).toBeVisible();
   await expect(page.getByTestId("pending-invite-gate")).toHaveCount(0);
 

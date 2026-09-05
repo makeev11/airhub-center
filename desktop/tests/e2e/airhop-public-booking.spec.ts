@@ -151,6 +151,11 @@ test.beforeEach(async ({ page }) => {
     window.localStorage.setItem("airhop.locale.v1", "ru-RU");
   });
   await page.clock.setFixedTime(new Date("2026-08-04T09:00:00.000Z"));
+  // This suite asserts Russian organization and branch data as well as UI copy.
+  // Seed the locale before the demo workspace is created by the mock bridge.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("airhop.locale.v1", "ru-RU");
+  });
   await installMockBridge(page);
 });
 
@@ -534,15 +539,16 @@ test("widget purpose and appearance are controlled by AirHop settings", async ({
     .selectOption("lesson");
   await page.getByTestId("airhop-settings-public-appearance-dark").click();
 
-  await expect(
-    page.getByTestId("airhop-settings-public-appearance-dark"),
-  ).toHaveAttribute("aria-pressed", "true");
+  // The full preview lives in the actual public widget, not inside Settings.
+  const dark = page.getByTestId("airhop-settings-public-appearance-dark");
+  const light = page.getByTestId("airhop-settings-public-appearance-light");
+  await expect(dark).toHaveAttribute("aria-pressed", "true");
 
-  await page.getByTestId("airhop-settings-public-appearance-light").click();
-  await expect(
-    page.getByTestId("airhop-settings-public-appearance-light"),
-  ).toHaveAttribute("aria-pressed", "true");
-  await page.getByTestId("airhop-settings-public-appearance-dark").click();
+  await light.click();
+  await expect(light).toHaveAttribute("aria-pressed", "true");
+  await expect(dark).toHaveAttribute("aria-pressed", "false");
+  await dark.click();
+  await expect(light).toHaveAttribute("aria-pressed", "false");
 
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByTestId("airhop-settings-saved")).toBeVisible();

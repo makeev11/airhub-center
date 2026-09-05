@@ -719,6 +719,43 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // A Hermes final reply is committed before it is passed through ordinary
+    // Buzz ingestion. If the relay dies in that narrow window, this worker
+    // replays the exact signed event. Event ids and committed intents make the
+    // replay idempotent across retries and multiple pods.
+    {
+        let gateway_state = Arc::clone(&state);
+        let interval_secs = std::env::var("BUZZ_AIRHOP_HERMES_RECOVERY_INTERVAL_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(5)
+            .max(1);
+        let batch_limit = std::env::var("BUZZ_AIRHOP_HERMES_RECOVERY_BATCH_LIMIT")
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(100)
+            .clamp(1, 200);
+        tokio::spawn(async move {
+            info!(
+                interval_secs,
+                batch_limit, "AirHop Hermes publication recovery started"
+            );
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                if let Err(error) = buzz_relay::airhop_gateway::recover_pending_hermes_publications(
+                    &gateway_state,
+                    batch_limit,
+                )
+                .await
+                {
+                    error!(%error, "AirHop Hermes publication recovery cycle failed");
+                }
+            }
+        });
+    }
+
     // Ephemeral channel reaper — archives channels whose TTL deadline has passed.
     // Runs every 60s, matching the workflow cron loop pattern. The SQL UPDATE
     // uses `archived_at IS NULL` as a guard, so concurrent runs from multiple

@@ -263,19 +263,16 @@ fn fake_model_response(request: &Value) -> Value {
         };
     }
     if system.contains("Airhop Content Marketer")
-        && system.contains("do not publish or mutate content")
+        && system.contains("must call airhop_propose_site_content")
+        && system.contains("immutable HQ preview")
+        && system.contains("call airhop_confirm_site_content")
+        && system.contains("You cannot confirm your own proposal")
     {
-        let unavailable = if mirrors_locale {
-            localized_text(
-                user,
-                "Публикация пока недоступна.",
-                "Publishing is not available yet.",
-                "A publicacao ainda nao esta disponivel.",
-            )
+        return if used_tool {
+            openai_text(&final_text)
         } else {
-            "Publishing is not available yet.".to_owned()
+            openai_tool("airhop_propose_site_content")
         };
-        return openai_text(&unavailable);
     }
 
     openai_text("persona contract missing")
@@ -368,7 +365,10 @@ async fn airhop_welcome_transcripts() {
             Some("airhop_prepare_action"),
         ),
         ("AIRHOP_ANALYST_SYSTEM_PROMPT", Some("airhop_read")),
-        ("AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT", None),
+        (
+            "AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT",
+            Some("airhop_propose_site_content"),
+        ),
     ];
     let locales = [
         (

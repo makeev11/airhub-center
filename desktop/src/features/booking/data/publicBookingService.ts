@@ -58,6 +58,8 @@ export type PublicBookingCatalog = {
 };
 
 export type PublicBookingManagementCard = {
+  messengerHandoff?: { url: string; expiresAt: string };
+  telegramConnected?: boolean;
   status: PublicLessonBooking["status"];
   childName: string;
   maskedPhone: string;

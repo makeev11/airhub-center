@@ -12,6 +12,7 @@ export type BookingSettingsDestinationId =
   | "groups"
   | "tariffs"
   | "teachers"
+  | "channels"
   | "public-booking";
 
 export type BookingRoute =
@@ -90,6 +91,12 @@ export const SETTINGS_BOOKING_DESTINATIONS = [
     testId: "open-airhop-teachers",
   },
   {
+    id: "channels",
+    to: "/booking/settings",
+    testId: "open-airhop-settings-channels",
+    section: "channels",
+  },
+  {
     id: "public-booking",
     to: "/booking/settings",
     testId: "open-airhop-settings-public-booking",
@@ -99,5 +106,5 @@ export const SETTINGS_BOOKING_DESTINATIONS = [
   id: BookingSettingsDestinationId;
   to: BookingRoute;
   testId: string;
-  section?: "public-booking";
+  section?: "channels" | "public-booking";
 }>;

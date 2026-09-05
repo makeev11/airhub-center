@@ -147,6 +147,9 @@ test.beforeEach(async ({ page }) => {
     window.localStorage.setItem("airhop.locale.v1", "ru-RU");
   });
   await page.clock.setFixedTime(new Date("2026-08-04T09:00:00.000Z"));
+  await page.addInitScript(() => {
+    window.localStorage.setItem("airhop.locale.v1", "ru-RU");
+  });
   await installMockBridge(page);
 });
 
@@ -704,7 +707,7 @@ test("AirHop manages teachers and groups without losing archived history", async
 
   const firstTemplate = groupForm.getByTestId("airhop-group-schedule-0");
   await firstTemplate
-    .getByLabel("Начало 1", { exact: true })
+    .getByRole("textbox", { name: "Начало 1", exact: true })
     .fill("03.08.2026");
   await groupForm.getByRole("button", { name: "Добавить занятие" }).click();
   const secondTemplate = groupForm.getByTestId("airhop-group-schedule-1");

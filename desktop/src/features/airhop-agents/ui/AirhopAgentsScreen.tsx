@@ -12,6 +12,8 @@ import {
   materializeAirhopAgentCards,
   type AirhopAgentCardModel,
 } from "@/features/airhop-agents/model/airhopAgentCatalog";
+import { HermesAgentCard } from "@/features/airhop-agents/ui/HermesAgentCard";
+import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import type { AirHopLocale } from "@/shared/locale/airhopLocale";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
@@ -154,6 +156,7 @@ export function AirhopAgentsScreen({
   const { mutateAsync: setStartOnLaunch } =
     useSetManagedAgentStartOnAppLaunchMutation();
   const [pending, setPending] = React.useState<Set<string>>(() => new Set());
+  const serverEnabled = currentAirhopStaffDataRuntime() === "server";
   const cards = React.useMemo(
     () => materializeAirhopAgentCards(managedAgents.data ?? [], locale),
     [locale, managedAgents.data],
@@ -241,23 +244,26 @@ export function AirhopAgentsScreen({
           </Button>
         </header>
 
-        {managedAgents.isLoading ? (
-          <p className="py-10 text-sm text-muted-foreground">{copy.loading}</p>
-        ) : managedAgents.isError ? (
-          <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
-            <p className="text-sm">{copy.loadError}</p>
-            <Button
-              className="mt-4"
-              onClick={() => void managedAgents.refetch()}
-              size="sm"
-              variant="outline"
-            >
-              {copy.retry}
-            </Button>
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            {cards.map((card) => {
+        <div className="grid gap-4">
+          <HermesAgentCard serverEnabled={serverEnabled} />
+          {managedAgents.isLoading ? (
+            <p className="py-10 text-sm text-muted-foreground">
+              {copy.loading}
+            </p>
+          ) : managedAgents.isError ? (
+            <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
+              <p className="text-sm">{copy.loadError}</p>
+              <Button
+                className="mt-4"
+                onClick={() => void managedAgents.refetch()}
+                size="sm"
+                variant="outline"
+              >
+                {copy.retry}
+              </Button>
+            </div>
+          ) : (
+            cards.map((card) => {
               const enabled =
                 card.state === "running" || card.state === "attention";
               const access = card.respondTo ?? "unknown";
@@ -310,9 +316,9 @@ export function AirhopAgentsScreen({
                   </div>
                 </article>
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+        </div>
       </div>
     </section>
   );

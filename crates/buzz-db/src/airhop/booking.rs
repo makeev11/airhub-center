@@ -10,6 +10,88 @@ use uuid::Uuid;
 use super::AirhopActor;
 use crate::{DbError, Result};
 
+/// Revalidates an existing held seat before an agent confirms it. The booking
+/// is locked by the command service; the occurrence serializes capacity changes.
+pub(super) async fn recheck_online_confirmation(
+    tx: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    booking_id: Uuid,
+) -> Result<()> {
+    let row = sqlx::query(
+        "SELECT b.organization_id, b.recurrence_rule_id, b.original_date, b.child_id,
+                b.visit_kind, b.transfer_request, o.group_id, o.effective_date, o.capacity,
+                o.trial_policy, o.allow_single_visits, g.min_age_months, g.max_age_months, child.birth_date
+         FROM airhop_bookings b
+         JOIN airhop_lesson_occurrences o ON o.community_id = b.community_id AND o.organization_id = b.organization_id
+           AND o.recurrence_rule_id = b.recurrence_rule_id AND o.original_date = b.original_date
+         JOIN airhop_groups g ON g.community_id = o.community_id AND g.organization_id = o.organization_id AND g.id = o.group_id
+         JOIN airhop_children child ON child.community_id = b.community_id AND child.organization_id = b.organization_id AND child.id = b.child_id
+         JOIN airhop_families f ON f.community_id = b.community_id AND f.organization_id = b.organization_id AND f.id = b.family_id
+         JOIN airhop_representatives p ON p.community_id = b.community_id AND p.organization_id = b.organization_id AND p.id = b.representative_id
+         JOIN airhop_consents consent ON consent.community_id = b.community_id AND consent.organization_id = b.organization_id AND consent.id = b.consent_id
+         WHERE b.community_id = $1 AND b.id = $2 AND b.status = 'pending_confirmation'
+           AND o.starts_at > now() AND o.status <> 'cancelled' AND g.status = 'active'
+           AND child.status = 'active' AND f.status = 'active' AND p.status = 'active'
+           AND consent.purpose = 'public_booking' AND consent.status = 'granted' AND consent.effective_at <= now()
+           AND NOT EXISTS (SELECT 1 FROM airhop_duplicate_candidates candidate
+               WHERE candidate.community_id = b.community_id AND candidate.organization_id = b.organization_id
+                 AND candidate.status = 'pending' AND (
+                   (candidate.new_entity_type = 'representative' AND candidate.new_entity_id = b.representative_id)
+                   OR (candidate.existing_entity_type = 'representative' AND candidate.existing_entity_id = b.representative_id)
+                   OR (candidate.new_entity_type = 'child' AND candidate.new_entity_id = b.child_id)
+                   OR (candidate.existing_entity_type = 'child' AND candidate.existing_entity_id = b.child_id)))
+         FOR UPDATE OF o",
+    ).bind(tenant.community().as_uuid()).bind(booking_id).fetch_optional(&mut **tx).await?
+        .ok_or(DbError::AirhopOccurrenceUnavailable)?;
+    if row
+        .try_get::<Option<Value>, _>("transfer_request")?
+        .is_some()
+    {
+        return Err(DbError::AirhopBookingTransition);
+    }
+    let trial_policy: TrialPolicy = serde_json::from_value(row.try_get("trial_policy")?)?;
+    validate_visit_policy(
+        BookingVisitKind::from_db(row.try_get("visit_kind")?)?,
+        &trial_policy,
+        row.try_get("allow_single_visits")?,
+    )?;
+    let age = AgeLimits::new(
+        optional_months(row.try_get("min_age_months")?)?,
+        optional_months(row.try_get("max_age_months")?)?,
+    )
+    .map_err(|error| DbError::InvalidData(error.to_string()))?;
+    let date: NaiveDate = row.try_get("effective_date")?;
+    if !age.contains_birth_date(row.try_get("birth_date")?, date) {
+        return Err(DbError::AirhopAgeMismatch);
+    }
+    // Pending bookings already hold seats. Count unique children across both
+    // permanent enrollments and bookings, using the Core's schedule selection.
+    let original_date: NaiveDate = row.try_get("original_date")?;
+    let occupied: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::BIGINT FROM (
+           SELECT e.child_id FROM airhop_enrollments e
+           WHERE e.community_id = $1 AND e.organization_id = $2 AND e.group_id = $3 AND e.status = 'active'
+             AND e.start_date <= $4 AND (e.end_date IS NULL OR e.end_date >= $4)
+             AND (e.assignment_state = 'needs_assignment' OR EXISTS (
+                 SELECT 1 FROM airhop_enrollment_schedule s WHERE s.community_id = e.community_id
+                   AND s.organization_id = e.organization_id AND s.enrollment_id = e.id
+                   AND s.recurrence_rule_id = $5 AND s.weekday = $6))
+           UNION SELECT b.child_id FROM airhop_bookings b WHERE b.community_id = $1 AND b.organization_id = $2
+             AND b.recurrence_rule_id = $5 AND b.original_date = $7 AND b.status IN ('pending_confirmation', 'confirmed')
+         ) participants",
+    ).bind(tenant.community().as_uuid()).bind(row.try_get::<Uuid, _>("organization_id")?)
+        .bind(row.try_get::<Uuid, _>("group_id")?).bind(date)
+        .bind(row.try_get::<Uuid, _>("recurrence_rule_id")?).bind(weekday_str(Weekday::from(original_date.weekday())))
+        .bind(original_date).fetch_one(&mut **tx).await?;
+    if row
+        .try_get::<Option<i32>, _>("capacity")?
+        .is_some_and(|capacity| occupied > i64::from(capacity))
+    {
+        return Err(DbError::AirhopCapacityFull);
+    }
+    Ok(())
+}
+
 /// Commercial meaning of one booking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BookingVisitKind {

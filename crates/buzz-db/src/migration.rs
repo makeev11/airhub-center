@@ -571,7 +571,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 45);
+        assert_eq!(migrations.len(), 52);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -635,6 +635,53 @@ mod tests {
 
         assert_eq!(migrations[44].version, 45);
         assert!(migrations[44].sql.as_str().contains("staff_working_hours"));
+        assert_eq!(migrations[45].version, 46);
+        assert!(migrations[45]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_knowledge_documents"));
+        assert_eq!(migrations[46].version, 47);
+        assert!(migrations[46]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_agent_deployments"));
+        assert!(migrations[46]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_hermes_turn_receipts"));
+        assert_eq!(migrations[47].version, 48);
+        assert!(migrations[47]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_external_conversations"));
+        assert!(migrations[47]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_hermes_outbound_intents"));
+        assert_eq!(migrations[48].version, 49);
+        assert!(migrations[48]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_channel_connections"));
+        assert!(migrations[48]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_external_message_outbox"));
+        assert!(migrations[48]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_gateway_inbound_receipts"));
+        assert_eq!(migrations[49].version, 50);
+        assert!(migrations[49]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_channel_credentials"));
+        assert!(migrations[49]
+            .sql
+            .as_str()
+            .contains("credential_ciphertext"));
+        assert_eq!(migrations[50].version, 51);
+        assert!(migrations[50].sql.as_str().contains("BETWEEN 1 AND 4"));
 
         // Community moderation (reports/bans/audit): additive migration, never
         // folded into 0001 — same brownfield checksum rule as above.

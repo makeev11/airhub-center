@@ -24,7 +24,7 @@ use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -447,7 +447,14 @@ pub(crate) async fn get_public_management_card(
         .await
         .map_err(map_public_management_error)?
         .ok_or_else(invalid_management_token)?;
-    no_store_json(public_management_card_response(card))
+    let mut response = serde_json::to_value(public_management_card_response(card))
+        .map_err(|_| internal_failure())?;
+    response["telegramConnected"] = json!(state
+        .db
+        .is_airhop_booking_telegram_connected(&tenant, credential)
+        .await
+        .map_err(map_public_management_error)?);
+    no_store_json(response)
 }
 
 /// Cancels a future active booking using a bearer token and idempotent command.
@@ -831,7 +838,36 @@ async fn apply_public_management_http_action(
         )
         .await
         .map_err(map_public_management_error)?;
-    no_store_json(public_management_card_response(card))
+    let mut response = serde_json::to_value(public_management_card_response(card))
+        .map_err(|_| internal_failure())?;
+    if action_name == "contact_channel" && response["preferredContactChannel"] == "telegram" {
+        let material = tenant_keyed_digest(
+            config.index_key(),
+            &community_id,
+            b"airhop.booking-messenger-handoff.v1",
+            &[&credential.token_digest, idempotency_key.as_bytes()],
+        );
+        let token = format!("ahh_{}", URL_SAFE_NO_PAD.encode(material));
+        let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        if let Some(launch) = state
+            .db
+            .issue_airhop_booking_handoff(&tenant, credential, digest)
+            .await
+            .map_err(map_public_management_error)?
+        {
+            if launch
+                .bot_username
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            {
+                response["messengerHandoff"] = json!({
+                    "url": format!("https://t.me/{}?start={token}", launch.bot_username),
+                    "expiresAt": launch.expires_at,
+                });
+            }
+        }
+    }
+    no_store_json(response)
 }
 
 fn parse_management_credential(
@@ -847,25 +883,8 @@ fn parse_management_credential(
         .filter(|_| values.next().is_none())
         .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or_else(invalid_management_token)?;
-    let mut token_parts = authorization.split('_');
-    let prefix = token_parts.next();
-    let version = token_parts
-        .next()
-        .and_then(|value| value.parse::<i16>().ok())
-        .filter(|value| *value > 0);
-    let material = token_parts.next();
-    if prefix != Some("ahb")
-        || material.is_none_or(|value| {
-            value.len() != 43
-                || !value
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-        })
-        || token_parts.next().is_some()
-    {
-        return Err(invalid_management_token());
-    }
-    let version = version.ok_or_else(invalid_management_token)?;
+    let version =
+        parse_management_token_version(authorization).ok_or_else(invalid_management_token)?;
     let key = state
         .config
         .airhop_public_booking
@@ -880,6 +899,27 @@ fn parse_management_credential(
             &[authorization.as_bytes()],
         ),
     })
+}
+
+fn parse_management_token_version(authorization: &str) -> Option<i16> {
+    let mut token_parts = authorization.splitn(3, '_');
+    let prefix = token_parts.next();
+    let version = token_parts
+        .next()
+        .and_then(|value| value.parse::<i16>().ok())
+        .filter(|value| *value > 0);
+    let material = token_parts.next();
+    if prefix != Some("ahb")
+        || material.is_none_or(|value| {
+            value.len() != 43
+                || !value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
+    {
+        return None;
+    }
+    version
 }
 
 fn public_management_card_response(
@@ -1355,6 +1395,18 @@ mod tests {
         assert_ne!(first, other_tenant);
         assert!(first.0.starts_with("ahb_2_"));
         assert!(!first.0.contains('='));
+    }
+
+    #[test]
+    fn management_token_parser_accepts_url_safe_underscores_in_material() {
+        let token = format!("ahb_2_{}", "a_b".repeat(14) + "a");
+        assert_eq!(token.len(), 49);
+        assert_eq!(parse_management_token_version(&token), Some(2));
+        assert_eq!(
+            parse_management_token_version("ahb_0_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            None
+        );
+        assert_eq!(parse_management_token_version("ahb_2_short"), None);
     }
 
     #[test]

@@ -478,6 +478,14 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_AIRHOP_ROLE")]
     pub airhop_role: Option<String>,
 
+    /// Short-lived relay-signed context for a parent-facing Airhop agent turn.
+    #[arg(long, env = "BUZZ_AIRHOP_CONTEXT_GRANT", hide_env_values = true)]
+    pub airhop_context_grant: Option<String>,
+
+    /// Supervisor-owned file containing the current parent-turn context grant.
+    #[arg(long, env = "BUZZ_AIRHOP_CONTEXT_GRANT_FILE")]
+    pub airhop_context_grant_file: Option<PathBuf>,
+
     /// Team-owned instructions layered after `[System]` and before agent memory.
     #[arg(long, env = "BUZZ_ACP_TEAM_INSTRUCTIONS")]
     pub team_instructions: Option<String>,
@@ -529,6 +537,10 @@ pub struct Config {
     pub flat_channel_ids: HashSet<Uuid>,
     /// Registered stable product role for this runtime.
     pub airhop_role: Option<crate::airhop::AirhopRole>,
+    /// Short-lived server-authorized context forwarded only to Airhop's MCP.
+    pub airhop_context_grant: Option<String>,
+    /// Stable supervisor-to-MCP handoff path for rotating turn grants.
+    pub airhop_context_grant_file: Option<PathBuf>,
     /// Team-owned instructions layered separately from the agent system prompt.
     pub team_instructions: Option<String>,
     pub initial_message: Option<String>,
@@ -1096,9 +1108,56 @@ impl Config {
             .map(crate::airhop::AirhopRole::parse_config)
             .transpose()
             .map_err(ConfigError::ConfigFile)?;
+        let airhop_context_grant = args
+            .airhop_context_grant
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
+        let airhop_context_grant_file = args.airhop_context_grant_file;
         if airhop_route_gate && (flat_channel_ids.is_empty() || airhop_role.is_none()) {
             return Err(ConfigError::ConfigFile(
                 "Airhop route gate requires BUZZ_ACP_FLAT_CHANNELS and BUZZ_AIRHOP_ROLE".into(),
+            ));
+        }
+        if airhop_route_gate && airhop_role == Some(crate::airhop::AirhopRole::ParentAdministrator)
+        {
+            return Err(ConfigError::ConfigFile(
+                "Airhop Welcome route gate cannot use parent_administrator".into(),
+            ));
+        }
+        if airhop_role == Some(crate::airhop::AirhopRole::ParentAdministrator)
+            && airhop_context_grant.is_none()
+            && airhop_context_grant_file.is_none()
+        {
+            return Err(ConfigError::ConfigFile(
+                "parent_administrator requires BUZZ_AIRHOP_CONTEXT_GRANT or BUZZ_AIRHOP_CONTEXT_GRANT_FILE".into(),
+            ));
+        }
+        if airhop_context_grant.is_some() && airhop_context_grant_file.is_some() {
+            return Err(ConfigError::ConfigFile(
+                "configure only one AirHop parent context grant source".into(),
+            ));
+        }
+        if airhop_context_grant_file
+            .as_ref()
+            .is_some_and(|path| !path.is_absolute())
+        {
+            return Err(ConfigError::ConfigFile(
+                "BUZZ_AIRHOP_CONTEXT_GRANT_FILE must be an absolute path".into(),
+            ));
+        }
+        if airhop_role == Some(crate::airhop::AirhopRole::ParentAdministrator)
+            && airhop_context_grant_file.is_some()
+            && (args.agents != 1
+                || !matches!(args.dedup, DedupMode::Queue)
+                || args.multiple_event_handling != MultipleEventHandling::Queue
+                || args.respond_to != RespondTo::Anyone
+                || !args.no_mention_filter)
+        {
+            return Err(ConfigError::ConfigFile(
+                "hosted parent_administrator currently requires agents=1, dedup=queue, multiple-event-handling=queue, respond-to=anyone, and no-mention-filter"
+                    .into(),
             ));
         }
 
@@ -1118,6 +1177,8 @@ impl Config {
             airhop_route_gate,
             flat_channel_ids,
             airhop_role,
+            airhop_context_grant,
+            airhop_context_grant_file,
             team_instructions: args
                 .team_instructions
                 .as_deref()
@@ -1500,6 +1561,8 @@ mod tests {
             airhop_route_gate: false,
             flat_channel_ids: HashSet::new(),
             airhop_role: None,
+            airhop_context_grant: None,
+            airhop_context_grant_file: None,
             team_instructions: None,
             initial_message: None,
             subscribe_mode: mode,
@@ -3034,5 +3097,76 @@ channels = "ALL"
         ])
         .expect("parse incomplete Airhop gate args");
         assert!(Config::from_args(incomplete).is_err());
+    }
+
+    #[test]
+    fn parent_administrator_requires_context_and_cannot_use_welcome_gate() {
+        let without_context = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--airhop-role",
+            "parent_administrator",
+        ])
+        .expect("parse parent role");
+        assert!(Config::from_args(without_context).is_err());
+
+        let with_context = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--airhop-role",
+            "parent_administrator",
+            "--airhop-context-grant",
+            "relay-signed-context",
+        ])
+        .expect("parse scoped parent role");
+        let config = Config::from_args(with_context).expect("scoped parent config");
+        assert_eq!(
+            config.airhop_role,
+            Some(crate::airhop::AirhopRole::ParentAdministrator)
+        );
+        assert_eq!(
+            config.airhop_context_grant.as_deref(),
+            Some("relay-signed-context")
+        );
+
+        let hosted_parent = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--airhop-role",
+            "parent_administrator",
+            "--airhop-context-grant-file",
+            "/tmp/airhop-hermes-context",
+            "--respond-to",
+            "anyone",
+            "--no-mention-filter",
+            "--multiple-event-handling",
+            "queue",
+        ])
+        .expect("parse hosted parent role");
+        let hosted = Config::from_args(hosted_parent).expect("hosted parent config");
+        assert_eq!(
+            hosted.airhop_context_grant_file.as_deref(),
+            Some(std::path::Path::new("/tmp/airhop-hermes-context"))
+        );
+
+        let channel_id = Uuid::new_v4().to_string();
+        let invalid_gate = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--airhop-role",
+            "parent_administrator",
+            "--airhop-context-grant",
+            "relay-signed-context",
+            "--airhop-route-gate",
+            "airhop",
+            "--flat-channels",
+            &channel_id,
+        ])
+        .expect("parse invalid parent Welcome gate");
+        assert!(Config::from_args(invalid_gate).is_err());
     }
 }

@@ -67,6 +67,15 @@ export const staffFamilyDetailSchema = z.object({
     createdAt: dateTimeSchema,
     updatedAt: dateTimeSchema,
   }),
+  conversations: z
+    .array(
+      z.object({
+        channelId: uuidSchema,
+        representativeId: uuidSchema,
+        provider: z.string(),
+      }),
+    )
+    .default([]),
   representatives: z.array(
     z.object({
       id: uuidSchema,

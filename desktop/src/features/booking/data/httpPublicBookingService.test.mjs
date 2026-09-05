@@ -256,6 +256,63 @@ test("management actions keep the token in Authorization and map transitions", a
   );
 });
 
+test("Telegram launch and confirmed connection remain separate and credential scoped", async () => {
+  const handoff = {
+    url: `https://t.me/airhop_bot?start=ahh_${"a".repeat(43)}`,
+    expiresAt: "2026-09-05T20:00:00Z",
+  };
+  const requests = [];
+  const service = new HttpPublicBookingService({
+    basePath: "/public/v1",
+    idempotencyKeyFactory: () => "handoff-test-command",
+    fetch: async (url, init) => {
+      requests.push({ url, init });
+      return jsonResponse(
+        managementCardResponse({
+          preferredContactChannel: "telegram",
+          ...(init.method === "POST"
+            ? { messengerHandoff: handoff }
+            : { telegramConnected: true }),
+        }),
+      );
+    },
+  });
+  const launch = await service.setPreferredContactChannel(
+    MANAGEMENT_TOKEN,
+    "telegram",
+  );
+  assert.deepEqual(launch.messengerHandoff, handoff);
+  assert.notEqual(launch.telegramConnected, true);
+  assert.equal(
+    (await service.getManagementCard(MANAGEMENT_TOKEN)).telegramConnected,
+    true,
+  );
+  for (const { url, init } of requests) {
+    assert.equal(
+      new Headers(init.headers).get("Authorization"),
+      `Bearer ${MANAGEMENT_TOKEN}`,
+    );
+    assert.ok(!String(url).includes(MANAGEMENT_TOKEN));
+  }
+});
+
+test("Telegram launch rejects off-site destinations before rendering a link", async () => {
+  const service = new HttpPublicBookingService({
+    fetch: async () =>
+      jsonResponse(
+        managementCardResponse({
+          messengerHandoff: {
+            url: "https://evil.example/",
+            expiresAt: "2026-09-05T20:00:00Z",
+          },
+        }),
+      ),
+  });
+  await assert.rejects(
+    service.setPreferredContactChannel(MANAGEMENT_TOKEN, "telegram"),
+  );
+});
+
 test("malformed management tokens are rejected before any network request", async () => {
   let calls = 0;
   const service = new HttpPublicBookingService({

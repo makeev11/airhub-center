@@ -71,7 +71,7 @@ test.describe("community rail", () => {
     await expect(fallback).toBeVisible();
     await expect(fallback.locator("img")).toHaveAttribute(
       "src",
-      "/airhop/mark.svg",
+      "/airhop/mark.png",
     );
 
     // The active community is marked via aria-current.
@@ -149,7 +149,7 @@ test.describe("community rail", () => {
     await expect(page).toHaveURL(/#\/settings\?section=community-members$/);
     await expect(page.getByTestId("settings-community-members")).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Invites", exact: true }),
+      page.getByRole("heading", { name: "Employees", exact: true }).first(),
     ).toBeVisible();
     await expect(page.getByTestId("community-icon-settings")).toHaveCount(0);
     await expect(
@@ -831,7 +831,7 @@ test.describe("community rail", () => {
     const railBox = await page.getByTestId("community-rail").boundingBox();
     const searchBox = await page.getByTestId("open-search").boundingBox();
     const appSurfaceBox = await page
-      .locator(".buzz-huddle-app-surface")
+      .getByTestId("app-shell-surface")
       .boundingBox();
     const contentBox = await page
       .locator("[data-buzz-content-surface]")

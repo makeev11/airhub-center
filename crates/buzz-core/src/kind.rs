@@ -79,6 +79,8 @@ pub const KIND_AUTH: u32 = 22242;
 pub const KIND_BLOSSOM_AUTH: u32 = 24242;
 /// Buzz custom one-time identity binding proof (ephemeral, not stored).
 pub const KIND_NOSTR_IDENTITY_BINDING: u32 = 24243;
+/// AirHop short-lived agent context grant (ephemeral credential, never stored).
+pub const KIND_AIRHOP_AGENT_CONTEXT_GRANT: u32 = 24244;
 /// NIP-98: HTTP auth event (used in nip98.rs, not stored).
 pub const KIND_HTTP_AUTH: u32 = 27235;
 
@@ -872,6 +874,7 @@ const _: () = assert!(KIND_CANVAS <= u16::MAX as u32);
 const _: () = assert!(KIND_HUDDLE_GUIDELINES <= u16::MAX as u32);
 const _: () = assert!(EPHEMERAL_KIND_MIN < EPHEMERAL_KIND_MAX);
 const _: () = assert!(is_ephemeral(KIND_AIRHOP_AGENT_TASK));
+const _: () = assert!(is_ephemeral(KIND_AIRHOP_AGENT_CONTEXT_GRANT));
 // Compile-time: KIND_AGENT_TURN_METRIC is a regular stored kind (not ephemeral, not replaceable).
 const _: () = assert!(!is_ephemeral(KIND_AGENT_TURN_METRIC));
 const _: () = assert!(!is_replaceable(KIND_AGENT_TURN_METRIC));
@@ -905,6 +908,16 @@ mod tests {
         assert!(is_ephemeral(KIND_AIRHOP_AGENT_TASK));
         assert!(!is_replaceable(KIND_AIRHOP_AGENT_TASK));
         assert!(!is_parameterized_replaceable(KIND_AIRHOP_AGENT_TASK));
+    }
+
+    #[test]
+    fn airhop_agent_context_grant_is_ephemeral() {
+        assert_eq!(KIND_AIRHOP_AGENT_CONTEXT_GRANT, 24244);
+        assert!(is_ephemeral(KIND_AIRHOP_AGENT_CONTEXT_GRANT));
+        assert!(!is_replaceable(KIND_AIRHOP_AGENT_CONTEXT_GRANT));
+        assert!(!is_parameterized_replaceable(
+            KIND_AIRHOP_AGENT_CONTEXT_GRANT
+        ));
     }
 
     #[test]

@@ -182,6 +182,7 @@ pub(super) struct ResolvedIdentity {
     pub(super) representative_id: Uuid,
     pub(super) child_id: Uuid,
     pub(super) consent_id: Uuid,
+    pub(super) created_representative: bool,
 }
 
 pub(super) struct IdentityConsent<'a> {
@@ -263,6 +264,14 @@ impl Db {
 
         let booking_id = Uuid::new_v4();
         let visit_kind = visit_kind(organization.purpose);
+        let mut source = booking_source(
+            input.surface,
+            input.attribution_branch_id,
+            organization.purpose,
+        );
+        // A typed phone number can match existing records, but does not prove
+        // ownership of that family's history when a messenger is connected.
+        source["createdRepresentative"] = json!(identity.created_representative);
         let booking = reserve_booking(
             &mut transaction,
             tenant,
@@ -280,11 +289,7 @@ impl Db {
                 status: BookingStatus::PendingConfirmation,
                 management_token_digest: input.management_token_digest,
                 management_key_version: input.management_key_version,
-                source: booking_source(
-                    input.surface,
-                    input.attribution_branch_id,
-                    organization.purpose,
-                ),
+                source,
                 actor: actor.clone(),
                 created_by: "public-booking".to_owned(),
                 internal_comment: None,
@@ -633,7 +638,11 @@ pub(super) async fn resolve_identity(
         .collect::<std::result::Result<Vec<_>, sqlx::Error>>()?;
 
     let (family_id, representative_id, created_representative) =
-        if let Some(candidate) = unique_active_representative(&candidates) {
+        // Anonymous web submissions cannot authenticate an existing family by
+        // typing its phone. Reuse the existing duplicate-review path instead of
+        // injecting new children/bookings into a verified family's history.
+        // Trusted staff workflows retain their explicit exact-match behavior.
+        if let Some(candidate) = unique_active_representative(&candidates).filter(|_| consent.channel != "web") {
             (candidate.family_id, candidate.id, false)
         } else {
             let family_id = Uuid::new_v4();
@@ -713,6 +722,7 @@ pub(super) async fn resolve_identity(
         representative_id,
         child_id,
         consent_id,
+        created_representative,
     })
 }
 
@@ -953,7 +963,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires a dedicated migrated Postgres database"]
-    async fn public_booking_is_atomic_idempotent_and_reuses_exact_identity() {
+    async fn public_booking_is_atomic_idempotent_and_isolates_unverified_identity() {
         let database_url = std::env::var("BUZZ_TEST_DATABASE_URL")
             .expect("BUZZ_TEST_DATABASE_URL must point to a dedicated migrated database");
         let config = DbConfig {
@@ -1124,8 +1134,15 @@ mod tests {
             second_booking.disposition,
             PublicBookingDisposition::Created
         );
-        assert_eq!(created.booking.family_id, second_booking.booking.family_id);
-        assert_eq!(created.booking.child_id, second_booking.booking.child_id);
+        // A second anonymous request cannot authenticate an existing family by
+        // typing the same phone and child name. Only an exact command replay
+        // reuses the original identity; a new request requires duplicate review.
+        assert_ne!(created.booking.family_id, second_booking.booking.family_id);
+        assert_ne!(
+            created.booking.representative_id,
+            second_booking.booking.representative_id
+        );
+        assert_ne!(created.booking.child_id, second_booking.booking.child_id);
 
         let mut capacity_rejected = base.clone();
         capacity_rejected.applicant.parent_name = "Ольга Петрова".to_owned();
@@ -1154,6 +1171,8 @@ mod tests {
                   WHERE community_id = $1) AS representatives, \
                  (SELECT COUNT(*)::BIGINT FROM airhop_children \
                   WHERE community_id = $1) AS children, \
+                 (SELECT COUNT(*)::BIGINT FROM airhop_duplicate_candidates \
+                  WHERE community_id = $1) AS duplicate_candidates, \
                  (SELECT COUNT(*)::BIGINT FROM airhop_consents \
                   WHERE community_id = $1) AS consents, \
                  (SELECT COUNT(*)::BIGINT FROM airhop_domain_events \
@@ -1168,9 +1187,10 @@ mod tests {
         for (column, expected) in [
             ("commands", 2_i64),
             ("bookings", 2),
-            ("families", 1),
-            ("representatives", 1),
-            ("children", 1),
+            ("families", 2),
+            ("representatives", 2),
+            ("children", 2),
+            ("duplicate_candidates", 1),
             ("consents", 2),
             ("events", 2),
             ("outbox", 2),

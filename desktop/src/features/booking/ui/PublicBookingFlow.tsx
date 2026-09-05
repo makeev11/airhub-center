@@ -50,6 +50,7 @@ import {
   PublicBookingBranchSelector,
 } from "@/features/booking/ui/PublicBookingBasics";
 import { PublicBookingSuccess } from "@/features/booking/ui/PublicBookingSuccess";
+import { useBookingHandoffStatus } from "@/features/booking/ui/useBookingHandoffStatus";
 
 type FlowStep = "basics" | "groups" | "occurrences" | "contact" | "preview";
 type FlowError =
@@ -139,6 +140,8 @@ export function PublicBookingFlow({
     card: PublicBookingManagementCard;
   } | null>(null);
   const [isSavingChannel, setIsSavingChannel] = React.useState(false);
+  const [channelError, setChannelError] = React.useState(false);
+  useBookingHandoffStatus(service, success, setSuccess);
   const idempotencyKeyRef = React.useRef(crypto.randomUUID());
   const flowRef = React.useRef<HTMLElement>(null);
   const catalogRequestRef = React.useRef<{
@@ -365,12 +368,16 @@ export function PublicBookingFlow({
   const chooseContactChannel = async (channel: PreferredContactChannel) => {
     if (!success?.token || isSavingChannel) return;
     setIsSavingChannel(true);
+    setChannelError(false);
     try {
       const card = await service.setPreferredContactChannel(
         success.token,
         channel,
       );
       if (card) setSuccess({ ...success, card });
+      else setChannelError(true);
+    } catch {
+      setChannelError(true);
     } finally {
       setIsSavingChannel(false);
     }
@@ -439,6 +446,8 @@ export function PublicBookingFlow({
         >
           <PublicBookingSuccess
             card={success.card}
+            channelError={channelError}
+            locale={locale}
             isSavingChannel={isSavingChannel}
             managementToken={success.token}
             messages={messages}

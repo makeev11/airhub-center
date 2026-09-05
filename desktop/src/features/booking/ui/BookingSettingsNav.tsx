@@ -4,6 +4,7 @@ import {
   Building2,
   GraduationCap,
   Landmark,
+  MessagesSquare,
   MonitorSmartphone,
   UsersRound,
   type LucideIcon,
@@ -15,6 +16,7 @@ import {
   type BookingSettingsDestinationId,
 } from "@/features/booking/lib/bookingNavigation";
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/cn";
 
@@ -26,6 +28,7 @@ export function BookingSettingsNav({
   className?: string;
 }) {
   const booking = useBookingWorkspace();
+  const locale = useAirHopLocale();
   const navigate = useNavigate();
   const messages = getBookingAdminMessages(
     booking.workspace?.organization.locale ?? "ru-RU",
@@ -39,6 +42,17 @@ export function BookingSettingsNav({
     groups: { label: messages.navGroups, icon: UsersRound },
     tariffs: { label: messages.navTariffs, icon: BadgeDollarSign },
     teachers: { label: messages.navTeachers, icon: GraduationCap },
+    channels: {
+      label:
+        locale === "ru-RU"
+          ? "Каналы связи"
+          : locale === "pt-BR"
+            ? "Canais"
+            : locale === "tr-TR"
+              ? "Kanallar"
+              : "Channels",
+      icon: MessagesSquare,
+    },
     "public-booking": {
       label: messages.publicBookingCardTitle,
       icon: MonitorSmartphone,
@@ -66,10 +80,10 @@ export function BookingSettingsNav({
               data-testid={destination.testId}
               key={destination.id}
               onClick={() => {
-                if (destination.id === "public-booking") {
+                if ("section" in destination) {
                   void navigate({
                     to: "/booking/settings",
-                    search: { section: "public-booking" },
+                    search: { section: destination.section },
                   });
                   return;
                 }

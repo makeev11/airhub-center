@@ -132,8 +132,7 @@ run_integration_tests() {
   fi
 
   run_test_step "workspace integration tests" \
-    cargo test --test '*' -- --nocapture 2>/dev/null || \
-    run_test_step "workspace integration tests (none found)" true
+    cargo test --test '*' -- --nocapture
 }
 
 # ---- Main -------------------------------------------------------------------

@@ -9,6 +9,8 @@ import { Card } from "@/shared/ui/card";
 
 export function PublicBookingSuccess({
   card,
+  channelError = false,
+  locale = "ru-RU",
   isSavingChannel,
   managementToken,
   messages,
@@ -18,6 +20,8 @@ export function PublicBookingSuccess({
   organizationName,
 }: {
   card: PublicBookingManagementCard;
+  channelError?: boolean;
+  locale?: string;
   isSavingChannel: boolean;
   managementToken: string | null;
   messages: PublicBookingMessages;
@@ -26,6 +30,41 @@ export function PublicBookingSuccess({
   onStartAnother: () => void;
   organizationName: string;
 }) {
+  const copy = locale.startsWith("ru")
+    ? {
+        open: "Открыть Telegram",
+        hint: "Нажмите Start в Telegram. Гермес увидит вашу запись и поможет с подтверждением.",
+        connected:
+          "Telegram подключён. Продолжайте общение с центром в этом чате.",
+        error:
+          "Не получилось подготовить переход. Попробуйте ещё раз, ваша запись сохранена.",
+      }
+    : locale.startsWith("pt")
+      ? {
+          open: "Abrir Telegram",
+          hint: "Toque em Iniciar no Telegram. Hermes encontrará sua reserva e ajudará com a confirmação.",
+          connected:
+            "Telegram conectado. Continue conversando com o centro nesse chat.",
+          error:
+            "Não foi possível preparar o link. Tente novamente; sua reserva está salva.",
+        }
+      : locale.startsWith("tr")
+        ? {
+            open: "Telegram'ı aç",
+            hint: "Telegram'da Başlat'a dokunun. Hermes kaydınızı bulup onaylamanıza yardımcı olacak.",
+            connected:
+              "Telegram bağlandı. Merkezle bu sohbette iletişime devam edebilirsiniz.",
+            error:
+              "Bağlantı hazırlanamadı. Tekrar deneyin; kaydınız kaydedildi.",
+          }
+        : {
+            open: "Open Telegram",
+            hint: "Tap Start in Telegram. Hermes will find your booking and help confirm it.",
+            connected:
+              "Telegram connected. Continue talking with the center in this chat.",
+            error:
+              "Couldn't prepare the link. Please try again; your booking is saved.",
+          };
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col justify-center py-6 sm:py-8">
       <Card
@@ -39,10 +78,14 @@ export function PublicBookingSuccess({
           {messages.standaloneEyebrow(organizationName)}
         </p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-          {messages.successTitle}
+          {card.status === "pending_confirmation"
+            ? messages.successTitle
+            : messages.status[card.status]}
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          {messages.successDescription}
+          {card.status === "pending_confirmation"
+            ? messages.successDescription
+            : `${card.childName} · ${card.groupName} · ${card.date} · ${card.startTime} · ${card.branchAddress}`}
         </p>
         <div className="mt-6 rounded-2xl bg-muted/60 p-4">
           <p className="text-sm font-medium">{messages.contactChannelTitle}</p>
@@ -71,7 +114,32 @@ export function PublicBookingSuccess({
               ),
             )}
           </div>
-          {card.preferredContactChannel !== "none" ? (
+          {channelError ? (
+            <p className="mt-3 text-sm text-destructive" role="alert">
+              {copy.error}
+            </p>
+          ) : null}
+          {card.telegramConnected ? (
+            <p className="mt-4 text-sm" role="status">
+              {copy.connected}
+            </p>
+          ) : card.messengerHandoff ? (
+            <div
+              className="mt-4 space-y-3"
+              data-testid="airhop-telegram-handoff"
+            >
+              <p className="text-sm text-muted-foreground">{copy.hint}</p>
+              <Button asChild>
+                <a
+                  href={card.messengerHandoff.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {copy.open}
+                </a>
+              </Button>
+            </div>
+          ) : card.preferredContactChannel !== "none" ? (
             <div className="mt-4 text-xs text-muted-foreground" role="status">
               <p>
                 {messages.contactChannelSaved(

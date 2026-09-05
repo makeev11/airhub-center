@@ -18,6 +18,8 @@ use crate::{Db, DbError, Result};
 
 /// Pending setup actions prepared by registered Welcome specialists.
 pub mod agent_actions;
+/// Persistent desired state and replay-safe leases for external AirHop agents.
+pub mod agent_runtime;
 /// Retry-stable monthly analytics reports for a dedicated Buzz stream.
 pub mod analytics_report;
 /// Capacity-safe booking persistence.
@@ -26,14 +28,20 @@ pub mod booking;
 pub mod booking_decision;
 /// Tenant-scoped cohort analytics for trial bookings and first payments.
 pub mod booking_funnel_analytics;
+/// One-use public booking links redeemed by authenticated messaging connectors.
+pub mod booking_handoff;
 /// Tenant-scoped branch directory and audited staff commands.
 pub mod branch_directory;
 /// AirHub Center owner-enrollment codes and deployment binding.
 pub mod center_activation;
 /// Signed health challenges for activated AirHub Center installations.
 pub mod center_health;
+/// Provider-neutral external messaging connection and delivery outbox.
+pub mod channel_gateway;
 /// Optimistic lifecycle and tariff commands for permanent enrollments.
 pub mod enrollment_lifecycle;
+/// Canonical parent conversation ownership and Hermes routing receipts.
+pub mod external_conversation;
 /// Idempotent staff commands for family-owned operational entities.
 pub mod family_commands;
 /// Tenant-scoped staff family detail projection.
@@ -50,6 +58,8 @@ pub mod family_members;
 pub mod family_primary_representative;
 /// Tenant-scoped group directory and atomic recurrence-rule commands.
 pub mod group_directory;
+/// Versioned parent-safe Markdown retrieval for AirHop agents.
+pub mod knowledge;
 /// Tenant-scoped commands for cancelling, overriding, and restoring one lesson.
 pub mod lesson_exception;
 /// Authoritative per-lesson roster, direct participants, and attendance.

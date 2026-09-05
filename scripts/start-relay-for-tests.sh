@@ -86,6 +86,16 @@ wait_healthy "Postgres" "buzz-postgres"
 wait_healthy "Redis" "buzz-redis"
 wait_healthy "MinIO" "buzz-minio"
 
+# Build the migrator from the same revision as the relay. schema/schema.sql is
+# the historical Buzz baseline and omits additive AirHop migrations.
+if [[ "${SKIP_BUILD}" != "true" ]]; then
+  cargo build --profile "${CARGO_PROFILE}" -p buzz-admin
+fi
+if [[ ! -x "./target/${CARGO_PROFILE}/buzz-admin" ]]; then
+  err "Missing target/${CARGO_PROFILE}/buzz-admin; rebuild relay artifacts"
+  exit 1
+fi
+
 # ── Apply database schema ────────────────────────────────────────────────────
 
 log "Applying database schema..."
@@ -103,9 +113,8 @@ export PGSCHEMA_PLAN_DB=buzz
 export PGSCHEMA_PLAN_USER=buzz
 export PGSCHEMA_PLAN_PASSWORD=buzz_dev
 
-./bin/pgschema apply --file schema/schema.sql --auto-approve
-docker exec -i -e PGPASSWORD="${PGPASSWORD}" buzz-postgres \
-  psql -U "${PGUSER}" -d "${PGDATABASE}" -v ON_ERROR_STOP=1 < scripts/attach-schema-partitions.sql
+DATABASE_URL="postgres://buzz:${PGPASSWORD}@localhost:5432/buzz" \
+  "./target/${CARGO_PROFILE}/buzz-admin" migrate
 ok "Schema applied"
 
 # ── Seed the deployment community ────────────────────────────────────────────

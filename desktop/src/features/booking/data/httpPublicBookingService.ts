@@ -80,6 +80,15 @@ const occurrencesResponseSchema = z.object({
 });
 
 const managementCardSchema = z.object({
+  messengerHandoff: z
+    .object({
+      url: z
+        .string()
+        .regex(/^https:\/\/t\.me\/[A-Za-z0-9_]+\?start=ahh_[A-Za-z0-9_-]{43}$/),
+      expiresAt: z.string().datetime({ offset: true }),
+    })
+    .optional(),
+  telegramConnected: z.boolean().optional(),
   status: bookingStatusSchema,
   childName: z.string().trim().min(1),
   maskedPhone: z.string().min(1),

@@ -208,6 +208,8 @@ pub struct StaffFamilyBooking {
     pub branch_id: Uuid,
     /// Current branch display name.
     pub branch_name: String,
+    /// Current public address used in parent confirmations.
+    pub branch_address: String,
     /// Optimistic booking version.
     pub version: i64,
     /// Creation instant.
@@ -567,7 +569,7 @@ async fn load_bookings(
                 booking.original_date, occurrence.id AS occurrence_id, \
                 occurrence.effective_date, occurrence.start_time, occurrence.end_time, \
                 occurrence.status AS occurrence_status, occurrence.group_id, \
-                group_row.name AS group_name, occurrence.branch_id, branch.name AS branch_name, \
+                group_row.name AS group_name, occurrence.branch_id, branch.name AS branch_name, branch.address AS branch_address, \
                 booking.version, booking.created_at, booking.updated_at \
          FROM airhop_bookings booking \
          JOIN airhop_lesson_occurrences occurrence \
@@ -630,6 +632,7 @@ async fn load_bookings(
                 group_name: row.try_get("group_name")?,
                 branch_id: row.try_get("branch_id")?,
                 branch_name: row.try_get("branch_name")?,
+                branch_address: row.try_get("branch_address")?,
                 version: row.try_get("version")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
