@@ -24,7 +24,7 @@ use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -447,7 +447,14 @@ pub(crate) async fn get_public_management_card(
         .await
         .map_err(map_public_management_error)?
         .ok_or_else(invalid_management_token)?;
-    no_store_json(public_management_card_response(card))
+    let mut response = serde_json::to_value(public_management_card_response(card))
+        .map_err(|_| internal_failure())?;
+    response["telegramConnected"] = json!(state
+        .db
+        .is_airhop_booking_telegram_connected(&tenant, credential)
+        .await
+        .map_err(map_public_management_error)?);
+    no_store_json(response)
 }
 
 /// Cancels a future active booking using a bearer token and idempotent command.
@@ -831,7 +838,36 @@ async fn apply_public_management_http_action(
         )
         .await
         .map_err(map_public_management_error)?;
-    no_store_json(public_management_card_response(card))
+    let mut response = serde_json::to_value(public_management_card_response(card))
+        .map_err(|_| internal_failure())?;
+    if action_name == "contact_channel" && response["preferredContactChannel"] == "telegram" {
+        let material = tenant_keyed_digest(
+            config.index_key(),
+            &community_id,
+            b"airhop.booking-messenger-handoff.v1",
+            &[&credential.token_digest, idempotency_key.as_bytes()],
+        );
+        let token = format!("ahh_{}", URL_SAFE_NO_PAD.encode(material));
+        let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        if let Some(launch) = state
+            .db
+            .issue_airhop_booking_handoff(&tenant, credential, digest)
+            .await
+            .map_err(map_public_management_error)?
+        {
+            if launch
+                .bot_username
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            {
+                response["messengerHandoff"] = json!({
+                    "url": format!("https://t.me/{}?start={token}", launch.bot_username),
+                    "expiresAt": launch.expires_at,
+                });
+            }
+        }
+    }
+    no_store_json(response)
 }
 
 fn parse_management_credential(

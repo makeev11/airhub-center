@@ -97,12 +97,17 @@ Only private Telegram DMs and text/command/location content are readable in this
 slice. Other content produces a durable, visible unsupported-attachment notice
 instead of being discarded. It does not upload the original or transcribe voice;
 the parent runtime asks for text and can notify staff through an internal handoff.
-A previously unseen private chat now atomically creates one unverified
-Buzz conversation through Relay route resolution; this does not verify a
-Family or consume a booking handoff. Booking handoff grant consumption,
-continuous typing projection and media remain explicit later contracts; they
-are not silently simulated here. `/start` payloads are always redacted before
-local persistence or Buzz publication.
+A previously unseen private chat creates one unverified Buzz conversation.
+A valid `/start ahh_…` additionally redeems a 15-minute public-booking grant
+through the authenticated route-resolution boundary. Its irreversible digest is
+durably queued before provider acknowledgement, so a restart can retry binding
+without persisting the raw bearer. Relay atomically binds the verified identity
+and consumes the grant; gateway then publishes only a redacted service message.
+Invalid links never expose booking details. Existing-family/duplicate conflicts
+ask Hermes for staff verification, not repeated blind link retries. Anonymous
+phone matches do not grant access to established family history.
+Continuous typing projection and original media remain later capabilities.
+Deploy Relay migration 0052 before this gateway revision.
 
 ## Tests
 

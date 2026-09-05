@@ -35,6 +35,7 @@ class RouteResolution:
     channel_id: str
     route_status: str
     connection_status: str
+    handoff_status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -167,13 +168,14 @@ class AirHopGatewayClient:
             raise GatewayHttpError(502, "AirHop gateway returned invalid credential")
         return token
 
-    async def resolve_route(self, provider_chat_id: str) -> RouteResolution:
+    async def resolve_route(self, provider_chat_id: str, handoff_token_digest: str | None = None) -> RouteResolution:
         connection_id = self._required_connection_id()
         result = await self._post(
             "/api/airhop/integrations/v1/channel-gateway/routes/resolve",
             {
                 "connectionId": connection_id,
                 "providerChatId": provider_chat_id,
+                **({"handoffTokenDigest": handoff_token_digest} if handoff_token_digest else {}),
             },
         )
         return RouteResolution(
@@ -181,6 +183,7 @@ class AirHopGatewayClient:
             channel_id=str(result["channelId"]),
             route_status=str(result["routeStatus"]),
             connection_status=str(result["connectionStatus"]),
+            handoff_status=result.get("handoffStatus"),
         )
 
     async def ingest(self, provider_event_id: str, event: dict[str, Any]) -> dict[str, Any]:

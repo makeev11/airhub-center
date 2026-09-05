@@ -20,6 +20,7 @@ class InboundItem:
     received_at: int
     attempts: int
     event: dict[str, Any] | None
+    handoff_token_digest: str | None = None
 
 
 class InboundSpool:
@@ -62,6 +63,9 @@ class InboundSpool:
                 )
                 """
             )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(inbound_spool)")}
+            if "handoff_token_digest" not in columns:
+                connection.execute("ALTER TABLE inbound_spool ADD COLUMN handoff_token_digest TEXT")
             connection.execute(
                 "UPDATE inbound_spool SET status = 'pending', next_attempt_at = 0 "
                 "WHERE status = 'processing'"
@@ -74,6 +78,7 @@ class InboundSpool:
         provider_chat_id: str,
         content: str,
         received_at: int,
+        handoff_token_digest: str | None = None,
     ) -> bool:
         return await asyncio.to_thread(
             self._put,
@@ -81,6 +86,7 @@ class InboundSpool:
             provider_chat_id,
             content,
             received_at,
+            handoff_token_digest,
         )
 
     def put_sync(
@@ -90,6 +96,7 @@ class InboundSpool:
         provider_chat_id: str,
         content: str,
         received_at: int,
+        handoff_token_digest: str | None = None,
     ) -> bool:
         """Commit provider inbound before its SDK handler may acknowledge it."""
         return self._put(
@@ -97,6 +104,7 @@ class InboundSpool:
             provider_chat_id,
             content,
             received_at,
+            handoff_token_digest,
         )
 
     def _put(
@@ -105,14 +113,15 @@ class InboundSpool:
         provider_chat_id: str,
         content: str,
         received_at: int,
+        handoff_token_digest: str | None = None,
     ) -> bool:
         now = time.time()
         with self._connect() as connection:
             result = connection.execute(
                 "INSERT OR IGNORE INTO inbound_spool ("
-                "provider_event_id, provider_chat_id, content, received_at, updated_at"
-                ") VALUES (?, ?, ?, ?, ?)",
-                (provider_event_id, provider_chat_id, content, received_at, now),
+                "provider_event_id, provider_chat_id, content, received_at, updated_at, handoff_token_digest"
+                ") VALUES (?, ?, ?, ?, ?, ?)",
+                (provider_event_id, provider_chat_id, content, received_at, now, handoff_token_digest),
             )
             return result.rowcount == 1
 
@@ -125,7 +134,7 @@ class InboundSpool:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 "SELECT provider_event_id, provider_chat_id, content, received_at, "
-                "attempts, event_json FROM inbound_spool "
+                "attempts, event_json, handoff_token_digest FROM inbound_spool "
                 "WHERE status = 'pending' AND next_attempt_at <= ? "
                 "ORDER BY received_at, provider_event_id LIMIT 1",
                 (now,),
@@ -147,6 +156,7 @@ class InboundSpool:
                 received_at=row["received_at"],
                 attempts=row["attempts"] + 1,
                 event=event,
+                handoff_token_digest=row["handoff_token_digest"],
             )
 
     async def persist_event(self, provider_event_id: str, event: dict[str, Any]) -> None:

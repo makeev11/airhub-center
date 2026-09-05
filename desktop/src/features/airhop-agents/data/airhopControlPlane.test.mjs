@@ -191,5 +191,6 @@ test("Hermes toggle preserves pinned deployment identity and revisions", async (
     paused: false,
     manageBookings: true,
     expectedVersion: 3,
+    autoConfirmOnlineBookings: true,
   });
 });

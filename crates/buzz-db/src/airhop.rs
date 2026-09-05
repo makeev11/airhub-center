@@ -28,6 +28,8 @@ pub mod booking;
 pub mod booking_decision;
 /// Tenant-scoped cohort analytics for trial bookings and first payments.
 pub mod booking_funnel_analytics;
+/// One-use public booking links redeemed by authenticated messaging connectors.
+pub mod booking_handoff;
 /// Tenant-scoped branch directory and audited staff commands.
 pub mod branch_directory;
 /// AirHub Center owner-enrollment codes and deployment binding.

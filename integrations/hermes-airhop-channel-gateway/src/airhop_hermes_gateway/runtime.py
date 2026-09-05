@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import hashlib
 import logging
+import re
 import time
 from typing import Any
 
@@ -13,6 +15,14 @@ from .config import Settings
 from .spool import InboundItem, InboundSpool
 
 logger = logging.getLogger(__name__)
+
+
+def _handoff_digest(event: Any) -> str | None:
+    text = str(getattr(event, "text", "") or "").strip()
+    match = re.fullmatch(r"/start(?:@[A-Za-z0-9_]+)?\s+(ahh_[A-Za-z0-9_-]{43})", text)
+    # The irreversible digest is sufficient only at the NIP-98 authenticated
+    # connector boundary. Never persist raw start payloads, even during outages.
+    return hashlib.sha256(match[1].encode()).hexdigest() if match else None
 
 
 def _enum_value(value: Any) -> str:
@@ -58,7 +68,9 @@ def _normalized_content(event: Any) -> str | None:
     # Buzz history or logs. A pre-bound route records only the service command.
     if content.lower().startswith("/start"):
         return "/start"
-    return content
+    # A parent may paste/quote the link instead of pressing Start. Redact that
+    # bearer as well, but never treat quoted material as an identity proof.
+    return re.sub(r"ahh_[A-Za-z0-9_-]{43}", "[ссылка подключения скрыта]", content)
 
 
 class TelegramGatewayRuntime:
@@ -100,6 +112,7 @@ class TelegramGatewayRuntime:
             provider_chat_id=chat_id,
             content=content,
             received_at=received_at,
+            handoff_token_digest=_handoff_digest(event),
         )
         if inserted:
             logger.info("Durably queued Telegram inbound")
@@ -116,6 +129,7 @@ class TelegramGatewayRuntime:
             provider_chat_id=chat_id,
             content=content,
             received_at=received_at,
+            handoff_token_digest=_handoff_digest(event),
         )
         if inserted:
             logger.info("Durably queued Telegram inbound")
@@ -221,10 +235,22 @@ class TelegramGatewayRuntime:
         try:
             event = item.event
             if event is None:
-                route = await self.client.resolve_route(item.provider_chat_id)
+                if item.handoff_token_digest:
+                    route = await self.client.resolve_route(item.provider_chat_id, item.handoff_token_digest)
+                else:
+                    route = await self.client.resolve_route(item.provider_chat_id)
+                content = item.content
+                if item.handoff_token_digest:
+                    content = (
+                        "[Telegram: родитель перешёл после онлайн-записи. Чат подтверждён. Проверьте текущую запись.]"
+                        if route.handoff_status == "connected" else
+                        "[Telegram: для подключения этого чата нужна проверка сотрудника. Не раскрывайте данные семьи по ссылке; передайте вопрос сотруднику через handoffReason.]"
+                        if route.handoff_status == "conflict" else
+                        "[Telegram: ссылка на запись недействительна или не подходит этому чату. Не раскрывайте данные по ссылке; попросите открыть новую ссылку со страницы записи.]"
+                    )
                 event = self.signer.sign_event(
                     kind=9,
-                    content=item.content,
+                    content=content,
                     tags=[
                         ["h", route.channel_id],
                         ["airhop-direction", "inbound"],

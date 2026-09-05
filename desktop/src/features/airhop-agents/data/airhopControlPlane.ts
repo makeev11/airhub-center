@@ -65,6 +65,7 @@ const hermesDeploymentSchema = z.object({
   enabled: z.boolean(),
   paused: z.boolean(),
   manageBookings: z.boolean(),
+  autoConfirmOnlineBookings: z.boolean().default(true),
   version: z.number().int().positive(),
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
@@ -227,7 +228,12 @@ export class AirhopControlPlaneClient {
 
   async putHermesDeployment(
     deployment: AirhopHermesDeployment,
-    patch: Partial<Pick<AirhopHermesDeployment, "enabled" | "manageBookings">>,
+    patch: Partial<
+      Pick<
+        AirhopHermesDeployment,
+        "enabled" | "manageBookings" | "autoConfirmOnlineBookings"
+      >
+    >,
   ): Promise<AirhopHermesDeployment> {
     const payload = await this.request(
       "PUT",
@@ -243,6 +249,9 @@ export class AirhopControlPlaneClient {
         enabled: patch.enabled ?? deployment.enabled,
         paused: deployment.paused,
         manageBookings: patch.manageBookings ?? deployment.manageBookings,
+        autoConfirmOnlineBookings:
+          patch.autoConfirmOnlineBookings ??
+          deployment.autoConfirmOnlineBookings,
         expectedVersion: deployment.version,
       },
     );

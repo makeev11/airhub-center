@@ -144,6 +144,7 @@ pub(crate) struct PutDeploymentBody {
     paused: bool,
     #[serde(default = "default_true")]
     manage_bookings: bool,
+    auto_confirm_online_bookings: Option<bool>,
     expected_version: i64,
 }
 
@@ -336,6 +337,7 @@ impl From<BookingPurpose> for PublicBookingPurpose {
     deny_unknown_fields
 )]
 enum ParentBookingAction {
+    ConfirmOnline,
     Cancel,
     RequestTransfer { comment: Option<String> },
 }
@@ -375,6 +377,7 @@ pub(crate) async fn put_deployment(
                 enabled: request.enabled,
                 paused: request.paused,
                 manage_bookings: request.manage_bookings,
+                auto_confirm_online_bookings: request.auto_confirm_online_bookings,
                 expected_version: request.expected_version,
                 registered_by_pubkey: principal.pubkey.to_bytes(),
             },
@@ -812,6 +815,26 @@ async fn get_turn_context(
         }
         None => None,
     };
+    let booking_id = match context.claims.family_id {
+        Some(id) => state
+            .db
+            .get_airhop_conversation_booking(
+                &context.principal.tenant,
+                context.claims.conversation_id,
+                id,
+            )
+            .await
+            .map_err(map_db_error)?,
+        None => None,
+    };
+    let auto_confirm = state
+        .db
+        .get_airhop_parent_agent_deployment(&context.principal.tenant, context.claims.deployment_id)
+        .await
+        .map_err(map_db_error)?
+        .is_some_and(|deployment| {
+            deployment.auto_confirm_online_bookings && deployment.manage_bookings
+        });
     Ok(read_envelope(
         &context.claims,
         organization.version.to_string(),
@@ -824,6 +847,7 @@ async fn get_turn_context(
                 "inputBatchId": context.claims.input_batch_id,
                 "sourceMessageId": context.claims.source_message_id,
                 "turnId": context.claims.turn_id,
+                "bookingId": booking_id,
             },
             "organization": {
                 "id": organization.id,
@@ -833,6 +857,7 @@ async fn get_turn_context(
             },
             "family": family,
             "handoffTargets": handoff_targets,
+            "policy": { "autoConfirmOnlineBookings": auto_confirm },
             "capabilities": capability_names(&context.claims.capabilities),
         }),
     ))
@@ -997,6 +1022,7 @@ async fn manage_booking(
     );
     let request_hash: [u8; 32] = Sha256::digest(body).into();
     let domain_action = match action {
+        ParentBookingAction::ConfirmOnline => PublicManagementAction::ConfirmOnline,
         ParentBookingAction::Cancel => PublicManagementAction::CancelByParent,
         ParentBookingAction::RequestTransfer { comment } => {
             PublicManagementAction::RequestTransfer { comment }
@@ -1308,6 +1334,7 @@ fn validate_parent_action(value: &Value) -> Result<(), ()> {
     let object = value.as_object().ok_or(())?;
     let action_type = object.get("type").and_then(Value::as_str).ok_or(())?;
     let allowed = match action_type {
+        "confirm_online" => &["type"][..],
         "cancel" => &["type"][..],
         "request_transfer" => &["type", "comment"][..],
         _ => return Err(()),
@@ -1381,6 +1408,7 @@ fn deployment_json(deployment: &ParentAgentDeployment) -> Value {
         "enabled": deployment.enabled,
         "paused": deployment.paused,
         "manageBookings": deployment.manage_bookings,
+        "autoConfirmOnlineBookings": deployment.auto_confirm_online_bookings,
         "version": deployment.version,
         "createdAt": deployment.created_at,
         "updatedAt": deployment.updated_at,
@@ -1675,6 +1703,28 @@ mod tests {
                 action: ParentBookingAction::Cancel,
             } if parsed == booking_id
         ));
+        let confirmation = parse_backend_request_value(json!({
+            "operation": "manage_booking",
+            "bookingId": booking_id,
+            "action": {"type": "confirm_online"}
+        }))
+        .expect("typed online confirmation");
+        assert!(matches!(
+            confirmation,
+            AgentBackendRequest::ManageBooking {
+                action: ParentBookingAction::ConfirmOnline,
+                ..
+            }
+        ));
+        assert!(
+            parse_backend_request_value(json!({
+                "operation": "manage_booking",
+                "bookingId": booking_id,
+                "action": {"type": "confirm_online", "autoConfirmOnlineBookings": true}
+            }))
+            .is_err(),
+            "the agent cannot supply its own confirmation policy"
+        );
         assert!(parse_backend_request_value(json!({
             "operation": "get_family",
             "familyId": Uuid::new_v4()

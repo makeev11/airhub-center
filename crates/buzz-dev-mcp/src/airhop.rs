@@ -432,6 +432,7 @@ const fn default_parent_knowledge_limit() -> u8 {
     deny_unknown_fields
 )]
 pub enum ParentBookingAction {
+    ConfirmOnline,
     Cancel,
     RequestTransfer { comment: Option<String> },
 }
@@ -1621,7 +1622,7 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_manage_booking",
-        description = "Parent Administrator only: cancel or request transfer of one booking belonging to the verified Family in this turn. The server commits the action idempotently and returns an authoritative receipt."
+        description = "Parent Administrator only: confirm_online for the verified online-handoff booking, cancel or request transfer of one booking in the granted Family. Confirmation rechecks current Core rules and requires enabled auto-confirm policy. Report confirmation only after a successful authoritative receipt; otherwise hand off to staff."
     )]
     async fn manage_booking(
         &self,

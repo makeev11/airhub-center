@@ -83,11 +83,12 @@ pub(crate) struct PutConversationRouteBody {
     expected_version: i64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ResolveConversationRouteBody {
     connection_id: Uuid,
     provider_chat_id: String,
+    handoff_token_digest: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -503,7 +504,31 @@ pub(crate) async fn resolve_conversation_route(
         }
         Err(error) => return Err(map_db_error(error)),
     };
-    if created {
+    let handoff_status = match request.handoff_token_digest {
+        Some(value) => {
+            let digest: [u8; 32] = hex::decode(value)
+                .ok()
+                .and_then(|bytes| bytes.try_into().ok())
+                .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "invalid handoff digest"))?;
+            Some(
+                state
+                    .db
+                    .consume_airhop_booking_handoff(
+                        &principal.tenant,
+                        request.connection_id,
+                        route.conversation_id,
+                        connector_pubkey,
+                        digest,
+                    )
+                    .await
+                    .map_err(map_db_error)?,
+            )
+        }
+        None => None,
+    };
+    if created
+        || handoff_status == Some(buzz_db::airhop::booking_handoff::BookingHandoffStatus::Connected)
+    {
         if let Err(error) = crate::handlers::side_effects::emit_group_discovery_events(
             &principal.tenant,
             &state,
@@ -517,6 +542,10 @@ pub(crate) async fn resolve_conversation_route(
                 "first-contact channel discovery emission failed"
             );
         }
+    }
+    // A handoff can rename an existing channel, but does not add its members
+    // again. Retried Start deliveries must not generate new join notifications.
+    if created {
         match state
             .db
             .get_members(principal.tenant.community(), route.channel_id)
@@ -557,6 +586,7 @@ pub(crate) async fn resolve_conversation_route(
         "routeStatus": route.route_status,
         "connectionStatus": route.connection_status,
         "created": created,
+        "handoffStatus": handoff_status,
     })))
 }
 

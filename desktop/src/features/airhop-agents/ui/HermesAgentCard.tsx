@@ -27,6 +27,8 @@ const COPY: Record<
     description: string;
     capability: string;
     capabilityHint: string;
+    autoConfirm: string;
+    autoConfirmHint: string;
     model: string;
     managed: string;
     savingError: string;
@@ -39,6 +41,9 @@ const COPY: Record<
     description:
       "Общается с родителями в подключённых каналах, отвечает на вопросы и помогает с занятиями.",
     capability: "Управлять текущими записями",
+    autoConfirm: "Подтверждать онлайн-записи",
+    autoConfirmHint:
+      "После перехода родителя в Telegram Гермес проверяет запись и подтверждает её. Если выключено, он зовёт сотрудника.",
     capabilityHint:
       "Гермес может отменить запись или передать запрос на перенос от подтверждённого родителя. Каждое действие проверяет Booking Core.",
     model: "Модель",
@@ -57,6 +62,9 @@ const COPY: Record<
     description:
       "Talks with parents in connected channels, answers questions, and helps with classes.",
     capability: "Manage current bookings",
+    autoConfirm: "Confirm online bookings",
+    autoConfirmHint:
+      "After a parent connects Telegram, Hermes checks and confirms their booking. If disabled, he asks a staff member.",
     capabilityHint:
       "Hermes can cancel a booking or submit a transfer request for a verified parent. Booking Core checks every action.",
     model: "Model",
@@ -75,6 +83,9 @@ const COPY: Record<
     description:
       "Conversa com responsáveis nos canais conectados, responde perguntas e ajuda com as aulas.",
     capability: "Gerenciar reservas atuais",
+    autoConfirm: "Confirmar reservas online",
+    autoConfirmHint:
+      "Depois que o responsável conectar o Telegram, Hermes verifica e confirma a reserva. Se desativado, chama um funcionário.",
     capabilityHint:
       "Hermes pode cancelar uma reserva ou enviar um pedido de transferência para um responsável verificado. O Booking Core valida cada ação.",
     model: "Modelo",
@@ -93,6 +104,9 @@ const COPY: Record<
     description:
       "Bağlı kanallarda velilerle konuşur, soruları yanıtlar ve derslere yardımcı olur.",
     capability: "Mevcut kayıtları yönet",
+    autoConfirm: "Çevrimiçi kayıtları onayla",
+    autoConfirmHint:
+      "Veli Telegram'a bağlandıktan sonra Hermes kaydı kontrol edip onaylar. Kapalıysa bir çalışanı çağırır.",
     capabilityHint:
       "Hermes doğrulanmış bir velinin kaydını iptal edebilir veya taşıma talebi iletebilir. Booking Core her işlemi kontrol eder.",
     model: "Model",
@@ -137,7 +151,10 @@ export function HermesAgentCard({ serverEnabled }: { serverEnabled: boolean }) {
     }: {
       current: AirhopHermesDeployment;
       patch: Partial<
-        Pick<AirhopHermesDeployment, "enabled" | "manageBookings">
+        Pick<
+          AirhopHermesDeployment,
+          "enabled" | "manageBookings" | "autoConfirmOnlineBookings"
+        >
       >;
     }) => client.putHermesDeployment(current, patch),
     onSuccess: (updated) => {
@@ -151,7 +168,10 @@ export function HermesAgentCard({ serverEnabled }: { serverEnabled: boolean }) {
   const update = React.useCallback(
     async (
       patch: Partial<
-        Pick<AirhopHermesDeployment, "enabled" | "manageBookings">
+        Pick<
+          AirhopHermesDeployment,
+          "enabled" | "manageBookings" | "autoConfirmOnlineBookings"
+        >
       >,
     ) => {
       if (!current) return;
@@ -210,6 +230,24 @@ export function HermesAgentCard({ serverEnabled }: { serverEnabled: boolean }) {
               disabled={!canManage || isSaving}
               onCheckedChange={(manageBookings) =>
                 void update({ manageBookings })
+              }
+            />
+          </div>
+        ) : null}
+        {current ? (
+          <div className="mt-3 flex items-start justify-between gap-4 rounded-xl border border-border/70 bg-background/60 p-4">
+            <div>
+              <p className="text-sm font-medium">{copy.autoConfirm}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {copy.autoConfirmHint}
+              </p>
+            </div>
+            <Switch
+              aria-label={copy.autoConfirm}
+              checked={current.autoConfirmOnlineBookings}
+              disabled={!canManage || isSaving || !current.manageBookings}
+              onCheckedChange={(autoConfirmOnlineBookings) =>
+                void update({ autoConfirmOnlineBookings })
               }
             />
           </div>

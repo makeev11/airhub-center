@@ -127,6 +127,8 @@ pub struct PublicManagementCard {
 /// Parent-authorized management mutation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PublicManagementAction {
+    /// Agent-only confirmation after a verified online-booking handoff.
+    ConfirmOnline,
     /// Cancel an active booking.
     CancelByParent,
     /// Create one pending transfer request.
@@ -236,6 +238,11 @@ impl Db {
         action: PublicManagementAction,
     ) -> Result<PublicManagementCard> {
         validate_credential(credential)?;
+        if matches!(action, PublicManagementAction::ConfirmOnline) {
+            return Err(DbError::AccessDenied(
+                "Online confirmation requires a live Hermes turn".into(),
+            ));
+        }
         validate_action(&action)?;
         let mut transaction = self.pool.begin().await?;
         let mut booking = lock_booking(&mut transaction, tenant, credential).await?;
@@ -346,6 +353,21 @@ impl Db {
             return Err(DbError::AccessDenied(
                 "AirHub booking is outside the active Hermes turn".to_owned(),
             ));
+        }
+        if matches!(action, PublicManagementAction::ConfirmOnline) {
+            let permitted: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM airhop_hermes_turn_receipts t
+                 JOIN airhop_agent_deployments d ON d.community_id = t.community_id AND d.id = t.deployment_id
+                 JOIN airhop_booking_messenger_handoffs h ON h.community_id = t.community_id AND h.conversation_id = t.conversation_id
+                 WHERE t.community_id = $1 AND t.id = $2 AND h.booking_id = $3
+                   AND h.status = 'consumed' AND d.auto_confirm_online_bookings)",
+            ).bind(tenant.community().as_uuid()).bind(command.turn_id).bind(booking.id)
+                .fetch_one(&mut *transaction).await?;
+            if !permitted {
+                return Err(DbError::AccessDenied(
+                    "Online confirmation requires enabled policy and verified handoff".into(),
+                ));
+            }
         }
         let command_input = NewAirhopCommand {
             id: Uuid::new_v4(),
@@ -623,6 +645,27 @@ async fn apply_action(
     now: DateTime<Utc>,
 ) -> Result<Option<ManagementEvent>> {
     match action {
+        PublicManagementAction::ConfirmOnline => {
+            if booking.status == BookingStatus::Confirmed {
+                return Ok(None);
+            }
+            if booking.status != BookingStatus::PendingConfirmation {
+                return Err(DbError::AirhopBookingTransition);
+            }
+            super::booking::recheck_online_confirmation(transaction, tenant, booking.id).await?;
+            booking.version = sqlx::query_scalar(
+                "UPDATE airhop_bookings SET status = 'confirmed', version = version + 1, updated_at = $5
+                 WHERE community_id = $1 AND organization_id = $2 AND id = $3 AND version = $4 RETURNING version",
+            ).bind(tenant.community().as_uuid()).bind(booking.organization_id).bind(booking.id)
+                .bind(booking.version).bind(now).fetch_one(&mut **transaction).await?;
+            booking.status = BookingStatus::Confirmed;
+            Ok(Some(ManagementEvent {
+                event_type: "airhop.booking.confirmed.v1",
+                destination: "airhop.booking.confirmed",
+                occurred_at: now,
+                payload: json!({"bookingId": booking.id, "status": "confirmed"}),
+            }))
+        }
         PublicManagementAction::CancelByParent => {
             if booking.status == BookingStatus::CancelledByParent {
                 return Ok(None);
@@ -695,6 +738,10 @@ async fn apply_action(
         }
         PublicManagementAction::SetPreferredContactChannel { channel } => {
             ensure_changeable(booking)?;
+            if *channel != PreferredContactChannel::Telegram {
+                sqlx::query("UPDATE airhop_booking_messenger_handoffs SET status = 'revoked' WHERE community_id = $1 AND booking_id = $2 AND status = 'issued'")
+                    .bind(tenant.community().as_uuid()).bind(booking.id).execute(&mut **transaction).await?;
+            }
             let changed = sqlx::query(
                 "UPDATE airhop_representatives \
                  SET preferred_contact_channel = $4, version = version + 1, updated_at = $5 \
@@ -840,6 +887,7 @@ fn validate_action(action: &PublicManagementAction) -> Result<()> {
 impl PublicManagementAction {
     const fn command_type(&self) -> &'static str {
         match self {
+            Self::ConfirmOnline => "ConfirmOnlineBooking",
             Self::CancelByParent => "CancelPublicBookingByParent",
             Self::RequestTransfer { .. } => "RequestPublicBookingTransfer",
             Self::SetPreferredContactChannel { .. } => "SetPublicBookingContactChannel",

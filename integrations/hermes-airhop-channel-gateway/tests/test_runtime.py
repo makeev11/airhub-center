@@ -100,14 +100,18 @@ class FakeClient:
         self.completed = []
         self.outbound_jobs = list(outbound_jobs or [])
         self.closed = False
+        self.handoff_digests = []
+        self.handoff_status = "connected"
 
-    async def resolve_route(self, provider_chat_id):
+    async def resolve_route(self, provider_chat_id, handoff_token_digest=None):
         await self.resolve_gate.wait()
+        self.handoff_digests.append(handoff_token_digest)
         return RouteResolution(
             conversation_id="10000000-0000-0000-0000-000000000001",
             channel_id="20000000-0000-0000-0000-000000000002",
             route_status="active",
             connection_status="active",
+            handoff_status=self.handoff_status if handoff_token_digest else None,
         )
 
     async def ingest(self, provider_event_id, event):
@@ -173,6 +177,66 @@ class TelegramGatewayRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         self.tempdir.cleanup()
+
+    async def test_booking_start_survives_restart_without_persisting_raw_grant(self):
+        client = FakeClient()
+        runtime = TelegramGatewayRuntime(settings=self.settings, adapter=FakeAdapter(), client=client, signer=FakeSigner())
+        await runtime.spool.initialize()
+        token = "ahh_" + "a" * 43
+        incoming = FakeEvent("/start " + token, 701, FakeSource("42"), message_type="command")
+        runtime.handle_message_sync(incoming)
+        runtime.handle_message_sync(incoming)
+        for path in Path(self.tempdir.name).iterdir():
+            if path.is_file(): self.assertNotIn(token.encode(), path.read_bytes())
+        restarted = TelegramGatewayRuntime(settings=self.settings, adapter=FakeAdapter(), client=client, signer=FakeSigner())
+        await restarted.spool.initialize()
+        item = await restarted.spool.claim()
+        self.assertEqual(item.content, "/start")
+        self.assertEqual(item.handoff_token_digest, hashlib.sha256(token.encode()).hexdigest())
+        await restarted._deliver_inbound(item)
+        self.assertEqual(client.handoff_digests, [item.handoff_token_digest])
+        self.assertEqual(len(client.ingested), 1)
+        self.assertIn("Чат подтверждён", client.ingested[0][1]["content"])
+        self.assertNotIn(token, repr(client.ingested))
+        self.assertNotIn(item.handoff_token_digest, repr(client.ingested))
+        self.assertIsNone(await restarted.spool.claim())
+
+    async def test_invalid_start_never_claims_binding_success(self):
+        client = FakeClient()
+        client.handoff_status = "invalid"
+        runtime = TelegramGatewayRuntime(settings=self.settings, adapter=FakeAdapter(), client=client, signer=FakeSigner())
+        await runtime.spool.initialize()
+        await runtime.handle_message(FakeEvent("/start ahh_" + "b" * 43, 702, FakeSource("42")))
+        await runtime._deliver_inbound(await runtime.spool.claim())
+        self.assertNotIn("Чат подтверждён", client.ingested[0][1]["content"])
+        self.assertIn("недействительна", client.ingested[0][1]["content"])
+
+    async def test_pasted_link_is_redacted_without_authenticating_the_sender(self):
+        client = FakeClient()
+        runtime = TelegramGatewayRuntime(settings=self.settings, adapter=FakeAdapter(), client=client, signer=FakeSigner())
+        await runtime.spool.initialize()
+        token = "ahh_" + "d" * 43
+        await runtime.handle_message(FakeEvent("Помогите открыть https://t.me/center_bot?start=" + token, 704, FakeSource("42")))
+        item = await runtime.spool.claim()
+        self.assertNotIn(token, item.content)
+        self.assertIsNone(item.handoff_token_digest)
+        await runtime._deliver_inbound(item)
+        self.assertEqual(client.handoff_digests, [None])
+        self.assertNotIn(token, repr(client.ingested))
+
+    async def test_conflicting_start_requests_staff_without_claiming_identity(self):
+        client = FakeClient()
+        client.handoff_status = "conflict"
+        runtime = TelegramGatewayRuntime(settings=self.settings, adapter=FakeAdapter(), client=client, signer=FakeSigner())
+        await runtime.spool.initialize()
+        token = "ahh_" + "c" * 43
+        await runtime.handle_message(FakeEvent("/start@center_bot " + token, 703, FakeSource("42"), message_type="command"))
+        await runtime._deliver_inbound(await runtime.spool.claim())
+        content = client.ingested[0][1]["content"]
+        self.assertIn("проверка сотрудника", content)
+        self.assertIn("handoffReason", content)
+        self.assertNotIn("Чат подтверждён", content)
+        self.assertNotIn(token, repr(client.ingested))
 
     async def test_fake_telegram_round_trip_is_durable_deduplicated_and_ordered(self):
         adapter = FakeAdapter()

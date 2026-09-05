@@ -37,6 +37,8 @@ pub struct PutParentAgentDeploymentInput {
     pub paused: bool,
     /// Master capability for booking mutations.
     pub manage_bookings: bool,
+    /// Optional update; older supervisors preserve the current auto-confirm policy.
+    pub auto_confirm_online_bookings: Option<bool>,
     /// Optimistic version, or zero when creating the deployment.
     pub expected_version: i64,
     /// Authenticated owner/admin applying this desired state.
@@ -77,6 +79,8 @@ pub struct ParentAgentDeployment {
     pub paused: bool,
     /// Whether verified families may use booking mutations.
     pub manage_bookings: bool,
+    /// Whether verified online booking handoffs may be confirmed automatically.
+    pub auto_confirm_online_bookings: bool,
     /// Monotonic desired-state version.
     pub version: i64,
     /// Last owner/admin that changed desired state.
@@ -267,7 +271,7 @@ impl Db {
         let current = sqlx::query(
             "SELECT community_id, organization_id, id, blueprint_key, blueprint_version,
                     role, agent_pubkey, profile_ref, runtime_revision, persona_revision,
-                    skills_revision, model_revision, enabled, paused, manage_bookings,
+                    skills_revision, model_revision, enabled, paused, manage_bookings, auto_confirm_online_bookings,
                     version, registered_by_pubkey, created_at, updated_at
              FROM airhop_agent_deployments
              WHERE community_id = $1 AND organization_id = $2
@@ -294,12 +298,13 @@ impl Db {
                     runtime_revision = $7, persona_revision = $8, skills_revision = $9,
                     model_revision = $10, enabled = $11, paused = $12,
                     manage_bookings = $13, registered_by_pubkey = $14,
+                    auto_confirm_online_bookings = COALESCE($15, auto_confirm_online_bookings),
                     version = version + 1, updated_at = now()
                  WHERE community_id = $1 AND organization_id = $2 AND id = $3
                  RETURNING community_id, organization_id, id, blueprint_key,
                     blueprint_version, role, agent_pubkey, profile_ref, runtime_revision,
                     persona_revision, skills_revision, model_revision, enabled, paused,
-                    manage_bookings, version, registered_by_pubkey, created_at, updated_at",
+                    manage_bookings, auto_confirm_online_bookings, version, registered_by_pubkey, created_at, updated_at",
             )
             .bind(community_id)
             .bind(organization_id)
@@ -315,6 +320,7 @@ impl Db {
             .bind(input.paused)
             .bind(input.manage_bookings)
             .bind(input.registered_by_pubkey.as_slice())
+            .bind(input.auto_confirm_online_bookings)
             .fetch_one(&mut *tx)
             .await?;
             sqlx::query(
@@ -339,13 +345,13 @@ impl Db {
                     community_id, organization_id, id, blueprint_key, blueprint_version,
                     role, agent_pubkey, profile_ref, runtime_revision, persona_revision,
                     skills_revision, model_revision, enabled, paused, manage_bookings,
-                    registered_by_pubkey
+                    registered_by_pubkey, auto_confirm_online_bookings
                  ) VALUES ($1, $2, $3, $4, $5, 'parent_administrator', $6, $7, $8,
-                    $9, $10, $11, $12, $13, $14, $15)
+                    $9, $10, $11, $12, $13, $14, $15, COALESCE($16, TRUE))
                  RETURNING community_id, organization_id, id, blueprint_key,
                     blueprint_version, role, agent_pubkey, profile_ref, runtime_revision,
                     persona_revision, skills_revision, model_revision, enabled, paused,
-                    manage_bookings, version, registered_by_pubkey, created_at, updated_at",
+                    manage_bookings, auto_confirm_online_bookings, version, registered_by_pubkey, created_at, updated_at",
             )
             .bind(community_id)
             .bind(organization_id)
@@ -362,6 +368,7 @@ impl Db {
             .bind(input.paused)
             .bind(input.manage_bookings)
             .bind(input.registered_by_pubkey.as_slice())
+            .bind(input.auto_confirm_online_bookings)
             .fetch_one(&mut *tx)
             .await?
         };
@@ -382,7 +389,7 @@ impl Db {
                     deployment.agent_pubkey, deployment.profile_ref, deployment.runtime_revision,
                     deployment.persona_revision, deployment.skills_revision,
                     deployment.model_revision, deployment.enabled, deployment.paused,
-                    deployment.manage_bookings, deployment.version,
+                    deployment.manage_bookings, deployment.auto_confirm_online_bookings, deployment.version,
                     deployment.registered_by_pubkey, deployment.created_at, deployment.updated_at
              FROM airhop_agent_deployments deployment
              JOIN airhop_organizations organization
@@ -410,7 +417,7 @@ impl Db {
                     deployment.agent_pubkey, deployment.profile_ref, deployment.runtime_revision,
                     deployment.persona_revision, deployment.skills_revision,
                     deployment.model_revision, deployment.enabled, deployment.paused,
-                    deployment.manage_bookings, deployment.version,
+                    deployment.manage_bookings, deployment.auto_confirm_online_bookings, deployment.version,
                     deployment.registered_by_pubkey, deployment.created_at, deployment.updated_at
              FROM airhop_agent_deployments deployment
              JOIN airhop_organizations organization
@@ -447,7 +454,7 @@ impl Db {
         let deployment_row = sqlx::query(
             "SELECT community_id, organization_id, id, blueprint_key, blueprint_version,
                     role, agent_pubkey, profile_ref, runtime_revision, persona_revision,
-                    skills_revision, model_revision, enabled, paused, manage_bookings,
+                    skills_revision, model_revision, enabled, paused, manage_bookings, auto_confirm_online_bookings,
                     version, registered_by_pubkey, created_at, updated_at
              FROM airhop_agent_deployments
              WHERE community_id = $1 AND organization_id = $2 AND id = $3
@@ -929,6 +936,9 @@ fn deployment_matches_input(
         && deployment.enabled == input.enabled
         && deployment.paused == input.paused
         && deployment.manage_bookings == input.manage_bookings
+        && input
+            .auto_confirm_online_bookings
+            .is_none_or(|value| value == deployment.auto_confirm_online_bookings)
 }
 
 fn validate_turn_input(input: &LeaseParentAgentTurnInput) -> Result<()> {
@@ -1007,6 +1017,7 @@ fn deployment_snapshot(deployment: &ParentAgentDeployment) -> serde_json::Value 
         "skillsRevision": deployment.skills_revision,
         "modelRevision": deployment.model_revision,
         "manageBookings": deployment.manage_bookings,
+        "autoConfirmOnlineBookings": deployment.auto_confirm_online_bookings,
     })
 }
 
@@ -1027,6 +1038,7 @@ fn deployment_from_row(row: &sqlx::postgres::PgRow) -> Result<ParentAgentDeploym
         enabled: row.try_get("enabled")?,
         paused: row.try_get("paused")?,
         manage_bookings: row.try_get("manage_bookings")?,
+        auto_confirm_online_bookings: row.try_get("auto_confirm_online_bookings")?,
         version: row.try_get("version")?,
         registered_by_pubkey: vec_to_pubkey(
             row.try_get("registered_by_pubkey")?,
@@ -1084,6 +1096,7 @@ mod tests {
             enabled: true,
             paused: false,
             manage_bookings: true,
+            auto_confirm_online_bookings: None,
             expected_version: 0,
             registered_by_pubkey: [9; 32],
         }
@@ -1101,7 +1114,7 @@ mod tests {
     fn identical_deployment_save_is_not_a_material_change() {
         let input = deployment_input();
         let now = Utc::now();
-        let deployment = ParentAgentDeployment {
+        let mut deployment = ParentAgentDeployment {
             community_id: Uuid::new_v4(),
             organization_id: Uuid::new_v4(),
             id: input.deployment_id,
@@ -1117,12 +1130,20 @@ mod tests {
             enabled: input.enabled,
             paused: input.paused,
             manage_bookings: input.manage_bookings,
+            auto_confirm_online_bookings: input.auto_confirm_online_bookings.unwrap_or(true),
             version: 1,
             registered_by_pubkey: input.registered_by_pubkey,
             created_at: now,
             updated_at: now,
         };
         assert!(deployment_matches_input(&deployment, &input));
+        // Older supervisors omit this new option: absence must preserve the
+        // owner's explicit opt-out, not silently turn confirmation back on.
+        deployment.auto_confirm_online_bookings = false;
+        assert!(deployment_matches_input(&deployment, &input));
+        let mut explicit = input.clone();
+        explicit.auto_confirm_online_bookings = Some(true);
+        assert!(!deployment_matches_input(&deployment, &explicit));
         let mut changed = input;
         changed.manage_bookings = false;
         assert!(!deployment_matches_input(&deployment, &changed));

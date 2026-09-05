@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { FamilyConversationLinks } from "@/features/booking/ui/FamilyConversationLinks";
 import { toast } from "sonner";
 import {
   Archive,
@@ -138,6 +139,7 @@ function FamilyContent({
   const booking = useBookingWorkspace();
   const workspace = booking.workspace;
   const messages = getBookingAdminMessages(detail.organization.locale);
+  const locale = detail.organization.locale;
   const commandMessages = getStaffFamilyCommandMessages(
     detail.organization.locale,
   );
@@ -373,6 +375,11 @@ function FamilyContent({
                   ))}
                 </div>
               ) : null}
+              <FamilyConversationLinks
+                conversations={detail.conversations}
+                representativeId={representative.id}
+                locale={locale}
+              />
             </article>
           ))}
         </Card>

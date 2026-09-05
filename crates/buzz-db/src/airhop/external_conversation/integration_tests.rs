@@ -7,6 +7,8 @@ use buzz_core::CommunityId;
 use nostr::{EventBuilder, Keys, Kind, Tag};
 use serde_json::json;
 
+mod booking_handoff_tests;
+
 struct Fixture {
     db: Db,
     tenant: TenantContext,
@@ -86,6 +88,7 @@ impl Fixture {
                 enabled: true,
                 paused: false,
                 manage_bookings: true,
+                auto_confirm_online_bookings: None,
                 expected_version: 0,
                 registered_by_pubkey: owner.public_key().to_bytes(),
             },
@@ -174,8 +177,8 @@ impl Fixture {
                     cycle_id: route.cycle_id,
                     input_batch_id: Uuid::new_v4(),
                     source_message_id: *event.id.as_bytes(),
-                    family_id: None,
-                    representative_id: None,
+                    family_id: route.family_id,
+                    representative_id: route.representative_id,
                     lease_seconds: 600,
                 },
             )

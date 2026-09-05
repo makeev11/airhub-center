@@ -182,6 +182,7 @@ pub(super) struct ResolvedIdentity {
     pub(super) representative_id: Uuid,
     pub(super) child_id: Uuid,
     pub(super) consent_id: Uuid,
+    pub(super) created_representative: bool,
 }
 
 pub(super) struct IdentityConsent<'a> {
@@ -263,6 +264,14 @@ impl Db {
 
         let booking_id = Uuid::new_v4();
         let visit_kind = visit_kind(organization.purpose);
+        let mut source = booking_source(
+            input.surface,
+            input.attribution_branch_id,
+            organization.purpose,
+        );
+        // A typed phone number can match existing records, but does not prove
+        // ownership of that family's history when a messenger is connected.
+        source["createdRepresentative"] = json!(identity.created_representative);
         let booking = reserve_booking(
             &mut transaction,
             tenant,
@@ -280,11 +289,7 @@ impl Db {
                 status: BookingStatus::PendingConfirmation,
                 management_token_digest: input.management_token_digest,
                 management_key_version: input.management_key_version,
-                source: booking_source(
-                    input.surface,
-                    input.attribution_branch_id,
-                    organization.purpose,
-                ),
+                source,
                 actor: actor.clone(),
                 created_by: "public-booking".to_owned(),
                 internal_comment: None,
@@ -633,7 +638,11 @@ pub(super) async fn resolve_identity(
         .collect::<std::result::Result<Vec<_>, sqlx::Error>>()?;
 
     let (family_id, representative_id, created_representative) =
-        if let Some(candidate) = unique_active_representative(&candidates) {
+        // Anonymous web submissions cannot authenticate an existing family by
+        // typing its phone. Reuse the existing duplicate-review path instead of
+        // injecting new children/bookings into a verified family's history.
+        // Trusted staff workflows retain their explicit exact-match behavior.
+        if let Some(candidate) = unique_active_representative(&candidates).filter(|_| consent.channel != "web") {
             (candidate.family_id, candidate.id, false)
         } else {
             let family_id = Uuid::new_v4();
@@ -713,6 +722,7 @@ pub(super) async fn resolve_identity(
         representative_id,
         child_id,
         consent_id,
+        created_representative,
     })
 }
 

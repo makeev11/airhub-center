@@ -110,15 +110,18 @@ eight-iteration model cap and bounded idle/absolute turn deadlines by default.
 For a direct Telegram contact, no manual route row is required. The first
 private message atomically creates one unverified private Buzz conversation;
 Hermes then asks whether the person wants to book or is already a client. This
-does not yet consume a booking-completion handoff token, so a Family association
-must still pass the normal identity-verification flow.
+does not by itself authenticate a family. A separate online-booking Start grant
+can now bind a newly created parent identity after its one-use, expiry and
+conflict checks; returning/second-parent verification remains separate.
 
-The deployable pilot boundary is therefore **Telegram text consultation for a
-new/unverified contact**, published knowledge, live booking-option lookup, the
-shared Buzz thread and manual staff takeover/resume. Do not treat the current
-slice as acceptance for post-booking identity binding, automatic confirmation,
-voice/media review or WhatsApp; those flows remain fail-closed until their typed
-handoff and adapter slices are implemented.
+The deployable pilot includes **Telegram text consultation and the first online
+booking handoff**, published knowledge, booking-option lookup, the shared Buzz
+conversation and manual staff takeover/resume. Apply migration 0052 and deploy
+matching Relay, public frontend, gateway and parent runtime to test the new
+default-on auto-confirm policy. A successful Core receipt is required before
+reporting confirmation. This is not live acceptance, nor an implementation of
+returning-parent verification, voice/media review or WhatsApp. Follow
+`docs/AIRHOP_HERMES_READINESS.md` for the exact checks and remaining boundaries.
 
 Do not reuse the old `buzz-prod` database or volumes. A demo tenant and AirHop
 organization must be provisioned deliberately; the real owner activation code
