@@ -29,11 +29,55 @@ The project is not yet a complete parent-administrator product.
   for a bounded time. Verified conversations have family/parent titles, and staff
   family cards link only to conversations the current staff principal can read.
 
-This is implemented and locally testable, **not a claim of live Telegram
-acceptance or an updated public installer**. Apply migration 0052 and deploy
-matching Relay, gateway, MCP/persona and frontend before live acceptance.
+This is implemented and deployed to the isolated demo, **not a claim of live
+Telegram acceptance or an updated public installer**. See the deployment record
+below. A matching desktop client is still required for the new settings UI.
 
-## Review fixes implemented on the integration branch
+## Demo deployment on 2026-09-05
+
+- PR #4 is merged into `main` at `d96f669`. The local checkout is on `main`.
+- Updated only Compose project `buzz-demo` at `https://demo.airhop.ru`:
+  `airhub-center-relay:f9730f5`, `airhop-hermes-parent-runtime:f9730f5`, and
+  `airhop-hermes-channel-gateway:f9730f5`. The images carry the full immutable
+  source revision `f9730f5f8e526fcc51a068a862b3e79e737ae92e`. The subsequent
+  merge contains only the additional test, CI registration and documentation;
+  production-path code is unchanged from the tested image source.
+- Schema is at migration 0052. Hermes is enabled, not paused, and online booking
+  auto-confirm is on. Relay and Hermes report healthy; the gateway is running
+  and its signed assignment-discovery request succeeds. Secret isolation and
+  the MCP-only toolset checks pass. `/health`, `/booking` and the public catalog
+  respond successfully over HTTPS.
+- Database, configuration and both stopped agent-state volumes were backed up to
+  `/opt/airhop/backups/demo-before-f9730f5-20260905`. The database archive was
+  checked with `pg_restore --list`; a full restore drill has not been performed.
+- The production relay image and its start time are unchanged. Production,
+  pairing, shared website services and storage containers were not replaced.
+- The demo has **zero configured Telegram connections and zero branches**.
+  The readiness script correctly stops at the missing fresh Telegram heartbeat.
+  No real provider conversation, model response or booking was fabricated as a
+  deployment smoke check. No demo families or lessons were seeded.
+- `airhop.ru/download` and the public DMG were not changed by this deployment.
+
+### Operating this demo release
+
+Always specify `--project-name buzz-demo`. Its base Compose file defaults to a
+different project name; do not operate this deployment with a bare Compose call.
+Use the existing environment file at
+`/opt/airhop/buzz-demo/source/deploy/compose/.env`, and these files in order:
+
+1. `/opt/airhop/buzz-demo/source/deploy/compose/compose.yml`
+2. `/opt/airhop/buzz-demo/buzz-demo.override.yml`
+3. `/opt/airhop/relay-build-f9730f5/deploy/airhop/compose.existing.yml`
+4. `/opt/airhop/buzz-demo/releases/f9730f5.compose.yml`
+
+Enable the `hermes` and `telegram` profiles. The final override pins the deployed
+images without rewriting existing credentials. Omitting it can select old image
+tags from the original environment file. The one-shot deployment and read-only
+postflight scripts are retained alongside that override for audit; the deployment
+script deliberately refuses to overwrite its backup or blindly redeploy over a
+changed state. Retain the previous images and backup until live acceptance.
+
+## Implemented review fixes (merged into main)
 
 - Staff resume understands the current display name, including the profile
   inserted by the mention autocomplete. Identity still requires the signed p tag.
@@ -64,8 +108,8 @@ matching Relay, gateway, MCP/persona and frontend before live acceptance.
   CI passed for `f9730f5` after merging the current main branch, including live
   relay integration and both AirHop product UI shards. All 89 local AirHop UI
   scenarios also passed in one clean run.
-- Rebuild/redeploy the matching runtime and relay, then publish a matching desktop
-  artifact. The existing 0.5.5 download predates the reviewed shell fixes.
+- Publish a matching desktop artifact. The demo server stack is now deployed;
+  the existing 0.5.5 download still predates the reviewed shell fixes.
 
 ### Live acceptance for the online-booking Telegram slice
 
