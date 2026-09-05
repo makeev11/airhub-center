@@ -143,6 +143,9 @@ async function answerConfirm(
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("airhop.locale.v1", "ru-RU");
+  });
   await page.clock.setFixedTime(new Date("2026-08-04T09:00:00.000Z"));
   await page.addInitScript(() => {
     window.localStorage.setItem("airhop.locale.v1", "ru-RU");
@@ -561,7 +564,7 @@ test("AirHop protects dirty settings and branch dialogs", async ({ page }) => {
   );
   expect(settingsPrompt).toContain("несохранённые изменения");
   await expect(
-    page.getByRole("heading", { name: "Настройки AirHop" }),
+    page.getByRole("heading", { name: "Настройки Airhop" }),
   ).toBeVisible();
 
   await answerConfirm(
@@ -579,8 +582,7 @@ test("AirHop protects dirty settings and branch dialogs", async ({ page }) => {
   for (const close of [
     () => form.getByRole("button", { name: "Отмена" }).click(),
     () => form.getByRole("button", { name: "Close" }).click(),
-    () =>
-      page.getByTestId("dialog-overlay").click({ position: { x: 4, y: 4 } }),
+    () => page.mouse.click(4, 4),
   ]) {
     const prompt = await answerConfirm(page, close, false);
     expect(prompt).toContain("несохранённые изменения");

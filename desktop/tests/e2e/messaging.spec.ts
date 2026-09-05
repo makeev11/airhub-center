@@ -308,9 +308,10 @@ test("send multiple messages in sequence", async ({ page }) => {
 
 test("copy a rendered code block and paste it back as code", async ({
   page,
+  baseURL,
 }) => {
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: "http://127.0.0.1:4173",
+    origin: baseURL,
   });
 
   const code = "# not a heading\nconst answer = 42;\n  indented();";
@@ -351,9 +352,10 @@ test("copy a rendered code block and paste it back as code", async ({
 
 test("pasting a long copied code block scrolls composer to cursor", async ({
   page,
+  baseURL,
 }) => {
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: "http://127.0.0.1:4173",
+    origin: baseURL,
   });
 
   const longCode = Array.from(
@@ -395,9 +397,10 @@ test("pasting a long copied code block scrolls composer to cursor", async ({
 
 test("code block shows language label when language is specified", async ({
   page,
+  baseURL,
 }) => {
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: "http://127.0.0.1:4173",
+    origin: baseURL,
   });
 
   await page.goto("/");
@@ -652,8 +655,23 @@ test("shows your avatar on your own message when profile avatar is set", async (
   await page.goto("/");
   await openSettings(page, "profile");
   await page.getByTestId("profile-avatar-edit").click();
+  // The editor is mounted inert for its opening animation. Click waits until
+  // it can receive input; fill alone can change the DOM before React receives it.
+  await page.getByTestId("profile-avatar-url").click();
   await page.getByTestId("profile-avatar-url").fill(avatarUrl);
   await page.getByTestId("profile-avatar-done").click();
+  await expect(page.getByTestId("profile-avatar-editor")).toBeHidden();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const profile = await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+          "get_profile",
+          {},
+        );
+        return (profile as { avatar_url?: string } | undefined)?.avatar_url;
+      }),
+    )
+    .toBe(avatarUrl);
   await page.getByTestId("settings-back-to-app").click();
 
   await page.getByTestId("channel-general").click();
@@ -1062,7 +1080,8 @@ test("narrow thread view collapses channel header actions into a menu", async ({
 
   await expect(page.getByTestId("channel-add-bot-trigger")).toHaveCount(0);
   await expect(page.getByTestId("channel-members-trigger")).toBeVisible();
-  await expect(page.getByTestId("channel-start-huddle-trigger")).toBeVisible();
+  // Huddle is excluded from the shipped AirHop Center surface.
+  await expect(page.getByTestId("channel-start-huddle-trigger")).toHaveCount(0);
   await expect(page.getByTestId("channel-management-trigger")).toBeVisible();
 });
 

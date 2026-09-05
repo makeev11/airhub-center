@@ -147,6 +147,9 @@ async function createLimitedBooking(page: Page): Promise<string> {
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("airhop.locale.v1", "ru-RU");
+  });
   await page.clock.setFixedTime(new Date("2026-08-04T09:00:00.000Z"));
   // This suite asserts Russian organization and branch data as well as UI copy.
   // Seed the locale before the demo workspace is created by the mock bridge.
@@ -456,7 +459,9 @@ test("booked series edits are explained and exact admin cancellation cascades wi
   );
   await expect(groupForm).toBeVisible();
   await expect(bookedRuleError).toContainText("Нельзя изменить эту серию");
-  await expect(bookedRuleError).toContainText("уже используется записями");
+  await expect(bookedRuleError).toContainText(
+    "Серия уже используется записями",
+  );
   await expect(bookedRuleError).not.toContainText("public-limited-weekly");
 
   await groupForm.getByLabel("Вторник 1").click();
@@ -543,6 +548,7 @@ test("widget purpose and appearance are controlled by AirHop settings", async ({
   await expect(light).toHaveAttribute("aria-pressed", "true");
   await expect(dark).toHaveAttribute("aria-pressed", "false");
   await dark.click();
+  await expect(light).toHaveAttribute("aria-pressed", "false");
 
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByTestId("airhop-settings-saved")).toBeVisible();
