@@ -729,11 +729,11 @@ jobs:
             --run-ignored ignored-only
         env:
           RELAY_URL: ws://localhost:3000
-      - name: AirHop Hermes conversation lifecycle
+      - name: AirHop public booking and Hermes conversation lifecycle
         run: |
           cargo nextest run \
             --archive-file target/ci/backend-integration-tests.tar.zst \
-            -E 'package(buzz-db) and test(/airhop::external_conversation::integration_tests/)' \
+            -E 'package(buzz-db) and (test(/airhop::external_conversation::integration_tests/) or test(public_booking_is_atomic_idempotent_and_isolates_unverified_identity))' \
             --run-ignored ignored-only
         env:
           BUZZ_TEST_DATABASE_URL: postgres://buzz:${{ env.BUZZ_TEST_POSTGRES_PASSWORD }}@localhost:5432/buzz

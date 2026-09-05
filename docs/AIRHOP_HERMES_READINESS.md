@@ -60,9 +60,10 @@ matching Relay, gateway, MCP/persona and frontend before live acceptance.
   tagged resume, internal handoff, disconnect/restart, and duplicate-delivery cases.
 - Include coalesced parent messages mixed with internal staff notes in the live
   Telegram acceptance, in addition to the PostgreSQL batch-selection regression.
-- Run the full corrected GitHub CI. Remaining Desktop smoke failures need explicit
-  classification; they must not be dismissed wholesale as inherited test debt.
-  The 45 local AirHop scenarios now pass in one clean run, not only in a rerun.
+- Keep the full corrected GitHub CI green on release candidates. The complete
+  CI passed for `f9730f5` after merging the current main branch, including live
+  relay integration and both AirHop product UI shards. All 89 local AirHop UI
+  scenarios also passed in one clean run.
 - Rebuild/redeploy the matching runtime and relay, then publish a matching desktop
   artifact. The existing 0.5.5 download predates the reviewed shell fixes.
 
@@ -133,10 +134,15 @@ Extend the existing authenticated event, tool, and outbox seams with end-to-end 
   server-selected staff recipient contract.
 - Focused desktop HTTP, settings, family-card and success-rendering tests:
   16 passed. Desktop lint, file-size and text-size guards passed after final edits.
-- AirHop UI scenarios: 45 passed in one clean Playwright run. Uses the E2E bridge
+- AirHop UI scenarios: 89 passed in one clean Playwright run after merging main. Uses the E2E bridge
   and demo state, not a live provider. New success-state rendering tests separately
   distinguish the launch link, connected chat and authoritative confirmation.
-- GitHub CI and real Telegram acceptance remain separate release gates.
+- Full GitHub CI passed for `f9730f5`, including relay-backed product tests.
+- The additional PostgreSQL public-booking lifecycle test passed after replacing
+  its obsolete anonymous phone-based identity-reuse expectation with isolation
+  and duplicate-review assertions. It is now included in the CI integration gate.
+  This follow-up changes tests/documentation/CI only, not the runtime images.
+- Real Telegram acceptance remains a separate release gate.
 
 Deployment order: migrate/start the matching relay first, then update the ACP,
 AirHop MCP and Hermes runtime. The relay accepts old single-event claims, but

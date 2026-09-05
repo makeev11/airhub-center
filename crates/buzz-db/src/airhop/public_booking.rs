@@ -963,7 +963,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires a dedicated migrated Postgres database"]
-    async fn public_booking_is_atomic_idempotent_and_reuses_exact_identity() {
+    async fn public_booking_is_atomic_idempotent_and_isolates_unverified_identity() {
         let database_url = std::env::var("BUZZ_TEST_DATABASE_URL")
             .expect("BUZZ_TEST_DATABASE_URL must point to a dedicated migrated database");
         let config = DbConfig {
@@ -1134,8 +1134,15 @@ mod tests {
             second_booking.disposition,
             PublicBookingDisposition::Created
         );
-        assert_eq!(created.booking.family_id, second_booking.booking.family_id);
-        assert_eq!(created.booking.child_id, second_booking.booking.child_id);
+        // A second anonymous request cannot authenticate an existing family by
+        // typing the same phone and child name. Only an exact command replay
+        // reuses the original identity; a new request requires duplicate review.
+        assert_ne!(created.booking.family_id, second_booking.booking.family_id);
+        assert_ne!(
+            created.booking.representative_id,
+            second_booking.booking.representative_id
+        );
+        assert_ne!(created.booking.child_id, second_booking.booking.child_id);
 
         let mut capacity_rejected = base.clone();
         capacity_rejected.applicant.parent_name = "Ольга Петрова".to_owned();
@@ -1164,6 +1171,8 @@ mod tests {
                   WHERE community_id = $1) AS representatives, \
                  (SELECT COUNT(*)::BIGINT FROM airhop_children \
                   WHERE community_id = $1) AS children, \
+                 (SELECT COUNT(*)::BIGINT FROM airhop_duplicate_candidates \
+                  WHERE community_id = $1) AS duplicate_candidates, \
                  (SELECT COUNT(*)::BIGINT FROM airhop_consents \
                   WHERE community_id = $1) AS consents, \
                  (SELECT COUNT(*)::BIGINT FROM airhop_domain_events \
@@ -1178,9 +1187,10 @@ mod tests {
         for (column, expected) in [
             ("commands", 2_i64),
             ("bookings", 2),
-            ("families", 1),
-            ("representatives", 1),
-            ("children", 1),
+            ("families", 2),
+            ("representatives", 2),
+            ("children", 2),
+            ("duplicate_candidates", 1),
             ("consents", 2),
             ("events", 2),
             ("outbox", 2),
