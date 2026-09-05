@@ -242,6 +242,23 @@ class TelegramGatewayRuntimeTest(unittest.IsolatedAsyncioTestCase):
         stop.set()
         await task
 
+    async def test_unsupported_attachment_is_visible_durable_and_deduplicated(self):
+        client = FakeClient()
+        runtime = TelegramGatewayRuntime(settings=self.settings, adapter=FakeAdapter(), client=client, signer=FakeSigner())
+        await runtime.spool.initialize()
+        for index, media_type in enumerate(["voice", "audio", "photo", "document", "video"], start=800):
+            event = FakeEvent("provider-secret-file-url", index, FakeSource("42"), message_type=media_type)
+            await runtime.handle_message(event)
+            await runtime.handle_message(event)
+            item = await runtime.spool.claim()
+            self.assertIsNotNone(item)
+            await runtime._deliver_inbound(item)
+        self.assertEqual(len(client.ingested), 5)
+        for _, event in client.ingested:
+            self.assertIn("неподдерживаемое вложение", event["content"])
+            self.assertNotIn("provider-secret", event["content"])
+        self.assertEqual(await runtime.spool.counts(), (0, 0))
+
 
 class SettingsTest(unittest.TestCase):
     def test_webhook_requires_secret_and_never_places_secrets_in_repr(self):

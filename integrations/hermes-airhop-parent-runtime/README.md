@@ -34,3 +34,23 @@ The persistent volume contains Hermes session history. It must use encrypted
 storage and must not be shared between organizations. Airhop family, booking
 and knowledge data remain in Airhop and are retrieved through short-lived,
 turn-scoped grants; they are not copied into the Hermes profile.
+
+The existing `airhop_send_parent_reply` tool accepts an optional `handoffReason`.
+MCP resolves current server-authorized owner/admin recipients already in the
+private conversation and signs a separate internal mention. The relay commits
+the parent reply, internal notification, and human ownership atomically. The
+internal note uses Buzz publication/recovery but never the provider delivery
+outbox. If recipients are unavailable or have changed, the entire operation is
+rejected rather than falsely promising a handoff. This is the unknown-branch
+fallback, not an implementation of branch-specific responsibility settings.
+
+An explicitly tagged staff resume recognizes the current Hermes display name
+and creates a new internal trigger receipt. It does not forward the command to
+the parent or re-author old parent messages. Its new turn may process unanswered
+conversation context immediately, without waiting for another parent message.
+
+ACP sends the bounded input batch to the existing supervisor claim in one
+request. The relay selects the newest trigger with a current receipt in the
+same channel, skipping internal notes without extra model calls. Deploy the
+matching migrated relay before updating this runtime; older single-event
+runtime claims remain supported by the new relay.

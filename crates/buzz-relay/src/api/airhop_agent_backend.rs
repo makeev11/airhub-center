@@ -14,7 +14,8 @@ use buzz_db::airhop::agent_runtime::{
     PutParentAgentDeploymentInput, ValidateParentAgentTurnLeaseInput,
 };
 use buzz_db::airhop::external_conversation::{
-    CommitHermesReplyInput, ExternalConversation, RegisterExternalConversationInput,
+    is_hermes_handoff_event, CommitHermesReplyInput, ExternalConversation,
+    RegisterExternalConversationInput,
 };
 use buzz_db::airhop::family_detail::StaffFamilyDetail;
 use buzz_db::airhop::knowledge::ParentKnowledgeScope;
@@ -110,6 +111,8 @@ struct IssueContextGrantBody {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ClaimParentEventBody {
     input_batch_id: Uuid,
+    #[serde(default)]
+    source_event_ids: Vec<String>,
     #[serde(default = "default_turn_lease_seconds")]
     lease_seconds: u32,
     #[serde(default = "default_grant_ttl_seconds")]
@@ -485,7 +488,12 @@ pub(crate) async fn commit_reply(
                 turn_id,
                 lease_token: request.lease_token,
                 agent_pubkey: principal.pubkey.to_bytes(),
-                outcome: "waiting_parent".to_owned(),
+                outcome: if request.events.last().is_some_and(is_hermes_handoff_event) {
+                    "human_handoff"
+                } else {
+                    "waiting_parent"
+                }
+                .to_owned(),
                 events: request.events.clone(),
             },
         )
@@ -620,6 +628,7 @@ pub(crate) async fn claim_parent_event(
         || !(60..=15 * 60).contains(&request.lease_seconds)
         || request.ttl_seconds == 0
         || i64::from(request.ttl_seconds) > MAX_GRANT_TTL_SECONDS
+        || request.source_event_ids.len() > 500
     {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -627,11 +636,27 @@ pub(crate) async fn claim_parent_event(
         ));
     }
     let source_message_id = parse_event_id(&event_id)?;
+    let source_event_ids = if request.source_event_ids.is_empty() {
+        vec![source_message_id]
+    } else {
+        let ids = request
+            .source_event_ids
+            .iter()
+            .map(|value| parse_event_id(value))
+            .collect::<Result<Vec<_>, _>>()?;
+        if ids.first() != Some(&source_message_id) {
+            return Err(api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Hermes batch anchor mismatch",
+            ));
+        }
+        ids
+    };
     let route = state
         .db
-        .get_airhop_hermes_parent_event_route(
+        .get_airhop_hermes_parent_batch_route(
             &principal.tenant,
-            source_message_id,
+            &source_event_ids,
             principal.pubkey.to_bytes(),
         )
         .await
@@ -652,7 +677,7 @@ pub(crate) async fn claim_parent_event(
                 conversation_id: route.conversation_id,
                 cycle_id: route.cycle_id,
                 input_batch_id: request.input_batch_id,
-                source_message_id,
+                source_message_id: route.source_message_id,
                 family_id: route.family_id,
                 representative_id: route.representative_id,
                 lease_seconds: i64::from(request.lease_seconds),
@@ -680,7 +705,7 @@ pub(crate) async fn claim_parent_event(
         representative_id: leased.turn.representative_id,
         cycle_id: leased.turn.cycle_id,
         input_batch_id: leased.turn.input_batch_id,
-        source_message_id: event_id.to_ascii_lowercase(),
+        source_message_id: hex::encode(route.source_message_id),
         turn_id: leased.turn.id,
         turn_lease_token: leased.turn.lease_token,
         capabilities: parent_capabilities(
@@ -758,6 +783,14 @@ async fn get_turn_context(
     context: &ResolvedAgentContext,
 ) -> Result<Value, (StatusCode, Json<Value>)> {
     require_capability(context, AgentCapability::ReadOrganizationPublic)?;
+    let handoff_targets = state
+        .db
+        .get_airhop_conversation_handoff_targets(
+            &context.principal.tenant,
+            context.claims.channel_id,
+        )
+        .await
+        .map_err(map_db_error)?;
     let organization = state
         .db
         .get_airhop_organization(&context.principal.tenant)
@@ -799,6 +832,7 @@ async fn get_turn_context(
                 "timeZone": organization.time_zone,
             },
             "family": family,
+            "handoffTargets": handoff_targets,
             "capabilities": capability_names(&context.claims.capabilities),
         }),
     ))

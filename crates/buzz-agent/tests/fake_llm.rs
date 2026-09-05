@@ -14,7 +14,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 async fn spawn_fake_llm(responses: Vec<Value>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -60,6 +60,13 @@ async fn spawn_fake_llm(responses: Vec<Value>) -> String {
 /// Like `spawn_fake_llm` but also captures the full JSON request body from each
 /// incoming HTTP request. Returns (url, captured_requests).
 async fn spawn_capturing_fake_llm(responses: Vec<Value>) -> (String, Arc<Mutex<Vec<Value>>>) {
+    spawn_gated_capturing_fake_llm(responses, None).await
+}
+
+async fn spawn_gated_capturing_fake_llm(
+    responses: Vec<Value>,
+    mut first_response_gate: Option<Arc<Notify>>,
+) -> (String, Arc<Mutex<Vec<Value>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let queue = Arc::new(Mutex::new(VecDeque::from(responses)));
@@ -73,6 +80,7 @@ async fn spawn_capturing_fake_llm(responses: Vec<Value>) -> (String, Arc<Mutex<V
             };
             let queue = queue.clone();
             let captures = captures_clone.clone();
+            let response_gate = first_response_gate.take();
             tokio::spawn(async move {
                 // Read headers.
                 let mut buf = Vec::new();
@@ -122,6 +130,9 @@ async fn spawn_capturing_fake_llm(responses: Vec<Value>) -> (String, Arc<Mutex<V
                 }
 
                 // Send canned response.
+                if let Some(gate) = response_gate {
+                    gate.notified().await;
+                }
                 let body = queue
                     .lock()
                     .await
@@ -597,10 +608,17 @@ async fn steer_folds_into_active_turn_without_cancelling() {
     // A two-round turn (tool call → text). A steer sent once the run is live
     // must (a) be accepted with the matching runId, (b) NOT cancel the turn —
     // it still ends with end_turn — and (c) reach the provider as a user turn.
-    let (url, captures) = spawn_capturing_fake_llm(vec![
-        openai_tool_call("call_steer", "fake__noop", json!({})),
-        openai_text("acknowledged the steer"),
-    ])
+    // Hold the first response until the steer is acknowledged. Without this
+    // handshake the instant fake can finish both rounds before the test drives
+    // stdin, making the assertion depend on subprocess scheduling.
+    let response_gate = Arc::new(Notify::new());
+    let (url, captures) = spawn_gated_capturing_fake_llm(
+        vec![
+            openai_tool_call("call_steer", "fake__noop", json!({})),
+            openai_text("acknowledged the steer"),
+        ],
+        Some(response_gate.clone()),
+    )
     .await;
     let mut h = Harness::spawn(&url).await;
     let sid = init_session(&mut h).await;
@@ -647,6 +665,7 @@ async fn steer_folds_into_active_turn_without_cancelling() {
                 "steer reply carries a messageId"
             );
             steer_ok = true;
+            response_gate.notify_one();
         } else if v["id"] == json!(p_id) {
             // The turn was NOT cancelled — it completed normally.
             assert_eq!(v["result"]["stopReason"], "end_turn");

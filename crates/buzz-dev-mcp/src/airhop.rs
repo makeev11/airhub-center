@@ -161,6 +161,9 @@ pub struct SendMessagesParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SendParentReplyParams {
     pub messages: Vec<String>,
+    /// When present, atomically notify authorized staff and pause Hermes.
+    #[serde(default)]
+    pub handoff_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -447,6 +450,13 @@ struct ParentContextClaims {
     channel_id: Uuid,
     turn_id: Uuid,
     turn_lease_token: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParentHandoffTarget {
+    pubkey: String,
+    display_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -825,6 +835,38 @@ fn build_parent_reply_events(
         .collect()
 }
 
+fn build_parent_handoff_event(
+    config: &AirhopConfig,
+    claims: &ParentContextClaims,
+    reason: &str,
+    targets: &[ParentHandoffTarget],
+) -> Result<Event, AirhopError> {
+    if targets.is_empty() || targets.len() > 8 {
+        return Err(AirhopError(
+            "no authorized staff is available for this conversation".to_owned(),
+        ));
+    }
+    let mut tags = vec![
+        parse_tag(["h", claims.channel_id.to_string().as_str()])?,
+        parse_tag(["airhop-handoff", "responsible"])?,
+        parse_tag(["airhop-hermes-turn", claims.turn_id.to_string().as_str()])?,
+    ];
+    let mut mentions = Vec::with_capacity(targets.len());
+    for target in targets {
+        let pubkey = PublicKey::from_hex(&target.pubkey)
+            .map_err(|_| AirhopError("invalid server staff identity".to_owned()))?;
+        tags.push(parse_tag(["p", pubkey.to_hex().as_str()])?);
+        mentions.push(format!("@{}", target.display_name));
+    }
+    config.sign_event(
+        EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16),
+            format!("{}\n{}", mentions.join(" "), reason.trim()),
+        )
+        .tags(tags),
+    )
+}
+
 fn build_message_events(
     config: &AirhopConfig,
     params: SendMessagesParams,
@@ -946,7 +988,28 @@ impl AirhopService {
             ));
         }
         let claims = decode_parent_context(&self.config)?;
-        let events = build_parent_reply_events(&self.config, &claims, params.messages)?;
+        let mut events = build_parent_reply_events(&self.config, &claims, params.messages)?;
+        if let Some(reason) = params.handoff_reason {
+            if reason.trim().is_empty() || reason.len() > 2000 {
+                return Err(AirhopError(
+                    "handoffReason must contain 1–2000 bytes".to_owned(),
+                ));
+            }
+            let context = self.get_turn_context().await?;
+            let targets: Vec<ParentHandoffTarget> = serde_json::from_value(
+                context
+                    .pointer("/data/handoffTargets")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            )
+            .map_err(|_| AirhopError("staff handoff targets are unavailable".to_owned()))?;
+            events.push(build_parent_handoff_event(
+                &self.config,
+                &claims,
+                &reason,
+                &targets,
+            )?);
+        }
         let path = format!("/api/airhop/agents/v1/turns/{}/reply", claims.turn_id);
         self.config
             .post_json(
@@ -1569,7 +1632,7 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_send_parent_reply",
-        description = "Parent Administrator only: atomically commit and send the final one-to-three-message reply in the current parent conversation. Always use this for parent-facing output; the server rejects it after human takeover."
+        description = "Parent Administrator only: atomically commit the final one-to-three-message parent reply. Set handoffReason to notify the server-selected staff in a separate INTERNAL mention and pause Hermes until an explicit staff resume. This is the only way to actually hand off a parent request. Never promise a handoff without a successful receipt."
     )]
     async fn send_parent_reply(
         &self,
@@ -1803,6 +1866,29 @@ mod tests {
             .tags
             .iter()
             .any(|tag| tag.as_slice().first().is_some_and(|value| value == "e")));
+        let staff = Keys::generate();
+        let handoff = build_parent_handoff_event(
+            &config,
+            &claims,
+            "Нужна помощь",
+            &[ParentHandoffTarget {
+                pubkey: staff.public_key().to_hex(),
+                display_name: "Андрей".into(),
+            }],
+        )
+        .unwrap();
+        assert!(handoff.verify_signature());
+        assert_eq!(handoff.pubkey, events[0].pubkey);
+        assert!(handoff
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["p", staff.public_key().to_hex().as_str()]));
+        assert!(handoff
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["airhop-handoff", "responsible"]));
+        assert_eq!(handoff.content, "@Андрей\nНужна помощь");
+        assert!(build_parent_handoff_event(&config, &claims, "help", &[]).is_err());
     }
 
     #[test]
@@ -2039,6 +2125,7 @@ mod tests {
     #[derive(Clone, Default)]
     struct ParentMockState {
         requests: Arc<Mutex<Vec<(HeaderMap, Value)>>>,
+        handoff_targets: Vec<Value>,
     }
 
     async fn parent_backend(
@@ -2050,7 +2137,10 @@ mod tests {
         state.requests.lock().unwrap().push((headers, body));
         Json(json!({
             "schemaVersion": "airhop.agent.read.v1",
-            "data": {"capabilities": ["read_organization_public"]}
+            "data": {
+                "capabilities": ["read_organization_public"],
+                "handoffTargets": state.handoff_targets,
+            }
         }))
     }
 
@@ -2125,6 +2215,74 @@ mod tests {
             .get("authorization")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.starts_with("Nostr ")));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn parent_handoff_tool_posts_one_signed_batch_with_server_selected_internal_recipient() {
+        let staff = Keys::generate();
+        let state = ParentMockState {
+            handoff_targets: vec![json!({
+                "pubkey": staff.public_key().to_hex(), "displayName": "Андрей"
+            })],
+            ..ParentMockState::default()
+        };
+        let turn_id = Uuid::new_v4();
+        let channel_id = Uuid::new_v4();
+        let lease_token = Uuid::new_v4();
+        let reply_path = format!("/api/airhop/agents/v1/turns/{turn_id}/reply");
+        let app = Router::new()
+            .route(AGENT_BACKEND_PATH, post(parent_backend))
+            .route(&reply_path, post(parent_backend))
+            .with_state(state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let grant = EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_AIRHOP_AGENT_CONTEXT_GRANT as u16),
+            json!({
+                "channelId": channel_id, "turnId": turn_id, "turnLeaseToken": lease_token,
+            })
+            .to_string(),
+        )
+        .sign_with_keys(&Keys::generate())
+        .unwrap();
+        let mut config = AirhopConfig::for_test(
+            AirhopRole::ParentAdministrator,
+            Uuid::new_v4(),
+            &format!("http://{address}"),
+            Keys::generate(),
+        );
+        config.context_grant = Some(
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&grant).unwrap()),
+        );
+        AirhopService::new(config)
+            .send_parent_reply(SendParentReplyParams {
+                messages: vec!["Подключаю сотрудника.".into()],
+                handoff_reason: Some("Родитель просит помочь с записью.".into()),
+            })
+            .await
+            .unwrap();
+        let requests = state.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].1, json!({"operation": "get_turn_context"}));
+        assert_eq!(requests[1].1["leaseToken"], json!(lease_token));
+        let events: Vec<Event> = serde_json::from_value(requests[1].1["events"].clone()).unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|event| event.verify_signature()));
+        assert!(!events[0].tags.iter().any(|tag| tag.as_slice()[0] == "p"));
+        assert!(events[1]
+            .tags
+            .iter()
+            .any(|tag| { tag.as_slice() == ["p", staff.public_key().to_hex().as_str()] }));
+        assert_eq!(
+            events[1].content,
+            "@Андрей\nРодитель просит помочь с записью."
+        );
+        assert!(requests
+            .iter()
+            .all(|(headers, _)| headers.contains_key("authorization")));
         server.abort();
     }
 }

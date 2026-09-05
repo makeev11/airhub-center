@@ -148,6 +148,11 @@ async function createLimitedBooking(page: Page): Promise<string> {
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-08-04T09:00:00.000Z"));
+  // This suite asserts Russian organization and branch data as well as UI copy.
+  // Seed the locale before the demo workspace is created by the mock bridge.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("airhop.locale.v1", "ru-RU");
+  });
   await installMockBridge(page);
 });
 
@@ -175,7 +180,7 @@ test("standalone public booking completes without employee shell or onboarding",
     }),
   ).toBeVisible();
   await expect(page.getByTestId("airhop-public-footer")).toContainText(
-    "Работает на AirHop",
+    "Работает на Airhop",
   );
   await expect(page.getByTestId("airhop-public-footer")).not.toContainText(
     "Каляка Маляка",
@@ -265,7 +270,7 @@ test("embedded widget is preselected, closes with Escape and returns focus", asy
     "AirHop",
   );
   await expect(widget.getByTestId("airhop-public-footer")).toContainText(
-    "Работает на AirHop",
+    "Работает на Airhop",
   );
   await page.keyboard.press("Escape");
   await expect(widget).toBeHidden();
@@ -451,7 +456,7 @@ test("booked series edits are explained and exact admin cancellation cascades wi
   );
   await expect(groupForm).toBeVisible();
   await expect(bookedRuleError).toContainText("Нельзя изменить эту серию");
-  await expect(bookedRuleError).toContainText("уже есть записи");
+  await expect(bookedRuleError).toContainText("уже используется записями");
   await expect(bookedRuleError).not.toContainText("public-limited-weekly");
 
   await groupForm.getByLabel("Вторник 1").click();
@@ -523,20 +528,21 @@ test("invalid management token reveals no booking details", async ({
 test("widget purpose and appearance are controlled by AirHop settings", async ({
   page,
 }) => {
-  await page.goto("/#/booking/settings");
+  await page.goto("/#/booking/settings?section=public-booking");
   await page
     .getByTestId("airhop-settings-public-purpose")
     .selectOption("lesson");
   await page.getByTestId("airhop-settings-public-appearance-dark").click();
 
-  const preview = page.getByTestId("airhop-settings-public-preview");
-  await expect(preview).toBeVisible();
-  await expect(preview).toHaveAttribute("data-airhop-appearance", "dark");
-  await expect(preview).toContainText("Запись на занятие");
+  // The full preview lives in the actual public widget, not inside Settings.
+  const dark = page.getByTestId("airhop-settings-public-appearance-dark");
+  const light = page.getByTestId("airhop-settings-public-appearance-light");
+  await expect(dark).toHaveAttribute("aria-pressed", "true");
 
-  await page.getByTestId("airhop-settings-public-appearance-light").click();
-  await expect(preview).toHaveAttribute("data-airhop-appearance", "light");
-  await page.getByTestId("airhop-settings-public-appearance-dark").click();
+  await light.click();
+  await expect(light).toHaveAttribute("aria-pressed", "true");
+  await expect(dark).toHaveAttribute("aria-pressed", "false");
+  await dark.click();
 
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByTestId("airhop-settings-saved")).toBeVisible();
@@ -636,7 +642,7 @@ for (const viewport of [
       ).toContainText("Онлайн-запись · Каляка Маляка");
       await expect(
         standalone.getByTestId("airhop-public-footer"),
-      ).toContainText("Работает на AirHop");
+      ).toContainText("Работает на Airhop");
       const standaloneBranchContext = standalone.getByTestId(
         "airhop-public-branch-context",
       );
@@ -690,7 +696,7 @@ for (const viewport of [
         "Онлайн-запись · Каляка Маляка",
       );
       await expect(widget.getByTestId("airhop-public-footer")).toContainText(
-        "Работает на AirHop",
+        "Работает на Airhop",
       );
       const widgetBranchContext = widget.getByTestId(
         "airhop-public-branch-context",

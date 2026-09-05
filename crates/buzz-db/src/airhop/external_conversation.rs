@@ -13,6 +13,11 @@ use crate::{Db, DbError, Result};
 
 use super::channel_gateway::GatewayInboundContext;
 
+mod handoff;
+pub use handoff::{is_hermes_handoff_event, HermesHandoffTarget};
+#[cfg(test)]
+mod integration_tests;
+
 /// Creates the immutable identity binding for one private parent conversation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisterExternalConversationInput {
@@ -130,7 +135,7 @@ pub struct CommitHermesReplyInput {
     pub agent_pubkey: [u8; 32],
     /// Stable result used to close the turn.
     pub outcome: String,
-    /// One to three signed top-level Buzz messages.
+    /// One to three parent messages, optionally followed by an internal handoff.
     pub events: Vec<Event>,
 }
 
@@ -149,6 +154,8 @@ pub struct HermesOutboundIntent {
 /// Current server-derived scope for one triggerable parent event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HermesParentEventRoute {
+    /// The server-selected trigger, which may precede internal notes in a batch.
+    pub source_message_id: [u8; 32],
     /// Hosted deployment that owns the turn.
     pub deployment_id: Uuid,
     /// Canonical private Buzz channel.
@@ -172,8 +179,27 @@ impl Db {
         event_id: [u8; 32],
         agent_pubkey: [u8; 32],
     ) -> Result<Option<HermesParentEventRoute>> {
+        self.get_airhop_hermes_parent_batch_route(tenant, &[event_id], agent_pubkey)
+            .await
+    }
+
+    /// Selects the newest still-triggerable input from one bounded ACP batch.
+    /// IDs are newest first; all candidates must share the first event's channel.
+    pub async fn get_airhop_hermes_parent_batch_route(
+        &self,
+        tenant: &TenantContext,
+        event_ids: &[[u8; 32]],
+        agent_pubkey: [u8; 32],
+    ) -> Result<Option<HermesParentEventRoute>> {
+        if event_ids.is_empty() || event_ids.len() > 500 {
+            return Err(DbError::InvalidData(
+                "invalid Hermes input batch size".to_owned(),
+            ));
+        }
+        let ids: Vec<Vec<u8>> = event_ids.iter().map(|id| id.to_vec()).collect();
         let row = sqlx::query(
-            "SELECT deployment.id AS deployment_id, conversation.channel_id,
+            "SELECT receipt.event_id AS source_message_id,
+                    deployment.id AS deployment_id, conversation.channel_id,
                     conversation.id AS conversation_id,
                     conversation.current_cycle_id, conversation.family_id,
                     conversation.representative_id
@@ -186,22 +212,45 @@ impl Db {
                ON deployment.community_id = conversation.community_id
               AND deployment.organization_id = conversation.organization_id
               AND deployment.role = 'parent_administrator'
-             WHERE receipt.community_id = $1 AND receipt.event_id = $2
+             JOIN events anchor
+               ON anchor.community_id = conversation.community_id
+              AND anchor.id = $4 AND anchor.channel_id = conversation.channel_id
+              AND anchor.deleted_at IS NULL
+             WHERE receipt.community_id = $1 AND receipt.event_id = ANY($2::bytea[])
                AND receipt.decision = 'trigger'
                AND receipt.cycle_id = conversation.current_cycle_id
                AND receipt.control_version = conversation.control_version
                AND conversation.status = 'active' AND conversation.owner = 'hermes'
                AND NOT conversation.hermes_paused
                AND deployment.agent_pubkey = $3
-               AND deployment.enabled AND NOT deployment.paused",
+               AND deployment.enabled AND NOT deployment.paused
+               AND NOT EXISTS (
+                 SELECT 1 FROM airhop_external_conversation_routes route
+                 JOIN airhop_channel_connections connection
+                   ON connection.community_id = route.community_id
+                  AND connection.organization_id = route.organization_id
+                  AND connection.id = route.connection_id
+                 WHERE route.community_id = conversation.community_id
+                   AND route.organization_id = conversation.organization_id
+                   AND route.conversation_id = conversation.id
+                   AND (route.status <> 'active' OR connection.status <> 'active'
+                        OR NOT connection.hermes_enabled)
+               )
+             ORDER BY array_position($2::bytea[], receipt.event_id)
+             LIMIT 1",
         )
         .bind(tenant.community().as_uuid())
-        .bind(event_id.as_slice())
+        .bind(ids)
         .bind(agent_pubkey.as_slice())
+        .bind(event_ids[0].as_slice())
         .fetch_optional(&self.pool)
         .await?;
         row.map(|row| {
+            let source: Vec<u8> = row.try_get("source_message_id")?;
             Ok(HermesParentEventRoute {
+                source_message_id: source.try_into().map_err(|_| {
+                    DbError::InvalidData("invalid Hermes source event ID".to_owned())
+                })?,
                 deployment_id: row.try_get("deployment_id")?,
                 channel_id: row.try_get("channel_id")?,
                 conversation_id: row.try_get("conversation_id")?,
@@ -350,6 +399,7 @@ impl Db {
                     conversation.updated_at, deployment.id AS deployment_id,
                     deployment.agent_pubkey, deployment.enabled AS deployment_enabled,
                     deployment.paused AS deployment_paused,
+                    agent_profile.display_name AS agent_display_name,
                     route.connection_id AS route_connection_id,
                     route.status AS route_status,
                     route.routing_version,
@@ -361,6 +411,9 @@ impl Db {
                ON deployment.community_id = conversation.community_id
               AND deployment.organization_id = conversation.organization_id
               AND deployment.role = 'parent_administrator'
+             LEFT JOIN users agent_profile
+               ON agent_profile.community_id = deployment.community_id
+              AND agent_profile.pubkey = deployment.agent_pubkey
              LEFT JOIN airhop_external_conversation_routes route
                ON route.community_id = conversation.community_id
               AND route.organization_id = conversation.organization_id
@@ -506,17 +559,19 @@ impl Db {
             let intent = hermes_intent.as_ref().ok_or_else(|| {
                 DbError::InvalidData("authorized Hermes intent disappeared".to_owned())
             })?;
-            enqueue_external_message(
-                &mut tx,
-                community_id,
-                &conversation,
-                event,
-                "hermes",
-                Some(intent.try_get("id")?),
-                uuid_batch_key(intent.try_get("turn_id")?),
-                intent.try_get("sequence")?,
-            )
-            .await?;
+            if mentioned_pubkeys(event).is_empty() {
+                enqueue_external_message(
+                    &mut tx,
+                    community_id,
+                    &conversation,
+                    event,
+                    "hermes",
+                    Some(intent.try_get("id")?),
+                    uuid_batch_key(intent.try_get("turn_id")?),
+                    intent.try_get("sequence")?,
+                )
+                .await?;
+            }
             sqlx::query(
                 "UPDATE airhop_hermes_outbound_intents
                  SET status = 'published', published_at = COALESCE(published_at, now()),
@@ -530,9 +585,16 @@ impl Db {
             .await?;
             ExternalConversationEventProjection::StoredOnly
         } else {
-            let projection =
-                apply_staff_control(&mut tx, community_id, &conversation, &agent_pubkey, event)
-                    .await?;
+            let projection = apply_staff_control(
+                &mut tx,
+                community_id,
+                &conversation,
+                &agent_pubkey,
+                row.try_get::<Option<String>, _>("agent_display_name")?
+                    .as_deref(),
+                event,
+            )
+            .await?;
             if projection == StaffEventProjection::ExternalOutbound {
                 enqueue_external_message(
                     &mut tx,
@@ -574,7 +636,9 @@ impl Db {
                     turn.outcome AS turn_outcome,
                     conversation.current_cycle_id, conversation.control_version,
                     conversation.owner, conversation.hermes_paused,
-                    conversation.parent_pubkey,
+                    conversation.parent_pubkey, conversation.id,
+                    conversation.family_id, conversation.representative_id,
+                    conversation.created_at, conversation.updated_at,
                     deployment.enabled AS deployment_enabled,
                     deployment.paused AS deployment_paused
              FROM airhop_hermes_turn_receipts turn
@@ -677,8 +741,11 @@ impl Db {
             }
         }
         let channel_id: Uuid = row.try_get("channel_id")?;
-        let parent_pubkey: Vec<u8> = row.try_get("parent_pubkey")?;
-        validate_signed_reply_events(input, channel_id, &parent_pubkey)?;
+        validate_signed_reply_events(input, channel_id)?;
+        let hands_off = input.events.last().is_some_and(is_hermes_handoff_event);
+        if hands_off {
+            handoff::validate_handoff_targets(&mut tx, community_id, channel_id, input).await?;
+        }
         let deployment_id: Uuid = row.try_get("deployment_id")?;
         let control_version: i64 = row.try_get("control_version")?;
 
@@ -725,6 +792,10 @@ impl Db {
         .bind(input.outcome.trim())
         .execute(&mut *tx)
         .await?;
+        if hands_off {
+            let conversation = conversation_from_row(&row)?;
+            take_over(&mut tx, community_id, &conversation, "hermes_handoff").await?;
+        }
         tx.commit().await?;
         Ok(intents)
     }
@@ -789,7 +860,7 @@ fn validate_reply_shape(input: &CommitHermesReplyInput) -> Result<()> {
     if input.turn_id.is_nil()
         || input.outcome.trim().is_empty()
         || input.outcome.trim().len() > 120
-        || !(1..=3).contains(&input.events.len())
+        || !(1..=4).contains(&input.events.len())
     {
         return Err(DbError::InvalidData(
             "AirHop Hermes final reply is invalid".to_owned(),
@@ -798,14 +869,16 @@ fn validate_reply_shape(input: &CommitHermesReplyInput) -> Result<()> {
     Ok(())
 }
 
-fn validate_signed_reply_events(
-    input: &CommitHermesReplyInput,
-    channel_id: Uuid,
-    parent_pubkey: &[u8],
-) -> Result<()> {
+fn validate_signed_reply_events(input: &CommitHermesReplyInput, channel_id: Uuid) -> Result<()> {
     let channel = channel_id.to_string();
-    let parent = hex::encode(parent_pubkey);
-    for event in &input.events {
+    let handoff = input.events.last().is_some_and(is_hermes_handoff_event);
+    let parent_count = input.events.len() - usize::from(handoff);
+    if !(1..=3).contains(&parent_count) || (input.outcome == "human_handoff") != handoff {
+        return Err(DbError::InvalidData(
+            "invalid Hermes handoff batch".to_owned(),
+        ));
+    }
+    for (index, event) in input.events.iter().enumerate() {
         let tags = event
             .tags
             .iter()
@@ -827,9 +900,11 @@ fn validate_signed_reply_events(
             || channel_tags.len() != 1
             || channel_tags[0][1] != channel
             || tags.iter().any(|tag| !tag.is_empty() && tag[0] == "e")
-            || recipient_tags
-                .iter()
-                .any(|tag| !tag[1].eq_ignore_ascii_case(&parent))
+            || if handoff && index == parent_count {
+                recipient_tags.is_empty()
+            } else {
+                !recipient_tags.is_empty() || is_hermes_handoff_event(event)
+            }
         {
             return Err(DbError::InvalidData(
                 "AirHop Hermes reply must be a signed top-level message in the granted parent channel"
@@ -983,6 +1058,7 @@ async fn apply_staff_control(
     community_id: Uuid,
     conversation: &ExternalConversation,
     agent_pubkey: &[u8],
+    agent_display_name: Option<&str>,
     event: &Event,
 ) -> Result<StaffEventProjection> {
     let mentions = mentioned_pubkeys(event);
@@ -990,7 +1066,7 @@ async fn apply_staff_control(
         .iter()
         .any(|value| value == &hex::encode(agent_pubkey));
     let control = if mentions_hermes {
-        parse_hermes_control(&event.content)
+        parse_hermes_control(&event.content, agent_display_name)
     } else {
         None
     };
@@ -1043,6 +1119,23 @@ async fn apply_staff_control(
             .execute(&mut **tx)
             .await?;
             cancel_active_turns(tx, community_id, conversation.id, "staff_resume").await?;
+            // A resume is an authorized internal trigger, not a fabricated
+            // parent message. The command stays internal, while its receipt
+            // permits exactly one turn in the new ownership fence.
+            sqlx::query(
+                "INSERT INTO airhop_external_inbound_receipts (
+                    community_id, organization_id, conversation_id, event_id,
+                    cycle_id, control_version, decision, reason
+                 ) VALUES ($1, $2, $3, $4, $5, $6, 'trigger', 'staff_resume')",
+            )
+            .bind(community_id)
+            .bind(conversation.organization_id)
+            .bind(conversation.id)
+            .bind(event.id.as_bytes().as_slice())
+            .bind(next_cycle_id)
+            .bind(conversation.control_version + 1)
+            .execute(&mut **tx)
+            .await?;
             StaffEventProjection::InternalOnly
         }
         Some(HermesControl::Pause) => {
@@ -1120,8 +1213,8 @@ enum HermesControl {
     Pause,
 }
 
-fn parse_hermes_control(content: &str) -> Option<HermesControl> {
-    let normalized = content
+fn normalized_control_text(content: &str) -> String {
+    content
         .chars()
         .map(|character| {
             if character.is_alphanumeric() {
@@ -1133,12 +1226,24 @@ fn parse_hermes_control(content: &str) -> Option<HermesControl> {
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
-        .join(" ");
-    match normalized.as_str() {
-        "гермес продолжай" | "hermes continue" | "hermes resume" => {
+        .join(" ")
+}
+
+fn parse_hermes_control(content: &str, display_name: Option<&str>) -> Option<HermesControl> {
+    let normalized = normalized_control_text(content);
+    // Identity is checked by the signed p tag at the call site. Only strip
+    // the exact current profile name (or the stable product aliases), never
+    // an arbitrary prefix followed by a control verb.
+    let names = [display_name.unwrap_or(""), "Гермес", "Hermes"];
+    let command = names
+        .iter()
+        .filter(|name| !name.trim().is_empty())
+        .find_map(|name| normalized.strip_prefix(&format!("{} ", normalized_control_text(name))))?;
+    match command {
+        "продолжай" | "continue" | "resume" | "continuar" | "continue atendendo" => {
             Some(HermesControl::Resume)
         }
-        "гермес остановись" | "гермес стоп" | "hermes stop" | "hermes pause" => {
+        "остановись" | "стоп" | "stop" | "pause" | "pausar" => {
             Some(HermesControl::Pause)
         }
         _ => None,
@@ -1299,15 +1404,34 @@ mod tests {
     #[test]
     fn only_explicit_hermes_commands_change_control() {
         assert_eq!(
-            parse_hermes_control("@Гермес, продолжай"),
+            parse_hermes_control("@Гермес, продолжай", None),
             Some(HermesControl::Resume)
         );
         assert_eq!(
-            parse_hermes_control("Hermes: pause"),
+            parse_hermes_control("Hermes: pause", None),
             Some(HermesControl::Pause)
         );
-        assert_eq!(parse_hermes_control("Гермес, что ты думаешь?"), None);
-        assert_eq!(parse_hermes_control("продолжай"), None);
+        assert_eq!(parse_hermes_control("Гермес, что ты думаешь?", None), None);
+        assert_eq!(parse_hermes_control("продолжай", None), None);
+        for (name, command) in [
+            ("Администратор Гермес", "продолжай"),
+            ("Administrator Hermes", "continue"),
+            ("Administrador Hermes", "continuar"),
+            ("Помощник центра", "продолжай"),
+        ] {
+            assert_eq!(
+                parse_hermes_control(&format!("@{name}, {command}!"), Some(name)),
+                Some(HermesControl::Resume)
+            );
+        }
+        assert_eq!(
+            parse_hermes_control("@Другой сотрудник продолжай", Some("Гермес")),
+            None
+        );
+        assert_eq!(
+            parse_hermes_control("@Гермес, родитель сказал продолжай", Some("Гермес")),
+            None
+        );
     }
 
     #[test]
@@ -1327,7 +1451,7 @@ mod tests {
             events: vec![event],
         };
         validate_reply_shape(&input).unwrap();
-        validate_signed_reply_events(&input, channel_id, &[7_u8; 32]).unwrap();
+        validate_signed_reply_events(&input, channel_id).unwrap();
 
         let reply = EventBuilder::new(Kind::Custom(9), "nested")
             .tags([
@@ -1340,6 +1464,6 @@ mod tests {
             events: vec![reply],
             ..input
         };
-        assert!(validate_signed_reply_events(&nested, channel_id, &[7_u8; 32]).is_err());
+        assert!(validate_signed_reply_events(&nested, channel_id).is_err());
     }
 }

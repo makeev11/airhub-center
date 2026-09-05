@@ -42,7 +42,14 @@ def _received_at(event: Any) -> int:
 def _normalized_content(event: Any) -> str | None:
     message_type = _enum_value(getattr(event, "message_type", "text"))
     if message_type not in {"text", "command", "location"}:
-        return None
+        # Preserve a visible, durable notice instead of silently acknowledging
+        # and losing an attachment. Do not copy provider URLs, file IDs or local
+        # download paths into Buzz. Reading/transcribing the original remains
+        # a separate capability; the agent must explain that limitation.
+        return (
+            "[Telegram: получено неподдерживаемое вложение. "
+            "Содержимое и оригинал файла недоступны в AirHop Center.]"
+        )
     content = str(getattr(event, "text", "") or "").strip()
     if not content:
         return None
@@ -79,6 +86,7 @@ class TelegramGatewayRuntime:
             "webhook": self.settings.webhook_mode,
             "typing": False,
             "media": [],
+            "unsupported_attachment_notice": True,
             "transport": "hermes-agent-telegram",
         }
 

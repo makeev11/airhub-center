@@ -571,7 +571,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 50);
+        assert_eq!(migrations.len(), 51);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -680,6 +680,8 @@ mod tests {
             .sql
             .as_str()
             .contains("credential_ciphertext"));
+        assert_eq!(migrations[50].version, 51);
+        assert!(migrations[50].sql.as_str().contains("BETWEEN 1 AND 4"));
 
         // Community moderation (reports/bans/audit): additive migration, never
         // folded into 0001 — same brownfield checksum rule as above.

@@ -103,20 +103,17 @@ impl ParentSupervisorGate {
         }
     }
 
-    /// Claims the newest event in a coalesced batch. Server-side receipts prove
-    /// that it is current parent input; staff/internal events fail closed.
+    /// Claims the newest triggerable event in a coalesced batch. Receipts prove
+    /// that it is current parent input or an explicit authorized staff resume;
+    /// all other staff/internal events fail closed.
     pub(crate) async fn claim_batch(&self, batch: &FlushBatch) -> bool {
         if !self.enabled {
             return true;
         }
-        let Some(source) = batch
-            .events
-            .last()
-            .or_else(|| batch.cancelled_events.last())
-        else {
+        let source_event_ids = parent_batch_source_ids(batch);
+        let Some(event_id) = source_event_ids.first() else {
             return false;
         };
-        let event_id = source.event.id.to_hex();
         let input_batch_id = deterministic_batch_id(batch);
         let path = format!("/api/airhop/agents/v1/supervisor/events/{event_id}/claim");
         let response = self
@@ -125,6 +122,7 @@ impl ParentSupervisorGate {
                 &path,
                 &serde_json::json!({
                     "inputBatchId": input_batch_id,
+                    "sourceEventIds": source_event_ids,
                     "leaseSeconds": 600,
                     "ttlSeconds": 300,
                 }),
@@ -158,6 +156,18 @@ impl ParentSupervisorGate {
             }
         }
     }
+}
+
+fn parent_batch_source_ids(batch: &FlushBatch) -> Vec<String> {
+    let mut seen = HashSet::new();
+    batch
+        .events
+        .iter()
+        .rev()
+        .chain(batch.cancelled_events.iter().rev())
+        .map(|source| source.event.id.to_hex())
+        .filter(|id| seen.insert(id.clone()))
+        .collect()
 }
 
 fn deterministic_batch_id(batch: &FlushBatch) -> Uuid {
@@ -676,6 +686,21 @@ mod tests {
         assert_eq!(
             deterministic_batch_id(&batch),
             deterministic_batch_id(&batch)
+        );
+        assert_eq!(
+            parent_batch_source_ids(&batch),
+            vec![
+                batch.events[1].event.id.to_hex(),
+                batch.events[0].event.id.to_hex()
+            ]
+        );
+        let merged = FlushBatch {
+            cancelled_events: batch.events.clone(),
+            ..batch.clone()
+        };
+        assert_eq!(
+            parent_batch_source_ids(&merged),
+            parent_batch_source_ids(&batch)
         );
 
         let reversed = FlushBatch {

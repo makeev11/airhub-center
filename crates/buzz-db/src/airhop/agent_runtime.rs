@@ -812,12 +812,35 @@ async fn validate_turn_scope(
            AND conversation.representative_id IS NOT DISTINCT FROM $7
            AND conversation.status = 'active' AND conversation.owner = 'hermes'
            AND NOT conversation.hermes_paused
+           AND NOT EXISTS (
+             SELECT 1 FROM airhop_external_conversation_routes route
+             JOIN airhop_channel_connections connection
+               ON connection.community_id = route.community_id
+              AND connection.organization_id = route.organization_id
+              AND connection.id = route.connection_id
+             WHERE route.community_id = conversation.community_id
+               AND route.organization_id = conversation.organization_id
+               AND route.conversation_id = conversation.id
+               AND (route.status <> 'active' OR connection.status <> 'active'
+                    OR NOT connection.hermes_enabled)
+           )
            AND receipt.event_id = $8 AND receipt.decision = 'trigger'
            AND receipt.cycle_id = conversation.current_cycle_id
            AND receipt.control_version = conversation.control_version
            AND source.channel_id = conversation.channel_id
            AND source.kind = $9 AND source.deleted_at IS NULL
-           AND source.pubkey = conversation.parent_pubkey
+           AND (source.pubkey = conversation.parent_pubkey OR (
+             receipt.reason = 'staff_resume' AND EXISTS (
+               SELECT 1 FROM channel_members staff
+               JOIN relay_members roster
+                 ON roster.community_id = staff.community_id
+                AND roster.pubkey = encode(staff.pubkey, 'hex')
+               WHERE staff.community_id = conversation.community_id
+                 AND staff.channel_id = conversation.channel_id
+                 AND staff.pubkey = source.pubkey
+                 AND staff.role <> 'bot' AND staff.removed_at IS NULL
+             )
+           ))
          FOR SHARE OF conversation",
     )
     .bind(community_id)

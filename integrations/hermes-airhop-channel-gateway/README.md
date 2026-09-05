@@ -93,8 +93,11 @@ private external-conversation channel routed through its connections.
 - Hermes `SendResult` permanent failures finish immediately; retryable errors
   use provider delay and the server retry fence.
 
-Only private Telegram DMs and text/command/location content are enabled in this
-slice. A previously unseen private chat now atomically creates one unverified
+Only private Telegram DMs and text/command/location content are readable in this
+slice. Other content produces a durable, visible unsupported-attachment notice
+instead of being discarded. It does not upload the original or transcribe voice;
+the parent runtime asks for text and can notify staff through an internal handoff.
+A previously unseen private chat now atomically creates one unverified
 Buzz conversation through Relay route resolution; this does not verify a
 Family or consume a booking handoff. Booking handoff grant consumption,
 continuous typing projection and media remain explicit later contracts; they
