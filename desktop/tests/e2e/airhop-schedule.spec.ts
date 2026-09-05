@@ -143,6 +143,9 @@ async function answerConfirm(
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("airhop.locale.v1", "ru-RU");
+  });
   await page.clock.setFixedTime(new Date("2026-08-04T09:00:00.000Z"));
   await installMockBridge(page);
 });
@@ -153,7 +156,7 @@ test("AirHop schedule is embedded beside the existing collaboration navigation",
   await page.goto("/#/booking/schedule");
 
   await expect(
-    page.getByTestId("airhop-sidebar-nav").getByText("AirHop", { exact: true }),
+    page.getByTestId("airhop-sidebar-nav").getByText("Airhop", { exact: true }),
   ).toBeVisible();
   await expect(page.getByTestId("open-airhop-schedule")).toHaveAttribute(
     "data-active",
@@ -558,7 +561,7 @@ test("AirHop protects dirty settings and branch dialogs", async ({ page }) => {
   );
   expect(settingsPrompt).toContain("несохранённые изменения");
   await expect(
-    page.getByRole("heading", { name: "Настройки AirHop" }),
+    page.getByRole("heading", { name: "Настройки Airhop" }),
   ).toBeVisible();
 
   await answerConfirm(
@@ -576,8 +579,7 @@ test("AirHop protects dirty settings and branch dialogs", async ({ page }) => {
   for (const close of [
     () => form.getByRole("button", { name: "Отмена" }).click(),
     () => form.getByRole("button", { name: "Close" }).click(),
-    () =>
-      page.getByTestId("dialog-overlay").click({ position: { x: 4, y: 4 } }),
+    () => page.mouse.click(4, 4),
   ]) {
     const prompt = await answerConfirm(page, close, false);
     expect(prompt).toContain("несохранённые изменения");
@@ -701,7 +703,9 @@ test("AirHop manages teachers and groups without losing archived history", async
     .selectOption("disabled");
 
   const firstTemplate = groupForm.getByTestId("airhop-group-schedule-0");
-  await firstTemplate.getByLabel("Начало 1").fill("2026-08-03");
+  await firstTemplate
+    .getByLabel("Начало 1", { exact: true })
+    .fill("03.08.2026");
   await groupForm.getByRole("button", { name: "Добавить занятие" }).click();
   const secondTemplate = groupForm.getByTestId("airhop-group-schedule-1");
   await secondTemplate.getByLabel("Понедельник 2").click();
@@ -947,7 +951,7 @@ test("AirHop cancels, moves and restores one lesson without changing its series"
   await expect(details).toContainText("3 из 8 занято");
   await details.getByTestId("airhop-edit-lesson").click();
   const editDialog = page.getByTestId("airhop-lesson-edit-dialog");
-  await editDialog.getByTestId("airhop-lesson-date").fill("2026-08-11");
+  await editDialog.getByTestId("airhop-lesson-date").fill("11.08.2026");
   await editDialog.getByTestId("airhop-lesson-start-time").fill("07:00");
   await editDialog.getByTestId("airhop-lesson-end-time").fill("08:00");
   await editDialog
@@ -989,7 +993,7 @@ test("AirHop cancels, moves and restores one lesson without changing its series"
     editDialog.getByTestId("airhop-revision-conflict"),
   ).toBeVisible();
   await expect(editDialog.getByTestId("airhop-lesson-date")).toHaveValue(
-    "2026-08-11",
+    "11.08.2026",
   );
   await expect(editDialog.getByTestId("airhop-lesson-start-time")).toHaveValue(
     "07:00",

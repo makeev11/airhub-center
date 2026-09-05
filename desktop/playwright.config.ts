@@ -1,21 +1,51 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const port = Number(process.env.AIRHOP_E2E_PORT ?? "4173");
+if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+  throw new Error("AIRHOP_E2E_PORT must be an integer between 1024 and 65535");
+}
+const baseURL = `http://127.0.0.1:${port}`;
+
 export default defineConfig({
   testDir: "./tests/e2e",
+  forbidOnly: Boolean(process.env.CI),
   timeout: 30_000,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: [
     ["list"],
     ["html", { open: "never", outputFolder: "playwright-report" }],
+    ["json", { outputFile: "playwright-report.json" }],
   ],
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL,
     screenshot: "only-on-failure",
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
     video: "retain-on-failure",
   },
   projects: [
+    {
+      // Product routes differ from the inherited Buzz agent/project screens.
+      // Keep the upstream projects below for explicit compatibility audits.
+      name: "airhop-center",
+      testMatch: [
+        "**/airhop-schedule.spec.ts",
+        "**/airhop-public-booking.spec.ts",
+        "**/airhop-settings-localization.spec.ts",
+        "**/airhop-clients.spec.ts",
+        "**/airhop-lesson-participants.spec.ts",
+        "**/airhop-agent-controls.spec.ts",
+        "**/messaging.spec.ts",
+        "**/relay-connectivity.spec.ts",
+      ],
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "airhop-center-relay",
+      testMatch: ["**/airhop-center-relay.spec.ts"],
+      use: { ...devices["Desktop Chrome"] },
+      expect: { timeout: process.env.CI ? 15_000 : 10_000 },
+    },
     {
       name: "smoke",
       testMatch: [
@@ -177,9 +207,10 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "python3 -m http.server 4173 -d dist",
+    command: `python3 -m http.server ${port} --bind 127.0.0.1 -d dist`,
     cwd: ".",
-    reuseExistingServer: !process.env.CI,
-    url: "http://127.0.0.1:4173",
+    // Never silently test another checkout or a stale preview on this port.
+    reuseExistingServer: false,
+    url: baseURL,
   },
 });

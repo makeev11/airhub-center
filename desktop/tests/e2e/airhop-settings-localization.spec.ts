@@ -20,7 +20,7 @@ test("Russian employee settings open localized profiles without excluded Huddle 
   await openSettings(page, "community-members");
 
   await expect(
-    page.getByRole("heading", { name: "Сотрудники", exact: true }),
+    page.getByRole("heading", { name: "Сотрудники", exact: true, level: 1 }),
   ).toBeVisible();
   await expect(page.getByPlaceholder("Найти сотрудника")).toBeVisible();
 
