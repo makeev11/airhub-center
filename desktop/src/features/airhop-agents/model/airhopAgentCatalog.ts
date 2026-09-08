@@ -107,10 +107,14 @@ export type AirhopAgentCardModel = Readonly<{
 export function materializeAirhopAgentCards(
   managedAgents: readonly ManagedAgent[],
   locale: AirHopLocale,
+  relayUrl: string | null,
 ): AirhopAgentCardModel[] {
   return AIRHOP_AGENT_CATALOG.map((definition) => {
     const managed = managedAgents.find(
-      (agent) => agent.personaId === definition.personaId,
+      (agent) =>
+        relayUrl !== null &&
+        agent.relayUrl === relayUrl &&
+        agent.personaId === definition.personaId,
     );
     const state: AirhopAgentState = !managed
       ? "unavailable"

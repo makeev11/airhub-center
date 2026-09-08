@@ -64,6 +64,7 @@ async fn booking_with_phone(
                 },
                 surface: PublicBookingSurface::Standalone,
                 attribution_branch_id: None,
+                analytics_attribution: None,
                 idempotency_digest: [seed; 32],
                 phone_match_digest: [phone_seed; 32],
                 request_hash: [seed; 32],

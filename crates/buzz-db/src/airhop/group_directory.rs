@@ -2348,6 +2348,7 @@ mod tests {
                     },
                     surface: PublicBookingSurface::Standalone,
                     attribution_branch_id: Some(branch_id),
+                    analytics_attribution: None,
                     idempotency_digest: [17; 32],
                     phone_match_digest: [18; 32],
                     request_hash: [19; 32],

@@ -18,6 +18,42 @@ before(() => {
 
 after(() => dom.window.close());
 
+test("occurrence actions preserve the localized button and invoke the flow handler once", async () => {
+  const { createElement, StrictMode } = await import("react");
+  const { cleanup, fireEvent, render } = await import("@testing-library/react");
+  const { PublicBookingOccurrenceActions } = await import(
+    "./PublicBookingOccurrenceActions.tsx"
+  );
+  let continued = 0;
+  const view = render(
+    createElement(
+      StrictMode,
+      null,
+      createElement(PublicBookingOccurrenceActions, {
+        continueLabel: "Продолжить",
+        onContinue: () => {
+          continued += 1;
+        },
+      }),
+    ),
+  );
+  try {
+    const button = view.getByRole("button", {
+      name: "Продолжить",
+      exact: true,
+    });
+    assert.equal(button.type, "button");
+    assert.equal(
+      view.getByTestId("airhop-public-occurrence-actions").contains(button),
+      true,
+    );
+    fireEvent.click(button);
+    assert.equal(continued, 1);
+  } finally {
+    cleanup();
+  }
+});
+
 test("public flow finishes its async initialization under React StrictMode", async () => {
   const { StrictMode, createElement } = await import("react");
   const { cleanup, render, waitFor } = await import("@testing-library/react");

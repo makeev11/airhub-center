@@ -89,6 +89,14 @@ export type CreatePublicBookingCommand = {
   source: {
     surface: "standalone" | "embedded";
     attributionBranchId?: string;
+    analytics?: {
+      visitorId: string;
+      sessionId: string;
+      journeyId: string;
+      source?: string;
+      campaign?: string;
+      referrerHost?: string;
+    };
   };
 };
 
@@ -376,7 +384,10 @@ export class WorkspacePublicBookingService implements PublicBookingService {
           managementTokenDigest,
           idempotencyKeyDigest,
           source: {
-            ...command.source,
+            surface: command.source.surface,
+            ...(command.source.attributionBranchId
+              ? { attributionBranchId: command.source.attributionBranchId }
+              : {}),
             purpose,
             channel: "website",
             workflow: "request",

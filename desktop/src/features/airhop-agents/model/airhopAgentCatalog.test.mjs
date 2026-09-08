@@ -46,6 +46,7 @@ test("cards match only the current built-in persona ids", () => {
       {
         pubkey: "a".repeat(64),
         personaId: "builtin:airhop-fizz",
+        relayUrl: "wss://demo.airhop.ru",
         model: "managed-model",
         status: "running",
         lastError: null,
@@ -53,10 +54,50 @@ test("cards match only the current built-in persona ids", () => {
       },
     ],
     "ru-RU",
+    "wss://demo.airhop.ru",
   );
 
   assert.equal(cards[0].name, "Физ");
   assert.equal(cards[0].state, "running");
   assert.equal(cards[0].model, "managed-model");
   assert.equal(cards[1].state, "unavailable");
+});
+
+test("cards and control targets never select another community's same-name agent", () => {
+  const agents = [
+    {
+      pubkey: "a".repeat(64),
+      personaId: "builtin:airhop-analyst",
+      relayUrl: "wss://other.example",
+      status: "running",
+      lastError: "old failure",
+    },
+    {
+      pubkey: "b".repeat(64),
+      personaId: "builtin:airhop-analyst",
+      relayUrl: "wss://demo.airhop.ru",
+      status: "stopped",
+      lastError: null,
+    },
+  ];
+  const demo = materializeAirhopAgentCards(
+    agents,
+    "ru-RU",
+    "wss://demo.airhop.ru",
+  );
+  assert.equal(demo[2].pubkey, agents[1].pubkey);
+  assert.equal(demo[2].state, "stopped");
+  const other = materializeAirhopAgentCards(
+    agents,
+    "ru-RU",
+    "wss://other.example",
+  );
+  assert.equal(other[2].pubkey, agents[0].pubkey);
+  assert.equal(other[2].state, "attention");
+  for (const relay of [null, "wss://missing.example"])
+    assert(
+      materializeAirhopAgentCards(agents, "ru-RU", relay).every(
+        (card) => card.pubkey === null && card.state === "unavailable",
+      ),
+    );
 });

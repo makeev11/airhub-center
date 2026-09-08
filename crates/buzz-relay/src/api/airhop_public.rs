@@ -7,9 +7,9 @@ use airhop_core::{
     BookingStatus, PublicBookingAppearance, PublicBookingPurpose, StableLessonReference,
     TrialPolicy,
 };
-use axum::body::{to_bytes, Bytes};
+use axum::body::{to_bytes, Body, Bytes};
 use axum::extract::rejection::QueryRejection;
-use axum::extract::{ConnectInfo, Query, Request, State};
+use axum::extract::{ConnectInfo, Path, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -19,7 +19,11 @@ use buzz_db::airhop::public_booking::{
     CreatePublicBookingInput, PreferredContactChannel, PublicBookingApplicant,
     PublicBookingDisposition, PublicBookingSurface,
 };
-use chrono::NaiveDate;
+use buzz_db::airhop::site_analytics::{
+    BookingAnalyticsAttribution, RecordSiteAnalyticsEventInput, SiteAnalyticsEventType,
+    SiteAnalyticsStep, SiteAnalyticsTarget,
+};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -36,6 +40,10 @@ const IP_RATE_NAMESPACE: &str = "airhop_booking_ip";
 const PHONE_RATE_NAMESPACE: &str = "airhop_booking_phone";
 const READ_RATE_NAMESPACE: &str = "airhop_public_read_ip";
 const CONSENT_POLICY_VERSION: &str = "public-booking-v1";
+const ANALYTICS_RATE_NAMESPACE: &str = "airhop_site_analytics_ip";
+const TRACKING_LINK_RATE_NAMESPACE: &str = "airhop_tracking_link_ip";
+const ATTRIBUTION_COOKIE: &str = "airhop_attribution";
+const ATTRIBUTION_MAX_AGE_SECONDS: u64 = 30 * 24 * 60 * 60;
 
 #[derive(Debug, Clone, Copy)]
 enum PublicQuota {
@@ -93,6 +101,54 @@ struct PublicBookingSourceRequest {
     surface: SurfaceRequest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attribution_branch_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    analytics: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PublicBookingAnalyticsRequest {
+    visitor_id: Uuid,
+    session_id: Uuid,
+    journey_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    campaign: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    referrer_host: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PublicAnalyticsBatchRequest {
+    events: Vec<PublicAnalyticsEventRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PublicAnalyticsEventRequest {
+    event_id: Uuid,
+    event_type: SiteAnalyticsEventType,
+    occurred_at: DateTime<Utc>,
+    visitor_id: Uuid,
+    session_id: Uuid,
+    #[serde(default)]
+    journey_id: Option<Uuid>,
+    #[serde(default)]
+    branch_id: Option<Uuid>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    referrer_host: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    campaign: Option<String>,
+    #[serde(default)]
+    step: Option<SiteAnalyticsStep>,
+    #[serde(default)]
+    target: Option<SiteAnalyticsTarget>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -422,6 +478,172 @@ pub(crate) async fn get_public_occurrences(
     })
 }
 
+/// Accepts a bounded batch of privacy-reduced first-party site events.
+pub(crate) async fn record_public_site_analytics(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+) -> Result<Response, ApiFailure> {
+    let headers = request.headers().clone();
+    if !same_origin_analytics_request(&headers) {
+        return Err(ApiFailure::new(
+            StatusCode::FORBIDDEN,
+            "analytics_origin_invalid",
+            "Cross-origin analytics is not accepted.",
+            false,
+        ));
+    }
+    let peer_ip = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|value| value.0.ip());
+    let tenant = bind_and_rate_limit(
+        &state,
+        &headers,
+        peer_ip,
+        ANALYTICS_RATE_NAMESPACE,
+        PublicQuota::Read,
+    )
+    .await?;
+    let config = state
+        .config
+        .airhop_public_booking
+        .as_ref()
+        .ok_or_else(not_found)?;
+    let community_id = *tenant.community().as_uuid();
+    let tracking_link_id = parse_attribution_cookie(config.index_key(), &community_id, &headers);
+    let body = to_bytes(request.into_body(), 16 * 1024)
+        .await
+        .map_err(|_| {
+            ApiFailure::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "request_too_large",
+                "The analytics request is too large.",
+                false,
+            )
+        })?;
+    let parsed: PublicAnalyticsBatchRequest = serde_json::from_slice(&body).map_err(|_| {
+        ApiFailure::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "The analytics request is not valid JSON.",
+            false,
+        )
+    })?;
+    if parsed.events.is_empty() || parsed.events.len() > 20 {
+        return Err(invalid_analytics_event());
+    }
+    let now = Utc::now();
+    let mut events = Vec::with_capacity(parsed.events.len());
+    for event in parsed.events {
+        if event.visitor_id.is_nil()
+            || event.session_id.is_nil()
+            || event.occurred_at < now - Duration::hours(24)
+            || event.occurred_at > now + Duration::minutes(5)
+        {
+            return Err(invalid_analytics_event());
+        }
+        events.push(RecordSiteAnalyticsEventInput {
+            event_id: event.event_id,
+            event_type: event.event_type,
+            occurred_at: event.occurred_at,
+            visitor_digest: Some(tenant_keyed_digest(
+                config.index_key(),
+                &community_id,
+                b"airhop.site-analytics.visitor.v1",
+                &[event.visitor_id.as_bytes()],
+            )),
+            session_digest: Some(tenant_keyed_digest(
+                config.index_key(),
+                &community_id,
+                b"airhop.site-analytics.session.v1",
+                &[event.session_id.as_bytes()],
+            )),
+            journey_id: event.journey_id,
+            tracking_link_id,
+            branch_id: event.branch_id,
+            path: normalize_optional_value(event.path),
+            referrer_host: normalize_optional_host(event.referrer_host),
+            source: normalize_optional_value(event.source),
+            campaign: normalize_optional_value(event.campaign),
+            step: event.step,
+            target: event.target,
+        });
+    }
+    let started = std::time::Instant::now();
+    let recorded = state
+        .db
+        .record_airhop_site_analytics_events(&tenant, &events)
+        .await
+        .map_err(map_analytics_error)?;
+    metrics::histogram!("airhop_site_analytics_ingest_seconds")
+        .record(started.elapsed().as_secs_f64());
+    metrics::counter!("airhop_site_analytics_events_total", "outcome" => "inserted")
+        .increment(recorded);
+    metrics::counter!("airhop_site_analytics_events_total", "outcome" => "duplicate")
+        .increment(events.len() as u64 - recorded);
+    let mut response = (
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "accepted": events.len(),
+            "recorded": recorded,
+        })),
+    )
+        .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
+}
+
+/// Records a server-observed acquisition touch and redirects to a safe local path.
+pub(crate) async fn open_public_tracking_link(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    request: Request,
+) -> Result<Response, ApiFailure> {
+    if !valid_tracking_slug(&slug) {
+        return Err(not_found());
+    }
+    let headers = request.headers();
+    let peer_ip = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|value| value.0.ip());
+    let tenant = bind_and_rate_limit(
+        &state,
+        headers,
+        peer_ip,
+        TRACKING_LINK_RATE_NAMESPACE,
+        PublicQuota::Read,
+    )
+    .await?;
+    let link = state
+        .db
+        .open_airhop_tracking_link(&tenant, &slug)
+        .await
+        .map_err(map_analytics_error)?;
+    let config = state
+        .config
+        .airhop_public_booking
+        .as_ref()
+        .ok_or_else(not_found)?;
+    let cookie =
+        attribution_cookie_value(config.index_key(), tenant.community().as_uuid(), link.id);
+    Response::builder()
+        .status(StatusCode::TEMPORARY_REDIRECT)
+        .header(header::LOCATION, link.destination_path)
+        .header(
+            header::SET_COOKIE,
+            format!(
+                "{ATTRIBUTION_COOKIE}={cookie}; Max-Age={ATTRIBUTION_MAX_AGE_SECONDS}; Path=/; HttpOnly; Secure; SameSite=Lax"
+            ),
+        )
+        .header(header::CACHE_CONTROL, "no-store")
+        .header(header::REFERRER_POLICY, "no-referrer")
+        .body(Body::empty())
+        .map_err(|_| internal_failure())
+}
+
 /// Returns a parent-visible management card for a valid bearer token.
 pub(crate) async fn get_public_management_card(
     State(state): State<Arc<AppState>>,
@@ -649,6 +871,30 @@ pub(crate) async fn create_public_booking(
             &[value.as_bytes()],
         ))
     });
+    let analytics_attribution = request
+        .source
+        .analytics
+        .as_ref()
+        .and_then(valid_booking_analytics)
+        .map(|analytics| BookingAnalyticsAttribution {
+            visitor_digest: tenant_keyed_digest(
+                config.index_key(),
+                &community_id,
+                b"airhop.site-analytics.visitor.v1",
+                &[analytics.visitor_id.as_bytes()],
+            ),
+            session_digest: tenant_keyed_digest(
+                config.index_key(),
+                &community_id,
+                b"airhop.site-analytics.session.v1",
+                &[analytics.session_id.as_bytes()],
+            ),
+            journey_id: analytics.journey_id,
+            tracking_link_id: parse_attribution_cookie(config.index_key(), &community_id, &headers),
+            source: normalize_optional_value(analytics.source.clone()),
+            campaign: normalize_optional_value(analytics.campaign.clone()),
+            referrer_host: normalize_optional_host(analytics.referrer_host.clone()),
+        });
     let input = CreatePublicBookingInput {
         lesson_ref: request.lesson_ref,
         applicant: PublicBookingApplicant {
@@ -676,6 +922,7 @@ pub(crate) async fn create_public_booking(
             "ipDigest": hex::encode(ip_digest),
             "userAgentDigest": user_agent_digest,
         }),
+        analytics_attribution,
     };
     let outcome = state
         .db
@@ -1037,6 +1284,26 @@ fn map_public_read_error(error: buzz_db::DbError) -> ApiFailure {
     }
 }
 
+fn map_analytics_error(error: buzz_db::DbError) -> ApiFailure {
+    match error {
+        buzz_db::DbError::NotFound(_) => not_found(),
+        buzz_db::DbError::InvalidData(_) => invalid_analytics_event(),
+        internal => {
+            tracing::error!(error = %internal, "AirHub site analytics request failed");
+            internal_failure()
+        }
+    }
+}
+
+const fn invalid_analytics_event() -> ApiFailure {
+    ApiFailure::new(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "analytics_event_invalid",
+        "The analytics event is invalid.",
+        false,
+    )
+}
+
 fn map_public_management_error(error: buzz_db::DbError) -> ApiFailure {
     match error {
         buzz_db::DbError::NotFound(_) => invalid_management_token(),
@@ -1236,6 +1503,120 @@ fn tenant_keyed_digest(
     keyed_digest(key, domain, &scoped_components)
 }
 
+fn normalize_optional_value(value: Option<String>) -> Option<String> {
+    value
+        .map(|item| item.trim().to_owned())
+        .filter(|item| !item.is_empty())
+}
+
+fn same_origin_analytics_request(headers: &HeaderMap) -> bool {
+    if headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()) == Some("cross-site") {
+        return false;
+    }
+    let Some(origin) = headers.get(header::ORIGIN) else {
+        return true;
+    };
+    let Some(origin) = origin
+        .to_str()
+        .ok()
+        .and_then(|value| reqwest::Url::parse(value).ok())
+    else {
+        return false;
+    };
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    matches!(origin.scheme(), "http" | "https")
+        && origin.host_str().is_some_and(|name| {
+            buzz_core::tenant::normalize_host(name) == buzz_core::tenant::normalize_host(host)
+        })
+}
+
+// Optional telemetry can be absent or corrupt without invalidating a booking.
+fn valid_booking_analytics(value: &serde_json::Value) -> Option<PublicBookingAnalyticsRequest> {
+    let parsed: PublicBookingAnalyticsRequest = serde_json::from_value(value.clone()).ok()?;
+    if parsed.visitor_id.is_nil() || parsed.session_id.is_nil() || parsed.journey_id.is_nil() {
+        return None;
+    }
+    for (label, max) in [
+        (&parsed.source, 80),
+        (&parsed.campaign, 160),
+        (&parsed.referrer_host, 253),
+    ] {
+        if label
+            .as_ref()
+            .is_some_and(|value| value.chars().count() > max || value.chars().any(char::is_control))
+        {
+            return None;
+        }
+    }
+    if parsed
+        .referrer_host
+        .as_ref()
+        .is_some_and(|host| host.contains(['/', '@']) || host.chars().any(char::is_whitespace))
+    {
+        return None;
+    }
+    Some(parsed)
+}
+
+fn normalize_optional_host(value: Option<String>) -> Option<String> {
+    normalize_optional_value(value).map(|item| item.to_ascii_lowercase())
+}
+
+fn valid_tracking_slug(value: &str) -> bool {
+    (3..=80).contains(&value.len())
+        && value.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || (index > 0 && byte == b'-')
+        })
+}
+
+fn attribution_cookie_value(key: &[u8; 32], community_id: &Uuid, link_id: Uuid) -> String {
+    let signature = tenant_keyed_digest(
+        key,
+        community_id,
+        b"airhop.site-attribution-cookie.v1",
+        &[link_id.as_bytes()],
+    );
+    format!("{link_id}.{}", URL_SAFE_NO_PAD.encode(signature))
+}
+
+fn parse_attribution_cookie(
+    key: &[u8; 32],
+    community_id: &Uuid,
+    headers: &HeaderMap,
+) -> Option<Uuid> {
+    let prefix = format!("{ATTRIBUTION_COOKIE}=");
+    let raw = headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .map(str::trim)
+        .find_map(|pair| pair.strip_prefix(&prefix))?;
+    let (id, encoded_signature) = raw.split_once('.')?;
+    let link_id = Uuid::parse_str(id).ok()?;
+    let signature = URL_SAFE_NO_PAD.decode(encoded_signature).ok()?;
+    let expected = tenant_keyed_digest(
+        key,
+        community_id,
+        b"airhop.site-attribution-cookie.v1",
+        &[link_id.as_bytes()],
+    );
+    constant_time_equal(&signature, &expected).then_some(link_id)
+}
+
+fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (a, b)| difference | (a ^ b))
+        == 0
+}
+
 fn derive_management_token(
     key: &[u8; 32],
     key_version: i16,
@@ -1346,6 +1727,33 @@ const fn booking_status_str(status: BookingStatus) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn corrupt_optional_analytics_does_not_invalidate_booking() {
+        assert!(valid_booking_analytics(&json!({"visitorId": "corrupt"})).is_none());
+        let mut value = json!({"visitorId": Uuid::new_v4(), "sessionId": Uuid::new_v4(), "journeyId": Uuid::new_v4(), "source": "yandex_maps"});
+        assert!(valid_booking_analytics(&value).is_some());
+        value["campaign"] = json!("x".repeat(161));
+        assert!(valid_booking_analytics(&value).is_none());
+    }
+
+    #[test]
+    fn browser_analytics_is_same_origin() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, HeaderValue::from_static("studio.example"));
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://studio.example"),
+        );
+        assert!(same_origin_analytics_request(&headers));
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://another.example"),
+        );
+        assert!(!same_origin_analytics_request(&headers));
+        headers.insert(header::ORIGIN, HeaderValue::from_static("null"));
+        assert!(!same_origin_analytics_request(&headers));
+    }
     use buzz_core::CommunityId;
 
     #[test]
@@ -1395,6 +1803,47 @@ mod tests {
         assert_ne!(first, other_tenant);
         assert!(first.0.starts_with("ahb_2_"));
         assert!(!first.0.contains('='));
+    }
+
+    #[test]
+    fn attribution_cookies_are_tenant_bound_and_tamper_evident() {
+        let key = [11; 32];
+        let community = Uuid::from_u128(41);
+        let other_community = Uuid::from_u128(42);
+        let link_id = Uuid::from_u128(7);
+        let cookie = attribution_cookie_value(&key, &community, link_id);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&format!("theme=dark; {ATTRIBUTION_COOKIE}={cookie}"))
+                .expect("valid cookie header"),
+        );
+
+        assert_eq!(
+            parse_attribution_cookie(&key, &community, &headers),
+            Some(link_id)
+        );
+        assert_eq!(
+            parse_attribution_cookie(&key, &other_community, &headers),
+            None
+        );
+
+        let tampered = cookie.replace('.', ".A");
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&format!("{ATTRIBUTION_COOKIE}={tampered}"))
+                .expect("valid tampered header"),
+        );
+        assert_eq!(parse_attribution_cookie(&key, &community, &headers), None);
+    }
+
+    #[test]
+    fn tracking_slugs_use_the_closed_public_alphabet() {
+        assert!(valid_tracking_slug("ym-123456789abc"));
+        assert!(valid_tracking_slug("2g-office"));
+        assert!(!valid_tracking_slug("UPPERCASE"));
+        assert!(!valid_tracking_slug("go"));
+        assert!(!valid_tracking_slug("../booking"));
     }
 
     #[test]

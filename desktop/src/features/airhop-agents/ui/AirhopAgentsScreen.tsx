@@ -14,6 +14,7 @@ import {
 } from "@/features/airhop-agents/model/airhopAgentCatalog";
 import { HermesAgentCard } from "@/features/airhop-agents/ui/HermesAgentCard";
 import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
+import { useCommunities } from "@/features/communities/useCommunities";
 import type { AirHopLocale } from "@/shared/locale/airhopLocale";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
@@ -151,6 +152,8 @@ export function AirhopAgentsScreen({
   const locale = useAirHopLocale();
   const copy = COPY[locale];
   const managedAgents = useManagedAgentsQuery();
+  const { activeCommunity } = useCommunities();
+  const relayUrl = activeCommunity?.relayUrl ?? null;
   const { mutateAsync: startAgent } = useStartManagedAgentMutation();
   const { mutateAsync: stopAgent } = useStopManagedAgentMutation();
   const { mutateAsync: setStartOnLaunch } =
@@ -158,8 +161,9 @@ export function AirhopAgentsScreen({
   const [pending, setPending] = React.useState<Set<string>>(() => new Set());
   const serverEnabled = currentAirhopStaffDataRuntime() === "server";
   const cards = React.useMemo(
-    () => materializeAirhopAgentCards(managedAgents.data ?? [], locale),
-    [locale, managedAgents.data],
+    () =>
+      materializeAirhopAgentCards(managedAgents.data ?? [], locale, relayUrl),
+    [locale, managedAgents.data, relayUrl],
   );
   const available = cards.filter((card) => card.pubkey !== null);
   const allRunning =

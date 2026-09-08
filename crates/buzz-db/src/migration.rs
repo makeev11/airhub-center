@@ -571,7 +571,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 52);
+        assert_eq!(migrations.len(), 54);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -1081,6 +1081,18 @@ mod tests {
         assert!(airhop_payment_ledger.contains("REFERENCES airhop_payment_expectations"));
         assert!(airhop_payment_ledger.contains("WHERE status = 'paid'"));
         assert!(airhop_payment_ledger.contains("'legacy'"));
+
+        assert_eq!(migrations[52].version, 53);
+        let airhop_site_analytics = migrations[52].sql.as_str();
+        assert!(airhop_site_analytics.contains("CREATE TABLE airhop_tracking_links"));
+        assert!(airhop_site_analytics.contains("CREATE TABLE airhop_site_analytics_events"));
+        assert!(airhop_site_analytics.contains("airhop_site_analytics_events_append_only"));
+        assert!(airhop_site_analytics.contains("buzz.airhop_analytics_retention"));
+        assert_eq!(migrations[53].version, 54);
+        assert!(migrations[53]
+            .sql
+            .as_str()
+            .contains("airhop_site_analytics_booking_idx"));
     }
 
     #[test]

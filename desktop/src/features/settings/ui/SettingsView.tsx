@@ -283,8 +283,14 @@ export function SettingsView({
               className="px-2 pb-1 text-xs text-sidebar-foreground/45"
               data-buzz-sidebar-secondary
               data-testid="settings-version"
+              title={import.meta.env?.VITE_AIRHOP_RELEASE_ID || undefined}
             >
               v{appVersion}
+              {import.meta.env?.VITE_AIRHOP_RELEASE_COMMIT ? (
+                <span className="ml-1 font-mono">
+                  · {import.meta.env.VITE_AIRHOP_RELEASE_COMMIT.slice(0, 12)}
+                </span>
+              ) : null}
             </p>
           ) : null}
         </SidebarFooter>

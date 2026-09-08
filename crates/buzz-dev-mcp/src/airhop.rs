@@ -72,6 +72,9 @@ impl AirhopRole {
                 resource,
                 ReadResource::OrganizationSettings
                     | ReadResource::Schedule
+                    | ReadResource::SiteAnalytics { .. }
+                    | ReadResource::CenterAnalytics { .. }
+                    | ReadResource::TrackingLinks
                     | ReadResource::PaymentAnalytics
                     | ReadResource::BookingFunnel
                     | ReadResource::PublicBookingSettings
@@ -87,6 +90,9 @@ impl AirhopRole {
             Self::Analyst => matches!(
                 resource,
                 ReadResource::OrganizationSettings
+                    | ReadResource::SiteAnalytics { .. }
+                    | ReadResource::CenterAnalytics { .. }
+                    | ReadResource::TrackingLinks
                     | ReadResource::PaymentAnalytics
                     | ReadResource::BookingFunnel
             ),
@@ -94,6 +100,7 @@ impl AirhopRole {
                 resource,
                 ReadResource::OrganizationSettings
                     | ReadResource::Schedule
+                    | ReadResource::TrackingLinks
                     | ReadResource::PublicBookingSettings
             ),
             Self::ParentAdministrator => false,
@@ -181,6 +188,9 @@ pub enum ReadResource {
     Families,
     FamilyDetail { family_id: Uuid },
     Schedule,
+    SiteAnalytics { days: u16, yesterday: bool },
+    CenterAnalytics { days: u16, yesterday: bool },
+    TrackingLinks,
     PaymentAnalytics,
     BookingFunnel,
     PublicBookingSettings,
@@ -193,6 +203,9 @@ pub enum ReadResourceKind {
     Families,
     FamilyDetail,
     Schedule,
+    SiteAnalytics,
+    CenterAnalytics,
+    TrackingLinks,
     PaymentAnalytics,
     BookingFunnel,
     PublicBookingSettings,
@@ -205,6 +218,9 @@ impl ReadResource {
             Self::Families => "families",
             Self::FamilyDetail { .. } => "family_detail",
             Self::Schedule => "schedule",
+            Self::SiteAnalytics { .. } => "site_analytics",
+            Self::CenterAnalytics { .. } => "center_analytics",
+            Self::TrackingLinks => "tracking_links",
             Self::PaymentAnalytics => "payment_analytics",
             Self::BookingFunnel => "booking_funnel",
             Self::PublicBookingSettings => "public_booking_settings",
@@ -219,6 +235,15 @@ impl ReadResource {
                 Some(format!("/api/airhop/staff/v1/families/{family_id}"))
             }
             Self::Schedule => Some("/api/airhop/staff/v1/branches".to_owned()),
+            Self::SiteAnalytics { days, yesterday } => Some(format!(
+                "/api/airhop/staff/v1/site-analytics?days={days}{}",
+                if *yesterday { "&until=yesterday" } else { "" }
+            )),
+            Self::CenterAnalytics { days, yesterday } => Some(format!(
+                "/api/airhop/staff/v1/booking-funnel-analytics?view=center&days={days}&until={}",
+                if *yesterday { "yesterday" } else { "today" }
+            )),
+            Self::TrackingLinks => Some("/api/airhop/staff/v1/tracking-links".to_owned()),
             Self::PaymentAnalytics => Some("/api/airhop/staff/v1/payment-analytics".to_owned()),
             Self::BookingFunnel => Some("/api/airhop/staff/v1/booking-funnel-analytics".to_owned()),
         }
@@ -233,10 +258,37 @@ pub struct ReadParams {
     pub resource: ReadResourceKind,
     #[schemars(with = "Option<String>")]
     pub family_id: Option<Uuid>,
+    /// Site or center analytics window in organization-local days (1–366, default 30).
+    pub days: Option<u16>,
+    /// For site/center analytics, end on yesterday; use days=1 for yesterday alone.
+    pub yesterday: Option<bool>,
 }
 
 impl ReadParams {
     fn resolve_resource(&self) -> Result<ReadResource, AirhopError> {
+        if self.days.is_some_and(|days| !(1..=366).contains(&days)) {
+            return Err(AirhopError("days must be between 1 and 366".to_owned()));
+        }
+        if self.yesterday.is_some()
+            && !matches!(
+                self.resource,
+                ReadResourceKind::CenterAnalytics | ReadResourceKind::SiteAnalytics
+            )
+        {
+            return Err(AirhopError(
+                "yesterday is only valid for center_analytics or site_analytics".to_owned(),
+            ));
+        }
+        if self.days.is_some()
+            && !matches!(
+                self.resource,
+                ReadResourceKind::SiteAnalytics | ReadResourceKind::CenterAnalytics
+            )
+        {
+            return Err(AirhopError(
+                "days is only valid for site_analytics or center_analytics".to_owned(),
+            ));
+        }
         match (self.resource, self.family_id) {
             (ReadResourceKind::OrganizationSettings, None) => {
                 Ok(ReadResource::OrganizationSettings)
@@ -246,6 +298,15 @@ impl ReadParams {
                 Ok(ReadResource::FamilyDetail { family_id })
             }
             (ReadResourceKind::Schedule, None) => Ok(ReadResource::Schedule),
+            (ReadResourceKind::SiteAnalytics, None) => Ok(ReadResource::SiteAnalytics {
+                days: self.days.unwrap_or(30),
+                yesterday: self.yesterday.unwrap_or(false),
+            }),
+            (ReadResourceKind::CenterAnalytics, None) => Ok(ReadResource::CenterAnalytics {
+                days: self.days.unwrap_or(30),
+                yesterday: self.yesterday.unwrap_or(false),
+            }),
+            (ReadResourceKind::TrackingLinks, None) => Ok(ReadResource::TrackingLinks),
             (ReadResourceKind::PaymentAnalytics, None) => Ok(ReadResource::PaymentAnalytics),
             (ReadResourceKind::BookingFunnel, None) => Ok(ReadResource::BookingFunnel),
             (ReadResourceKind::PublicBookingSettings, None) => {
@@ -1528,7 +1589,7 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_read",
-        description = "Read current, authoritative Airhop organization data allowed for this specialist role. Results include organization locale and time zone."
+        description = "Read authoritative Airhop Center data allowed for this role. center_analytics covers booking-cohort outcomes, acquisition-to-enrollment attribution, explicit attendance, returning students, next-7-day capacity and currency-separated cash movements. days selects 1–366 local calendar days (default 30); yesterday=true ends the window yesterday (use days=1 for yesterday alone). Inspect periodStart/asOfDate/isPartial, today and generatedAt: current students/debt and future capacity are not historical snapshots; cohort outcomes extend to report time. site_analytics covers browser traffic and journeys; tracking_links returns acquisition links. Missing attendance is not absence; return visits are not contractual retention."
     )]
     async fn read(
         &self,
@@ -2087,10 +2148,37 @@ mod tests {
 
     #[test]
     fn authoritative_reads_are_role_scoped() {
+        let center = ReadResource::CenterAnalytics {
+            days: 1,
+            yesterday: true,
+        };
+        assert!(AirhopRole::Analyst.allows(&center));
+        assert!(AirhopRole::Fizz.allows(&center));
+        assert!(!AirhopRole::ContentMarketer.allows(&center));
+        assert!(!AirhopRole::ParentAdministrator.allows(&center));
+        assert_eq!(
+            center.path().as_deref(),
+            Some(
+                "/api/airhop/staff/v1/booking-funnel-analytics?view=center&days=1&until=yesterday"
+            )
+        );
         assert!(AirhopRole::Administrator.allows(&ReadResource::Families));
         assert!(AirhopRole::Administrator.allows(&ReadResource::Schedule));
         assert!(AirhopRole::Analyst.allows(&ReadResource::PaymentAnalytics));
         assert!(AirhopRole::Analyst.allows(&ReadResource::BookingFunnel));
+        assert!(AirhopRole::Analyst.allows(&ReadResource::SiteAnalytics {
+            days: 30,
+            yesterday: false
+        }));
+        let yesterday = ReadResource::SiteAnalytics {
+            days: 1,
+            yesterday: true,
+        };
+        assert_eq!(
+            yesterday.path().as_deref(),
+            Some("/api/airhop/staff/v1/site-analytics?days=1&until=yesterday")
+        );
+        assert!(AirhopRole::Analyst.allows(&ReadResource::TrackingLinks));
         assert!(AirhopRole::ContentMarketer.allows(&ReadResource::Schedule));
         assert!(AirhopRole::ContentMarketer.allows(&ReadResource::PublicBookingSettings));
         assert!(
@@ -2151,6 +2239,7 @@ mod tests {
         let app = Router::new()
             .route(SETTINGS_PATH, get(settings))
             .route("/api/airhop/staff/v1/payment-analytics", get(analytics))
+            .route("/api/airhop/staff/v1/site-analytics", get(analytics))
             .with_state(state.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -2168,8 +2257,19 @@ mod tests {
         assert_eq!(result["locale"], "pt-PT");
         assert_eq!(result["timeZone"], "Europe/Lisbon");
         assert_eq!(result["data"]["analytics"]["expectedMinor"], 4200);
+        let params: ReadParams = serde_json::from_value(
+            json!({"channelId": Uuid::new_v4(), "resource": "site_analytics", "days": 7}),
+        )
+        .unwrap();
+        let resource = params.resolve_resource().unwrap();
+        assert_eq!(
+            resource.path().as_deref(),
+            Some("/api/airhop/staff/v1/site-analytics?days=7")
+        );
+        let report = read_authoritative(&config, &resource).await.unwrap();
+        assert_eq!(report["resource"], "site_analytics");
         let headers = state.0.lock().unwrap();
-        assert_eq!(headers.len(), 2);
+        assert_eq!(headers.len(), 4);
         assert!(headers.iter().all(|headers| headers
             .get("authorization")
             .and_then(|value| value.to_str().ok())

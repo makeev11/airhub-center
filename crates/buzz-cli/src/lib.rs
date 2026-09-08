@@ -173,6 +173,9 @@ pub enum OutputFormat {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Read authoritative Airhop Center analytics
+    #[command(subcommand)]
+    Airhop(AirhopCmd),
     /// Draft owner-reviewed agent creation and updates
     #[command(subcommand)]
     Agents(AgentsCmd),
@@ -239,6 +242,31 @@ enum Cmd {
     /// Community moderation — reports queue, bans, timeouts, audit trail
     #[command(subcommand)]
     Moderation(ModerationCmd),
+}
+
+/// Read-only Airhop Center reporting commands.
+#[derive(Subcommand)]
+pub enum AirhopCmd {
+    /// Operational overview: bookings, attendance, students, occupancy and cash
+    CenterAnalytics {
+        /// Organization-local calendar days in the selected period
+        #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u16).range(1..=366))]
+        days: u16,
+        /// End on yesterday; combine with --days 1 for yesterday alone
+        #[arg(long)]
+        yesterday: bool,
+    },
+    /// Site traffic, journey conversion, sources, pages, and contact clicks
+    SiteAnalytics {
+        /// Organization-local calendar days in the selected period
+        #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u16).range(1..=366))]
+        days: u16,
+        /// End on yesterday; combine with --days 1 for yesterday alone
+        #[arg(long)]
+        yesterday: bool,
+    },
+    /// Tracked acquisition links and their retained outcome counts
+    TrackingLinks,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -1971,6 +1999,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
     let client = BuzzClient::new(relay_url, keys, auth_tag, auth_tag_json)?;
 
     match cli.command {
+        Cmd::Airhop(sub) => commands::airhop::dispatch(sub, &client).await,
         Cmd::Agents(sub) => commands::agents::dispatch(sub, &client).await,
         Cmd::Messages(sub) => commands::messages::dispatch(sub, &client, &cli.format).await,
         Cmd::Channels(sub) => commands::channels::dispatch(sub, &client, &cli.format).await,
@@ -2080,6 +2109,7 @@ mod tests {
     fn command_inventory_is_stable() {
         let expected_groups: Vec<&str> = vec![
             "agents",
+            "airhop",
             "canvas",
             "channels",
             "dms",

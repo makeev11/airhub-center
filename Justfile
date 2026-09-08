@@ -257,9 +257,11 @@ airhop-center-open: bootstrap
     #!/usr/bin/env bash
     set -euo pipefail
     export PATH="{{justfile_directory()}}/bin:$PATH"
+    export AIRHOP_RELEASE_COMMIT="$(git rev-parse HEAD)"
+    node desktop/scripts/airhop-release-identity.mjs "$AIRHOP_RELEASE_COMMIT"
     TARGET=$(rustc -vV | sed -n 's|host: ||p')
     TARGET_DIR=$(cargo metadata --format-version 1 --no-deps | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).target_directory")
-    cargo build --release -p buzz-acp -p buzz-agent -p buzz-dev-mcp -p buzz-cli
+    cargo build --release --locked -p buzz-acp -p buzz-agent -p buzz-dev-mcp -p buzz-cli
     mkdir -p desktop/src-tauri/binaries
     cp "${TARGET_DIR}/release/buzz-acp" "desktop/src-tauri/binaries/buzz-acp-${TARGET}"
     cp "${TARGET_DIR}/release/buzz-agent" "desktop/src-tauri/binaries/buzz-agent-${TARGET}"
@@ -268,7 +270,8 @@ airhop-center-open: bootstrap
     chmod +x desktop/src-tauri/binaries/*-"${TARGET}"
     cd {{desktop_dir}}
     [[ -d node_modules ]] || pnpm install
-    pnpm exec tauri build --bundles app --config src-tauri/tauri.conf.json
+    pnpm exec tauri build --bundles app --config src-tauri/tauri.conf.json -- --locked
+    node scripts/airhop-release-identity.mjs "$AIRHOP_RELEASE_COMMIT"
     APP_PATH="$PWD/src-tauri/target/release/bundle/macos/AirHop Center.app"
     INSTALL_PATH="/Applications/AirHop Center.app"
     PLIST="$APP_PATH/Contents/Info.plist"

@@ -54,11 +54,25 @@ async function expectFooterAtScrollableEnd(
   await expect(footer).toBeInViewport();
 }
 
-async function expectScrollableActions(
-  flow: Locator,
-  back: Locator,
-  forward: Locator,
+async function expectPersistentOccurrenceActions(
+  root: Locator,
+  occurrence: Locator,
 ): Promise<void> {
+  const flow = root.getByTestId("airhop-public-flow");
+  const dock = root.getByTestId("airhop-public-occurrence-actions");
+  await expect(dock).toHaveCount(0);
+  await occurrence.click();
+  const forward = dock.getByRole("button", { name: "Продолжить", exact: true });
+  const back = root.getByRole("button", { name: "Назад", exact: true });
+  await expect(forward).toBeInViewport();
+  expect(
+    await dock.evaluate(
+      (element) =>
+        element.closest('[data-testid="airhop-public-flow"]') === null,
+    ),
+  ).toBe(true);
+  const buttonBefore = await forward.boundingBox();
+  expect(buttonBefore).not.toBeNull();
   const dimensions = await flow.evaluate((element) => ({
     clientHeight: element.clientHeight,
     scrollHeight: element.scrollHeight,
@@ -76,6 +90,9 @@ async function expectScrollableActions(
   await expect(forward).toBeInViewport();
   await expectTouchTarget(back);
   await expectTouchTarget(forward);
+  const buttonAfter = await forward.boundingBox();
+  expect(buttonAfter).not.toBeNull();
+  expect(buttonAfter?.y).toBe(buttonBefore?.y);
 }
 
 async function chooseBasics(
@@ -673,15 +690,21 @@ for (const viewport of [
         standalone.getByTestId("airhop-public-flow"),
         standalone.getByTestId("airhop-public-footer"),
       );
-      await expectScrollableActions(
-        standalone.getByTestId("airhop-public-flow"),
-        standalone.getByRole("button", { name: "Назад" }),
-        standalone.getByRole("button", { name: "Продолжить" }),
-      );
+      await expectPersistentOccurrenceActions(standalone, standaloneOccurrence);
       await expect(
         standalone.getByTestId("airhop-public-footer"),
       ).toBeInViewport();
       await expect(standaloneBranchContext).toBeInViewport();
+      await standalone
+        .getByTestId("airhop-public-occurrence-actions")
+        .getByRole("button", { name: "Продолжить", exact: true })
+        .click();
+      await expect(
+        standalone.getByRole("heading", { name: "Контакты для заявки" }),
+      ).toBeVisible();
+      await expect(
+        standalone.getByTestId("airhop-public-occurrence-actions"),
+      ).toHaveCount(0);
 
       await page.goto("/#/booking/demo-host");
       await page.getByTestId("airhop-public-widget-launcher").click();
@@ -743,13 +766,19 @@ for (const viewport of [
         widget.getByTestId("airhop-public-flow"),
         widget.getByTestId("airhop-public-footer"),
       );
-      await expectScrollableActions(
-        widget.getByTestId("airhop-public-flow"),
-        widget.getByRole("button", { name: "Назад" }),
-        widget.getByRole("button", { name: "Продолжить" }),
-      );
+      await expectPersistentOccurrenceActions(widget, widgetOccurrence);
       await expect(widget.getByTestId("airhop-public-footer")).toBeInViewport();
       await expect(widgetBranchContext).toBeInViewport();
+      await widget
+        .getByTestId("airhop-public-occurrence-actions")
+        .getByRole("button", { name: "Продолжить", exact: true })
+        .click();
+      await expect(
+        widget.getByRole("heading", { name: "Контакты для заявки" }),
+      ).toBeVisible();
+      await expect(
+        widget.getByTestId("airhop-public-occurrence-actions"),
+      ).toHaveCount(0);
     });
   }
 }

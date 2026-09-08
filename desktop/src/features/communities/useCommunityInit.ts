@@ -31,6 +31,7 @@ import { resetAvatarProfileSync } from "@/features/profile/avatarProfileSync";
 import { resetSidebarRelayConnectionCardState } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
 import { clearMarkdownNodeCache } from "@/shared/ui/markdown/nodeCache";
 import { resetVideoPlayerState } from "@/shared/ui/videoPlayerState";
+import { resetPublicSiteAnalytics } from "@/features/booking/data/publicSiteAnalytics";
 
 import {
   initFirstCommunity,
@@ -52,6 +53,7 @@ function resetCommunityState({
 }): void {
   relayClient.disconnect();
   resetRateLimitGate();
+  resetPublicSiteAnalytics();
   clearAllDrafts();
   resetAgentObserverStore();
   resetActiveAgentTurnsStore();

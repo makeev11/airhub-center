@@ -16,6 +16,16 @@ export function resolveAirhopStaffDataRuntime(
 
 /** Returns the staff data source appropriate for this application runtime. */
 export function currentAirhopStaffDataRuntime(): AirhopStaffDataRuntimeMode {
+  // Exercise the real HTTP read components behind the mock native bridge.
+  // Vite removes this opt-in from normal desktop and public builds.
+  if (
+    import.meta.env?.MODE === "e2e" &&
+    typeof window !== "undefined" &&
+    (window as Window & { __AIRHOP_E2E_STAFF_SERVER__?: boolean })
+      .__AIRHOP_E2E_STAFF_SERVER__ === true
+  ) {
+    return "server";
+  }
   const e2eMock =
     typeof window !== "undefined" &&
     Boolean((window as Window & { __BUZZ_E2E__?: unknown }).__BUZZ_E2E__);

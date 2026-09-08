@@ -129,9 +129,9 @@ export const ruPaymentMessages: BookingPaymentMessages = {
   paymentsTitle: "Оплаты",
   paymentsDescription:
     "Рабочая очередь ожидаемых оплат и история решений сотрудников.",
-  analyticsTitle: "Аналитика оплат",
+  analyticsTitle: "Аналитика",
   analyticsDescription:
-    "Начисления, оплаты и просрочки по данным Booking Core.",
+    "От первого обращения до постоянного ученика: посещения, загрузка и деньги.",
   analyticsAsOf: (date) => `Данные на ${date}`,
   analyticsPaidThisMonth: "Оплачено в этом месяце",
   analyticsOutstandingThisMonth: "Ожидается за этот месяц",
@@ -276,9 +276,9 @@ export const enPaymentMessages: BookingPaymentMessages = {
   paymentsTitle: "Payments",
   paymentsDescription:
     "Work queue for expected payments and a history of staff decisions.",
-  analyticsTitle: "Payment analytics",
+  analyticsTitle: "Analytics",
   analyticsDescription:
-    "Charges, payments, and overdue balances from Booking Core.",
+    "From first contact to regular student: attendance, capacity, and cash flow.",
   analyticsAsOf: (date) => `As of ${date}`,
   analyticsPaidThisMonth: "Paid this month",
   analyticsOutstandingThisMonth: "Outstanding this month",

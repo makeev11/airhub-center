@@ -30,6 +30,7 @@ export default defineConfig({
       name: "airhop-center",
       testMatch: [
         "**/airhop-schedule.spec.ts",
+        "**/airhop-center-analytics.spec.ts",
         "**/airhop-public-booking.spec.ts",
         "**/airhop-settings-localization.spec.ts",
         "**/airhop-clients.spec.ts",
@@ -50,6 +51,7 @@ export default defineConfig({
       name: "smoke",
       testMatch: [
         "**/smoke.spec.ts",
+        "**/airhop-center-analytics.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",
         "**/key-import-reveal.spec.ts",

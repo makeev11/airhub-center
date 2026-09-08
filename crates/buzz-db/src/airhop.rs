@@ -34,6 +34,8 @@ pub mod booking_handoff;
 pub mod branch_directory;
 /// AirHub Center owner-enrollment codes and deployment binding.
 pub mod center_activation;
+/// Unified operational analytics shared by the Center UI and Analyst.
+pub mod center_analytics;
 /// Signed health challenges for activated AirHub Center installations.
 pub mod center_health;
 /// Provider-neutral external messaging connection and delivery outbox.
@@ -82,6 +84,8 @@ pub mod public_read;
 pub mod room_directory;
 /// Authoritative occurrence read-model persistence.
 pub mod schedule;
+/// First-party site analytics, booking attribution, and tracked links.
+pub mod site_analytics;
 /// Tenant-scoped staff booking queue projection.
 pub mod staff_queue;
 /// Tenant-scoped tariff directory and audited staff commands.

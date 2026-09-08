@@ -60,6 +60,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(api::airhop_public::get_public_occurrences),
         )
         .route(
+            "/api/airhop/public/v1/analytics/events",
+            post(api::airhop_public::record_public_site_analytics),
+        )
+        .route(
+            "/go/{slug}",
+            get(api::airhop_public::open_public_tracking_link),
+        )
+        .route(
             "/api/airhop/public/bookings",
             post(api::airhop_public::create_public_booking),
         )
@@ -192,6 +200,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/airhop/staff/v1/booking-funnel-analytics",
             get(api::airhop_staff::get_booking_funnel_analytics),
+        )
+        .route(
+            "/api/airhop/staff/v1/site-analytics",
+            get(api::airhop_staff::get_site_analytics),
+        )
+        .route(
+            "/api/airhop/staff/v1/tracking-links",
+            get(api::airhop_staff::list_tracking_links)
+                .post(api::airhop_staff::create_tracking_link),
         )
         .route(
             "/api/airhop/staff/v1/branches",
@@ -550,7 +567,9 @@ fn is_airhop_public_booking_path(path: &str) -> bool {
 fn should_serve_web_asset(path: &str, serve_airhop_public_web: bool) -> bool {
     path.starts_with("/assets/")
         || (serve_airhop_public_web
-            && (path.starts_with("/airhop/") || path == "/agents/hermes.png"))
+            && (path.starts_with("/booking-assets/")
+                || path.starts_with("/airhop/")
+                || path == "/agents/hermes.png"))
 }
 
 fn should_serve_spa(path: &str, serve_git_web_gui: bool, serve_airhop_public_web: bool) -> bool {
@@ -824,6 +843,8 @@ mod tests {
     fn airhop_public_assets_require_the_public_web_bundle() {
         assert!(should_serve_web_asset("/assets/app.js", false));
         assert!(should_serve_web_asset("/assets/app.js", true));
+        assert!(!should_serve_web_asset("/booking-assets/app.js", false));
+        assert!(should_serve_web_asset("/booking-assets/app.js", true));
         assert!(!should_serve_web_asset("/airhop/mark.png", false));
         assert!(should_serve_web_asset("/airhop/mark.png", true));
         assert!(!should_serve_web_asset("/agents/hermes.png", false));

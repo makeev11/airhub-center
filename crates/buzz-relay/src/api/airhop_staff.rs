@@ -55,6 +55,9 @@ use buzz_db::airhop::payment_queue::{
 };
 use buzz_db::airhop::public_booking::{PreferredContactChannel, PublicBookingApplicant};
 use buzz_db::airhop::room_directory::{AirhopRoom, CreateRoomInput, PutRoomInput, RoomStatus};
+use buzz_db::airhop::site_analytics::{
+    CreateTrackingLinkInput, TrackingLinkGoal, TrackingLinkSource,
+};
 use buzz_db::airhop::staff_queue::{
     StaffBookingQueueCursor, StaffBookingQueueFilter, StaffBookingQueueRow,
 };
@@ -512,6 +515,52 @@ pub(crate) struct PutTeacherBody {
     #[serde(default)]
     buzz_username: Option<String>,
     status: TeacherStatus,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SiteAnalyticsQuery {
+    #[serde(default = "default_analytics_days")]
+    days: u16,
+    #[serde(default)]
+    until: AnalyticsUntil,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AnalyticsUntil {
+    #[default]
+    Today,
+    Yesterday,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FunnelAnalyticsQuery {
+    view: Option<String>,
+    days: Option<u16>,
+    until: Option<AnalyticsUntil>,
+}
+
+impl FunnelAnalyticsQuery {
+    fn is_valid(&self) -> bool {
+        match self.view.as_deref() {
+            None => self.days.is_none() && self.until.is_none(),
+            Some("center") => self.days.is_none_or(|days| (1..=366).contains(&days)),
+            Some(_) => false,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CreateTrackingLinkBody {
+    name: String,
+    source: TrackingLinkSource,
+    goal: TrackingLinkGoal,
+    destination_path: String,
+    #[serde(default)]
+    branch_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1139,9 +1188,88 @@ pub(crate) async fn get_payment_analytics(
 pub(crate) async fn get_booking_funnel_analytics(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    RawQuery(raw_query): RawQuery,
+    query: Result<Query<FunnelAnalyticsQuery>, QueryRejection>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let path = "/api/airhop/staff/v1/booking-funnel-analytics";
-    let (tenant, _) = authenticate(&state, &headers, "GET", path, None, Access::Staff).await?;
+    let path = match raw_query.as_deref() {
+        Some(query) if !query.is_empty() => {
+            format!("/api/airhop/staff/v1/booking-funnel-analytics?{query}")
+        }
+        _ => "/api/airhop/staff/v1/booking-funnel-analytics".to_owned(),
+    };
+    let (tenant, _) = authenticate(&state, &headers, "GET", &path, None, Access::Staff).await?;
+    let Query(query) =
+        query.map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid analytics query"))?;
+    if !query.is_valid() {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "period controls require view=center",
+        ));
+    }
+    let organization = state
+        .db
+        .get_airhop_organization(&tenant)
+        .await
+        .map_err(map_db_error)?
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "AirHub organization is not configured",
+            )
+        })?;
+    let analytics = if query.view.as_deref() == Some("center") {
+        state
+            .db
+            .get_airhop_staff_center_analytics(
+                &tenant,
+                query.days.unwrap_or(30),
+                matches!(query.until, Some(AnalyticsUntil::Yesterday)),
+            )
+            .await
+            .map_err(map_db_error)?
+    } else {
+        serde_json::to_value(
+            state
+                .db
+                .get_airhop_staff_booking_funnel_analytics(&tenant)
+                .await
+                .map_err(map_db_error)?,
+        )
+        .map_err(|_| internal_error("analytics serialization failed"))?
+    };
+    Ok(Json(json!({
+        "organization": organization_json(
+            organization.id,
+            &organization.name,
+            &organization.locale,
+            &organization.time_zone,
+            organization.payments_buzz_channel_id,
+            &organization.settings,
+        ),
+        "analytics": analytics,
+    })))
+}
+
+/// Server-authoritative site, acquisition, and public-booking analytics.
+pub(crate) async fn get_site_analytics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    RawQuery(raw_query): RawQuery,
+    query: Result<Query<SiteAnalyticsQuery>, QueryRejection>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = match raw_query.as_deref() {
+        Some(query) if !query.is_empty() => {
+            format!("/api/airhop/staff/v1/site-analytics?{query}")
+        }
+        _ => "/api/airhop/staff/v1/site-analytics".to_owned(),
+    };
+    let (tenant, _) = authenticate(&state, &headers, "GET", &path, None, Access::Staff).await?;
+    let Query(query) = query.map_err(|_| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid AirHub site analytics query",
+        )
+    })?;
     let organization = state
         .db
         .get_airhop_organization(&tenant)
@@ -1155,7 +1283,11 @@ pub(crate) async fn get_booking_funnel_analytics(
         })?;
     let analytics = state
         .db
-        .get_airhop_staff_booking_funnel_analytics(&tenant)
+        .get_airhop_staff_site_analytics_ending(
+            &tenant,
+            query.days,
+            matches!(query.until, AnalyticsUntil::Yesterday),
+        )
         .await
         .map_err(map_db_error)?;
     Ok(Json(json!({
@@ -1168,6 +1300,73 @@ pub(crate) async fn get_booking_funnel_analytics(
             &organization.settings,
         ),
         "analytics": analytics,
+    })))
+}
+
+/// Lists generated acquisition links with reconciled outcomes.
+pub(crate) async fn list_tracking_links(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/tracking-links";
+    let (tenant, _) = authenticate(&state, &headers, "GET", path, None, Access::Staff).await?;
+    let items = state
+        .db
+        .list_airhop_tracking_links(&tenant)
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({
+        "redirectPath": "/go/",
+        "items": items,
+    })))
+}
+
+/// Generates one audited, same-origin acquisition link.
+pub(crate) async fn create_tracking_link(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = "/api/airhop/staff/v1/tracking-links";
+    let (tenant, pubkey) =
+        authenticate(&state, &headers, "POST", path, Some(&body), Access::Staff).await?;
+    let request: CreateTrackingLinkBody = parse_body(&body)?;
+    let idempotency_key = require_idempotency_key(&headers)?;
+    let key = command_key(&state);
+    let outcome = state
+        .db
+        .create_airhop_tracking_link(
+            &tenant,
+            &CreateTrackingLinkInput {
+                name: request.name.trim().to_owned(),
+                source: request.source,
+                goal: request.goal,
+                destination_path: request.destination_path.trim().to_owned(),
+                branch_id: request.branch_id,
+                idempotency_digest: scoped_digest(
+                    &key,
+                    b"airhop.staff.tracking-link.idempotency.v1",
+                    tenant.community().as_uuid(),
+                    &pubkey.to_bytes(),
+                    idempotency_key.as_bytes(),
+                )?,
+                request_hash: command_request_hash("POST", path, &body),
+                actor: staff_actor(pubkey),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    let link = state
+        .db
+        .list_airhop_tracking_links(&tenant)
+        .await
+        .map_err(map_db_error)?
+        .into_iter()
+        .find(|link| link.id == outcome.link_id)
+        .ok_or_else(|| internal_error("created AirHub tracking link is unavailable"))?;
+    Ok(Json(json!({
+        "link": link,
+        "replayed": outcome.replayed,
     })))
 }
 
@@ -2834,9 +3033,16 @@ fn registered_agent_role_allows_path(role: AirhopWelcomeRole, path: &str) -> boo
                 | AirhopWelcomeRole::ContentMarketer
         ),
         "/api/airhop/staff/v1/payment-analytics"
-        | "/api/airhop/staff/v1/booking-funnel-analytics" => {
+        | "/api/airhop/staff/v1/booking-funnel-analytics"
+        | "/api/airhop/staff/v1/site-analytics" => {
             matches!(role, AirhopWelcomeRole::Fizz | AirhopWelcomeRole::Analyst)
         }
+        "/api/airhop/staff/v1/tracking-links" => matches!(
+            role,
+            AirhopWelcomeRole::Fizz
+                | AirhopWelcomeRole::Analyst
+                | AirhopWelcomeRole::ContentMarketer
+        ),
         "/api/airhop/staff/v1/families" => role == AirhopWelcomeRole::Administrator,
         _ => path
             .strip_prefix("/api/airhop/staff/v1/families/")
@@ -3421,6 +3627,10 @@ fn parse_body<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, (StatusCod
         .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid AirHub JSON body"))
 }
 
+const fn default_analytics_days() -> u16 {
+    30
+}
+
 fn require_idempotency_key(headers: &HeaderMap) -> Result<&str, (StatusCode, Json<Value>)> {
     headers
         .get(IDEMPOTENCY_HEADER)
@@ -3610,6 +3820,58 @@ mod tests {
     use super::*;
 
     #[test]
+    fn center_analytics_period_query_is_explicit_and_bounded() {
+        for query in [
+            "",
+            "view=center",
+            "view=center&days=1&until=yesterday",
+            "view=center&days=366&until=today",
+        ] {
+            let uri = format!("/analytics?{query}").parse().unwrap();
+            assert!(Query::<FunnelAnalyticsQuery>::try_from_uri(&uri)
+                .unwrap()
+                .0
+                .is_valid());
+        }
+        for query in [
+            "days=1",
+            "until=today",
+            "until=yesterday",
+            "view=unknown",
+            "view=center&days=0",
+            "view=center&days=367",
+        ] {
+            let uri = format!("/analytics?{query}").parse().unwrap();
+            assert!(!Query::<FunnelAnalyticsQuery>::try_from_uri(&uri)
+                .unwrap()
+                .0
+                .is_valid());
+        }
+        for query in [
+            "view=center&until=tomorrow",
+            "view=center&days=1&days=2",
+            "view=center&extra=1",
+        ] {
+            let uri = format!("/analytics?{query}").parse().unwrap();
+            assert!(Query::<FunnelAnalyticsQuery>::try_from_uri(&uri).is_err());
+        }
+        let path =
+            "/api/airhop/staff/v1/booking-funnel-analytics?view=center&days=1&until=yesterday";
+        assert!(registered_agent_role_allows_path(
+            AirhopWelcomeRole::Analyst,
+            path
+        ));
+        assert!(!registered_agent_role_allows_path(
+            AirhopWelcomeRole::Administrator,
+            path
+        ));
+        assert!(!registered_agent_role_allows_path(
+            AirhopWelcomeRole::ContentMarketer,
+            path
+        ));
+    }
+
+    #[test]
     fn registered_agent_reads_are_server_side_role_scoped() {
         let family_id = Uuid::new_v4();
         let family_path = format!("/api/airhop/staff/v1/families/{family_id}");
@@ -3631,6 +3893,14 @@ mod tests {
         assert!(registered_agent_role_allows_path(
             AirhopWelcomeRole::Analyst,
             "/api/airhop/staff/v1/payment-analytics"
+        ));
+        assert!(registered_agent_role_allows_path(
+            AirhopWelcomeRole::Analyst,
+            "/api/airhop/staff/v1/site-analytics?days=30"
+        ));
+        assert!(registered_agent_role_allows_path(
+            AirhopWelcomeRole::ContentMarketer,
+            "/api/airhop/staff/v1/tracking-links"
         ));
 
         assert!(!registered_agent_role_allows_path(

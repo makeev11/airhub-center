@@ -1,6 +1,5 @@
 import { ArrowLeft, MapPin, UsersRound } from "lucide-react";
 import * as React from "react";
-
 import { usePublicBookingService } from "@/features/booking/data/PublicBookingProvider";
 import {
   PublicBookingAgeMismatchError,
@@ -35,6 +34,7 @@ import {
   SummaryRow,
 } from "@/features/booking/ui/PublicBookingFlowParts";
 import { PublicBookingShell } from "@/features/booking/ui/PublicBookingShell";
+import { PublicBookingOccurrenceActions } from "@/features/booking/ui/PublicBookingOccurrenceActions";
 import {
   parsePublicAge,
   resolvePublicInitialContext,
@@ -51,7 +51,7 @@ import {
 } from "@/features/booking/ui/PublicBookingBasics";
 import { PublicBookingSuccess } from "@/features/booking/ui/PublicBookingSuccess";
 import { useBookingHandoffStatus } from "@/features/booking/ui/useBookingHandoffStatus";
-
+import { usePublicBookingAnalytics } from "@/features/booking/ui/usePublicBookingAnalytics";
 type FlowStep = "basics" | "groups" | "occurrences" | "contact" | "preview";
 type FlowError =
   | "slot_unavailable"
@@ -59,7 +59,6 @@ type FlowError =
   | "load_failed"
   | "generic"
   | null;
-
 export type PublicBookingInitialContext = {
   branchId?: string;
   groupId?: string;
@@ -67,12 +66,10 @@ export type PublicBookingInitialContext = {
   birthMonth?: number;
   ageYears?: number;
 };
-
 export type PublicBookingWidgetConfiguration = {
   purpose?: PublicBookingPurpose;
   appearance?: PublicBookingAppearance;
 };
-
 const STEP_NUMBER: Record<FlowStep, number> = {
   basics: 1,
   groups: 2,
@@ -80,7 +77,6 @@ const STEP_NUMBER: Record<FlowStep, number> = {
   contact: 4,
   preview: 5,
 };
-
 const INITIAL_APPLICANT: PublicApplicantDraft = {
   parentName: "",
   phone: "",
@@ -88,7 +84,6 @@ const INITIAL_APPLICANT: PublicApplicantDraft = {
   childBirthDate: "",
   consentAccepted: false,
 };
-
 export function PublicBookingFlow({
   configuration,
   initialContext = {},
@@ -141,6 +136,12 @@ export function PublicBookingFlow({
   } | null>(null);
   const [isSavingChannel, setIsSavingChannel] = React.useState(false);
   const [channelError, setChannelError] = React.useState(false);
+  const {
+    context: analytics,
+    startNewJourney,
+    trackStepCompleted,
+    trackSubmit,
+  } = usePublicBookingAnalytics({ branchId, mode, step });
   useBookingHandoffStatus(service, success, setSuccess);
   const idempotencyKeyRef = React.useRef(crypto.randomUUID());
   const flowRef = React.useRef<HTMLElement>(null);
@@ -148,7 +149,6 @@ export function PublicBookingFlow({
     service: typeof service;
     promise: Promise<PublicBookingCatalog>;
   } | null>(null);
-
   const locale = catalog?.organization.locale ?? "ru-RU";
   const messages = getPublicBookingMessages(locale);
   const purpose =
@@ -308,6 +308,7 @@ export function PublicBookingFlow({
       setGroupId("");
       setLessonKey("");
       setContextFallback(false);
+      trackStepCompleted("basics");
       setStep("groups");
     } catch {
       setFlowError("generic");
@@ -325,6 +326,7 @@ export function PublicBookingFlow({
     setApplicantIssues(issues);
     if (issues.length) return;
     setFlowError(null);
+    trackStepCompleted("contact");
     setStep("preview");
   };
 
@@ -332,6 +334,7 @@ export function PublicBookingFlow({
     if (!selectedOccurrence || isSubmitting) return;
     setIsSubmitting(true);
     setFlowError(null);
+    trackSubmit();
     try {
       const result = await service.createBooking({
         lessonRef: selectedOccurrence.lessonRef,
@@ -341,6 +344,7 @@ export function PublicBookingFlow({
         source: {
           surface: mode,
           ...(attributionBranchId ? { attributionBranchId } : {}),
+          analytics,
         },
       });
       setSuccess({ token: result.managementToken, card: result.card });
@@ -414,6 +418,7 @@ export function PublicBookingFlow({
     }
     setContextFallback(false);
     setSuccess(null);
+    startNewJourney();
     setStep(
       nextGroupId
         ? "occurrences"
@@ -655,6 +660,7 @@ export function PublicBookingFlow({
                   disabled={!groupId}
                   onClick={() => {
                     setLessonKey("");
+                    trackStepCompleted("groups");
                     setStep("occurrences");
                   }}
                   type="button"
@@ -741,14 +747,6 @@ export function PublicBookingFlow({
               >
                 <ArrowLeft />
                 {messages.back}
-              </Button>
-              <Button
-                className="min-h-11 sm:min-h-9"
-                disabled={!selectedOccurrence?.available}
-                onClick={() => setStep("contact")}
-                type="button"
-              >
-                {messages.continue}
               </Button>
             </div>
           </Card>
@@ -982,6 +980,15 @@ export function PublicBookingFlow({
         ) : null}
         <PublicBookingFooter messages={messages} />
       </main>
+      {step === "occurrences" && selectedOccurrence?.available ? (
+        <PublicBookingOccurrenceActions
+          continueLabel={messages.continue}
+          onContinue={() => {
+            trackStepCompleted("occurrences");
+            setStep("contact");
+          }}
+        />
+      ) : null}
     </PublicBookingShell>
   );
 }
