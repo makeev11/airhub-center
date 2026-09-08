@@ -14,14 +14,10 @@ import { join, resolve } from "node:path";
 import {
   readReleaseIdentity,
   repositoryRoot,
+  validateDemoBase,
 } from "../desktop/scripts/airhop-release-identity.mjs";
 
-const baseImage = process.argv[2];
-if (!/^[a-z0-9][a-z0-9./:_-]*@sha256:[a-f0-9]{64}$/.test(baseImage ?? "")) {
-  throw new Error(
-    "Usage: node scripts/prepare-airhop-center-release.mjs <existing-demo-image@sha256:digest>",
-  );
-}
+const base = validateDemoBase(process.argv[2], process.argv[3]);
 const git = (...args) =>
   execFileSync("git", args, {
     cwd: repositoryRoot,
@@ -160,6 +156,7 @@ const writeJson = (name, data) =>
     flag: "wx",
   });
 writeJson("release.json", identity);
+writeJson("base-image.json", base);
 writeJson("source-manifest.json", {
   ...identity,
   sourceArchiveSha256,
@@ -178,13 +175,16 @@ writeFileSync(
   join(output, "Dockerfile.center-release"),
   `${dockerfile}
 # Demo-only: preserve the pinned pilot and previously referenced hashed assets.
-FROM ${baseImage} AS airhop-center-candidate
+# The deployment guard must match this local tag to the recorded config ID.
+# A Docker config ID is NOT an OCI registry manifest digest usable after @.
+FROM ${base.image} AS airhop-center-candidate
 COPY --from=stripped-binaries /build/target/release/buzz-relay /usr/local/bin/buzz-relay
 COPY --from=stripped-binaries /build/target/release/buzz-admin /usr/local/bin/buzz-admin
 COPY --from=stripped-binaries /build/target/release/buzz-pair-relay /usr/local/bin/buzz-pair-relay
 COPY public-web/ /srv/airhop/public-web/
 COPY release.json /srv/airhop/center-release.json
 LABEL ru.airhop.release="${identity.releaseId}" \\
+      ru.airhop.base-image-id="${base.imageId}" \\
       org.opencontainers.image.version="${identity.version}" \\
       org.opencontainers.image.revision="${identity.commit}" \\
       ru.airhop.source-archive-sha256="${sourceArchiveSha256}"
@@ -199,7 +199,7 @@ console.log(
       output,
       sourceArchiveSha256,
       sourceFiles: files.length,
-      baseImage,
+      base,
     },
     null,
     2,

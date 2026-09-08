@@ -14,6 +14,7 @@ import test from "node:test";
 import {
   readDesktopVersion,
   readReleaseIdentity,
+  validateDemoBase,
 } from "./airhop-release-identity.mjs";
 
 function fixture(t) {
@@ -49,6 +50,39 @@ function fixture(t) {
   git("commit", "-q", "-s", "-m", "test: initial release fixture");
   return { root, write, git, commit: git("rev-parse", "HEAD") };
 }
+
+test("local Docker image tag and config ID are separate identities", () => {
+  assert.deepEqual(
+    validateDemoBase(
+      "airhub-center-relay:demo-pinned",
+      `sha256:${"a".repeat(64)}`,
+    ),
+    {
+      image: "airhub-center-relay:demo-pinned",
+      imageId: `sha256:${"a".repeat(64)}`,
+    },
+  );
+});
+
+for (const image of [
+  undefined,
+  "airhub-center-relay",
+  "airhub-center-relay:latest",
+  `airhub-center-relay@sha256:${"a".repeat(64)}`,
+]) {
+  test(`rejects ambiguous or misidentified Docker base: ${image}`, () => {
+    assert.throws(
+      () => validateDemoBase(image, `sha256:${"a".repeat(64)}`),
+      /separate sha256 image ID/,
+    );
+  });
+}
+
+test("Docker base requires a full config ID", () => {
+  assert.throws(() =>
+    validateDemoBase("airhub-center-relay:demo-pinned", "4a7c892f03ff"),
+  );
+});
 
 test("all four manifests must carry the same version", (t) => {
   const { root, write } = fixture(t);
@@ -151,6 +185,7 @@ function candidate(t) {
     "source.tgz",
     "public-web.tgz",
     "Dockerfile.center-release",
+    "base-image.json",
   ])
     write(file, "fixture bytes");
   write(
@@ -161,6 +196,7 @@ function candidate(t) {
       sourceArchiveSha256: hash("source.tgz"),
       publicWebArchiveSha256: hash("public-web.tgz"),
       dockerfileSha256: hash("Dockerfile.center-release"),
+      baseImageSha256: hash("base-image.json"),
       macos: {
         files: [
           {

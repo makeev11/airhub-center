@@ -30,6 +30,7 @@ assert.equal(
   hash(join(output, "Dockerfile.center-release")),
   receipt.dockerfileSha256,
 );
+assert.equal(hash(join(output, "base-image.json")), receipt.baseImageSha256);
 const app = join(output, "AirHop Center.app");
 assert.deepEqual(
   json(join(app, "Contents/Resources/airhop-release.json")),

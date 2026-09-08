@@ -208,6 +208,7 @@ const receipt = {
   sourceArchiveSha256: source.sourceArchiveSha256,
   publicWebArchiveSha256: hash(join(output, "public-web.tgz")),
   dockerfileSha256: hash(join(output, "Dockerfile.center-release")),
+  baseImageSha256: hash(join(output, "base-image.json")),
   macos: { signing: "ad-hoc", files: fileManifest(app) },
   publicWeb: { files: fileManifest(join(output, "public-web")) },
 };

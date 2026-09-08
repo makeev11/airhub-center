@@ -29,7 +29,7 @@
 
 ```sh
 . ./bin/activate-hermit
-node scripts/prepare-airhop-center-release.mjs '<проверенный-demo-image>@sha256:<digest>'
+node scripts/prepare-airhop-center-release.mjs '<проверенный-demo-image>:<точный-tag>' 'sha256:<полный-локальный-image-ID>'
 ```
 
 Команда выводит `output` — новую папку кандидата. Она содержит:
@@ -38,6 +38,10 @@ node scripts/prepare-airhop-center-release.mjs '<проверенный-demo-ima
 - `source-manifest.json` с полным перечнем файлов и SHA-256; архив сравнивается
   побайтно с файлами, используемыми локальной сборкой;
 - `release.json` с идентичностью исходников и максимальной миграцией;
+- `base-image.json` с отдельными local image tag и config ID. Локальный Docker
+  image ID нельзя подставлять после `@sha256:` как registry manifest digest.
+  Перед сборкой и после неё надо сверить `.Id` указанного tag с этим файлом;
+  `latest` и неявные теги не принимаются;
 - `Dockerfile.center-release`, который сохраняет pinned demo runtime/pilot и
   старые hashed assets, но пересобирает серверные бинарники. Для shared VPS
   ограничены и `cargo chef cook`, и сборка Rust (`CARGO_BUILD_JOBS=1`).

@@ -5,6 +5,20 @@ import { fileURLToPath } from "node:url";
 
 export const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 
+/** Local Docker config IDs are not registry manifest digests. Keep them separate. */
+export function validateDemoBase(image, imageId) {
+  if (
+    !/^[a-z0-9][a-z0-9./:_-]*:[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/.test(image ?? "") ||
+    image.endsWith(":latest") ||
+    !/^sha256:[a-f0-9]{64}$/.test(imageId ?? "")
+  ) {
+    throw new Error(
+      "Demo base requires an explicit local image tag (not latest or @digest) and its separate sha256 image ID",
+    );
+  }
+  return { image, imageId };
+}
+
 function readJson(root, path) {
   return JSON.parse(readFileSync(resolve(root, path), "utf8"));
 }
