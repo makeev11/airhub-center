@@ -1,4 +1,4 @@
-# Unified interface candidate — 2026-09-09
+# AirHop Center 0.5.7 unified interface candidate — 2026-09-09
 
 Scope: local implementation and candidate assembly, not installation or deployment.
 Preserves the knowledge workspace, client-thread model, analytics and simplified
@@ -47,6 +47,13 @@ agent identity presentation in this checkout.
 
 The copy audit is part of `pnpm check`, including a guard against translating labels
 at module initialization (those labels would not react to a later language switch).
+It also checks literal and conditional translation keys, and stable option label keys,
+against the actual dictionaries. This caught three untranslated lowercase agent badges.
+
+The unified release increments all four desktop version sources to 0.5.7. The source,
+public form and native bundle share a full commit identity and migration 58. Packaging
+of the earlier 8016bee7 checkpoint passed, including ad-hoc signature verification;
+that checkpoint is superseded by the final 0.5.7 package, not a second release target.
 
 ## Unified-source gate
 
@@ -58,6 +65,20 @@ ID, ACP sessions follow that ID, history and staff-command batches are fenced to
 exact shared-channel thread. A later staff message in a different client's thread
 cannot invalidate this client's command. Dedicated two-client regression tests pass.
 No harness/provider/model/effort policy was altered by this integration.
+
+Subsequent reviewed fixes from the parallel Hermes task are also included:
+
+- Queue fix 436033ee was applied as 7feb51c9. Conversation bookings now appear next
+  to website requests without changing confirmation, duplicate review or identity.
+  The combined 60-test database suite passed after this integration.
+- Surname fix fd1fe3ea was applied as e9daf8da, after its isolated regression suite
+  passed. New families use explicitly supplied first/last names; verified families
+  and booked receipts retain their existing identity. Old uncommitted drafts must
+  show an updated summary and obtain fresh consent. The MCP schema, runtime persona
+  and relay must be deployed together. No existing family is silently renamed.
+
+Final combined CI, post-integration DB/MCP tests and artifact verification are recorded
+alongside the final package; historical checkpoints above are not native live acceptance.
 
 Observed demo base: `airhub-center-relay:airhop-center-0.5.6-f50d431f31c0`, Docker
 config ID `sha256:a7c648e65e863ed32bfefc3e9ad96cb47f848e7687a0ba95e5fa18b361b43e94`.

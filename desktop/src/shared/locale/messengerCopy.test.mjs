@@ -44,6 +44,8 @@ test("copy and grammatical counts remain bilingual", () => {
   assert.equal(messengerCount(2, "reply", "en-US"), "2 replies");
   assert.equal(messageText("Add agents", {}, "ru-RU"), "Добавить AI-агентов");
   assert.equal(messageText("Add agents", {}, "en-US"), "Add agents");
+  assert.equal(messageText("agent", {}, "ru-RU"), "агент");
+  assert.equal(messageText("agent", {}, "en-US"), "agent");
   assert.equal(
     messageText("Remove {name}", { name: "Honey" }, "ru-RU"),
     "Убрать: Honey",

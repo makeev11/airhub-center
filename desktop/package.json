@@ -1,10 +1,11 @@
 {
   "name": "buzz",
   "private": true,
-  "version": "0.5.6",
+  "version": "0.5.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:booking": "VITE_AIRHOP_PUBLIC_WEB=1 VITE_AIRHOP_PUBLIC_BOOKING_RUNTIME=demo vite --host 127.0.0.1",
     "build": "tsc && vite build",
     "build:e2e": "tsc && vite build --mode e2e",
     "typecheck": "tsc --noEmit",

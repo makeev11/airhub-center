@@ -4,6 +4,50 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 const roots = ["src/features/channels", "src/features/messages"];
 const rows = [];
+const translatedKeys = new Set();
+for (const name of [
+  "messengerCopy.ts",
+  "messengerStatic.ru.ts",
+  "messengerWorkflow.ru.ts",
+]) {
+  const path = join("src/shared/locale", name);
+  const source = ts.createSourceFile(
+    path,
+    readFileSync(path, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  function collect(node) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      ["MESSENGER_RU", "messengerStaticRu", "messengerWorkflowRu"].includes(
+        node.name.text,
+      ) &&
+      node.initializer &&
+      ts.isObjectLiteralExpression(node.initializer)
+    ) {
+      for (const property of node.initializer.properties) {
+        if (
+          ts.isPropertyAssignment(property) &&
+          (ts.isStringLiteral(property.name) || ts.isIdentifier(property.name))
+        )
+          translatedKeys.add(property.name.text);
+      }
+    }
+    ts.forEachChild(node, collect);
+  }
+  collect(source);
+}
+function literalKeys(node) {
+  if (!node) return [];
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
+    return [node.text];
+  if (ts.isParenthesizedExpression(node)) return literalKeys(node.expression);
+  if (ts.isConditionalExpression(node))
+    return [...literalKeys(node.whenTrue), ...literalKeys(node.whenFalse)];
+  return [];
+}
 function visitDir(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
@@ -20,6 +64,27 @@ function visitDir(dir) {
       path.endsWith("tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
     );
     function visit(node) {
+      if (process.argv.includes("--check")) {
+        const keys =
+          ts.isCallExpression(node) &&
+          /^(messageText|m)$/.test(node.expression.getText(source))
+            ? literalKeys(node.arguments[0])
+            : ts.isPropertyAssignment(node) &&
+                node.name.getText(source) === "labelKey"
+              ? literalKeys(node.initializer)
+              : [];
+        for (const key of keys) {
+          if (/[A-Za-z]/.test(key) && !translatedKeys.has(key))
+            rows.push({
+              path,
+              line:
+                source.getLineAndCharacterOfPosition(node.getStart(source))
+                  .line + 1,
+              value: `Missing Russian translation: ${key}`,
+              kind: "missing-key",
+            });
+        }
+      }
       if (
         process.argv.includes("--check") &&
         ts.isCallExpression(node) &&

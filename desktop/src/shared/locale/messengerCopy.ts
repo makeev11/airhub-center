@@ -7,6 +7,7 @@ import { useAirHopLocale } from "./useAirHopLocale";
 export const MESSENGER_RU: Record<string, string> = {
   ...messengerStaticRu,
   ...messengerWorkflowRu,
+  agent: "агент",
   "Add {name}": "Добавить: {name}",
   "{status}. View activity.": "{status}. Показать активность.",
   "Channel type: {label}": "Тип канала: {label}",
