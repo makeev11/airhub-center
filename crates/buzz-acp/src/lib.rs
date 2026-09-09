@@ -2492,10 +2492,27 @@ async fn tokio_main() -> Result<()> {
         };
 
         match pool_event {
-            Some(PoolEvent::Result(result)) => {
+            Some(PoolEvent::Result(mut result)) => {
                 // Stop typing indicator for the completed channel.
                 if let PromptSource::Channel(ch) = &result.source {
                     typing_channels.remove(ch);
+                    if parent_supervisor_gate.finish_channel(*ch).await {
+                        // An ACP end_turn is not proof of a delivered parent
+                        // reply. Recover the input retained by the dispatcher.
+                        if result.batch.is_none() {
+                            result.batch = pool
+                                .task_map()
+                                .values()
+                                .find(|meta| meta.agent_index == result.agent.index)
+                                .and_then(|meta| meta.recoverable_batch.clone());
+                        }
+                        if matches!(result.outcome, PromptOutcome::Ok(_)) {
+                            result.outcome =
+                                PromptOutcome::Error(acp::AcpError::Io(std::io::Error::other(
+                                    "Hermes ended without committing a parent reply",
+                                )));
+                        }
+                    }
                 }
                 if handle_prompt_result(
                     &mut pool,
@@ -2848,6 +2865,9 @@ async fn tokio_main() -> Result<()> {
             tracing::debug!(agent = idx, "reaped idle agent on shutdown");
         }
     }
+    parent_supervisor_gate
+        .finish_idle_channels(&HashSet::new())
+        .await;
     drop(pool);
 
     // Abort any in-flight respawn tasks. They may be sleeping in backoff or
@@ -3087,6 +3107,13 @@ async fn dispatch_pending(
     parent_supervisor_gate: &airhop::ParentSupervisorGate,
     last_activity: &mut tokio::time::Instant,
 ) -> Vec<(Uuid, ThreadTags)> {
+    // Also covers panics/aborts, whose tasks never produce PromptResult.
+    let active = pool
+        .task_map()
+        .values()
+        .filter_map(|meta| meta.channel_id)
+        .collect();
+    parent_supervisor_gate.finish_idle_channels(&active).await;
     let mut dispatched_channels = Vec::new();
     loop {
         let batch = match queue.flush_next() {
@@ -3110,12 +3137,16 @@ async fn dispatch_pending(
                 break;
             }
         };
-        if !parent_supervisor_gate.claim_batch(&batch).await {
+        let claim = parent_supervisor_gate.claim_batch(&batch).await;
+        if claim != airhop::ParentClaimDecision::Run {
             tracing::debug!(
                 channel = %channel_id,
                 "AirHop parent supervisor rejected queued batch"
             );
             pool.return_agent(agent);
+            if claim == airhop::ParentClaimDecision::Retry {
+                queue.defer(batch, std::time::Duration::from_secs(5));
+            }
             queue.mark_complete(channel_id);
             continue;
         }

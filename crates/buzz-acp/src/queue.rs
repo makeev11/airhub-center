@@ -528,6 +528,17 @@ impl EventQueue {
         }
     }
 
+    /// Defer dispatch after a supervisor conflict or temporary outage. Unlike
+    /// model retries, waiting for a lease does not consume the retry budget.
+    pub fn defer(&mut self, mut batch: FlushBatch, delay: Duration) {
+        let channel = batch.channel_id;
+        let mut events = std::mem::take(&mut batch.cancelled_events);
+        events.append(&mut batch.events);
+        batch.events = events;
+        self.requeue_preserve_timestamps(batch);
+        self.retry_after.insert(channel, Instant::now() + delay);
+    }
+
     /// Requeue a cancelled batch so its events appear as `cancelled_events`
     /// in the next `FlushBatch` for this channel (enabling the annotated
     /// merged-prompt format in `format_prompt()`).
@@ -2837,6 +2848,23 @@ mod tests {
 
         // No retry_after — channel should be immediately flushable.
         assert!(!q.retry_after.contains_key(&ch));
+        assert!(q.flush_next().is_some());
+    }
+
+    #[test]
+    fn supervisor_deferral_preserves_input_without_exhausting_model_retries() {
+        let mut q = EventQueue::new(DedupMode::Queue);
+        let channel = Uuid::new_v4();
+        q.push(make_queued(channel, "привет, как дела?"));
+        for _ in 0..20 {
+            let batch = q.flush_next().unwrap();
+            assert_eq!(batch.events[0].event.content, "привет, как дела?");
+            q.defer(batch, Duration::from_secs(5));
+            q.mark_complete(channel);
+            assert!(q.flush_next().is_none());
+            assert!(!q.retry_counts.contains_key(&channel));
+            q.retry_after.remove(&channel);
+        }
         assert!(q.flush_next().is_some());
     }
 

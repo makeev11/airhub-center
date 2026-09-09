@@ -28,6 +28,8 @@ jobs:
       - run: python -m pip install ./integrations/hermes-airhop-channel-gateway
       - run: python -m unittest discover -s integrations/hermes-airhop-channel-gateway/tests -v
       - run: node --test scripts/test-airhop-test-migrations.mjs
+      - name: Multilingual staff intent evaluation baseline (offline)
+        run: python deploy/airhop/eval-staff-intent.py --check-baseline crates/buzz-acp/src/airhop/staff_intent.rs
 
   changes:
     name: Detect Changed Paths
@@ -61,6 +63,9 @@ jobs:
               - 'deny.toml'
               - '.github/workflows/ci.yml'
               - 'scripts/run-tests.sh'
+              - 'integrations/hermes-airhop-parent-runtime/**'
+              - 'deploy/airhop/Dockerfile.hermes-booking'
+              - 'deploy/airhop/check-booking-mcp.py'
               - 'justfile'
             desktop:
               - 'scripts/check-file-sizes-core.mjs'
@@ -729,7 +734,7 @@ jobs:
             --run-ignored ignored-only
         env:
           RELAY_URL: ws://localhost:3000
-      - name: AirHop public booking and Hermes conversation lifecycle
+      - name: AirHop booking, Hermes recovery, scoped history and staff control
         run: |
           cargo nextest run \
             --archive-file target/ci/backend-integration-tests.tar.zst \

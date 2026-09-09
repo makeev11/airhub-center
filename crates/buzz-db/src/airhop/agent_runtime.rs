@@ -9,6 +9,8 @@ use uuid::Uuid;
 
 use crate::{Db, DbError, Result};
 
+mod history;
+
 /// Stable product blueprint for the parent-facing Hermes administrator.
 pub const PARENT_ADMINISTRATOR_BLUEPRINT: &str = "airhop.hermes.parent_administrator";
 
@@ -489,13 +491,38 @@ impl Db {
         {
             let mut receipt = turn_from_row(&row, true)?;
             require_same_turn_scope(&receipt, input)?;
-            if receipt.status != HermesTurnStatus::Leased {
+            let recoverable = receipt.status == HermesTurnStatus::Failed
+                && row.try_get::<Option<String>, _>("error_code")?.as_deref()
+                    == Some("runtime_finished_without_reply")
+                && receipt.attempt < 3;
+            if receipt.status != HermesTurnStatus::Leased && !recoverable {
                 return Err(DbError::AirhopVersionConflict);
             }
-            if receipt.lease_expires_at <= Utc::now() {
+            if receipt.lease_expires_at <= Utc::now() || recoverable {
+                sqlx::query(
+                    "UPDATE airhop_hermes_turn_receipts
+                     SET status='failed', error_code='lease_expired', finished_at=now(), updated_at=now()
+                     WHERE community_id=$1 AND conversation_id=$2 AND id<>$3
+                       AND status='leased' AND lease_expires_at<=now()",
+                ).bind(community_id).bind(input.conversation_id).bind(receipt.id)
+                .execute(&mut *tx).await?;
+                let other_active: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM airhop_hermes_turn_receipts
+                     WHERE community_id=$1 AND conversation_id=$2 AND id<>$3
+                       AND status='leased' AND lease_expires_at > now())",
+                )
+                .bind(community_id)
+                .bind(input.conversation_id)
+                .bind(receipt.id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if other_active {
+                    return Err(DbError::AirhopCommandInProgress);
+                }
                 let rotated = sqlx::query(
                     "UPDATE airhop_hermes_turn_receipts
                      SET lease_token = gen_random_uuid(),
+                         status = 'leased', finished_at = NULL, error_code = NULL, outcome = NULL,
                          lease_expires_at = now() + ($5::BIGINT * interval '1 second'),
                          attempt = attempt + 1, updated_at = now()
                      WHERE community_id = $1 AND organization_id = $2
@@ -700,6 +727,13 @@ impl Db {
         }
         let (status, outcome, error_code) = completion_columns(completion);
         if current.status != HermesTurnStatus::Leased {
+            // Runtime finalization is a conditional fallback, never a rewrite
+            // of a committed reply, cancelled turn or previously failed lease.
+            if matches!(completion, FinishHermesTurn::Failed { error_code } if error_code == "runtime_finished_without_reply")
+            {
+                tx.commit().await?;
+                return Ok(current);
+            }
             let same_status = current.status.as_str() == status;
             let stored_outcome: Option<String> = row.try_get("outcome")?;
             let stored_error: Option<String> = row.try_get("error_code")?;
@@ -717,6 +751,16 @@ impl Db {
                 "AirHop Hermes turn lease expired before completion".to_owned(),
             ));
         }
+        // A staff resume with no unanswered parent input is a legitimate
+        // silent wait, not a broken model turn. Parent input still requires a
+        // committed reply; the classifier/model cannot choose this exemption.
+        let silent_resume = matches!(completion, FinishHermesTurn::Failed { error_code } if error_code == "runtime_finished_without_reply")
+            && history::resume_has_no_pending_parent(&mut tx, community_id, &current).await?;
+        let (status, outcome, error_code) = if silent_resume {
+            ("completed", Some("waiting_parent"), None)
+        } else {
+            (status, outcome, error_code)
+        };
         let updated = sqlx::query(
             "UPDATE airhop_hermes_turn_receipts
              SET status = $4, outcome = $5, error_code = $6,

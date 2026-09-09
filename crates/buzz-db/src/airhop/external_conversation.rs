@@ -14,7 +14,9 @@ use crate::{Db, DbError, Result};
 use super::channel_gateway::GatewayInboundContext;
 
 mod handoff;
+mod staff_control;
 pub use handoff::{is_hermes_handoff_event, HermesHandoffTarget};
+pub use staff_control::{StaffControlCandidate, StaffControlIntent};
 #[cfg(test)]
 mod integration_tests;
 
@@ -1070,6 +1072,34 @@ async fn apply_staff_control(
     } else {
         None
     };
+    if control.is_none() && mentions_hermes && mentions.len() == 1 {
+        sqlx::query(
+            "INSERT INTO airhop_external_inbound_receipts (
+                community_id, organization_id, conversation_id, event_id,
+                cycle_id, control_version, decision, reason
+             ) VALUES ($1, $2, $3, $4, $5, $6, 'suppressed', 'staff_control_pending')
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(community_id)
+        .bind(conversation.organization_id)
+        .bind(conversation.id)
+        .bind(event.id.as_bytes().as_slice())
+        .bind(conversation.current_cycle_id)
+        .bind(conversation.control_version)
+        .execute(&mut **tx)
+        .await?;
+    }
+    apply_staff_control_decision(tx, community_id, conversation, event, control).await
+}
+
+async fn apply_staff_control_decision(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    community_id: Uuid,
+    conversation: &ExternalConversation,
+    event: &Event,
+    control: Option<HermesControl>,
+) -> Result<StaffEventProjection> {
+    let mentions = mentioned_pubkeys(event);
     let projection = match control {
         Some(HermesControl::Resume) => {
             sqlx::query(
@@ -1161,9 +1191,6 @@ async fn take_over(
     conversation: &ExternalConversation,
     reason: &str,
 ) -> Result<()> {
-    if conversation.owner == ConversationOwner::Human && conversation.hermes_paused {
-        return Ok(());
-    }
     sqlx::query(
         "UPDATE airhop_external_conversations
          SET owner = 'human', hermes_paused = TRUE,
@@ -1230,6 +1257,15 @@ fn normalized_control_text(content: &str) -> String {
 }
 
 fn parse_hermes_control(content: &str, display_name: Option<&str>) -> Option<HermesControl> {
+    // Quoted commands are data, even if punctuation normalization would make
+    // them look like a bare imperative. Free-form intent stays fail-closed.
+    if content.trim_start().starts_with('>')
+        || content.contains([
+            '"', '\'', '«', '»', '“', '”', '‘', '’', '「', '」', '『', '』', '`',
+        ])
+    {
+        return None;
+    }
     let normalized = normalized_control_text(content);
     // Identity is checked by the signed p tag at the call site. Only strip
     // the exact current profile name (or the stable product aliases), never
@@ -1240,9 +1276,34 @@ fn parse_hermes_control(content: &str, display_name: Option<&str>) -> Option<Her
         .filter(|name| !name.trim().is_empty())
         .find_map(|name| normalized.strip_prefix(&format!("{} ", normalized_control_text(name))))?;
     match command {
-        "продолжай" | "continue" | "resume" | "continuar" | "continue atendendo" => {
-            Some(HermesControl::Resume)
-        }
+        "продолжай"
+        | "делай дальше"
+        | "давай сам"
+        | "работай"
+        | "забирай клиента"
+        | "забирай"
+        | "забирай назад клиента"
+        | "продолжай пожалуйста"
+        | "continue"
+        | "resume"
+        | "go ahead"
+        | "take over"
+        | "take the client"
+        | "continuar"
+        | "continue atendendo"
+        | "pode continuar"
+        | "continúa"
+        | "sigue"
+        | "continuer"
+        | "continuez"
+        | "weiter"
+        | "mach weiter"
+        | "continua"
+        | "继续"
+        | "继续吧"
+        | "続けて"
+        | "계속해"
+        | "تابع" => Some(HermesControl::Resume),
         "остановись" | "стоп" | "stop" | "pause" | "pausar" => {
             Some(HermesControl::Pause)
         }
@@ -1432,6 +1493,58 @@ mod tests {
             parse_hermes_control("@Гермес, родитель сказал продолжай", Some("Гермес")),
             None
         );
+    }
+
+    #[test]
+    fn handover_aliases_are_exact_multilingual_commands_not_substrings() {
+        for command in [
+            "делай дальше",
+            "давай сам",
+            "работай",
+            "забирай клиента",
+            "забирай",
+            "забирай назад клиента",
+            "go ahead",
+            "take over",
+            "pode continuar",
+            "continúa",
+            "continuez",
+            "mach weiter",
+            "继续",
+            "続けて",
+            "계속해",
+            "تابع",
+        ] {
+            assert_eq!(
+                parse_hermes_control(&format!("@Гермес, {command}!"), None),
+                Some(HermesControl::Resume),
+                "{command}"
+            );
+        }
+        for command in [
+            "не продолжай",
+            "не забирай клиента",
+            "don't continue",
+            "do not resume",
+            "no continúes",
+            "родитель сказал продолжай",
+            "потом продолжай",
+            "когда скажу продолжай",
+            "как тебе клиент",
+            "\"продолжай\"",
+            "«забирай»",
+            "`resume`",
+            "'resume'",
+            "「继续」",
+            "продолжай и стоп",
+        ] {
+            assert_eq!(
+                parse_hermes_control(&format!("@Гермес, {command}"), None),
+                None,
+                "{command}"
+            );
+        }
+        assert_eq!(parse_hermes_control("> @Гермес продолжай", None), None);
     }
 
     #[test]

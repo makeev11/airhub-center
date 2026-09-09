@@ -15,6 +15,8 @@ use uuid::Uuid;
 use crate::queue::FlushBatch;
 use crate::relay::{BuzzEvent, RelayError, RestClient};
 
+mod staff_intent;
+
 /// Stable product role carried by managed-agent environment and relay APIs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -80,14 +82,31 @@ pub(crate) enum RouteGate {
 #[serde(rename_all = "camelCase")]
 struct ParentClaimResponse {
     token: String,
+    turn: ParentTurnLease,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParentTurnLease {
+    id: Uuid,
+    lease_token: Uuid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParentClaimDecision {
+    Run,
+    Retry,
+    Drop,
 }
 
 /// Dispatch-time hosted supervisor gate for the parent-facing Hermes role.
 /// The token file is visible to AirHop MCP only, never to the model process.
 pub(crate) struct ParentSupervisorGate {
     enabled: bool,
+    classify_staff_control: bool,
     context_file: Option<PathBuf>,
     client: RestClient,
+    leases: Mutex<BTreeMap<Uuid, ParentTurnLease>>,
 }
 
 impl ParentSupervisorGate {
@@ -98,63 +117,195 @@ impl ParentSupervisorGate {
     ) -> Self {
         Self {
             enabled: role == Some(AirhopRole::ParentAdministrator) && context_file.is_some(),
+            classify_staff_control: std::env::var("AIRHOP_STAFF_INTENT_ENABLED").as_deref()
+                == Ok("1"),
             context_file,
             client,
+            leases: Mutex::new(BTreeMap::new()),
         }
     }
 
     /// Claims the newest triggerable event in a coalesced batch. Receipts prove
     /// that it is current parent input or an explicit authorized staff resume;
     /// all other staff/internal events fail closed.
-    pub(crate) async fn claim_batch(&self, batch: &FlushBatch) -> bool {
+    pub(crate) async fn claim_batch(&self, batch: &FlushBatch) -> ParentClaimDecision {
         if !self.enabled {
-            return true;
+            return ParentClaimDecision::Run;
+        }
+        if self
+            .leases
+            .lock()
+            .map(|leases| !leases.is_empty())
+            .unwrap_or(true)
+        {
+            return ParentClaimDecision::Retry;
         }
         let source_event_ids = parent_batch_source_ids(batch);
         let Some(event_id) = source_event_ids.first() else {
-            return false;
+            return ParentClaimDecision::Drop;
         };
         let input_batch_id = deterministic_batch_id(batch);
         let path = format!("/api/airhop/agents/v1/supervisor/events/{event_id}/claim");
-        let response = self
-            .client
-            .post_json(
-                &path,
-                &serde_json::json!({
-                    "inputBatchId": input_batch_id,
-                    "sourceEventIds": source_event_ids,
-                    "leaseSeconds": 600,
-                    "ttlSeconds": 300,
-                }),
-            )
-            .await
-            .and_then(|value| serde_json::from_value(value).map_err(RelayError::Json));
+        let mut body = serde_json::json!({
+            "inputBatchId": input_batch_id, "sourceEventIds": source_event_ids,
+            "leaseSeconds": 600, "ttlSeconds": 600,
+            "classifyStaffControl": self.classify_staff_control,
+        });
+        let response = async {
+            let mut value = self.post_claim(&path, &body).await?;
+            if let Some(raw) = value.get("controlCandidate") {
+                if !self.classify_staff_control {
+                    return Err(RelayError::HttpResponse { status: 422 });
+                }
+                let candidate: staff_intent::Candidate =
+                    serde_json::from_value(raw.clone()).map_err(RelayError::Json)?;
+                if !source_event_ids.contains(&candidate.event_id) || candidate.control_version < 0
+                {
+                    return Err(RelayError::HttpResponse { status: 422 });
+                }
+                let started = std::time::Instant::now();
+                let intent = staff_intent::classify(&candidate)
+                    .await
+                    .map_err(|code| RelayError::Http(code.to_owned()))?;
+                tracing::info!(event_id = %candidate.event_id, intent,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "AirHop staff control classified; awaiting server authorization");
+                body["staffControl"] = serde_json::json!({
+                    "eventId": candidate.event_id,
+                    "controlVersion": candidate.control_version, "intent": intent,
+                });
+                value = self.post_claim(&path, &body).await?;
+            }
+            serde_json::from_value(value).map_err(RelayError::Json)
+        }
+        .await;
         match response {
-            Ok(ParentClaimResponse { token }) => {
+            Ok(ParentClaimResponse { token, turn }) => {
+                let Ok(mut leases) = self.leases.lock() else {
+                    return ParentClaimDecision::Retry;
+                };
+                leases.insert(batch.channel_id, turn);
                 let Some(path) = self.context_file.as_deref() else {
-                    return false;
+                    return ParentClaimDecision::Retry;
                 };
                 match write_context_grant(path, &token) {
-                    Ok(()) => true,
+                    Ok(()) => ParentClaimDecision::Run,
                     Err(error) => {
                         tracing::error!(
                             event_id,
                             error = %error,
                             "AirHop supervisor could not hand context to MCP"
                         );
-                        false
+                        ParentClaimDecision::Retry
                     }
                 }
             }
             Err(error) => {
-                tracing::debug!(
+                let decision = parent_claim_error_decision(&error);
+                tracing::warn!(
                     event_id,
+                    ?decision,
                     error = %bounded_error(&error),
-                    "AirHop supervisor dropped non-triggerable event batch"
+                    "AirHop supervisor could not claim event batch"
                 );
-                false
+                decision
             }
         }
+    }
+
+    async fn post_claim(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, RelayError> {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.client.post_json(path, body),
+        )
+        .await
+        .unwrap_or(Err(RelayError::Timeout))
+    }
+
+    /// Release the runtime lease even when the model forgot to send a reply.
+    /// Server-side completion preserves an already committed reply or takeover.
+    /// Failed acknowledgements remain pending and block redispatch until retried.
+    pub(crate) async fn finish_channel(&self, channel: Uuid) -> bool {
+        let lease = self
+            .leases
+            .lock()
+            .ok()
+            .and_then(|leases| leases.get(&channel).cloned());
+        let Some(lease) = lease else {
+            return false;
+        };
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.client.post_json(
+                &format!("/api/airhop/agents/v1/turns/{}/finish", lease.id),
+                &serde_json::json!({
+                    "status": "failed", "leaseToken": lease.lease_token,
+                    "errorCode": "runtime_finished_without_reply",
+                }),
+            ),
+        )
+        .await
+        .unwrap_or(Err(RelayError::Timeout));
+        match response {
+            Ok(value) => {
+                let status = value.get("status").and_then(serde_json::Value::as_str);
+                if !matches!(status, Some("completed" | "cancelled" | "failed")) {
+                    tracing::error!(%channel, "AirHop turn completion returned no terminal status");
+                    return true;
+                }
+                if let Ok(mut leases) = self.leases.lock() {
+                    leases.remove(&channel);
+                }
+                status == Some("failed")
+            }
+            Err(RelayError::HttpResponse {
+                status: status @ (403 | 404 | 409),
+            }) => {
+                // Lease expired, was rotated or cancelled. Never clear somebody
+                // else's lease; the server retains the final authority.
+                if let Ok(mut leases) = self.leases.lock() {
+                    leases.remove(&channel);
+                }
+                // Losing/expiring a lease is not proof of a committed reply.
+                // Reclaim will reject completed or no-longer-owned input.
+                status != 404
+            }
+            Err(error) => {
+                tracing::warn!(%channel, error = %bounded_error(&error), "AirHop turn completion will be retried");
+                true
+            }
+        }
+    }
+
+    pub(crate) async fn finish_idle_channels(&self, active: &HashSet<Uuid>) {
+        let channels: Vec<_> = self
+            .leases
+            .lock()
+            .map(|leases| {
+                leases
+                    .keys()
+                    .copied()
+                    .filter(|ch| !active.contains(ch))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for channel in channels {
+            self.finish_channel(channel).await;
+        }
+    }
+}
+
+fn parent_claim_error_decision(error: &RelayError) -> ParentClaimDecision {
+    match error {
+        RelayError::HttpResponse {
+            status: 400 | 401 | 403 | 404 | 410 | 422,
+        } => ParentClaimDecision::Drop,
+        // Includes concurrent lease conflicts and transient transport failures.
+        _ => ParentClaimDecision::Retry,
     }
 }
 
@@ -470,6 +621,226 @@ mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag};
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn hosted_parent_runtime_keeps_tools_direct_and_profile_memory_disabled() {
+        let config = include_str!("../../../integrations/hermes-airhop-parent-runtime/config.yaml");
+        assert!(config.contains("tools:\n  tool_search:\n    enabled: \"off\""));
+        assert!(config.contains("memory_enabled: false"));
+        assert!(config.contains("user_profile_enabled: false"));
+        let overlay = include_str!("../../../deploy/airhop/Dockerfile.hermes-booking");
+        assert!(overlay.contains(
+            "integrations/hermes-airhop-parent-runtime/config.yaml /opt/airhop-hermes/config.yaml"
+        ));
+    }
+
+    async fn supervisor_server(
+        responses: Vec<(u16, serde_json::Value)>,
+    ) -> (RestClient, tokio::task::JoinHandle<Vec<serde_json::Value>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for (status, body) in responses {
+                let (mut stream, _) =
+                    tokio::time::timeout(std::time::Duration::from_secs(10), listener.accept())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                let mut bytes = Vec::new();
+                let request = loop {
+                    let mut chunk = [0; 4096];
+                    let count = stream.read(&mut chunk).await.unwrap();
+                    assert!(count > 0);
+                    bytes.extend_from_slice(&chunk[..count]);
+                    if let Some(end) = bytes.windows(4).position(|s| s == b"\r\n\r\n") {
+                        let header = String::from_utf8_lossy(&bytes[..end]).to_lowercase();
+                        let length: usize = header
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length:"))
+                            .unwrap()
+                            .trim()
+                            .parse()
+                            .unwrap();
+                        if bytes.len() >= end + 4 + length {
+                            assert!(header.contains("authorization: nostr "));
+                            break serde_json::from_slice::<serde_json::Value>(
+                                &bytes[end + 4..end + 4 + length],
+                            )
+                            .unwrap();
+                        }
+                    }
+                };
+                requests.push(request);
+                let body = body.to_string();
+                stream.write_all(format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            }
+            requests
+        });
+        (
+            RestClient {
+                http: reqwest::Client::new(),
+                base_url: format!("http://{address}"),
+                keys: Keys::generate(),
+                auth_tag_json: None,
+            },
+            server,
+        )
+    }
+
+    fn parent_test_batch(channel: Uuid) -> FlushBatch {
+        FlushBatch {
+            channel_id: channel,
+            events: vec![crate::queue::BatchEvent {
+                event: event(channel).event,
+                prompt_tag: "parent".into(),
+                received_at: std::time::Instant::now(),
+            }],
+            cancelled_events: Vec::new(),
+            cancel_reason: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn parent_supervisor_rejects_classifier_candidate_outside_batch() {
+        let (client, server) = supervisor_server(vec![(200, serde_json::json!({
+            "controlCandidate": {"eventId": "ff".repeat(32), "controlVersion": 1, "content": "take over"}
+        }))]).await;
+        let mut gate = ParentSupervisorGate::new(
+            Some(AirhopRole::ParentAdministrator),
+            Some(std::env::temp_dir().join(format!("airhop-no-grant-{}", Uuid::new_v4()))),
+            client,
+        );
+        gate.classify_staff_control = true;
+        assert_eq!(
+            gate.claim_batch(&parent_test_batch(Uuid::new_v4())).await,
+            ParentClaimDecision::Drop
+        );
+        assert!(gate.leases.lock().unwrap().is_empty());
+        let requests = server.await.unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["classifyStaffControl"], true);
+    }
+
+    #[tokio::test]
+    async fn parent_supervisor_consumes_rejected_oversize_candidate_without_model_call() {
+        let batch = parent_test_batch(Uuid::new_v4());
+        let id = batch.events[0].event.id.to_hex();
+        let (client, server) = supervisor_server(vec![
+            (200, serde_json::json!({"controlCandidate": {"eventId": id, "controlVersion": 7, "content": "x".repeat(1001)}})),
+            (410, serde_json::json!({"error":"no trigger"})),
+        ]).await;
+        let mut gate = ParentSupervisorGate::new(
+            Some(AirhopRole::ParentAdministrator),
+            Some(std::env::temp_dir().join(format!("airhop-no-grant-{}", Uuid::new_v4()))),
+            client,
+        );
+        gate.classify_staff_control = true;
+        assert_eq!(gate.claim_batch(&batch).await, ParentClaimDecision::Drop);
+        let requests = server.await.unwrap();
+        assert_eq!(
+            requests[1]["staffControl"],
+            serde_json::json!({"eventId":id, "controlVersion":7, "intent":"other"})
+        );
+        assert_eq!(requests[0]["inputBatchId"], requests[1]["inputBatchId"]);
+    }
+
+    #[tokio::test]
+    async fn parent_supervisor_retries_input_when_completion_lease_expired() {
+        let (client, server) = supervisor_server(vec![
+            (200, serde_json::json!({"token":"context", "turn":{"id":Uuid::new_v4(),"leaseToken":Uuid::new_v4()}})),
+            (409, serde_json::json!({"error":"lease expired"})),
+        ]).await;
+        let path = std::env::temp_dir().join(format!("airhop-expired-{}", Uuid::new_v4()));
+        let gate = ParentSupervisorGate::new(
+            Some(AirhopRole::ParentAdministrator),
+            Some(path.clone()),
+            client,
+        );
+        let batch = parent_test_batch(Uuid::new_v4());
+        assert_eq!(gate.claim_batch(&batch).await, ParentClaimDecision::Run);
+        assert!(gate.finish_channel(batch.channel_id).await);
+        assert!(gate.leases.lock().unwrap().is_empty());
+        assert_eq!(server.await.unwrap().len(), 2);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn parent_supervisor_finalizes_unsent_turn_and_retries_failed_ack() {
+        let turn = Uuid::new_v4();
+        let lease = Uuid::new_v4();
+        let (client, server) = supervisor_server(vec![
+            (
+                200,
+                serde_json::json!({"token":"test-context", "turn":{"id":turn,"leaseToken":lease}}),
+            ),
+            (500, serde_json::json!({"error":"temporary"})),
+            (200, serde_json::json!({"status":"failed"})),
+        ])
+        .await;
+        let path = std::env::temp_dir().join(format!("airhop-supervisor-test-{}", Uuid::new_v4()));
+        let gate = ParentSupervisorGate::new(
+            Some(AirhopRole::ParentAdministrator),
+            Some(path.clone()),
+            client,
+        );
+        let batch = parent_test_batch(Uuid::new_v4());
+        assert_eq!(gate.claim_batch(&batch).await, ParentClaimDecision::Run);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "test-context");
+        gate.finish_idle_channels(&HashSet::from([batch.channel_id]))
+            .await;
+        assert_eq!(gate.claim_batch(&batch).await, ParentClaimDecision::Retry);
+        assert!(gate.finish_channel(batch.channel_id).await);
+        assert_eq!(gate.leases.lock().unwrap().len(), 1);
+        gate.finish_idle_channels(&HashSet::new()).await;
+        assert!(gate.leases.lock().unwrap().is_empty());
+        let requests = server.await.unwrap();
+        assert_eq!(requests[1]["leaseToken"], lease.to_string());
+        assert_eq!(requests[1]["errorCode"], "runtime_finished_without_reply");
+        assert_eq!(requests[1], requests[2]);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn parent_supervisor_does_not_retry_a_committed_reply() {
+        let (client, server) = supervisor_server(vec![
+            (200, serde_json::json!({"token":"test-context", "turn":{"id":Uuid::new_v4(),"leaseToken":Uuid::new_v4()}})),
+            (200, serde_json::json!({"status":"completed"})),
+        ]).await;
+        let path = std::env::temp_dir().join(format!("airhop-supervisor-test-{}", Uuid::new_v4()));
+        let gate = ParentSupervisorGate::new(
+            Some(AirhopRole::ParentAdministrator),
+            Some(path.clone()),
+            client,
+        );
+        let batch = parent_test_batch(Uuid::new_v4());
+        assert_eq!(gate.claim_batch(&batch).await, ParentClaimDecision::Run);
+        assert!(!gate.finish_channel(batch.channel_id).await);
+        assert!(gate.leases.lock().unwrap().is_empty());
+        assert_eq!(server.await.unwrap().len(), 2);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn parent_claim_distinguishes_busy_or_network_from_permanent_rejection() {
+        for status in [409, 423, 429, 500, 502, 503, 504] {
+            assert_eq!(
+                parent_claim_error_decision(&RelayError::HttpResponse { status }),
+                ParentClaimDecision::Retry
+            );
+        }
+        for status in [400, 401, 403, 404, 410, 422] {
+            assert_eq!(
+                parent_claim_error_decision(&RelayError::HttpResponse { status }),
+                ParentClaimDecision::Drop
+            );
+        }
+        assert_eq!(
+            parent_claim_error_decision(&RelayError::Timeout),
+            ParentClaimDecision::Retry
+        );
+    }
 
     struct FakeClient {
         decision: WelcomeRouteDecision,

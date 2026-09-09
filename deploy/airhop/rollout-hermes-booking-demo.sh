@@ -13,20 +13,20 @@ test "${build_dir##*-}" = "$short"
 test "$(jq -er .commit build-complete.json)" = "$commit"
 test "$(sha256sum source.tgz | cut -d ' ' -f 1)" = "$(jq -er .sourceArchiveSha256 source-manifest.json)"
 jq -r '.files[] | "\(.sha256)  \(.path)"' source-manifest.json | sha256sum -c --quiet -
-old_relay=airhub-center-relay:airhop-center-0.5.6-4322563f72a7
-old_hermes=airhop-hermes-parent-runtime:f9730f5
+old_relay=airhub-center-relay:airhop-center-0.5.6-097799a4fd61
+old_hermes=airhop-hermes-parent-runtime:airhop-center-0.5.6-097799a4fd61
 relay=airhub-center-relay:$release
 hermes=airhop-hermes-parent-runtime:$release
 test "$(docker inspect buzz-demo-relay-1 --format '{{.Config.Image}}')" = "$old_relay"
-test "$(docker inspect buzz-demo-relay-1 --format '{{.Image}}')" = sha256:74d0bb5bc4d983c3719f5610ef74767ec8bf13276db02d8b0cf268542355ea5b
+test "$(docker inspect buzz-demo-relay-1 --format '{{.Image}}')" = sha256:356f75e1c6e8c495b0e98d48a63e1cf67e53654974deeba515932e436d1bb28e
 test "$(docker inspect buzz-demo-hermes-parent-runtime-1 --format '{{.Config.Image}}')" = "$old_hermes"
-test "$(docker inspect buzz-demo-hermes-parent-runtime-1 --format '{{.Image}}')" = sha256:460135068b244ba42132579e505d2890e6fe644db156221b46a38463194bf84c
+test "$(docker inspect buzz-demo-hermes-parent-runtime-1 --format '{{.Image}}')" = sha256:66a161ae734b3c6d7181e40c75fb0b1baba2d2f98f3f5dc2526e582a24e6763c
 for image in "$relay" "$hermes"; do
   test "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$commit"
 done
 test "$(df --output=avail -k /opt/airhop | tail -n 1)" -gt 2097152
 sql() { docker exec buzz-demo-postgres-1 psql -X -qAt -v ON_ERROR_STOP=1 -U buzz -d buzz -c "$1"; }
-test "$(sql 'SELECT max(version) FROM _sqlx_migrations WHERE success')" = 54
+test "$(sql 'SELECT max(version) FROM _sqlx_migrations WHERE success')" = 55
 test "$(sql "SELECT count(*) FROM airhop_organizations o JOIN communities c ON c.id=o.community_id WHERE c.host='demo.airhop.ru' AND o.id='7e510ed1-15a1-4a75-8d3d-33f924fe18a0' AND o.status='active'")" = 1
 test "$(sql "SELECT count(*) FROM airhop_hermes_turn_receipts WHERE status='leased' AND lease_expires_at>now()")" = 0
 controls_before=$(sql "SELECT enabled,paused,manage_bookings,auto_confirm_online_bookings,version FROM airhop_agent_deployments ORDER BY id")
@@ -38,13 +38,14 @@ files=(
   /opt/airhop/buzz-demo/releases/f9730f5.compose.yml
   /opt/airhop/buzz-demo/releases/analytics-demo-20260907.compose.yml
   /opt/airhop/relay-build-0.5.6-4322563f72a7/demo-0.5.6.compose.yml
+  /opt/airhop/hermes-booking-097799a4fd61/rollout.compose.json
 )
 compose=(docker compose --project-name buzz-demo --env-file "$env_file")
 for file in "${files[@]}"; do compose+=(-f "$file"); done
 compose+=(--profile hermes --profile telegram)
 test ! -e rollout.compose.json
 jq -n --arg relay "$relay" --arg hermes "$hermes" --arg release "$release" --arg commit "$commit" \
-  '{services:{relay:{image:$relay,environment:{BUZZ_AUTO_MIGRATE:"true"},labels:{"ru.airhop.release":$release,"ru.airhop.source-commit":$commit}},"hermes-parent-runtime":{image:$hermes,labels:{"ru.airhop.release":$release,"ru.airhop.source-commit":$commit}}}}' > rollout.compose.json
+  '{services:{relay:{image:$relay,environment:{BUZZ_AUTO_MIGRATE:"false"},labels:{"ru.airhop.release":$release,"ru.airhop.source-commit":$commit}},"hermes-parent-runtime":{image:$hermes,environment:{AIRHOP_STAFF_INTENT_ENABLED:"1"},labels:{"ru.airhop.release":$release,"ru.airhop.source-commit":$commit}}}}' > rollout.compose.json
 jq -n --arg relay "$old_relay" --arg hermes "$old_hermes" \
   '{services:{relay:{image:$relay,environment:{BUZZ_AUTO_MIGRATE:"false"}},"hermes-parent-runtime":{image:$hermes}}}' > rollback.compose.json
 "${compose[@]}" -f "$build_dir/rollout.compose.json" config --quiet
@@ -80,8 +81,8 @@ test "$(docker exec buzz-demo-postgres-1 psql -X -U buzz -d postgres -Atc "SELEC
 docker exec buzz-demo-postgres-1 createdb -U buzz "$preflight_db"
 docker exec buzz-demo-postgres-1 psql -X -v ON_ERROR_STOP=1 -U buzz -d postgres -c "REVOKE CONNECT ON DATABASE $preflight_db FROM PUBLIC" > "$backup_dir/preflight-access.txt"
 docker exec -i buzz-demo-postgres-1 pg_restore -U buzz --exit-on-error -d "$preflight_db" < "$backup_dir/buzz.dump"
-docker exec -i buzz-demo-postgres-1 psql -X -v ON_ERROR_STOP=1 -U buzz -d "$preflight_db" --single-transaction < migrations/0055_airhop_conversation_booking.sql > "$backup_dir/migration-preflight.txt"
-test "$(docker exec buzz-demo-postgres-1 psql -X -U buzz -d "$preflight_db" -Atc "SELECT count(*) FROM airhop_conversation_booking_drafts")" = 0
+# Recovery is code-only: verify the restored schema, never replay migration 55.
+test "$(docker exec buzz-demo-postgres-1 psql -X -U buzz -d "$preflight_db" -Atc 'SELECT max(version) FROM _sqlx_migrations WHERE success')" = 55
 test "$config_before" = "$(sha256sum "$env_file" "${files[@]}")"
 "${compose[@]}" -f "$build_dir/rollout.compose.json" up -d --no-deps --wait --wait-timeout 180 relay
 test "$(sql 'SELECT max(version) FROM _sqlx_migrations WHERE success')" = 55
