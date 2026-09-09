@@ -205,6 +205,25 @@ test("client Inbox assigns branch without moving root and supports unknown/searc
     .screenshot({ path: "test-results/client-inbox.png" });
 });
 
+test("Inbox distinguishes human ownership from queue status and explains legacy channels", async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  await expect(page.getByTestId("client-handler-state")).toContainText(
+    "Диалог у Гермеса",
+  );
+  state.data.items[0].owner = "human";
+  state.data.items[0].threaded = false;
+  state.data.items[0].rootEventId = null;
+  await page.reload();
+  await expect(page.getByTestId("client-handler-state")).toContainText(
+    "Гермес не отвечает автоматически",
+  );
+  await expect(
+    page.getByText(/Старый формат: отдельный канал клиента/),
+  ).toBeVisible();
+});
+
 test("routing settings are explicit and stale mutations never appear successful", async ({
   page,
 }) => {

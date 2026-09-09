@@ -266,17 +266,13 @@ pub(crate) async fn connect_telegram(
         )
         .await
         .map_err(map_db_error)?;
-    if let Some(channel_id) = connection.buzz_channel_id {
-        if let Err(error) = crate::handlers::side_effects::emit_group_discovery_events(
-            &principal.tenant,
-            &state,
-            channel_id,
-        )
-        .await
-        {
-            tracing::warn!(%error,%channel_id,"Connection channel discovery will recover on refresh");
-        }
-    }
+    notify_connection_channel(
+        &state,
+        &principal.tenant,
+        &connection,
+        &principal.pubkey.to_bytes(),
+    )
+    .await;
     Ok(Json(json!({
         "schemaVersion": "airhop.telegram-connection.v1",
         "connection": connection_json(&connection),
@@ -365,6 +361,7 @@ pub(crate) async fn put_connection(
     let principal = authenticate_airhop(&state, &headers, "PUT", &path, Some(&body)).await?;
     require_owner_or_admin(&principal.member_role)?;
     let request: PutConnectionBody = parse_body(&body, "invalid channel connection JSON")?;
+    let routing_changed = request.routing.is_some() || request.expected_version == 0;
     let connector_pubkey = PublicKey::from_hex(request.connector_pubkey.trim())
         .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid connector public key"))?;
     let connection = state
@@ -386,21 +383,80 @@ pub(crate) async fn put_connection(
         )
         .await
         .map_err(map_db_error)?;
-    if let Some(channel_id) = connection.buzz_channel_id {
-        if let Err(error) = crate::handlers::side_effects::emit_group_discovery_events(
-            &principal.tenant,
+    if routing_changed {
+        notify_connection_channel(
             &state,
-            channel_id,
+            &principal.tenant,
+            &connection,
+            &principal.pubkey.to_bytes(),
         )
-        .await
-        {
-            tracing::warn!(%error,%channel_id,"Connection channel discovery will recover on refresh");
-        }
+        .await;
     }
     Ok(Json(json!({
         "schemaVersion": "airhop.channel-connection.v1",
         "connection": connection_json(&connection),
     })))
+}
+
+// NIP-29 discovery alone does not wake an already running ACP subscriber.
+// Announce only actual service memberships after explicit routing setup. The
+// persisted global notification is also replayable after a reconnect.
+async fn notify_connection_channel(
+    state: &Arc<AppState>,
+    tenant: &buzz_core::TenantContext,
+    connection: &ChannelConnection,
+    actor: &[u8; 32],
+) {
+    let Some(channel_id) = connection.buzz_channel_id else {
+        return;
+    };
+    if let Err(error) =
+        crate::handlers::side_effects::emit_group_discovery_events(tenant, state, channel_id).await
+    {
+        tracing::warn!(%error, %channel_id, "Connection channel discovery will recover on refresh");
+    }
+    let mut targets = vec![connection.connector_pubkey];
+    match state
+        .db
+        .get_current_airhop_parent_agent_deployment(tenant)
+        .await
+    {
+        Ok(Some(deployment)) if deployment.organization_id == connection.organization_id => {
+            targets.push(deployment.agent_pubkey)
+        }
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!(%error, %channel_id, "Cannot resolve connection agent membership notification")
+        }
+    }
+    targets.sort_unstable();
+    targets.dedup();
+    for target in targets {
+        match state
+            .db
+            .is_member(tenant.community(), channel_id, &target)
+            .await
+        {
+            Ok(true) => {
+                if let Err(error) = crate::handlers::side_effects::emit_membership_notification(
+                    tenant,
+                    state,
+                    channel_id,
+                    &target,
+                    actor,
+                    buzz_core::kind::KIND_MEMBER_ADDED_NOTIFICATION,
+                )
+                .await
+                {
+                    tracing::warn!(%error, %channel_id, "Connection service membership notification failed; retry routing setup");
+                }
+            }
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(%error, %channel_id, "Cannot verify connection service membership")
+            }
+        }
+    }
 }
 
 /// Accepts a health/capability heartbeat from the exact configured connector.
