@@ -196,3 +196,23 @@ test("management credentials have 256-bit entropy and persist only as digest", a
   assert.notEqual(digest, token);
   assert.equal(await digestPublicBookingCredential(token), digest);
 });
+
+test("separate parent surname is required when using the new form", () => {
+  const draft = {
+    parentName: "Мария",
+    parentLastName: " ",
+    phone: "+79991234567",
+    childName: "Лев",
+    childBirthDate: "2022-08-01",
+    consentAccepted: true,
+  };
+  assert.deepEqual(validatePublicApplicantDraft(draft), [
+    "parent_last_name_required",
+  ]);
+  assert.deepEqual(
+    validatePublicApplicantDraft({ ...draft, parentLastName: "Иванова" }),
+    [],
+  );
+  const { parentLastName, ...legacy } = draft;
+  assert.deepEqual(validatePublicApplicantDraft(legacy), []);
+});

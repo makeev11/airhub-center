@@ -759,3 +759,21 @@ test("Buzz agents cannot bypass preview and confirmation", () => {
       error instanceof AirhopActionError && error.code === "invalid_actor",
   );
 });
+
+test("a lesson booking accepts a child outside the recommended age", () => {
+  const result = executeAirhopAction(
+    DEMO_BOOKING_WORKSPACE,
+    {
+      type: "AddLessonParticipant",
+      submissionMode: "direct",
+      client: newClient({ childBirthDate: "2010-08-10" }),
+      lessonRef: LESSON_REF,
+      visitKind: "trial",
+      sourceChannel: "telegram",
+    },
+    ACTOR,
+    context("age-recommendation"),
+  );
+  assert.equal(result.draft.bookings.length, 1);
+  assert.equal(result.draft.bookings[0].status, "confirmed");
+});

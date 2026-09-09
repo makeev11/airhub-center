@@ -36,10 +36,7 @@ import {
   resolveAttendanceTracking,
   resolveSingleVisitAllowed,
 } from "@/features/booking/model/bookingOperations";
-import {
-  isExactBirthDateEligible,
-  stableLessonReferenceKey,
-} from "@/features/booking/model/publicBooking";
+import { stableLessonReferenceKey } from "@/features/booking/model/publicBooking";
 import { materializeScheduleOccurrence } from "@/features/booking/model/materializeSchedule";
 
 export type AirhopActionErrorCode =
@@ -461,7 +458,7 @@ function planBooking(
       "Lesson is not available",
     );
   }
-  const { group } = activeGroup(client.workspace, occurrence.groupId);
+  activeGroup(client.workspace, occurrence.groupId);
   if (
     command.visitKind === "trial" &&
     occurrence.trialPolicy.mode === "disabled"
@@ -476,15 +473,6 @@ function planBooking(
       "single_visit_disabled",
       "Single visit is disabled",
     );
-  }
-  if (
-    !isExactBirthDateEligible(
-      group,
-      client.applicant.childBirthDate,
-      occurrence.date,
-    )
-  ) {
-    throw new AirhopActionError("age_mismatch", "Child age does not match");
   }
   const idempotencyDigest = requireDigest(
     context.digest(`airhop-action:${context.idempotencyKey}`),

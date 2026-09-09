@@ -209,7 +209,7 @@ impl Db {
     /// Organization scope is derived only from `tenant`. An untrusted caller
     /// cannot provide either `community_id` or `organization_id`. Identity
     /// matching is serialized per keyed phone digest, and the occurrence row
-    /// is locked before the final policy, age, and capacity checks.
+    /// is locked before the final policy and capacity checks.
     pub async fn create_public_booking(
         &self,
         tenant: &TenantContext,
@@ -674,11 +674,7 @@ pub(super) async fn resolve_identity(
             .bind(tenant.community().as_uuid())
             .bind(organization_id)
             .bind(family_id)
-            .bind(format!("Семья {}", if consent.channel == "hermes" {
-                applicant.parent_last_name.as_deref().unwrap_or(&applicant.parent_name)
-            } else {
-                &applicant.parent_name
-            }))
+            .bind(format!("Семья {}", applicant.parent_last_name.as_deref().unwrap_or(&applicant.parent_name)))
             .bind(representative_id)
             .execute(&mut **transaction)
             .await?;
@@ -873,7 +869,7 @@ pub(super) fn applicant_snapshot(
     applicant: &NormalizedApplicant,
     accepted_at: DateTime<Utc>,
 ) -> Value {
-    json!({
+    let mut snapshot = json!({
         "parentName": applicant.parent_name,
         "phoneNormalized": applicant.phone_normalized,
         "phoneDisplay": applicant.phone_display,
@@ -882,7 +878,12 @@ pub(super) fn applicant_snapshot(
         "preferredContactChannel": applicant.preferred_contact_channel.as_db_str(),
         "consentPolicyVersion": applicant.consent_policy_version,
         "consentAcceptedAt": accepted_at
-    })
+    });
+    if let (Some(first), Some(last)) = (&applicant.parent_first_name, &applicant.parent_last_name) {
+        snapshot["parentFirstName"] = json!(first);
+        snapshot["parentLastName"] = json!(last);
+    }
+    snapshot
 }
 
 fn booking_source(
@@ -1053,8 +1054,8 @@ mod tests {
         .expect("insert branch");
         sqlx::query(
             "INSERT INTO airhop_groups ( \
-                 community_id, organization_id, id, branch_id, name, capacity \
-             ) VALUES ($1, $2, $3, $4, 'Football 6-7', 1)",
+                 community_id, organization_id, id, branch_id, name, capacity, min_age_months, max_age_months \
+             ) VALUES ($1, $2, $3, $4, 'Football 6-7', 1, 72, 95)",
         )
         .bind(community_id)
         .bind(organization_id)
@@ -1197,6 +1198,9 @@ mod tests {
             .as_mut()
             .expect("second attribution")
             .journey_id = Uuid::new_v4();
+        // Age limits are recommendations: even a much older child can reserve a seat.
+        second.applicant.child_birth_date =
+            NaiveDate::from_ymd_opt(2010, 1, 1).expect("valid date");
         second.lesson_ref.original_date = second_date;
         second.idempotency_digest = [5; 32];
         second.request_hash = [6; 32];

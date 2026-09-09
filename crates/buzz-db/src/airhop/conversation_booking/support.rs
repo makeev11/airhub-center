@@ -245,7 +245,7 @@ pub(super) async fn quote_for_data(
     {
         return Ok(None);
     }
-    let applicant = normalize_applicant(&applicant(data)?, scope.current_date)?;
+    normalize_applicant(&applicant(data)?, scope.current_date)?;
     let reference = lesson_ref(data)?;
     let row=sqlx::query("SELECT o.effective_date,o.start_time,o.end_time,o.time_zone,o.trial_policy,o.allow_single_visits,
         g.name AS group_name,b.name AS branch_name,b.address,g.min_age_months,g.max_age_months
@@ -263,14 +263,8 @@ pub(super) async fn quote_for_data(
     {
         return Err(DbError::AirhopOccurrenceUnavailable);
     }
-    let min: Option<i32> = row.try_get("min_age_months")?;
-    let max: Option<i32> = row.try_get("max_age_months")?;
-    let limits = airhop_core::AgeLimits::new(min.map(|v| v as u32), max.map(|v| v as u32))
-        .map_err(|e| DbError::InvalidData(e.to_string()))?;
     let date: NaiveDate = row.try_get("effective_date")?;
-    if !limits.contains_birth_date(applicant.child_birth_date, date) {
-        return Err(DbError::AirhopAgeMismatch);
-    }
+
     Ok(Some(
         json!({"date":date,"startTime":row.try_get::<chrono::NaiveTime,_>("start_time")?.format("%H:%M").to_string(),
         "endTime":row.try_get::<chrono::NaiveTime,_>("end_time")?.format("%H:%M").to_string(),"timeZone":row.try_get::<String,_>("time_zone")?,

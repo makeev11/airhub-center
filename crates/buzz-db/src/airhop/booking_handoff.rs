@@ -36,6 +36,34 @@ pub enum BookingHandoffStatus {
 }
 
 impl Db {
+    /// Returns only configured channels with a supported booking-confirmation handoff.
+    pub async fn airhop_booking_confirmation_channels(
+        &self,
+        tenant: &TenantContext,
+        credential: PublicManagementCredential,
+    ) -> Result<Vec<String>> {
+        let available: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM airhop_bookings b
+             JOIN airhop_organizations o ON o.community_id = b.community_id AND o.id = b.organization_id
+             JOIN airhop_channel_connections c ON c.community_id = b.community_id AND c.organization_id = b.organization_id
+             JOIN airhop_channel_credentials secret ON secret.community_id = c.community_id AND secret.connection_id = c.id
+             WHERE b.community_id = $1 AND b.management_key_version = $2 AND b.management_token_digest = $3
+               AND o.status = 'active' AND b.status IN ('pending_confirmation', 'confirmed')
+               AND c.provider = 'telegram' AND c.status = 'active'
+               AND secret.provider_bot_username ~ '^[A-Za-z0-9_]+$')",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(credential.key_version)
+        .bind(credential.token_digest.as_slice())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(if available {
+            vec!["telegram".to_owned()]
+        } else {
+            Vec::new()
+        })
+    }
+
     /// Links only conversations the requesting staff principal can actually read.
     pub async fn list_airhop_family_conversations(
         &self,
@@ -120,7 +148,7 @@ impl Db {
              JOIN airhop_channel_credentials secret ON secret.community_id = c.community_id
                AND secret.connection_id = c.id
              WHERE c.community_id = $1 AND c.organization_id = $2 AND c.provider = 'telegram'
-               AND c.status = 'active' AND secret.provider_bot_username IS NOT NULL
+               AND c.status = 'active' AND secret.provider_bot_username ~ '^[A-Za-z0-9_]+$'
              ORDER BY c.created_at, c.id LIMIT 1 FOR SHARE OF c",
         )
         .bind(tenant.community().as_uuid())

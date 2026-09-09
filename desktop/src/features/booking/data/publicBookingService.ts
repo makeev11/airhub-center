@@ -23,7 +23,6 @@ import type {
   TrialPolicy,
 } from "@/features/booking/model/bookingCore";
 import {
-  isExactBirthDateEligible,
   maskPublicBookingPhone,
   normalizePublicBookingPhone,
   PUBLIC_BOOKING_CONSENT_VERSION,
@@ -58,6 +57,7 @@ export type PublicBookingCatalog = {
 };
 
 export type PublicBookingManagementCard = {
+  confirmationChannels?: Array<"telegram">;
   messengerHandoff?: { url: string; expiresAt: string };
   telegramConnected?: boolean;
   status: PublicLessonBooking["status"];
@@ -106,6 +106,8 @@ export type CreatePublicBookingResult = {
 };
 
 export interface PublicBookingService {
+  /** Shows the messenger handoff design in local demos without opening a real chat. */
+  readonly confirmationPreview?: boolean;
   getCatalog(): Promise<PublicBookingCatalog>;
   findOccurrences(
     filters: PublicOccurrenceSearchFilters,
@@ -341,23 +343,20 @@ export class WorkspacePublicBookingService implements PublicBookingService {
         if (!available?.available) {
           throw new PublicBookingUnavailableError();
         }
-        const group = workspace.groups.find(
-          (candidate) => candidate.id === available.groupId,
-        );
-        if (
-          !group ||
-          !isExactBirthDateEligible(
-            group,
-            command.applicant.childBirthDate,
-            available.date,
-          )
-        ) {
-          throw new PublicBookingAgeMismatchError();
-        }
-
         const now = this.clock().toISOString();
         const applicant = {
-          parentName: command.applicant.parentName.trim(),
+          parentName: [
+            command.applicant.parentName.trim(),
+            command.applicant.parentLastName?.trim(),
+          ]
+            .filter(Boolean)
+            .join(" "),
+          ...(command.applicant.parentLastName?.trim()
+            ? {
+                parentFirstName: command.applicant.parentName.trim(),
+                parentLastName: command.applicant.parentLastName.trim(),
+              }
+            : {}),
           phoneNormalized,
           phoneDisplay: command.applicant.phone.trim(),
           childName: command.applicant.childName.trim(),
