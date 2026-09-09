@@ -6,6 +6,8 @@ use crate::airhop::conversation_booking::{
 use airhop_core::conversation_booking::ConversationBookingData;
 use airhop_core::{BookingStatus, StableLessonReference};
 
+mod surname_tests;
+
 async fn lesson(f: &Fixture) -> StableLessonReference {
     let org =
         f.db.get_airhop_organization(&f.tenant)
@@ -41,6 +43,8 @@ fn data(reference: StableLessonReference) -> ConversationBookingData {
         purpose: Some("trial".into()),
         child_id: None,
         parent_name: Some("Андрей".into()),
+        parent_first_name: Some("Андрей".into()),
+        parent_last_name: Some("Макеев".into()),
         phone: Some("+79990000123".into()),
         child_name: Some("Платон".into()),
         child_birth_date: Some(
@@ -194,6 +198,16 @@ async fn assert_booking_binds_same_conversation(f: Fixture) {
             .unwrap();
     assert!(replay.replayed);
     assert_eq!(result.booking_id, replay.booking_id);
+    // An already booked pre-upgrade receipt must not require collecting a
+    // surname again or create another family just to replay its result.
+    sqlx::query("UPDATE airhop_conversation_booking_drafts SET data=data-'parentFirstName'-'parentLastName' WHERE community_id=$1 AND state='booked'")
+        .bind(f.tenant.community().as_uuid()).execute(&f.db.pool).await.unwrap();
+    let legacy_replay =
+        f.db.commit_airhop_booking_draft(&f.tenant, &input)
+            .await
+            .unwrap();
+    assert!(legacy_replay.replayed);
+    assert_eq!(legacy_replay.booking_id, result.booking_id);
     for table in [
         "airhop_families",
         "airhop_representatives",
@@ -416,7 +430,39 @@ async fn conversational_booking_respects_auto_confirm_switch() {
             .unwrap();
     assert_eq!(result.status, BookingStatus::PendingConfirmation);
     assert!(result.requires_staff);
+    assert_pending_in_staff_queue(&f, result.booking_id, false).await;
     assert_eq!(count(&f, "airhop_bookings").await, 1);
+}
+
+async fn assert_pending_in_staff_queue(f: &Fixture, booking_id: Uuid, possible_duplicate: bool) {
+    use crate::airhop::staff_queue::{StaffBookingAttentionReason, StaffBookingQueueFilter};
+    for attention_only in [false, true] {
+        let page =
+            f.db.list_airhop_staff_booking_queue(
+                &f.tenant,
+                StaffBookingQueueFilter {
+                    status: Some(BookingStatus::PendingConfirmation),
+                    attention_only,
+                    limit: 100,
+                    cursor: None,
+                },
+            )
+            .await
+            .unwrap();
+        let row = page
+            .items
+            .iter()
+            .find(|row| row.booking_id == booking_id)
+            .expect("Hermes pending booking must appear in Requests");
+        assert!(row
+            .attention_reasons
+            .contains(&StaffBookingAttentionReason::PendingConfirmation));
+        assert_eq!(
+            row.attention_reasons
+                .contains(&StaffBookingAttentionReason::PossibleDuplicate),
+            possible_duplicate
+        );
+    }
 }
 
 async fn public_booking(
@@ -493,6 +539,9 @@ async fn conversational_booking_does_not_authenticate_an_existing_family_by_phon
             .await
             .unwrap();
     assert_ne!(family, existing.booking.family_id);
+    // The phone collision blocks auto-confirmation but must not hide the
+    // resulting request from the employee who needs to review it.
+    assert_pending_in_staff_queue(&f, result.booking_id, true).await;
     assert_eq!(count(&f, "airhop_families").await, 2);
     assert_eq!(count(&f, "airhop_messenger_accounts").await, 0);
     let bound: Option<Uuid> = sqlx::query_scalar(
@@ -608,6 +657,8 @@ async fn conversational_booking_verified_parent_reuses_only_their_own_child() {
     let mut fields = data(reference2);
     fields.child_id = Some(child);
     fields.parent_name = Some("Incorrect model guess".into());
+    fields.parent_first_name = Some("Incorrect given name".into());
+    fields.parent_last_name = Some("Incorrect surname".into());
     fields.phone = Some("+79990000999".into());
     fields.child_name = None;
     fields.child_birth_date = None;
@@ -615,7 +666,9 @@ async fn conversational_booking_verified_parent_reuses_only_their_own_child() {
         f.db.save_airhop_booking_draft(&f.tenant, &lease(&f, &next), draft.version, fields)
             .await
             .unwrap();
-    assert_eq!(ready.data.parent_name.as_deref(), Some("Андрей"));
+    assert_eq!(ready.data.parent_name.as_deref(), Some("Андрей Макеев"));
+    assert_eq!(ready.data.parent_first_name.as_deref(), Some("Андрей"));
+    assert_eq!(ready.data.parent_last_name.as_deref(), Some("Макеев"));
     assert_eq!(ready.data.phone.as_deref(), Some("+79990000123"));
     assert_eq!(ready.data.child_name.as_deref(), Some("Платон"));
     let foreign_reference = lesson(&f).await;

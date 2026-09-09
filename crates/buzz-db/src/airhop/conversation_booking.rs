@@ -180,6 +180,13 @@ impl Db {
             tx.commit().await?;
             return Ok(result);
         }
+        if scope.family_id.is_none()
+            && (draft.data.parent_first_name.is_none() || draft.data.parent_last_name.is_none())
+        {
+            return Err(DbError::InvalidData(
+                "Parent given name and surname are required for a new Family. Save the completed draft, show its new summary and wait for parent confirmation.".into(),
+            ));
+        }
         if draft.state != "ready" || !is_booking_confirmation(&scope.source_content) {
             return Err(DbError::InvalidData("Show the booking summary and ask the parent to reply: Подтверждаю запись / Confirm booking".into()));
         }

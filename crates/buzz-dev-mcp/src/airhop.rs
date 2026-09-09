@@ -1859,7 +1859,7 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_save_booking_draft",
-        description = "Parent Administrator only: persist collected booking data, including for a NEW unverified contact when create_booking is granted. Supply the full snapshot and expectedVersion (0 initially). Ask for missing names, actual birth date and phone; never invent them. Select lessonRef fields from live options. A ready draft returns an exact preview: send it UNCHANGED as the LAST message via airhop_send_parent_reply and wait for the parent's direct confirmation within 24 hours. After intervening conversation, show it again. No seat is reserved by saving a draft."
+        description = "Parent Administrator only: persist collected booking data, including for a NEW unverified contact when create_booking is granted. Supply the full snapshot and expectedVersion (0 initially). For a NEW family, ask for the parent's given name and surname separately and save parentFirstName and parentLastName; the surname names the Family. Ask for missing child name, actual birth date and phone; never invent them or infer surnames. Verified family profiles are authoritative. Select lessonRef fields from live options. A ready draft returns an exact preview: send it UNCHANGED as the LAST message via airhop_send_parent_reply and wait for the parent's direct confirmation within 24 hours. After intervening conversation, show it again. No seat is reserved by saving a draft."
     )]
     async fn save_booking_draft(
         &self,
@@ -2587,6 +2587,8 @@ mod tests {
 
         let data = airhop_core::conversation_booking::ConversationBookingData {
             parent_name: Some("Anna".into()),
+            parent_first_name: Some("Anna Maria".into()),
+            parent_last_name: Some("de Souza-Lima".into()),
             ..Default::default()
         };
         service

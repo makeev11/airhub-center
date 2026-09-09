@@ -674,7 +674,11 @@ pub(super) async fn resolve_identity(
             .bind(tenant.community().as_uuid())
             .bind(organization_id)
             .bind(family_id)
-            .bind(format!("Семья {}", applicant.parent_name))
+            .bind(format!("Семья {}", if consent.channel == "hermes" {
+                applicant.parent_last_name.as_deref().unwrap_or(&applicant.parent_name)
+            } else {
+                &applicant.parent_name
+            }))
             .bind(representative_id)
             .execute(&mut **transaction)
             .await?;

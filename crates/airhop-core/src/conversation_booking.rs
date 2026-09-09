@@ -19,8 +19,15 @@ pub struct ConversationBookingData {
     /// Existing child from this turn's verified Family, when selecting one.
     #[schemars(with = "Option<String>")]
     pub child_id: Option<Uuid>,
-    /// Parent's stated name; server fills it for a verified Family.
+    /// Compatibility display name; server derives it from structured names for
+    /// a new Family and fills it from the stored profile for a verified Family.
     pub parent_name: Option<String>,
+    /// Parent's explicitly stated given name(s), up to 80 characters. Required
+    /// with parentLastName for a NEW Family; never split a legacy display name.
+    pub parent_first_name: Option<String>,
+    /// Parent's explicitly stated surname, up to 80 characters. Used for the
+    /// NEW Family label; never infer it from the child or rename a verified Family.
+    pub parent_last_name: Option<String>,
     /// Parent's contact number; typing it never verifies another Family.
     pub phone: Option<String>,
     /// Child's stated name; server fills it when childId is supplied.
@@ -57,6 +64,25 @@ pub fn is_booking_confirmation(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_drafts_remain_readable_without_inventing_structured_names() {
+        let old: ConversationBookingData = serde_json::from_value(serde_json::json!({
+            "parentName": "Maria Clara de Souza-Lima"
+        }))
+        .unwrap();
+        assert_eq!(old.parent_first_name, None);
+        assert_eq!(old.parent_last_name, None);
+        let mut new = old;
+        new.parent_first_name = Some("Maria Clara".into());
+        new.parent_last_name = Some("de Souza-Lima".into());
+        let json = serde_json::to_value(&new).unwrap();
+        assert_eq!(json["parentLastName"], "de Souza-Lima");
+        assert_eq!(
+            serde_json::from_value::<ConversationBookingData>(json).unwrap(),
+            new
+        );
+    }
 
     #[test]
     fn confirmation_is_explicit_and_unconditional() {

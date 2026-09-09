@@ -108,6 +108,8 @@ pub(super) fn require_version(row: Option<&sqlx::postgres::PgRow>, expected: i64
 pub(super) fn validate_fields(data: &ConversationBookingData) -> Result<()> {
     for text in [
         &data.parent_name,
+        &data.parent_first_name,
+        &data.parent_last_name,
         &data.child_name,
         &data.phone,
         &data.original_date,
@@ -125,6 +127,15 @@ pub(super) fn validate_fields(data: &ConversationBookingData) -> Result<()> {
                 "Draft fields must be short, nonempty plain text".into(),
             ));
         }
+    }
+    if [&data.parent_first_name, &data.parent_last_name]
+        .into_iter()
+        .flatten()
+        .any(|text| text.chars().count() > 80)
+    {
+        return Err(DbError::InvalidData(
+            "Parent first name and surname must each fit 80 characters".into(),
+        ));
     }
     if data.child_id.is_some_and(|id| id.is_nil())
         || data.recurrence_rule_id.is_some_and(|id| id.is_nil())
@@ -172,8 +183,8 @@ pub(super) fn visit_kind(data: &ConversationBookingData) -> Result<BookingVisitK
 pub(super) fn applicant(data: &ConversationBookingData) -> Result<PublicBookingApplicant> {
     Ok(PublicBookingApplicant {
         parent_name: data.parent_name.clone().unwrap_or_default(),
-        parent_first_name: None,
-        parent_last_name: None,
+        parent_first_name: data.parent_first_name.clone(),
+        parent_last_name: data.parent_last_name.clone(),
         phone_normalized: data.phone.clone().unwrap_or_default(),
         phone_display: data.phone.clone().unwrap_or_default(),
         child_name: data.child_name.clone().unwrap_or_default(),
@@ -192,9 +203,11 @@ pub(super) async fn fill_verified_fields(
     data: &mut ConversationBookingData,
 ) -> Result<()> {
     if let (Some(family), Some(representative)) = (scope.family_id, scope.representative_id) {
-        let row=sqlx::query("SELECT p.display_name,p.phone_normalized FROM airhop_representatives p JOIN airhop_families f ON f.community_id=p.community_id AND f.organization_id=p.organization_id AND f.id=p.family_id WHERE p.community_id=$1 AND p.organization_id=$2 AND p.family_id=$3 AND p.id=$4 AND p.status='active' AND f.status='active' FOR SHARE OF p,f")
+        let row=sqlx::query("SELECT p.display_name,p.first_name,p.last_name,p.phone_normalized FROM airhop_representatives p JOIN airhop_families f ON f.community_id=p.community_id AND f.organization_id=p.organization_id AND f.id=p.family_id WHERE p.community_id=$1 AND p.organization_id=$2 AND p.family_id=$3 AND p.id=$4 AND p.status='active' AND f.status='active' FOR SHARE OF p,f")
             .bind(tenant.community().as_uuid()).bind(scope.organization_id).bind(family).bind(representative).fetch_optional(&mut **tx).await?.ok_or(DbError::AirhopIdentityMismatch)?;
         data.parent_name = Some(row.try_get("display_name")?);
+        data.parent_first_name = row.try_get("first_name")?;
+        data.parent_last_name = row.try_get("last_name")?;
         data.phone = Some(row.try_get("phone_normalized")?);
         if let Some(child) = data.child_id {
             let row=sqlx::query("SELECT display_name,birth_date FROM airhop_children WHERE community_id=$1 AND organization_id=$2 AND family_id=$3 AND id=$4 AND status='active' FOR SHARE")
@@ -204,6 +217,8 @@ pub(super) async fn fill_verified_fields(
         }
     } else if data.child_id.is_some() {
         return Err(DbError::AirhopIdentityMismatch);
+    } else if let (Some(first), Some(last)) = (&data.parent_first_name, &data.parent_last_name) {
+        data.parent_name = Some(format!("{} {}", first.trim(), last.trim()));
     }
     Ok(())
 }
@@ -214,7 +229,9 @@ pub(super) async fn quote_for_data(
     scope: &Scope,
     data: &ConversationBookingData,
 ) -> Result<Option<Value>> {
-    if data.recurrence_rule_id.is_none()
+    if (scope.family_id.is_none()
+        && (data.parent_first_name.is_none() || data.parent_last_name.is_none()))
+        || data.recurrence_rule_id.is_none()
         || [
             &data.original_date,
             &data.purpose,
@@ -541,6 +558,22 @@ mod tests {
             },
             ConversationBookingData {
                 parent_name: Some("a".repeat(161)),
+                ..Default::default()
+            },
+            ConversationBookingData {
+                parent_first_name: Some("a".repeat(81)),
+                ..Default::default()
+            },
+            ConversationBookingData {
+                parent_last_name: Some("я".repeat(81)),
+                ..Default::default()
+            },
+            ConversationBookingData {
+                parent_last_name: Some(" \t".into()),
+                ..Default::default()
+            },
+            ConversationBookingData {
+                parent_last_name: Some("Ива\nнов".into()),
                 ..Default::default()
             },
         ] {
