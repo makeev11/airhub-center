@@ -121,6 +121,18 @@ pub(crate) struct ClaimParentEventBody {
     lease_seconds: u32,
     #[serde(default = "default_grant_ttl_seconds")]
     ttl_seconds: u32,
+    #[serde(default)]
+    staff_control: Option<StaffControlDecision>,
+    #[serde(default)]
+    classify_staff_control: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StaffControlDecision {
+    event_id: String,
+    control_version: i64,
+    intent: buzz_db::airhop::external_conversation::StaffControlIntent,
 }
 
 const fn default_grant_ttl_seconds() -> u32 {
@@ -688,6 +700,48 @@ pub(crate) async fn claim_parent_event(
         }
         ids
     };
+    if let Some(decision) = request.staff_control.as_ref() {
+        if !request.classify_staff_control {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "staff classification is not enabled for this request",
+            ));
+        }
+        let decision_event = parse_event_id(&decision.event_id)?;
+        if !source_event_ids.contains(&decision_event) {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "staff control event is outside the input batch",
+            ));
+        }
+        state
+            .db
+            .resolve_airhop_staff_control_batch(
+                &principal.tenant,
+                &source_event_ids,
+                principal.pubkey.to_bytes(),
+                Some((decision_event, decision.control_version, decision.intent)),
+            )
+            .await
+            .map_err(map_db_error)?;
+    }
+    // Parent inputs coalesced after a command must not hide that command.
+    // The database rejects an older command after any newer staff message.
+    if request.classify_staff_control {
+        if let Some(candidate) = state
+            .db
+            .resolve_airhop_staff_control_batch(
+                &principal.tenant,
+                &source_event_ids,
+                principal.pubkey.to_bytes(),
+                None,
+            )
+            .await
+            .map_err(map_db_error)?
+        {
+            return Ok(Json(json!({"controlCandidate": candidate})));
+        }
+    }
     let route = state
         .db
         .get_airhop_hermes_parent_batch_route(
@@ -699,7 +753,7 @@ pub(crate) async fn claim_parent_event(
         .map_err(map_db_error)?
         .ok_or_else(|| {
             api_error(
-                StatusCode::CONFLICT,
+                StatusCode::GONE,
                 "parent event is no longer owned by Hermes",
             )
         })?;
@@ -720,7 +774,12 @@ pub(crate) async fn claim_parent_event(
             },
         )
         .await
-        .map_err(map_db_error)?;
+        .map_err(|error| match error {
+            buzz_db::DbError::AirhopVersionConflict => {
+                api_error(StatusCode::GONE, "Hermes input batch already finished")
+            }
+            other => map_db_error(other),
+        })?;
     let agent_pubkey = PublicKey::from_slice(&leased.deployment.agent_pubkey).map_err(|error| {
         internal_error(&format!("persisted Hermes principal is invalid: {error}"))
     })?;
@@ -1021,6 +1080,10 @@ async fn get_turn_context(
                 "timeZone": organization.time_zone,
             },
             "family": family,
+            "history": state.db.get_airhop_parent_turn_history(
+                &context.principal.tenant, context.claims.turn_id,
+                context.claims.turn_lease_token, context.principal.pubkey.to_bytes(),
+            ).await.map_err(map_db_error)?,
             "bookingDraft": state.db.get_airhop_booking_draft(&context.principal.tenant, context.claims.conversation_id).await.map_err(map_db_error)?,
             "handoffTargets": handoff_targets,
             "conversationRouting": state.db.client_turn_routing(&context.principal.tenant,context.claims.conversation_id).await.map_err(map_db_error)?,

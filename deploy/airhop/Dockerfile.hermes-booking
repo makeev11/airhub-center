@@ -39,6 +39,7 @@ ARG HERMES_BASE_ID
 # binary. Upstream Hermes/Python, its patch, state volume and entrypoint stay put.
 COPY --from=booking-binaries --chmod=0755 /build/target/release/sprig /usr/local/bin/sprig
 COPY --chmod=0644 integrations/hermes-airhop-parent-runtime/persona.md /opt/airhop-hermes/persona.md
+COPY --chmod=0644 integrations/hermes-airhop-parent-runtime/config.yaml /opt/airhop-hermes/config.yaml
 COPY release.json /opt/airhop-hermes/booking-release.json
 LABEL org.opencontainers.image.revision="${SOURCE_COMMIT}" \
       ru.airhop.release="${RELEASE_ID}" \

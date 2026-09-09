@@ -1,0 +1,9 @@
+{
+  "promptSha256": "ac4b0ab1114793830e2a2223e7a565aebe122654a7f0b8141a974d3ba5a681fb",
+  "casesSha256": "f3cdd0ce1013365fb69aacfd8211cf681a62a4d53db1394519633948adb0f049",
+  "passed": 40,
+  "total": 40,
+  "model": "deepseek-v4-flash",
+  "evaluatedAt": "2026-09-09",
+  "syntheticOnly": true
+}

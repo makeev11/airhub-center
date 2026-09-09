@@ -4,6 +4,8 @@ use crate::airhop::external_conversation::CommitHermesReplyInput;
 use crate::{airhop::channel_gateway::*, DbConfig};
 use airhop_core::client_conversations::BranchResponsiblesCommand;
 
+mod runtime_scope_tests;
+
 struct Fixture {
     db: Db,
     tenant: TenantContext,
