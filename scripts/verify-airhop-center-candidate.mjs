@@ -64,6 +64,22 @@ function verifyFiles(directory, files) {
 }
 verifyFiles(app, receipt.macos.files);
 verifyFiles(join(output, "public-web"), receipt.publicWeb.files);
+if (receipt.artifactSchemaVersion !== undefined) {
+  assert.equal(
+    receipt.artifactSchemaVersion,
+    2,
+    "Unsupported artifact receipt schema",
+  );
+  assert.equal(
+    hash(join(output, "tauri.candidate.json")),
+    receipt.nativeConfigSha256,
+  );
+  assert.deepEqual(
+    json(join(output, "native-web/airhop-release.json")),
+    identity,
+  );
+  verifyFiles(join(output, "native-web"), receipt.nativeWeb.files);
+}
 if (process.argv[3] === "--require-current") {
   assert.deepEqual(
     readReleaseIdentity(repositoryRoot, identity.commit),

@@ -104,6 +104,30 @@ assert.deepEqual(
   json(join(output, "public-web/airhop-release.json")),
   identity,
 );
+// Keep Tauri's embedded assets independent of desktop/dist. A concurrent CI
+// build may legitimately replace that shared development output directory.
+const nativeWeb = join(output, "native-web");
+run("native-typecheck", "pnpm", ["exec", "tsc", "--noEmit"], desktop);
+run(
+  "native-web",
+  "pnpm",
+  ["exec", "vite", "build", "--mode", "production", "--outDir", nativeWeb],
+  desktop,
+);
+assert.deepEqual(json(join(nativeWeb, "airhop-release.json")), identity);
+const nativeWebFiles = fileManifest(nativeWeb);
+const nativeConfig = join(output, "tauri.candidate.json");
+writeFileSync(
+  nativeConfig,
+  JSON.stringify(
+    {
+      build: { beforeBuildCommand: null, frontendDist: nativeWeb },
+    },
+    null,
+    2,
+  ),
+  { flag: "wx" },
+);
 run(
   "native",
   "pnpm",
@@ -115,12 +139,18 @@ run(
     "app",
     "--config",
     "src-tauri/tauri.airhop-release.conf.json",
+    "--config",
+    nativeConfig,
     "--",
     "--locked",
   ],
   desktop,
 );
-assert.deepEqual(json(join(desktop, "dist/airhop-release.json")), identity);
+assert.deepEqual(
+  fileManifest(nativeWeb),
+  nativeWebFiles,
+  "Native frontend changed during compilation",
+);
 assert.deepEqual(
   readReleaseIdentity(repositoryRoot, identity.commit),
   identity,
@@ -202,6 +232,7 @@ assert.deepEqual(
 );
 const receipt = {
   ...identity,
+  artifactSchemaVersion: 2,
   status: "built-not-deployed",
   scope: "demo/local candidate; not a notarized public release",
   builtAt: new Date().toISOString(),
@@ -209,6 +240,8 @@ const receipt = {
   publicWebArchiveSha256: hash(join(output, "public-web.tgz")),
   dockerfileSha256: hash(join(output, "Dockerfile.center-release")),
   baseImageSha256: hash(join(output, "base-image.json")),
+  nativeConfigSha256: hash(nativeConfig),
+  nativeWeb: { files: nativeWebFiles },
   macos: { signing: "ad-hoc", files: fileManifest(app) },
   publicWeb: { files: fileManifest(join(output, "public-web")) },
 };

@@ -80,6 +80,15 @@ Subsequent reviewed fixes from the parallel Hermes task are also included:
 Final combined CI, post-integration DB/MCP tests and artifact verification are recorded
 alongside the final package; historical checkpoints above are not native live acceptance.
 
+Post-integration checks passed: all 65 AirHop PostgreSQL cases (one group test,
+then 64 remaining cases), 24 airhop-core unit/integration tests, 14 AirHop MCP tests,
+15 ACP supervisor tests, 28 browser scenarios and 24 release-identity/asset-verifier
+tests. Native frontend assets are frozen in the candidate's own directory and hashed
+before and after Tauri compilation; CI cannot replace them via shared desktop/dist.
+New in-progress widget redesign changes in the main checkout are explicitly outside
+this frozen release. The completed development-only dev:booking helper is preserved;
+the release public form still uses the server runtime, never demo data.
+
 Observed demo base: `airhub-center-relay:airhop-center-0.5.6-f50d431f31c0`, Docker
 config ID `sha256:a7c648e65e863ed32bfefc3e9ad96cb47f848e7687a0ba95e5fa18b361b43e94`.
 An earlier image tag is not evidence that the candidate contains the latest code.

@@ -177,6 +177,7 @@ function candidate(t) {
   for (const file of [
     "release.json",
     "public-web/airhop-release.json",
+    "native-web/airhop-release.json",
     "AirHop Center.app/Contents/Resources/airhop-release.json",
   ]) {
     write(file, JSON.stringify(identity));
@@ -186,17 +187,28 @@ function candidate(t) {
     "public-web.tgz",
     "Dockerfile.center-release",
     "base-image.json",
+    "tauri.candidate.json",
   ])
     write(file, "fixture bytes");
   write(
     "artifacts.json",
     JSON.stringify({
       ...identity,
+      artifactSchemaVersion: 2,
       status: "built-not-deployed",
       sourceArchiveSha256: hash("source.tgz"),
       publicWebArchiveSha256: hash("public-web.tgz"),
       dockerfileSha256: hash("Dockerfile.center-release"),
       baseImageSha256: hash("base-image.json"),
+      nativeConfigSha256: hash("tauri.candidate.json"),
+      nativeWeb: {
+        files: [
+          {
+            path: "airhop-release.json",
+            sha256: hash("native-web/airhop-release.json"),
+          },
+        ],
+      },
       macos: {
         files: [
           {
@@ -236,7 +248,14 @@ test("artifact verifier accepts matching receipts and bytes", (t) => {
   assert.equal(JSON.parse(candidate(t).verify()).verified, true);
 });
 
-for (const change of ["archive", "extra-file", "receipt"]) {
+for (const change of [
+  "archive",
+  "extra-file",
+  "receipt",
+  "native-file",
+  "native-receipt",
+  "native-config",
+]) {
   test(`artifact verifier refuses changed ${change}`, (t) => {
     const { write, verify } = candidate(t);
     if (change === "archive") write("public-web.tgz", "different build");
@@ -244,6 +263,22 @@ for (const change of ["archive", "extra-file", "receipt"]) {
       write("public-web/old-version.js", "stale code");
     if (change === "receipt")
       write("public-web/airhop-release.json", '{"version":"0.5.5"}');
+    if (change === "native-file") write("native-web/stale.js", "stale build");
+    if (change === "native-receipt")
+      write("native-web/airhop-release.json", '{"version":"0.5.5"}');
+    if (change === "native-config")
+      write("tauri.candidate.json", "different frontend");
     assert.throws(verify);
   });
 }
+
+test("native candidate embeds an isolated, hash-checked frontend snapshot", () => {
+  const source = readFileSync(
+    new URL("../../scripts/build-airhop-center-candidate.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /frontendDist: nativeWeb/);
+  assert.match(source, /beforeBuildCommand: null/);
+  assert.match(source, /fileManifest\(nativeWeb\),\s*nativeWebFiles/);
+  assert.doesNotMatch(source, /join\(desktop, "dist\/airhop-release.json"\)/);
+});
