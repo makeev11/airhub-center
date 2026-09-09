@@ -1,3 +1,4 @@
+import { messengerCount } from "@/shared/locale/messengerCopy";
 import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import {
@@ -57,10 +58,10 @@ import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 type BrowserTab = "all" | "joined" | "archived";
 type ChannelSort = ChannelSortMode | "members";
 
-const CHANNEL_SORT_OPTIONS: { label: string; value: ChannelSort }[] = [
-  { label: messageText("Alphabetical"), value: "alpha" },
-  { label: messageText("Recent"), value: "recent" },
-  { label: messageText("Most members"), value: "members" },
+const CHANNEL_SORT_OPTIONS: { labelKey: string; value: ChannelSort }[] = [
+  { labelKey: "Alphabetical", value: "alpha" },
+  { labelKey: "Recent", value: "recent" },
+  { labelKey: "Most members", value: "members" },
 ];
 
 function BrowseState({
@@ -267,7 +268,7 @@ export function ChannelBrowserDialog({
       : sort === "recent"
         ? "Недавние"
         : "Больше участников"
-    : (CHANNEL_SORT_OPTIONS.find((option) => option.value === sort)?.label ??
+    : (CHANNEL_SORT_OPTIONS.find((option) => option.value === sort)?.labelKey ??
       messageText("Alphabetical"));
 
   const allTabLabel = isRussian
@@ -606,7 +607,7 @@ export function ChannelBrowserDialog({
                               : option.value === "recent"
                                 ? "Недавние"
                                 : "Больше участников"
-                            : option.label}
+                            : messageText(option.labelKey)}
                         </DropdownMenuRadioItem>
                       ))}
                     </DropdownMenuRadioGroup>
@@ -843,11 +844,11 @@ function ChannelCard({
   onSelect: () => void;
 }) {
   useMessengerCopy();
-  const memberLabel = isRussian
-    ? `${channel.memberCount} ${channel.memberCount === 1 ? "участник" : "участников"}`
-    : `${channel.memberCount} ${
-        channel.memberCount === 1 ? "member" : "members"
-      }`;
+  const memberLabel = messengerCount(
+    channel.memberCount,
+    "member",
+    isRussian ? "ru-RU" : "en-US",
+  );
 
   return (
     <div

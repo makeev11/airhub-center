@@ -1,3 +1,4 @@
+import { messageError, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 
 import {
@@ -16,6 +17,7 @@ type QuickBotDropState = {
  * Handles creating a new managed agent from a persona with a given instance name.
  */
 export function useQuickBotDrop(channelId: string | null) {
+  useMessengerCopy();
   const createMutation = useCreateChannelManagedAgentMutation(channelId);
   const providersQuery = useAvailableAcpRuntimes();
   const [state, setState] = React.useState<QuickBotDropState>({
@@ -67,5 +69,9 @@ export function useQuickBotDrop(channelId: string | null) {
     [channelId, createMutation, defaultProvider, providers, state.pending],
   );
 
-  return { ...state, addBot };
+  return {
+    ...state,
+    error: state.error ? messageError(state.error) : null,
+    addBot,
+  };
 }

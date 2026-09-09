@@ -85,10 +85,10 @@ export type MemberModerationState = {
 };
 
 /** Timeout durations offered in the member menu, in seconds. */
-const TIMEOUT_PRESETS: { label: string; seconds: number }[] = [
-  { label: messageText("1 hour"), seconds: 60 * 60 },
-  { label: messageText("24 hours"), seconds: 24 * 60 * 60 },
-  { label: messageText("7 days"), seconds: 7 * 24 * 60 * 60 },
+const TIMEOUT_PRESETS: { labelKey: string; seconds: number }[] = [
+  { labelKey: "1 hour", seconds: 60 * 60 },
+  { labelKey: "24 hours", seconds: 24 * 60 * 60 },
+  { labelKey: "7 days", seconds: 7 * 24 * 60 * 60 },
 ];
 
 const MEMBER_ROW_INSET_DIVIDER_CLASS =
@@ -515,7 +515,7 @@ function MemberActionsMenu({
                           : preset.seconds === 24 * 60 * 60
                             ? "24 часа"
                             : "7 дней"
-                        : preset.label}
+                        : messageText(preset.labelKey)}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuSubContent>

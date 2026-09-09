@@ -122,9 +122,6 @@ pub(crate) struct ParentSupervisorGate {
 }
 
 impl ParentSupervisorGate {
-    pub(crate) fn enabled(&self) -> bool {
-        self.enabled
-    }
     pub(crate) fn new(
         role: Option<AirhopRole>,
         context_file: Option<PathBuf>,
@@ -1077,7 +1074,7 @@ mod tests {
                 auth_tag_json: None,
             },
         );
-        assert!(gate.enabled());
+        assert!(gate.enabled);
         let batch = FlushBatch {
             channel_id: Uuid::new_v4(),
             events: Vec::new(),

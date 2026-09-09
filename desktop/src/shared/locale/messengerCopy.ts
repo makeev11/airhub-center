@@ -7,6 +7,32 @@ import { useAirHopLocale } from "./useAirHopLocale";
 export const MESSENGER_RU: Record<string, string> = {
   ...messengerStaticRu,
   ...messengerWorkflowRu,
+  "Add {name}": "Добавить: {name}",
+  "{status}. View activity.": "{status}. Показать активность.",
+  "Channel type: {label}": "Тип канала: {label}",
+  "Copied {label}": "Скопировано: {label}",
+  "Copy {label}": "Скопировать: {label}",
+  "{names} is not in this channel. Invite them, or send without inviting them.":
+    "В этом канале нет: {names}. Пригласите участника или отправьте сообщение без приглашения.",
+  "{names} are not in this channel. Invite them, or send without inviting them.":
+    "В этом канале нет: {names}. Пригласите участников или отправьте сообщение без приглашения.",
+  "{names} is typing...": "{names} печатает…",
+  "{names} are typing...": "{names} печатают…",
+  "{names}, and {count} others are typing...":
+    "{names} и ещё {others} печатают…",
+  "{name} is working": "{name} работает",
+  "Agents working: {count}": "Работают агенты: {count}",
+  "+{count} more": "ещё {count}",
+  "1 channel": "1 канал",
+  "Raw ACP activity": "Подробная активность ACP",
+  Activity: "Активность",
+  "{color} pen": "Перо: {color}",
+  "View the full diff at the source repository.":
+    "Полные изменения доступны в исходном репозитории.",
+  "Agents must already be in a DM to be mentioned in its threads. Start a new conversation that includes the agent.":
+    "Упоминать агента в ветках личной переписки можно, если он уже участвует в ней. Начните новую переписку с этим агентом.",
+  "Checking conversation members. Try again in a moment.":
+    "Проверяем участников переписки. Попробуйте через несколько секунд.",
   Cancel: "Отмена",
   Save: "Сохранить",
   Close: "Закрыть",
@@ -101,4 +127,32 @@ export function messageError(
   if (key) return messageText(key);
   if (resolveAirHopLocale() !== "ru-RU") return raw || fallback;
   return messageText(fallback);
+}
+
+/** Typing feedback treats names as data and uses whole localized sentences. */
+export function messengerTyping(
+  names: string[],
+  locale: AirHopLocale = resolveAirHopLocale(),
+): string {
+  if (names.length === 0) return "";
+  if (names.length <= 3)
+    return messageText(
+      names.length === 1 ? "{names} is typing..." : "{names} are typing...",
+      {
+        names: new Intl.ListFormat(locale, {
+          style: "long",
+          type: "conjunction",
+        }).format(names),
+      },
+      locale,
+    );
+  return messageText(
+    "{names}, and {count} others are typing...",
+    {
+      names: names.slice(0, 2).join(", "),
+      count: names.length - 2,
+      others: messengerCount(names.length - 2, "member", locale),
+    },
+    locale,
+  );
 }

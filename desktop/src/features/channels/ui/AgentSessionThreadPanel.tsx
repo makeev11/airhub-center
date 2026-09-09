@@ -244,8 +244,8 @@ export function AgentSessionThreadPanel({
   const scopeLabel = sessionChannelId
     ? scopeChannelName
       ? `#${scopeChannelName}`
-      : "1 channel"
-    : "All channels";
+      : messageText("1 channel")
+    : messageText("All channels");
   const agentProfile = profiles?.[normalizePubkey(agent.pubkey)] ?? null;
   const agentLabel = resolveUserLabel({
     pubkey: agent.pubkey,
@@ -253,7 +253,9 @@ export function AgentSessionThreadPanel({
     profiles,
     preferResolvedSelfLabel: true,
   });
-  const viewLabel = showRawFeed ? "Raw ACP activity" : "Activity";
+  const viewLabel = showRawFeed
+    ? messageText("Raw ACP activity")
+    : messageText("Activity");
   const headerScopeLabel = `${viewLabel} · ${scopeLabel}`;
   const animateActivity = useTranscriptAnimationEnabled();
   const showTimestamps = useTranscriptTimestampsEnabled();

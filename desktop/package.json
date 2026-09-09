@@ -14,7 +14,7 @@
     "lint": "biome lint .",
     "check:release-version": "node scripts/airhop-release-identity.mjs --check-version",
     "test:release-identity": "node --test scripts/airhop-release-identity.test.mjs",
-    "check": "biome check . && pnpm check:file-sizes && pnpm check:px-text && pnpm check:pubkey-truncation && pnpm check:release-version && pnpm test:release-identity",
+    "check": "biome check . && pnpm check:file-sizes && pnpm check:px-text && pnpm check:pubkey-truncation && node scripts/audit-messenger-copy.mjs --check && pnpm check:release-version && pnpm test:release-identity",
     "format": "biome format --write .",
     "test": "node --import ./test-loader.mjs --experimental-strip-types --test \"src/**/*.test.mjs\"",
     "preview": "vite preview",

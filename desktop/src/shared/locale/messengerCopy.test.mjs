@@ -5,6 +5,7 @@ import {
   messageText,
   messengerCount,
   messageError,
+  messengerTyping,
 } from "./messengerCopy.ts";
 import {
   formatDayHeading,
@@ -13,6 +14,21 @@ import {
 } from "../../features/messages/lib/dateFormatters.ts";
 import { getEphemeralChannelDisplay } from "../../features/channels/lib/ephemeralChannel.ts";
 import { resolveUserLabel } from "../../features/profile/lib/identity.ts";
+import { formatDmParticipantDisplayName } from "../../features/channels/lib/dmParticipantDisplay.ts";
+
+test("DM participant summaries keep authored names and localize hidden counts", () => {
+  const participants = ["Alice", "Bob", "Carol", "Dan"].map((displayName) => ({
+    displayName,
+  }));
+  assert.equal(
+    formatDmParticipantDisplayName(participants, "ru-RU"),
+    "Alice, Bob, Carol, ещё 1",
+  );
+  assert.equal(
+    formatDmParticipantDisplayName(participants, "en-US"),
+    "Alice, Bob, Carol, +1 more",
+  );
+});
 
 test("copy and grammatical counts remain bilingual", () => {
   for (const [n, word] of [
@@ -37,6 +53,28 @@ test("copy and grammatical counts remain bilingual", () => {
     assert.ok(/[а-яё]/i.test(value), key);
   }
 });
+test("dynamic typing and invitations contain whole localized sentences", () => {
+  assert.equal(messengerTyping(["Alice"], "ru-RU"), "Alice печатает…");
+  assert.equal(
+    messengerTyping(["Alice", "Bob"], "ru-RU"),
+    "Alice и Bob печатают…",
+  );
+  assert.equal(
+    messengerTyping(["Alice", "Bob", "Carol", "Dan"], "ru-RU"),
+    "Alice, Bob и ещё 2 участника печатают…",
+  );
+  assert.equal(messengerTyping(["Alice"], "en-US"), "Alice is typing...");
+  assert.equal(messengerTyping([], "ru-RU"), "");
+  assert.match(
+    messageText(
+      "{names} are not in this channel. Invite them, or send without inviting them.",
+      { names: "Alice, Bob" },
+      "ru-RU",
+    ),
+    /^В этом канале нет: Alice, Bob/,
+  );
+});
+
 test("dates, errors and identity labels react to the selected locale without translating authored names", () => {
   const descriptor = Object.getOwnPropertyDescriptor(
     globalThis,

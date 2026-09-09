@@ -21,7 +21,7 @@ export function ChannelTypePicker({
   onTemporaryChange,
   open,
   temporary,
-  temporaryOptionAriaLabel = "Temporary channel",
+  temporaryOptionAriaLabel = messageText("Temporary channel"),
   testId,
 }: {
   align?: React.ComponentProps<typeof DropdownMenuContent>["align"];
@@ -39,7 +39,7 @@ export function ChannelTypePicker({
   const [internalOpen, setInternalOpen] = React.useState(false);
   const pickerOpen = open ?? internalOpen;
   const setPickerOpen = onOpenChange ?? setInternalOpen;
-  const label = temporary ? "Temporary" : "Ongoing";
+  const label = messageText(temporary ? "Temporary" : "Ongoing");
   const Icon = temporary ? ClockFading : Hash;
 
   function selectType(nextType: string) {
@@ -51,7 +51,9 @@ export function ChannelTypePicker({
     <DropdownMenu modal={false} onOpenChange={setPickerOpen} open={pickerOpen}>
       <DropdownMenuTrigger asChild>
         <Button
-          aria-label={ariaLabel ?? `Channel type: ${label}`}
+          aria-label={
+            ariaLabel ?? messageText("Channel type: {label}", { label })
+          }
           className={cn(
             "h-9 w-fit px-2.5 text-sm font-medium text-foreground hover:bg-muted/50",
             className,

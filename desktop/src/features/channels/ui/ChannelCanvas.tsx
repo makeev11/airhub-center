@@ -72,9 +72,11 @@ export function ChannelCanvas({
   if (canvasQuery.error instanceof Error) {
     return (
       <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-        {isRelayUnreachableError(canvasQuery.error)
-          ? RELAY_UNREACHABLE_SHORT
-          : canvasQuery.error.message}
+        {messageError(
+          isRelayUnreachableError(canvasQuery.error)
+            ? RELAY_UNREACHABLE_SHORT
+            : canvasQuery.error.message,
+        )}
       </p>
     );
   }

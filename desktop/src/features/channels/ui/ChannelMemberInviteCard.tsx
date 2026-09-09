@@ -393,7 +393,7 @@ export function ChannelMemberInviteCard({
         <div className="space-y-1 text-sm text-destructive">
           {submissionErrors.map((error) => (
             <p key={`${error.pubkey}-${error.error}`}>
-              {truncatePubkey(error.pubkey)}: {error.error}
+              {truncatePubkey(error.pubkey)}: {messageError(error.error)}
             </p>
           ))}
         </div>

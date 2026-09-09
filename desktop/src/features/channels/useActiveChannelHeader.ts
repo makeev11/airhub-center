@@ -1,3 +1,4 @@
+import { useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 
 import { useEphemeralChannelDisplay } from "@/features/channels/useEphemeralChannelDisplay";
@@ -18,6 +19,7 @@ export function useActiveChannelHeader(
   activeChannel: Channel | null,
   currentPubkey?: string,
 ) {
+  const m = useMessengerCopy();
   const activeDmParticipants = React.useMemo(() => {
     if (activeChannel?.channelType !== "dm") {
       return [];
@@ -90,7 +92,7 @@ export function useActiveChannelHeader(
           currentPubkey,
           activeDmProfilesQuery.data?.profiles,
         )
-      : "Channels",
+      : m("Channels"),
     activeDmAvatarUrl,
     activeDmHeaderParticipants,
     activeDmPresenceStatus,

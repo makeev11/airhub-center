@@ -1,3 +1,5 @@
+import { messageText } from "@/shared/locale/messengerCopy";
+import type { AirHopLocale } from "@/shared/locale/airhopLocale";
 import {
   resolveUserLabel,
   type UserProfileLookup,
@@ -39,6 +41,7 @@ export function getDmParticipantPreview<T>(participants: readonly T[]) {
 
 export function formatDmParticipantDisplayName(
   participants: readonly DmParticipantDisplay[],
+  locale?: AirHopLocale,
 ) {
   const { hiddenCount, visibleParticipants } =
     getDmParticipantPreview(participants);
@@ -47,7 +50,10 @@ export function formatDmParticipantDisplayName(
   );
 
   return hiddenCount > 0
-    ? [...names, `+${hiddenCount} more`].join(", ")
+    ? [
+        ...names,
+        messageText("+{count} more", { count: hiddenCount }, locale),
+      ].join(", ")
     : names.join(", ");
 }
 
@@ -55,10 +61,12 @@ export function buildDirectMessageIntro({
   channel,
   currentPubkey,
   profiles,
+  locale,
 }: {
   channel: Channel | null;
   currentPubkey?: string;
   profiles?: UserProfileLookup;
+  locale?: AirHopLocale;
 }): DirectMessageIntro | null {
   if (channel?.channelType !== "dm") {
     return null;
@@ -100,7 +108,7 @@ export function buildDirectMessageIntro({
   });
 
   return {
-    displayName: formatDmParticipantDisplayName(introParticipants),
+    displayName: formatDmParticipantDisplayName(introParticipants, locale),
     participants: introParticipants,
   };
 }

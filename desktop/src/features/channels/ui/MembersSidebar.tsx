@@ -866,7 +866,7 @@ export function MembersSidebar({
               <div className="mt-4 space-y-1 text-sm text-destructive">
                 {inviteSubmissionErrors.map((error) => (
                   <p key={`${error.pubkey}-${error.error}`}>
-                    {truncatePubkey(error.pubkey)}: {error.error}
+                    {truncatePubkey(error.pubkey)}: {messageError(error.error)}
                   </p>
                 ))}
               </div>

@@ -147,8 +147,10 @@ export function BotActivityComposerAction({
   const selectedPubkey = openAgentSessionPubkey?.toLowerCase() ?? null;
   const triggerLabel =
     workingAgents.length === 1
-      ? `${workingAgents[0]?.name ?? messageText("Agent")} is working`
-      : `${workingAgents.length} agents working`;
+      ? messageText("{name} is working", {
+          name: workingAgents[0]?.name ?? messageText("Agent"),
+        })
+      : messageText("Agents working: {count}", { count: workingAgents.length });
   const isInline = variant === "inline";
   const visibleStatusLabel =
     workingAgents.length === 1
@@ -162,7 +164,9 @@ export function BotActivityComposerAction({
     <Popover onOpenChange={setOpen} open={open}>
       <PopoverTrigger asChild>
         <button
-          aria-label={`${triggerLabel}. View activity.`}
+          aria-label={messageText("{status}. View activity.", {
+            status: triggerLabel,
+          })}
           className={cn(
             "inline-flex items-center justify-center rounded-full border border-border/60 bg-background font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:border-primary/40 data-[state=open]:bg-primary/10 data-[state=open]:text-primary",
             isInline

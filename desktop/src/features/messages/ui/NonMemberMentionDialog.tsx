@@ -48,10 +48,12 @@ export function NonMemberMentionDialog({
             {messageText("Mention people outside this channel?")}{" "}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {names.join(", ")} {names.length === 1 ? "is" : "are"}{" "}
             {messageText(
-              "not in this channel. Invite them to the channel, or send without inviting them.",
-            )}{" "}
+              names.length === 1
+                ? "{names} is not in this channel. Invite them, or send without inviting them."
+                : "{names} are not in this channel. Invite them, or send without inviting them.",
+              { names: names.join(", ") },
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error ? (

@@ -20,6 +20,29 @@ function visitDir(dir) {
       path.endsWith("tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
     );
     function visit(node) {
+      if (
+        process.argv.includes("--check") &&
+        ts.isCallExpression(node) &&
+        node.expression.getText(source) === "messageText"
+      ) {
+        let ancestor = node.parent;
+        while (
+          ancestor &&
+          !ts.isSourceFile(ancestor) &&
+          !ts.isFunctionLike(ancestor)
+        )
+          ancestor = ancestor.parent;
+        if (ancestor && ts.isSourceFile(ancestor))
+          rows.push({
+            path,
+            line:
+              source.getLineAndCharacterOfPosition(node.getStart(source)).line +
+              1,
+            value:
+              "Translation evaluated at module initialization; move it to render time.",
+            kind: "module-copy",
+          });
+      }
       const jsx = ts.isJsxText(node);
       const str =
         ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node);
@@ -78,6 +101,20 @@ function visitDir(dir) {
   }
 }
 roots.forEach(visitDir);
+if (process.argv.includes("--check")) {
+  // Product handles and example URLs are not translatable interface copy.
+  const allowed = new Map([
+    ["src/features/channels/ui/WelcomeComposerBanner.tsx", "@Fizz"],
+    ["src/features/messages/lib/useLinkEditor.tsx", "https://example.com"],
+  ]);
+  const untranslated = rows.filter(
+    (row) => allowed.get(row.path) !== row.value,
+  );
+  if (untranslated.length) {
+    console.error(JSON.stringify(untranslated, null, 2));
+    process.exitCode = 1;
+  }
+}
 if (process.argv.includes("--json")) console.log(JSON.stringify(rows));
 else
   for (const [value, count] of [

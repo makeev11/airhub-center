@@ -22,12 +22,12 @@ type EditorStroke = {
 };
 
 const PEN_COLORS = [
-  { label: messageText("Red"), value: "#ef4444" },
-  { label: messageText("Yellow"), value: "#f59e0b" },
-  { label: messageText("Green"), value: "#22c55e" },
-  { label: messageText("Blue"), value: "#3b82f6" },
-  { label: messageText("White"), value: "#ffffff" },
-  { label: messageText("Black"), value: "#111111" },
+  { key: "Red", value: "#ef4444" },
+  { key: "Yellow", value: "#f59e0b" },
+  { key: "Green", value: "#22c55e" },
+  { key: "Blue", value: "#3b82f6" },
+  { key: "White", value: "#ffffff" },
+  { key: "Black", value: "#111111" },
 ] as const;
 
 /** Pen stroke width range, in CSS pixels: five whole-pixel slider stops. */
@@ -399,7 +399,9 @@ export function ComposerImageEditor({
           <div className="flex items-center gap-1.5">
             {PEN_COLORS.map((color) => (
               <button
-                aria-label={`${color.label} pen`}
+                aria-label={messageText("{color} pen", {
+                  color: messageText(color.key),
+                })}
                 aria-pressed={activeColor === color.value}
                 className={cn(
                   "flex h-5 w-5 items-center justify-center rounded-full transition-transform",
@@ -412,7 +414,7 @@ export function ComposerImageEditor({
                 <span
                   className={cn(
                     "rounded-full transition-[height,width]",
-                    color.label === "Black" && "ring-1 ring-white/30",
+                    color.key === "Black" && "ring-1 ring-white/30",
                   )}
                   style={{
                     backgroundColor: color.value,

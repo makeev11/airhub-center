@@ -138,6 +138,12 @@ async fn shared_history_never_reads_another_root_with_the_same_connector_identit
 #[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
 async fn shared_staff_classification_rejects_mixed_batches_but_ignores_other_thread_staff() {
     let f = Fixture::new().await;
+    sqlx::query("INSERT INTO users(community_id,pubkey) VALUES($1,$2)")
+        .bind(f.cid())
+        .bind(f.owner.public_key().to_bytes().as_slice())
+        .execute(&f.db.pool)
+        .await
+        .unwrap();
     let connection = f.connection(ConnectionRouting::default()).await;
     let own = f.route(connection.id, 81).await;
     let other = f.route(connection.id, 82).await;
@@ -147,6 +153,10 @@ async fn shared_staff_classification_rejects_mixed_batches_but_ignores_other_thr
         .await
         .unwrap();
     f.insert(connection.id, &other, &other_root, None, Some(82))
+        .await
+        .unwrap();
+    let takeover = f.event(&own, Some(&root), &f.owner, "Пока отвечаю я");
+    f.insert(connection.id, &own, &takeover, Some(&root), None)
         .await
         .unwrap();
     let command = staff_command(

@@ -148,7 +148,7 @@ export default function DiffMessage({
               {messageText("View full diff on")} {getHostname(safeRepoUrl)}
             </a>
           ) : (
-            "View the full diff at the source repository."
+            messageText("View the full diff at the source repository.")
           )}
         </div>
       )}

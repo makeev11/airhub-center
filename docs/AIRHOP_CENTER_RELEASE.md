@@ -83,9 +83,15 @@ demo, backup/restore отдельной preflight-БД и additive migrations 00
 Dockerfile, target `airhop-center-candidate`. Использовать immutable release ID,
 не `latest`. Прежние assets/pilot остаются из точно указанного base image.
 
-Обновлять только demo relay с полной существующей Compose overlay chain.
-Подтвердить image labels, схему БД, доступность сайта и формы, авторизацию и
-реальные отчёты, неизменность production и соседних контейнеров. Лишь затем
+В общем кандидате изменены также shared-thread gateway и контракт Hermes.
+По отдельному разрешению обновлять согласованно только demo relay, Telegram
+gateway и Hermes runtime/ACP/CLI/MCP/persona из того же commit, с полной
+существующей Compose overlay chain. Локальная сборка не создаёт серверные Docker
+образы и не выполняет этот rollout; их нужно собрать из того же source.tgz.
+Старый Hermes или gateway оставлять рядом с новым relay нельзя.
+Подтвердить image labels всех трёх сервисов, схему БД, доступность сайта и формы,
+авторизацию, реальные отчёты и изоляцию двух клиентских тредов; отдельно проверить
+неизменность production и соседних контейнеров. Лишь затем
 сохранить резервную копию установленного app bundle и установить **app из папки
 проверенного кандидата**, а не из изменяемого `desktop/src-tauri/target`.
 Аккаунт, Keychain и данные не удалять. Системные запросы macOS подтверждает сам

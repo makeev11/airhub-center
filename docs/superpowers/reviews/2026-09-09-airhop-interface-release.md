@@ -22,20 +22,45 @@ agent identity presentation in this checkout.
   The database also rejects ordinary role/removal operations on service identities.
 - No harness/provider/model/effort configuration rules changed.
 
-## Verification in progress
+## Verification
 
-Dedicated PostgreSQL regression passed for two-community isolation, canonical
-registration deduplication, inactive service protection and ordinary human removal.
-Desktop unit/type checks and browser regression results are finalized below before
-the candidate is declared built. Screenshots use the E2E native mock bridge; they
-do not constitute native installed-app or real provider acceptance.
+- Desktop unit checkpoint: 4,495 passed. The final reactive-copy additions also have
+  four passing dedicated unit tests, including unchanged authored names and RU/EN
+  participant summaries. Typecheck and desktop checks passed.
+- Browser E2E checkpoint: 28 passed (interface consistency, agent controls, settings
+  localization, client inbox, knowledge workspace and analytics). Final rerun and the
+  full `just ci` log are kept with local candidate verification evidence.
+- Contrast scenarios cover six paired AirHop/Buzz/New Slack themes, normal/hover/
+  active/focus/disabled navigation and destructive employee actions. The screenshot
+  set contains 33 distinct images. Screenshots use the E2E native mock bridge; they
+  do not constitute native installed-app or real provider acceptance.
+- All 60 AirHop database regressions passed (group-directory test first, then the
+  remaining 59 cases). They cover organization isolation, canonical registration
+  deduplication, inactive service protection, human removal, knowledge publication,
+  client routing, scoped Hermes history and semantic staff control. Use a fresh
+  dedicated UTF-8 database: older fixtures retain fixed hosts and global notification
+  queues. Run the group-directory global-horizon test first, then remaining AirHop
+  cases; booking rejection fixtures intentionally leave invalid recurrence rules.
+- The native WebDriver harness was not run: its Docker dependency is not running.
+  No installed application, account, production data or real parent conversations
+  were changed for these tests. Native/provider acceptance remains a release gate.
+
+The copy audit is part of `pnpm check`, including a guard against translating labels
+at module initialization (those labels would not react to a later language switch).
 
 ## Unified-source gate
 
-Read-only demo inspection found deployed runtime recovery da09388809b1, newer than
-this checkout's starting cd845075. The subsequent committed history fix f50d431f31c0
-is also being prepared by the separate Hermes task. Both must be integrated before
-freezing the common candidate, preserving shared-thread isolation in conflict areas.
+Read-only demo inspection first found runtime recovery da09388809b1, newer than this
+checkout's starting cd845075, and subsequently the deployed history fix f50d431f31c0.
+Both are integrated by merge b260fe54. Integration required semantic changes beyond
+resolving textual conflicts: parent claim responses carry the canonical conversation
+ID, ACP sessions follow that ID, history and staff-command batches are fenced to the
+exact shared-channel thread. A later staff message in a different client's thread
+cannot invalidate this client's command. Dedicated two-client regression tests pass.
+No harness/provider/model/effort policy was altered by this integration.
+
+Observed demo base: `airhub-center-relay:airhop-center-0.5.6-f50d431f31c0`, Docker
+config ID `sha256:a7c648e65e863ed32bfefc3e9ad96cb47f848e7687a0ba95e5fa18b361b43e94`.
 An earlier image tag is not evidence that the candidate contains the latest code.
 
 Final release identity must bind the clean committed source, public web, sidecars and

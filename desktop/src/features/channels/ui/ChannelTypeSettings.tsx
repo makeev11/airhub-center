@@ -17,15 +17,15 @@ import {
 import { ChannelTypePicker } from "./ChannelTypePicker";
 
 const EPHEMERAL_TIMEOUT_OPTIONS = [
-  { label: messageText("30 minutes"), seconds: 30 * 60 },
-  { label: messageText("1 hour"), seconds: 60 * 60 },
-  { label: messageText("6 hours"), seconds: 6 * 60 * 60 },
-  { label: messageText("12 hours"), seconds: 12 * 60 * 60 },
-  { label: messageText("1 day"), seconds: 24 * 60 * 60 },
-  { label: messageText("3 days"), seconds: 3 * 24 * 60 * 60 },
-  { label: messageText("7 days"), seconds: DEFAULT_EPHEMERAL_TTL_SECONDS },
-  { label: messageText("14 days"), seconds: 14 * 24 * 60 * 60 },
-  { label: messageText("30 days"), seconds: 30 * 24 * 60 * 60 },
+  { labelKey: "30 minutes", seconds: 30 * 60 },
+  { labelKey: "1 hour", seconds: 60 * 60 },
+  { labelKey: "6 hours", seconds: 6 * 60 * 60 },
+  { labelKey: "12 hours", seconds: 12 * 60 * 60 },
+  { labelKey: "1 day", seconds: 24 * 60 * 60 },
+  { labelKey: "3 days", seconds: 3 * 24 * 60 * 60 },
+  { labelKey: "7 days", seconds: DEFAULT_EPHEMERAL_TTL_SECONDS },
+  { labelKey: "14 days", seconds: 14 * 24 * 60 * 60 },
+  { labelKey: "30 days", seconds: 30 * 24 * 60 * 60 },
 ] as const;
 
 const CHANNEL_TYPE_RESIZE_TRANSITION = {
@@ -66,7 +66,7 @@ export function ChannelTypeSettings({
     ? EPHEMERAL_TIMEOUT_OPTIONS
     : [
         {
-          label: messageText("Current ({duration})", {
+          labelKey: messageText("Current ({duration})", {
             duration: formatTtlDuration(ttlSeconds),
           }),
           seconds: ttlSeconds,
@@ -127,7 +127,9 @@ export function ChannelTypeSettings({
                     variant="ghost"
                   >
                     <span className="text-right">
-                      {selectedTimeoutOption?.label ??
+                      {(selectedTimeoutOption
+                        ? messageText(selectedTimeoutOption.labelKey)
+                        : null) ??
                         messageText("Current ({duration})", {
                           duration: formatTtlDuration(ttlSeconds),
                         })}
@@ -152,7 +154,7 @@ export function ChannelTypeSettings({
                         key={option.seconds}
                         value={String(option.seconds)}
                       >
-                        {option.label}
+                        {messageText(option.labelKey)}
                       </DropdownMenuRadioItem>
                     ))}
                   </DropdownMenuRadioGroup>
