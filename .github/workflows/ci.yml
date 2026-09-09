@@ -738,7 +738,7 @@ jobs:
         run: |
           cargo nextest run \
             --archive-file target/ci/backend-integration-tests.tar.zst \
-            -E 'package(buzz-db) and (test(/airhop::external_conversation::integration_tests/) or test(/airhop::client_threads::tests/) or test(/airhop::knowledge_workspace::tests/) or test(/airhop::principal_directory::tests/) or test(public_booking_is_atomic_idempotent_and_isolates_unverified_identity))' \
+            -E 'package(buzz-db) and (test(/airhop::external_conversation::integration_tests/) or test(/airhop::client_threads::tests/) or test(/airhop::knowledge_workspace::tests/) or test(/airhop::principal_directory::tests/) or test(staff_queue_is_tenant_scoped_prioritized_and_cursor_safe) or test(public_booking_is_atomic_idempotent_and_isolates_unverified_identity))' \
             --run-ignored ignored-only
         env:
           BUZZ_TEST_DATABASE_URL: postgres://buzz:${{ env.BUZZ_TEST_POSTGRES_PASSWORD }}@localhost:5432/buzz

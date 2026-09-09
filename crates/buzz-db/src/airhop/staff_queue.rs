@@ -125,7 +125,8 @@ pub struct StaffBookingQueuePage {
 }
 
 impl Db {
-    /// Reads one authoritative request-workflow booking page for this tenant.
+    /// Reads website and conversation booking requests for this tenant.
+    /// Direct staff enrollments remain outside the request inbox.
     pub async fn list_airhop_staff_booking_queue(
         &self,
         tenant: &TenantContext,
@@ -220,7 +221,7 @@ impl Db {
                     ) AS possible_duplicate
                 ) duplicate_signal
                 WHERE booking.community_id = $1
-                  AND booking.source->>'workflow' = 'request'
+                  AND booking.source->>'workflow' IN ('request', 'conversation')
             )
             SELECT *
             FROM queue_rows
@@ -447,10 +448,14 @@ mod tests {
         let organization_a = Uuid::new_v4();
         let community_b = Uuid::new_v4();
         let organization_b = Uuid::new_v4();
-        let tenant_a = tenant(community_a, "queue-a.test");
-        let tenant_b = tenant(community_b, "queue-b.test");
-        let schedule_a = insert_organization_schedule(&db, community_a, organization_a, "a").await;
-        let schedule_b = insert_organization_schedule(&db, community_b, organization_b, "b").await;
+        let suffix_a = format!("a-{community_a}");
+        let suffix_b = format!("b-{community_b}");
+        let tenant_a = tenant(community_a, &format!("queue-{suffix_a}.test"));
+        let tenant_b = tenant(community_b, &format!("queue-{suffix_b}.test"));
+        let schedule_a =
+            insert_organization_schedule(&db, community_a, organization_a, &suffix_a).await;
+        let schedule_b =
+            insert_organization_schedule(&db, community_b, organization_b, &suffix_b).await;
         let base_time = Utc
             .with_ymd_and_hms(2026, 8, 16, 8, 0, 0)
             .single()
@@ -618,6 +623,62 @@ mod tests {
             .items
             .iter()
             .all(|row| ![pending, transfer, duplicate, completed].contains(&row.booking_id)));
+
+        // Agent-created requests are the same staff workflow, not direct
+        // enrollments. Preserve priorities, filters and tenant isolation.
+        sqlx::query("UPDATE airhop_bookings SET source=jsonb_set(source,'{workflow}','\"conversation\"') WHERE community_id=$1 AND source->>'workflow'='request'")
+            .bind(community_a).execute(&db.pool).await.unwrap();
+        let conversations = db
+            .list_airhop_staff_booking_queue(
+                &tenant_a,
+                StaffBookingQueueFilter {
+                    status: None,
+                    attention_only: false,
+                    limit: 100,
+                    cursor: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            conversations
+                .items
+                .iter()
+                .map(|row| row.booking_id)
+                .collect::<Vec<_>>(),
+            vec![pending, transfer, duplicate, completed]
+        );
+        let pending_conversations = db
+            .list_airhop_staff_booking_queue(
+                &tenant_a,
+                StaffBookingQueueFilter {
+                    status: Some(BookingStatus::PendingConfirmation),
+                    attention_only: true,
+                    limit: 100,
+                    cursor: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(pending_conversations.items.len(), 1);
+        assert_eq!(pending_conversations.items[0].booking_id, pending);
+        assert!(pending_conversations.items[0]
+            .attention_reasons
+            .contains(&StaffBookingAttentionReason::PendingConfirmation));
+        let confirmed_conversations = db
+            .list_airhop_staff_booking_queue(
+                &tenant_a,
+                StaffBookingQueueFilter {
+                    status: Some(BookingStatus::Confirmed),
+                    attention_only: false,
+                    limit: 100,
+                    cursor: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(confirmed_conversations.items.len(), 1);
+        assert_eq!(confirmed_conversations.items[0].booking_id, transfer);
     }
 
     #[derive(Debug)]
