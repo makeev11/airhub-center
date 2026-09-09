@@ -5,9 +5,10 @@ The project is not yet a complete parent-administrator product.
 
 ## Conversational booking implementation, 2026-09-09
 
-Implemented in the working tree; this section alone is **not evidence of a live
-deployment or Telegram acceptance**. Requires migration 0055 and matching relay,
-MCP and parent runtime. The Center card labels now describe creation as well as
+Implemented and deployed to the isolated demo on 2026-09-09 with migration 0055
+and matching relay, MCP and parent runtime. See the [review, deployment evidence
+and current operating instructions](AIRHOP_CONVERSATIONAL_BOOKING_REVIEW_20260909.md).
+This is **not live model/Telegram booking acceptance**. The Center card labels now describe creation as well as
 management, using the existing settings without resetting owner preferences.
 
 - New unverified contacts can collect a durable, versioned draft with real
@@ -38,6 +39,8 @@ Local verification for this implementation:
 - 22 PostgreSQL conversation/handoff regressions passed, including the 13 new
   conversational-booking tests. They use an isolated UTF-8 test database, not
   the demo or a production database.
+- The separate public-booking atomicity/idempotency/identity-isolation regression
+  also passed. Core, CLI and DB unit suites were rerun on the committed source.
 - Core (15), CLI (317), DB unit/lint (189), MCP (109), and relay (912) unit tests
   passed. Relay tests use that explicit local database and run serially because
   some tests exercise global tracing state.

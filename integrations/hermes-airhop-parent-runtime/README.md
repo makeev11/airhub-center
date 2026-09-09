@@ -66,8 +66,9 @@ It still does not grant access to another family's records.
 
 Saving collects a versioned full snapshot without reserving a seat. A ready
 draft returns the exact localized summary that must be delivered unchanged
-through `airhop_send_parent_reply` as the last parent-facing message. Only a direct explicit parent confirmation
-from the authenticated gateway can commit it; the summary expires after 24 hours.
+through `airhop_send_parent_reply` as the last parent-facing message. Only a direct
+explicit parent confirmation from the authenticated gateway can commit it; the
+summary expires after 24 hours.
 Edits or changed lesson conditions require a new summary and confirmation.
 Staff resume is an internal trigger, not parent consent.
 
