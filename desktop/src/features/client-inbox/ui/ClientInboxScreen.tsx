@@ -315,6 +315,28 @@ export function ClientInboxScreen() {
                       ? ` · ${t("Подключение приостановлено", "Connection paused")}`
                       : ""}
                   </p>
+                  <p
+                    className="mt-2 text-sm"
+                    data-testid="client-handler-state"
+                  >
+                    {item.owner === "human"
+                      ? t(
+                          "Диалог у сотрудника. Гермес не отвечает автоматически.",
+                          "A staff member owns this conversation. Hermes will not reply automatically.",
+                        )
+                      : t(
+                          "Диалог у Гермеса. Ответы зависят от доступности агента и подключения.",
+                          "Hermes owns this conversation. Replies depend on agent and connection availability.",
+                        )}
+                  </p>
+                  {!item.threaded && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t(
+                        "Старый формат: отдельный канал клиента. Назначение филиала не переносит переписку; используйте перенос с сохранением архива.",
+                        "Legacy format: a separate client channel. Assigning a branch does not move the history; use migration with archive preservation.",
+                      )}
+                    </p>
+                  )}
                 </div>
                 <Button asChild variant="outline" size="sm">
                   <Link
