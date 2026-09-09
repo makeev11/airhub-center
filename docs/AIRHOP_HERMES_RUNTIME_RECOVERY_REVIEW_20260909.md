@@ -72,13 +72,31 @@ opt-in is AIRHOP_STAFF_INTENT_ENABLED=1; default is off.
 
 Changes are isolated on `codex/hermes-runtime-recovery`; concurrent knowledge
 workspace work and earlier desktop owner-label changes were not included.
-This runtime recovery patch has **not been deployed**. The existing demo relay,
-Hermes, gateway, production services, conversation ownership and bookings were
-not modified during this turn. The previous booking rollout script is pinned to
-an older baseline and must not be reused without updating its guards.
+Deployed to demo on 2026-09-09 at 16:51 UTC after explicit operator approval of
+the destination (46.173.25.23), private-source transfer, backup and demo-only
+rollout. Production and the Telegram gateway were not restarted.
 
-Before rollout: use an isolated reviewed source artifact and verify current
-images/schema/disk headroom,
-back up demo state, deploy relay before runtime, and repeat read-only preflight.
-Live conversational acceptance is distinct from unit/integration success and
-must not create synthetic family records or bookings in the user's conversation.
+- Source commit: `da09388809b1282b1f1f86ffe5e68a0f5d262909`.
+- Relay and runtime release: `airhop-center-0.5.6-da09388809b1`.
+- Source archive SHA-256: `46ec63de40c0a41c27c1aa5f3e080bc71585247082aae37f1b6fe7939ebb32f2`.
+- Server release directory: `/opt/airhop/hermes-booking-da09388809b1`.
+- Backup: `/opt/airhop/backups/demo-before-hermes-booking-da09388809b1`.
+  Database dump was restored into an isolated preflight database and schema 55
+  verified. No live migration, restore or booking operation was performed.
+- Both services healthy; image and live MCP checks passed, with all nine tools
+  directly assembled and the previous three-bridge regression reproduced by
+  the negative control. Public assets, deployment controls and all neighboring
+  container identities/start times matched the pre-rollout snapshot.
+- Runtime opt-in verified: `AIRHOP_STAFF_INTENT_ENABLED=1`; provider credential
+  presence checked without exposing its value. Pilot infrastructure check passed.
+- Server free space after rollout: approximately 4 GiB. No pruning/deletion.
+
+The isolated source commit must be included in subsequent releases; it was not
+merged over concurrent knowledge/client-thread changes in the main worktree.
+The guarded rollout script is now pinned to the previous `097799a4fd61` baseline
+and must not be blindly reused for another release.
+
+Real conversational acceptance still requires a real staff mention and parent
+message. No synthetic messages, families or bookings were created in the user's
+conversation. Server health does not prove desktop interaction performance;
+the previous general UI-latency complaint is not claimed resolved by this rollout.
