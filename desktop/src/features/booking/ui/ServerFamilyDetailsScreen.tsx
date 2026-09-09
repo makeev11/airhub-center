@@ -6,7 +6,6 @@ import {
   Archive,
   AlertTriangle,
   CalendarDays,
-  Database,
   LoaderCircle,
   MessageCircleCheck,
   Pencil,
@@ -240,20 +239,18 @@ function FamilyContent({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Badge variant="outline">
-          <Database className="mr-1 h-3 w-3" />
-          {messages.familySourceBookingCore}
-        </Badge>
-      </div>
-      <Alert>
-        <AlertDescription>{messages.familyServerReadOnly}</AlertDescription>
-      </Alert>
       {detail.hasPendingDuplicate ? (
         <Alert>
           <AlertTitle>{messages.familyPossibleDuplicate}</AlertTitle>
           <AlertDescription>
             {messages.requestPossibleDuplicate}
+            <Button
+              variant="outline"
+              className="mt-2 block"
+              onClick={() => void navigate({ to: "/booking/clients" })}
+            >
+              {messages.navClients}
+            </Button>
           </AlertDescription>
         </Alert>
       ) : null}

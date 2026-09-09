@@ -65,6 +65,8 @@ struct PublicBookingRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PublicApplicantRequest {
     parent_name: String,
+    #[serde(default)]
+    parent_last_name: Option<String>,
     phone: String,
     child_name: String,
     child_birth_date: NaiveDate,
@@ -671,6 +673,11 @@ pub(crate) async fn get_public_management_card(
         .ok_or_else(invalid_management_token)?;
     let mut response = serde_json::to_value(public_management_card_response(card))
         .map_err(|_| internal_failure())?;
+    response["confirmationChannels"] = json!(state
+        .db
+        .airhop_booking_confirmation_channels(&tenant, credential)
+        .await
+        .map_err(map_public_management_error)?);
     response["telegramConnected"] = json!(state
         .db
         .is_airhop_booking_telegram_connected(&tenant, credential)
@@ -898,9 +905,20 @@ pub(crate) async fn create_public_booking(
     let input = CreatePublicBookingInput {
         lesson_ref: request.lesson_ref,
         applicant: PublicBookingApplicant {
-            parent_name: request.applicant.parent_name,
-            parent_first_name: None,
-            parent_last_name: None,
+            parent_name: match &request.applicant.parent_last_name {
+                Some(last_name) => format!(
+                    "{} {}",
+                    request.applicant.parent_name.trim(),
+                    last_name.trim()
+                ),
+                None => request.applicant.parent_name.clone(),
+            },
+            parent_first_name: request
+                .applicant
+                .parent_last_name
+                .as_ref()
+                .map(|_| request.applicant.parent_name),
+            parent_last_name: request.applicant.parent_last_name,
             phone_normalized,
             phone_display: request.applicant.phone,
             child_name: request.applicant.child_name,
@@ -1087,7 +1105,20 @@ async fn apply_public_management_http_action(
         .map_err(map_public_management_error)?;
     let mut response = serde_json::to_value(public_management_card_response(card))
         .map_err(|_| internal_failure())?;
-    if action_name == "contact_channel" && response["preferredContactChannel"] == "telegram" {
+    response["confirmationChannels"] = json!(state
+        .db
+        .airhop_booking_confirmation_channels(&tenant, credential)
+        .await
+        .map_err(map_public_management_error)?);
+    response["telegramConnected"] = json!(state
+        .db
+        .is_airhop_booking_telegram_connected(&tenant, credential)
+        .await
+        .map_err(map_public_management_error)?);
+    if action_name == "contact_channel"
+        && response["preferredContactChannel"] == "telegram"
+        && response["telegramConnected"] != true
+    {
         let material = tenant_keyed_digest(
             config.index_key(),
             &community_id,
@@ -1727,6 +1758,23 @@ const fn booking_status_str(status: BookingStatus) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_applicant_accepts_separate_surname_and_legacy_requests() {
+        let mut body = json!({
+            "parentName": "Мария", "phone": "+79991234567", "childName": "Лев",
+            "childBirthDate": "2021-08-01", "consentAccepted": true,
+            "consentPolicyVersion": "public-booking-v1"
+        });
+        let legacy: PublicApplicantRequest =
+            serde_json::from_value(body.clone()).expect("legacy request");
+        assert!(legacy.parent_last_name.is_none());
+        body["parentLastName"] = json!("Иванова");
+        let structured: PublicApplicantRequest =
+            serde_json::from_value(body).expect("structured request");
+        assert_eq!(structured.parent_name, "Мария");
+        assert_eq!(structured.parent_last_name.as_deref(), Some("Иванова"));
+    }
 
     #[test]
     fn corrupt_optional_analytics_does_not_invalidate_booking() {

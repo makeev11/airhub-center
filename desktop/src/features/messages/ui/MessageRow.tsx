@@ -32,6 +32,8 @@ import { KIND_STREAM_MESSAGE_DIFF } from "@/shared/constants/kinds";
 import { getConfigNudgeAuthorPubkey } from "@/features/messages/ui/configNudgeAuthPubkey";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { useClientChannel } from "@/features/client-inbox/data/useClientChannel";
+import { clientMessagePresentation } from "@/features/client-inbox/data/clientPresentation";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { useChannelNavigation } from "@/shared/context/ChannelNavigationContext";
 import { parseImetaTags } from "@/shared/ui/markdown/parseImeta";
@@ -78,7 +80,7 @@ export const MessageRow = React.memo(
     isContinuation = false,
     isUnread,
     layoutVariant = "default",
-    message,
+    message: sourceMessage,
     onCollapseDepthGuide,
     onCollapseDepthGuideHoverChange,
     onCollapseDescendants,
@@ -147,6 +149,28 @@ export const MessageRow = React.memo(
     videoReviewContext?: VideoReviewContext;
   }) {
     useMessengerCopy();
+    const clientChannel = useClientChannel(
+      channelId,
+      sourceMessage.rootId ?? sourceMessage.id,
+    );
+    const clientPresentation = clientMessagePresentation(
+      clientChannel.data?.items ?? [],
+      sourceMessage,
+    );
+    const systemNotice = Boolean(
+      clientPresentation &&
+        clientChannel.data?.systemPubkey &&
+        sourceMessage.signerPubkey === clientChannel.data.systemPubkey &&
+        sourceMessage.tags?.some(
+          (tag) => tag[0] === "airhop-internal" && tag[1] === "client-routing",
+        ),
+    );
+    const presentedAuthor = systemNotice
+      ? "Система AirHop"
+      : clientPresentation?.parentLabel;
+    const message = presentedAuthor
+      ? { ...sourceMessage, author: presentedAuthor, avatarUrl: null }
+      : sourceMessage;
     // Keep the transient send state with its timestamp rather than collapsing
     // it into a grouped message row with no header.
     const isDisplayedAsContinuation = isContinuation && !message.pending;
@@ -311,6 +335,34 @@ export const MessageRow = React.memo(
       message.tags?.find((tag) => tag[0] === name)?.[1];
 
     const renderBody = () => {
+      if (clientPresentation?.isRoot) {
+        return (
+          <div
+            className="rounded-xl border bg-muted/30 p-3"
+            data-testid="client-conversation-card"
+          >
+            <p className="text-base font-semibold">
+              {clientPresentation.title}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {clientPresentation.conversation.provider} ·{" "}
+              {clientPresentation.conversation.branchName ??
+                "Филиал ещё не выбран"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {clientPresentation.conversation.owner === "hermes"
+                ? "Диалог у Гермеса"
+                : "Диалог у сотрудника"}
+            </p>
+            {clientPresentation.parentLabel &&
+            !/^\/start(?:\s|$)/.test(sourceMessage.body.trim()) ? (
+              <p className="mt-2 whitespace-pre-wrap text-base">
+                {sourceMessage.body}
+              </p>
+            ) : null}
+          </div>
+        );
+      }
       switch (message.kind) {
         case KIND_STREAM_MESSAGE_DIFF:
           return (
@@ -450,7 +502,7 @@ export const MessageRow = React.memo(
 
     const avatarGutterNode = isDisplayedAsContinuation ? (
       continuationTimestampGutter
-    ) : message.pubkey ? (
+    ) : message.pubkey && !presentedAuthor ? (
       <UserProfilePopover
         pubkey={message.pubkey}
         role={profilePopoverRole}
@@ -560,7 +612,7 @@ export const MessageRow = React.memo(
 
     const headerNode = isDisplayedAsContinuation ? null : (
       <MessageHeaderRow>
-        {message.pubkey ? (
+        {message.pubkey && !presentedAuthor ? (
           <UserProfilePopover
             pubkey={message.pubkey}
             role={profilePopoverRole}

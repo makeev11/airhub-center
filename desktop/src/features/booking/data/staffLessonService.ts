@@ -295,7 +295,7 @@ export class HttpStaffLessonService implements StaffLessonService {
         }),
       )
       .min(1)
-      .max(7)
+      .max(21)
       .safeParse(input.schedule);
     if (
       !childId.success ||

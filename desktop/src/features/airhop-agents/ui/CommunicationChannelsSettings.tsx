@@ -551,6 +551,7 @@ export function CommunicationChannelsSettings({
   const saveConnection = useMutation({
     mutationFn: client.putConnection.bind(client),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["channels"] });
       await queryClient.invalidateQueries({
         queryKey: airhopConnectionsQueryKey,
       });
@@ -566,6 +567,7 @@ export function CommunicationChannelsSettings({
       routing: ConnectionRouting;
     }) => client.connectTelegram(token, routing),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["channels"] });
       await queryClient.invalidateQueries({
         queryKey: airhopConnectionsQueryKey,
       });

@@ -2,6 +2,7 @@ import type * as React from "react";
 
 import type { PublicBookingAppearance } from "@/features/booking/model/bookingCore";
 import { cn } from "@/shared/lib/cn";
+import "./public-booking.css";
 
 type PublicBookingThemeStyle = React.CSSProperties &
   Record<`--${string}`, string>;

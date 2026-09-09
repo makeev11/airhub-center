@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Send } from "lucide-react";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 
 import { getPresenceLabel } from "@/features/presence/lib/presence";
@@ -94,7 +95,7 @@ export function SidebarProfileCard({
         aria-hidden="true"
         className="flex w-3.5 shrink-0 items-center justify-center text-2xs"
       >
-        <span className="-translate-y-px leading-normal">🐝</span>
+        <Send className="h-3.5 w-3.5" />
       </span>
       <span className="truncate">{communityLabel}</span>
     </span>

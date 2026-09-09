@@ -6,6 +6,61 @@ use airhop_core::client_conversations::BranchResponsiblesCommand;
 
 mod runtime_scope_tests;
 
+#[tokio::test]
+#[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
+async fn visible_root_filter_is_exact_and_retains_channel_permissions() {
+    let f = Fixture::new().await;
+    let connection = f.connection(ConnectionRouting::default()).await;
+    let route = f.route(connection.id, 71).await;
+    let root = f.event(&route, None, &f.connector, "/start");
+    f.insert(connection.id, &route, &root, None, Some(71))
+        .await
+        .unwrap();
+    let filter = ClientInboxFilter {
+        channel_id: Some(route.channel_id),
+        root_ids: Some(root.id.to_hex()),
+        ..Default::default()
+    };
+    let result =
+        f.db.client_inbox(&f.tenant, &f.owner.public_key().to_bytes(), &filter)
+            .await
+            .unwrap();
+    assert_eq!(result["items"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        result["items"][0]["connectorPubkey"],
+        f.connector.public_key().to_hex()
+    );
+    let wrong_channel = ClientInboxFilter {
+        channel_id: Some(Uuid::new_v4()),
+        ..filter
+    };
+    assert!(f
+        .db
+        .client_inbox(&f.tenant, &f.owner.public_key().to_bytes(), &wrong_channel)
+        .await
+        .unwrap()["items"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    for roots in [
+        "not-an-id".to_owned(),
+        vec![root.id.to_hex(); 101].join(","),
+    ] {
+        assert!(f
+            .db
+            .client_inbox(
+                &f.tenant,
+                &f.owner.public_key().to_bytes(),
+                &ClientInboxFilter {
+                    root_ids: Some(roots),
+                    ..Default::default()
+                }
+            )
+            .await
+            .is_err());
+    }
+}
+
 struct Fixture {
     db: Db,
     tenant: TenantContext,
@@ -19,7 +74,7 @@ struct Fixture {
 
 #[tokio::test]
 #[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
-async fn inaccessible_notification_defers_without_blocking_other_clients() {
+async fn inbound_messages_do_not_create_alerts_and_legacy_jobs_are_retired() {
     let f = Fixture::new().await;
     let connection = f
         .connection(ConnectionRouting {
@@ -32,14 +87,28 @@ async fn inaccessible_notification_defers_without_blocking_other_clients() {
     f.insert(connection.id, &route, &root, None, Some(91))
         .await
         .unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM airhop_client_inbound_notifications WHERE community_id=$1",
+    )
+    .bind(f.cid())
+    .fetch_one(&f.db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        count, 0,
+        "new incoming messages must not enqueue duplicate alerts"
+    );
+    // Simulate a deferred job left behind by the previous release.
+    sqlx::query("INSERT INTO airhop_client_inbound_notifications(community_id,organization_id,conversation_id,source_event_id) VALUES($1,$2,$3,$4)")
+        .bind(f.cid()).bind(f.org).bind(route.conversation_id).bind(root.id.as_bytes().as_slice()).execute(&f.db.pool).await.unwrap();
     sqlx::query("UPDATE channel_members SET removed_at=now() WHERE community_id=$1 AND channel_id=$2 AND pubkey=$3")
         .bind(f.cid()).bind(route.channel_id).bind(f.owner.public_key().to_bytes().as_slice()).execute(&f.db.pool).await.unwrap();
     f.db.prepare_client_inbound_notifications(&f.relay)
         .await
         .unwrap();
-    let deferred: bool = sqlx::query_scalar("SELECT next_attempt_at>now() AND notification_event_id IS NULL FROM airhop_client_inbound_notifications WHERE community_id=$1 AND source_event_id=$2")
+    let retired: bool = sqlx::query_scalar("SELECT notification_dispatched_at IS NOT NULL AND notification_event_id IS NULL FROM airhop_client_inbound_notifications WHERE community_id=$1 AND source_event_id=$2")
         .bind(f.cid()).bind(root.id.as_bytes().as_slice()).fetch_one(&f.db.pool).await.unwrap();
-    assert!(deferred);
+    assert!(retired);
     sqlx::query("UPDATE channel_members SET removed_at=NULL WHERE community_id=$1 AND channel_id=$2 AND pubkey=$3")
         .bind(f.cid()).bind(route.channel_id).bind(f.owner.public_key().to_bytes().as_slice()).execute(&f.db.pool).await.unwrap();
     let next = f.route(connection.id, 92).await;
@@ -55,7 +124,7 @@ async fn inaccessible_notification_defers_without_blocking_other_clients() {
             .await
             .unwrap()
             .len(),
-        1
+        0
     );
     sqlx::query("UPDATE airhop_client_inbound_notifications SET next_attempt_at=now() WHERE community_id=$1 AND source_event_id=$2")
         .bind(f.cid()).bind(root.id.as_bytes().as_slice()).execute(&f.db.pool).await.unwrap();
@@ -67,7 +136,7 @@ async fn inaccessible_notification_defers_without_blocking_other_clients() {
             .await
             .unwrap()
             .len(),
-        2
+        0
     );
 }
 impl Fixture {
@@ -731,7 +800,11 @@ async fn parent_context_branch_evidence_threaded_reply_and_durable_notices() {
             .into_iter()
             .filter(|n| n.community_id == f.tenant.community())
             .collect::<Vec<_>>();
-    assert_eq!(notices.len(), 3);
+    assert_eq!(
+        notices.len(),
+        1,
+        "only the explicit branch assignment notice remains"
+    );
     for notice in &notices {
         let event =
             f.db.get_event_by_id(f.tenant.community(), &notice.event_id)
@@ -755,7 +828,7 @@ async fn parent_context_branch_evidence_threaded_reply_and_durable_notices() {
             .into_iter()
             .filter(|n| n.community_id == f.tenant.community())
             .count(),
-        3
+        1
     );
     for notice in notices {
         f.db.complete_client_notification(f.tenant.community(), &notice.event_id)

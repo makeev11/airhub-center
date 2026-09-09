@@ -1,4 +1,9 @@
 import * as React from "react";
+import {
+  groupAgeYears,
+  groupAgeMonths,
+  hasPreciseLegacyAge,
+} from "@/features/booking/lib/groupAgeYears";
 
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
 import {
@@ -48,8 +53,8 @@ type GroupForm = {
   branchId: string;
   roomId: string;
   teacherIds: string[];
-  minAgeMonths: string;
-  maxAgeMonths: string;
+  minAgeYears: string;
+  maxAgeYears: string;
   capacity: string;
   trialMode: "inherit" | "disabled" | "free" | "paid";
   currency: string;
@@ -148,10 +153,8 @@ function formFromGroup(
       "",
     roomId: group?.roomId ?? "",
     teacherIds: [...(group?.teacherIds ?? [])],
-    minAgeMonths:
-      group?.minAgeMonths === undefined ? "" : String(group.minAgeMonths),
-    maxAgeMonths:
-      group?.maxAgeMonths === undefined ? "" : String(group.maxAgeMonths),
+    minAgeYears: groupAgeYears(group?.minAgeMonths),
+    maxAgeYears: groupAgeYears(group?.maxAgeMonths),
     capacity: group?.capacity === undefined ? "" : String(group.capacity),
     trialMode: group?.trialPolicyOverride?.mode ?? "inherit",
     currency,
@@ -241,8 +244,16 @@ function buildEntities(
   const scheduleErrors: Record<string, string> = {};
   if (!form.name.trim()) errors.name = "required";
   if (!form.branchId) errors.branch = "required";
-  const minAgeMonths = optionalInteger(form.minAgeMonths, false);
-  const maxAgeMonths = optionalInteger(form.maxAgeMonths, false);
+  const minAgeMonths = groupAgeMonths(
+    form.minAgeYears,
+    false,
+    freshGroup?.minAgeMonths,
+  );
+  const maxAgeMonths = groupAgeMonths(
+    form.maxAgeYears,
+    true,
+    freshGroup?.maxAgeMonths,
+  );
   const capacity = optionalInteger(form.capacity, true);
   if (Number.isNaN(minAgeMonths)) errors.minAge = "invalid";
   if (Number.isNaN(maxAgeMonths)) errors.maxAge = "invalid";
@@ -659,13 +670,20 @@ export function GroupFormDialog({
                   onChange={(event) =>
                     updateForm((current) => ({
                       ...current,
-                      minAgeMonths: event.target.value,
+                      minAgeYears: event.target.value,
                     }))
                   }
                   step="1"
                   type="number"
-                  value={form.minAgeMonths}
+                  value={form.minAgeYears}
                 />
+                {hasPreciseLegacyAge(freshGroup?.minAgeMonths, false) ? (
+                  <p className="text-xs text-muted-foreground">
+                    {workspace.organization.locale.startsWith("ru")
+                      ? `Точная сохранённая граница: ${Math.floor((freshGroup?.minAgeMonths ?? 0) / 12)} г. ${(freshGroup?.minAgeMonths ?? 0) % 12} мес. Она сохранится, если не менять возраст.`
+                      : `Saved exact limit: ${Math.floor((freshGroup?.minAgeMonths ?? 0) / 12)} years ${(freshGroup?.minAgeMonths ?? 0) % 12} months. Preserved unless the age changes.`}
+                  </p>
+                ) : null}
               </Field>
               <Field
                 error={errors.maxAge}
@@ -680,13 +698,20 @@ export function GroupFormDialog({
                   onChange={(event) =>
                     updateForm((current) => ({
                       ...current,
-                      maxAgeMonths: event.target.value,
+                      maxAgeYears: event.target.value,
                     }))
                   }
                   step="1"
                   type="number"
-                  value={form.maxAgeMonths}
+                  value={form.maxAgeYears}
                 />
+                {hasPreciseLegacyAge(freshGroup?.maxAgeMonths, true) ? (
+                  <p className="text-xs text-muted-foreground">
+                    {workspace.organization.locale.startsWith("ru")
+                      ? `Точная сохранённая граница: ${Math.floor((freshGroup?.maxAgeMonths ?? 0) / 12)} г. ${(freshGroup?.maxAgeMonths ?? 0) % 12} мес. Она сохранится, если не менять возраст.`
+                      : `Saved exact limit: ${Math.floor((freshGroup?.maxAgeMonths ?? 0) / 12)} years ${(freshGroup?.maxAgeMonths ?? 0) % 12} months. Preserved unless the age changes.`}
+                  </p>
+                ) : null}
               </Field>
             </div>
             <Field label={messages.groupTeachers}>

@@ -52,6 +52,8 @@ export type PublicBookingMessages = {
   contactDescription: string;
   parentName: string;
   parentNamePlaceholder: string;
+  parentLastName: string;
+  parentLastNamePlaceholder: string;
   phone: string;
   phonePlaceholder: string;
   childName: string;
@@ -75,8 +77,6 @@ export type PublicBookingMessages = {
   submitting: string;
   slotUnavailableTitle: string;
   slotUnavailableDescription: string;
-  ageMismatchTitle: string;
-  ageMismatchDescription: string;
   loadErrorTitle: string;
   loadErrorDescription: string;
   genericErrorTitle: string;
@@ -185,9 +185,11 @@ const ruMessages: PublicBookingMessages = {
   groupFullNotice: "Ближайшие занятия заполнены",
   contactTitle: "Контакты для заявки",
   contactDescription:
-    "Точная дата рождения нужна для окончательной проверки возраста.",
+    "Дата рождения поможет педагогу лучше подготовиться к знакомству.",
   parentName: "Имя родителя",
   parentNamePlaceholder: "Например, Мария",
+  parentLastName: "Фамилия родителя",
+  parentLastNamePlaceholder: "Например, Иванова",
   phone: "Телефон",
   phonePlaceholder: "+7 999 123-45-67",
   childName: "Имя ребёнка",
@@ -197,6 +199,7 @@ const ruMessages: PublicBookingMessages = {
     "Я согласен на обработку данных для подбора занятия и связи по этой заявке",
   applicantErrors: {
     parent_name_required: "Укажите имя родителя.",
+    parent_last_name_required: "Укажите фамилию родителя.",
     phone_invalid: "Укажите корректный телефон.",
     child_name_required: "Укажите имя ребёнка.",
     birth_date_invalid: "Укажите корректную дату рождения.",
@@ -205,7 +208,7 @@ const ruMessages: PublicBookingMessages = {
   },
   previewTitle: "Проверьте заявку",
   previewDescription:
-    "Место будет временно занято до решения сотрудника, но не позже начала занятия.",
+    "Проверьте данные. После отправки мы покажем, как подтвердить запись и оставаться с нами на связи.",
   center: "Центр",
   group: "Направление",
   dateAndTime: "Дата и время",
@@ -221,9 +224,6 @@ const ruMessages: PublicBookingMessages = {
   slotUnavailableTitle: "Это занятие уже недоступно",
   slotUnavailableDescription:
     "Место мог занять другой родитель. Выберите другой вариант.",
-  ageMismatchTitle: "Точная дата не подходит по возрасту",
-  ageMismatchDescription:
-    "Мы не создали заявку. Вернитесь к списку и выберите другое занятие.",
   loadErrorTitle: "Онлайн-запись пока недоступна",
   loadErrorDescription:
     "Не удалось загрузить филиалы и расписание. Обновите страницу чуть позже.",
@@ -232,10 +232,10 @@ const ruMessages: PublicBookingMessages = {
   successTitle: "Заявка ожидает подтверждения",
   successDescription:
     "Сотрудник центра проверит заявку. До подтверждения это ещё не окончательная запись.",
-  openManagementCard: "Открыть персональную карточку",
-  contactChannelTitle: "Как удобнее связаться",
+  openManagementCard: "Посмотреть мою запись",
+  contactChannelTitle: "Подтвердите запись в мессенджере",
   contactChannelDescription:
-    "Выберите предпочтительный канал. Подключение бота на этом стенде не выполняется.",
+    "Подтвердите запись и оставайтесь с нами на связи.",
   contactChannelSaved: (channel) => `Предпочтительный канал: ${channel}`,
   contactChannelHonesty:
     "Выбор сохранён, но сообщение в мессенджер ещё не отправлено.",

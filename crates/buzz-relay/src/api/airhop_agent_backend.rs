@@ -22,7 +22,9 @@ use buzz_db::airhop::external_conversation::{
 use buzz_db::airhop::family_detail::StaffFamilyDetail;
 use buzz_db::airhop::knowledge::ParentKnowledgeScope;
 use buzz_db::airhop::public_management::{AgentFamilyManagementCommand, PublicManagementAction};
-use buzz_db::airhop::public_read::{PublicBookingAgeFilter, PublicBookingOccurrenceFilters};
+use buzz_db::airhop::public_read::{
+    PublicBookingAgeFilter, PublicBookingOccurrence, PublicBookingOccurrenceFilters,
+};
 use chrono::{DateTime, Duration, Utc};
 use nostr::{Event, EventBuilder, Kind, PublicKey, Tag};
 use serde::{Deserialize, Serialize};
@@ -1153,25 +1155,31 @@ async fn list_booking_options(
                 "name": branch.name,
                 "address": branch.address,
             })).collect::<Vec<_>>(),
-            "occurrences": occurrences.iter().map(|occurrence| json!({
-                "lessonRef": occurrence.lesson_ref,
-                "groupId": occurrence.group_id,
-                "groupName": occurrence.group_name,
-                "groupDescription": occurrence.group_description,
-                "branchId": occurrence.branch_id,
-                "branchName": occurrence.branch_name,
-                "branchAddress": occurrence.branch_address,
-                "roomName": occurrence.room_name,
-                "teacherNames": occurrence.teacher_names,
-                "date": occurrence.date,
-                "startTime": occurrence.start_time.format("%H:%M").to_string(),
-                "endTime": occurrence.end_time.format("%H:%M").to_string(),
-                "trialPolicy": occurrence.trial_policy,
-                "remaining": occurrence.remaining,
-                "available": occurrence.available,
-            })).collect::<Vec<_>>(),
+            "occurrences": occurrences.iter().map(parent_booking_option).collect::<Vec<_>>(),
         }),
     ))
+}
+
+fn parent_booking_option(occurrence: &PublicBookingOccurrence) -> Value {
+    json!({
+        "lessonRef": occurrence.lesson_ref,
+        "groupId": occurrence.group_id,
+        "groupName": occurrence.group_name,
+        "groupDescription": occurrence.group_description,
+        "branchId": occurrence.branch_id,
+        "branchName": occurrence.branch_name,
+        "branchAddress": occurrence.branch_address,
+        "roomName": occurrence.room_name,
+        "teacherNames": occurrence.teacher_names,
+        "date": occurrence.date,
+        "startTime": occurrence.start_time.format("%H:%M").to_string(),
+        "endTime": occurrence.end_time.format("%H:%M").to_string(),
+        "trialPolicy": occurrence.trial_policy,
+        "capacity": occurrence.capacity,
+        "occupied": occurrence.occupied,
+        "remaining": occurrence.remaining,
+        "available": occurrence.available,
+    })
 }
 
 async fn search_knowledge(
@@ -1867,6 +1875,52 @@ fn map_ingest_error(error: crate::handlers::ingest::IngestError) -> (StatusCode,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parent_booking_option_preserves_authoritative_seat_counts() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 9, 12).expect("date");
+        let mut occurrence = PublicBookingOccurrence {
+            lesson_ref: airhop_core::StableLessonReference {
+                recurrence_rule_id: Uuid::nil(),
+                original_date: date,
+            },
+            group_id: Uuid::nil(),
+            group_name: "Art".into(),
+            group_description: None,
+            min_age_months: None,
+            max_age_months: None,
+            branch_id: Uuid::nil(),
+            branch_name: "Workshop".into(),
+            branch_address: "Address".into(),
+            room_name: None,
+            teacher_names: vec![],
+            date,
+            start_time: chrono::NaiveTime::from_hms_opt(11, 0, 0).expect("time"),
+            end_time: chrono::NaiveTime::from_hms_opt(12, 0, 0).expect("time"),
+            trial_policy: airhop_core::TrialPolicy::Free,
+            capacity: Some(10),
+            occupied: 6,
+            remaining: Some(4),
+            available: true,
+        };
+        for (capacity, occupied, remaining, available) in [
+            (Some(10), 6, Some(4), true),
+            (Some(10), 10, Some(0), false),
+            (Some(10), 12, Some(0), false),
+            (None, 6, None, true),
+        ] {
+            occurrence.capacity = capacity;
+            occurrence.occupied = occupied;
+            occurrence.remaining = remaining;
+            occurrence.available = available;
+            let result = parent_booking_option(&occurrence);
+            assert_eq!(result["capacity"], json!(capacity));
+            assert_eq!(result["occupied"], json!(occupied));
+            assert_eq!(result["remaining"], json!(remaining));
+            assert_eq!(result["available"], json!(available));
+            assert_eq!(result["lessonRef"]["originalDate"], "2026-09-12");
+        }
+    }
 
     #[test]
     fn unverified_parent_has_no_family_capabilities() {

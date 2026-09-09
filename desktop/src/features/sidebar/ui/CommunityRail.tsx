@@ -212,6 +212,8 @@ function CommunityDragOverlay({ iconUrl }: { iconUrl: string | null }) {
   );
 }
 
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
+
 function SortableCommunityButton({
   community,
   activeCommunityId,
@@ -233,6 +235,7 @@ function SortableCommunityButton({
   onMarkAllRead: (community: Community) => void;
   onSetEditingCommunity: (community: Community) => void;
 }) {
+  const isRussian = useAirHopLocale() === "ru-RU";
   const {
     attributes,
     listeners,
@@ -260,7 +263,7 @@ function SortableCommunityButton({
           <>
             <ContextMenuItem onClick={() => onMarkAllRead(community)}>
               <CheckCheck className="h-4 w-4" />
-              Mark all as read
+              {isRussian ? "Отметить всё прочитанным" : "Mark all as read"}
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
@@ -269,17 +272,17 @@ function SortableCommunityButton({
               }}
             >
               <Link2 className="h-4 w-4" />
-              Copy community URL
+              {isRussian ? "Скопировать ссылку центра" : "Copy community URL"}
             </ContextMenuItem>
             {canInvite ? (
               <ContextMenuItem onClick={onInvite}>
                 <Ticket className="h-4 w-4" />
-                Invite to community
+                {isRussian ? "Пригласить в центр" : "Invite to community"}
               </ContextMenuItem>
             ) : null}
             <ContextMenuItem onClick={() => onSetEditingCommunity(community)}>
               <Settings2 className="h-4 w-4" />
-              Community settings
+              {isRussian ? "Настройки центра" : "Community settings"}
             </ContextMenuItem>
           </>
         }

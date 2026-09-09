@@ -10,6 +10,10 @@ export const clientSchema = z.object({
     .nullable(),
   threaded: z.boolean(),
   title: z.string(),
+  parentName: z.string().nullable().optional(),
+  connectorPubkey: z.string().nullable().optional(),
+  hermesPubkey: z.string().nullable().optional(),
+  hermesInChannel: z.boolean().optional(),
   branchId: z.string().uuid().nullable(),
   branchName: z.string().nullable(),
   assignee: z.string().nullable(),
@@ -27,6 +31,7 @@ export const clientSchema = z.object({
   legacyChannelId: z.string().uuid().nullable(),
 });
 export const inboxSchema = z.object({
+  systemPubkey: z.string().optional(),
   communityId: z.string().uuid(),
   viewerPubkey: z.string(),
   canManageRouting: z.boolean(),

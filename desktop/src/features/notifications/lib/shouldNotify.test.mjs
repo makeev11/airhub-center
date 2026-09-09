@@ -81,6 +81,40 @@ test("top-level message with unrelated p-tag notifies", () => {
   );
 });
 
+test("client inbound notifies explicit followers and respects mute", () => {
+  const inbound = makeEvent([
+    ["airhop-direction", "inbound"],
+    rootTag(ROOT_ID),
+    replyTag(ROOT_ID),
+  ]);
+  const following = opts({ followedRootIds: new Set([ROOT_ID]) });
+  assert.equal(shouldNotifyForEvent(inbound, PUBKEY, following), true);
+  assert.equal(shouldNotifyForEvent(inbound, PUBKEY, opts()), false);
+  assert.equal(
+    shouldNotifyForEvent(inbound, PUBKEY, {
+      ...following,
+      mutedRootIds: new Set([ROOT_ID]),
+    }),
+    false,
+  );
+  assert.equal(
+    shouldNotifyForEvent(inbound, PUBKEY, {
+      ...following,
+      channelId: "clients",
+      mutedChannelIds: new Set(["clients"]),
+    }),
+    false,
+  );
+  assert.equal(
+    shouldNotifyForEvent(
+      makeEvent([["airhop-direction", "inbound"]]),
+      PUBKEY,
+      following,
+    ),
+    false,
+  );
+});
+
 test("broadcast reply to unrelated thread notifies", () => {
   const event = makeEvent([replyTag(ROOT_ID), broadcastTag()]);
   assert.equal(shouldNotifyForEvent(event, PUBKEY, opts()), true);

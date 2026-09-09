@@ -25,5 +25,9 @@ function activeDemoStorageScope(): string {
  */
 export function createDemoPublicBookingService(): PublicBookingService | null {
   const repository = createDemoBookingRepository(activeDemoStorageScope());
-  return repository ? new WorkspacePublicBookingService(repository) : null;
+  return repository
+    ? Object.assign(new WorkspacePublicBookingService(repository), {
+        confirmationPreview: true,
+      })
+    : null;
 }

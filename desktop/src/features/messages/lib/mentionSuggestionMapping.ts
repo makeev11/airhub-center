@@ -26,6 +26,7 @@ export function mapMentionCandidateToSuggestion(opts: {
   currentPubkey?: string | null;
   ownerProfiles?: UserProfileLookup;
   profiles?: UserProfileLookup;
+  membershipResolved?: boolean;
 }): MentionSuggestion {
   const {
     candidate,
@@ -57,6 +58,7 @@ export function mapMentionCandidateToSuggestion(opts: {
     notInChannel:
       candidate.kind !== "team" &&
       channelType !== "dm" &&
+      opts.membershipResolved !== false &&
       candidate.isMember === false,
     ownerLabel,
     role: !candidate.isAgent && candidate.role === "admin" ? "admin" : null,

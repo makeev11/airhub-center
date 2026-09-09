@@ -3,7 +3,6 @@ import test from "node:test";
 
 import { InMemoryBookingRepository } from "./bookingRepository.ts";
 import {
-  PublicBookingAgeMismatchError,
   PublicBookingTransitionError,
   PublicBookingUnavailableError,
   PublicBookingValidationError,
@@ -275,20 +274,19 @@ test("the final capacity place is won atomically across service instances", asyn
   assert.equal((await repository.load()).bookings.length, 1);
 });
 
-test("create revalidates exact age, phone and consent", async () => {
+test("create accepts an age outside the recommended range and validates contact data", async () => {
   const repository = new InMemoryBookingRepository(DEMO_BOOKING_WORKSPACE);
   const service = createService(repository, "validate");
   const occurrence = await limitedOccurrence(service);
 
-  await assert.rejects(
-    service.createBooking(
-      command(occurrence.lessonRef, {
-        applicant: applicant({ childBirthDate: "2010-08-10" }),
-        idempotencyKey: "public-booking-age-mismatch",
-      }),
-    ),
-    PublicBookingAgeMismatchError,
+  const result = await service.createBooking(
+    command(occurrence.lessonRef, {
+      applicant: applicant({ childBirthDate: "2010-08-10" }),
+      idempotencyKey: "public-booking-age-mismatch",
+    }),
   );
+  assert.equal(result.card.status, "pending_confirmation");
+  assert.equal((await repository.load()).bookings.length, 1);
   await assert.rejects(
     service.createBooking(
       command(occurrence.lessonRef, {
@@ -348,4 +346,29 @@ test("cancelled bookings cannot request a transfer", async () => {
     service.requestTransfer(created.managementToken),
     PublicBookingTransitionError,
   );
+});
+
+test("parent surname persists in the booking, representative and new family", async () => {
+  const repository = new InMemoryBookingRepository(DEMO_BOOKING_WORKSPACE);
+  const service = createService(repository, "surname");
+  const occurrence = await limitedOccurrence(service);
+  await service.createBooking(
+    command(occurrence.lessonRef, {
+      applicant: applicant({
+        parentName: " Мария ",
+        parentLastName: " Иванова ",
+      }),
+    }),
+  );
+  const workspace = await repository.load();
+  const family = workspace.families.find(
+    (item) => item.displayName === "Семья Иванова",
+  );
+  assert.ok(family);
+  const parent = workspace.representatives.find(
+    (item) => item.familyId === family.id,
+  );
+  assert.equal(parent.firstName, "Мария");
+  assert.equal(parent.lastName, "Иванова");
+  assert.equal(parent.displayName, "Мария Иванова");
 });

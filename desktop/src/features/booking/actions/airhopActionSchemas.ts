@@ -48,7 +48,7 @@ export const airhopActionCommandSchema = z.discriminatedUnion("type", [
     weeklyScheduleSelections: z
       .array(weeklyScheduleSelectionSchema)
       .min(1)
-      .max(7),
+      .max(21),
     startDate: isoDateSchema,
   }),
   z.object({
@@ -57,7 +57,7 @@ export const airhopActionCommandSchema = z.discriminatedUnion("type", [
     description: z.string().trim().max(4_000).optional(),
     priceMinor: z.number().int().nonnegative().safe(),
     currency: z.string().regex(/^[A-Z]{3}$/),
-    weeklyScheduleLimit: z.number().int().min(1).max(7),
+    weeklyScheduleLimit: z.number().int().min(1).max(21),
     paymentDayOfMonth: z.number().int().min(1).max(28).optional(),
   }),
   z.object({
@@ -67,7 +67,7 @@ export const airhopActionCommandSchema = z.discriminatedUnion("type", [
     description: z.string().trim().max(4_000).optional(),
     priceMinor: z.number().int().nonnegative().safe(),
     currency: z.string().regex(/^[A-Z]{3}$/),
-    weeklyScheduleLimit: z.number().int().min(1).max(7),
+    weeklyScheduleLimit: z.number().int().min(1).max(21),
     paymentDayOfMonth: z.number().int().min(1).max(28).optional(),
   }),
   z.object({

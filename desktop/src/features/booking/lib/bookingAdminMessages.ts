@@ -5,6 +5,7 @@ import type { BookingEnrollmentManagementMessages } from "@/features/booking/lib
 export type BookingAdminMessages = BookingPaymentMessages &
   BookingEnrollmentManagementMessages & {
     productName: string;
+    navInbox: string;
     navSchedule: string;
     navRequests: string;
     navClients: string;

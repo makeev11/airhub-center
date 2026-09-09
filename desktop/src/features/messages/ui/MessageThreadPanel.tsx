@@ -186,6 +186,8 @@ function getActiveContinuationDepths({
   return depths;
 }
 
+import { useClientThreadPresentation } from "@/features/client-inbox/data/useClientThreadPresentation";
+
 export function MessageThreadPanel({
   channel,
   channelId,
@@ -242,6 +244,11 @@ export function MessageThreadPanel({
 }: MessageThreadPanelProps) {
   const isRussian = useAirHopLocale() === "ru-RU";
   const copy = getMessageThreadCopy(isRussian);
+  const { clientHead, clientReply } = useClientThreadPresentation(
+    channelId,
+    threadHead,
+    replyTargetMessage,
+  );
   const threadBodyRef = React.useRef<HTMLDivElement>(null);
   const threadContentRef = React.useRef<HTMLDivElement>(null);
   const threadComposerWrapperRef = React.useRef<HTMLDivElement>(null);
@@ -315,7 +322,7 @@ export function MessageThreadPanel({
   const composerReplyTarget =
     replyTargetMessage && threadHead && replyTargetMessage.id !== threadHead.id
       ? {
-          author: replyTargetMessage.author,
+          author: clientReply?.parentLabel ?? replyTargetMessage.author,
           body: replyTargetMessage.body,
           id: replyTargetMessage.id,
         }
@@ -905,7 +912,9 @@ export function MessageThreadPanel({
               placeholder={
                 isHuddleTranscript
                   ? copy.huddlePlaceholder
-                  : copy.replyPlaceholder(threadHead.author)
+                  : copy.replyPlaceholder(
+                      clientHead?.title ?? threadHead.author,
+                    )
               }
               profiles={profiles}
               replyTarget={composerReplyTarget}
@@ -955,7 +964,9 @@ export function MessageThreadPanel({
         leading={headerLeading}
         onBack={isSinglePanelView && !isFocusMode ? onClose : undefined}
       >
-        <AuxiliaryPanelTitle>{copy.title}</AuxiliaryPanelTitle>
+        <AuxiliaryPanelTitle>
+          {clientHead?.title ?? copy.title}
+        </AuxiliaryPanelTitle>
       </AuxiliaryPanelHeaderGroup>
     </>
   );

@@ -24,6 +24,7 @@ const BOOKING_STATUS_TRANSITIONS: Readonly<
 
 export type PublicApplicantDraft = {
   parentName: string;
+  parentLastName?: string;
   phone: string;
   childName: string;
   childBirthDate: string;
@@ -32,6 +33,7 @@ export type PublicApplicantDraft = {
 
 export type PublicApplicantValidationIssue =
   | "parent_name_required"
+  | "parent_last_name_required"
   | "phone_invalid"
   | "child_name_required"
   | "birth_date_invalid"
@@ -254,6 +256,9 @@ export function validatePublicApplicantDraft(
 ): PublicApplicantValidationIssue[] {
   const issues: PublicApplicantValidationIssue[] = [];
   if (!draft.parentName.trim()) issues.push("parent_name_required");
+  if (draft.parentLastName !== undefined && !draft.parentLastName.trim()) {
+    issues.push("parent_last_name_required");
+  }
   if (!normalizePublicBookingPhone(draft.phone)) issues.push("phone_invalid");
   if (!draft.childName.trim()) issues.push("child_name_required");
   const birthDateValid = validIsoDate(draft.childBirthDate);

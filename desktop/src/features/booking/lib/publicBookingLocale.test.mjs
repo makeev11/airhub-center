@@ -59,3 +59,14 @@ test("public trial copy distinguishes free, paid and disabled policies", () => {
     "Пробное недоступно",
   );
 });
+
+test("ruble prices use the ruble symbol across organization locales", () => {
+  for (const locale of ["ru-RU", "en-US", "en-GB"]) {
+    const label = formatPublicTrialPolicy(
+      { mode: "paid", price: { amountMinor: 60_000, currency: "RUB" } },
+      locale,
+    );
+    assert.ok(label.includes("₽"), label);
+    assert.doesNotMatch(label, /RUB|руб\./i);
+  }
+});

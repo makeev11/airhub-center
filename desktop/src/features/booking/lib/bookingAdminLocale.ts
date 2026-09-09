@@ -5,6 +5,7 @@ import type { BookingAdminMessages } from "./bookingAdminMessages";
 export type { BookingAdminMessages } from "./bookingAdminMessages";
 const ru: BookingAdminMessages = {
   productName: "Airhop",
+  navInbox: "Обращения",
   navSchedule: "Расписание",
   navRequests: "Заявки",
   navClients: "Клиенты",
@@ -109,14 +110,14 @@ const ru: BookingAdminMessages = {
   buzzChannelHint:
     "Здесь команда будет получать новые записи, задачи и уведомления Airhop. Если канал уже есть, мы привяжем его; если нет — создадим при сохранении.",
   buzzChannelPlaceholder: "например, курская",
-  buzzChannelSearching: "Ищем канал в Buzz…",
+  buzzChannelSearching: "Ищем канал…",
   buzzChannelFound: (name) =>
     `Найден канал #${name}. Филиал будет привязан к нему.`,
   buzzChannelWillCreate: (name) =>
     `Канала #${name} пока нет. Он будет создан при сохранении филиала.`,
   buzzChannelSuggestions: "Похожие каналы:",
   buzzChannelLookupError:
-    "Не удалось проверить или создать канал. Проверьте подключение к Buzz и повторите.",
+    "Не удалось проверить или создать канал. Проверьте подключение к Центру и повторите.",
   buzzChannelUnavailable: "Привязанный канал недоступен",
   buzzChannelDescription: (branchName) =>
     `Рабочий канал филиала «${branchName}» в AirHop.`,
@@ -191,9 +192,10 @@ const ru: BookingAdminMessages = {
   noRoom: "Не выбран",
   groupTeachers: "Преподаватели",
   noTeachers: "Без преподавателя",
-  groupMinAge: "Минимальный возраст, месяцев",
-  groupMaxAge: "Максимальный возраст, месяцев",
-  ageMonthsHint: "Необязательно. Каждая граница задаётся независимо.",
+  groupMinAge: "Минимальный возраст, лет",
+  groupMaxAge: "Максимальный возраст, лет включительно",
+  ageMonthsHint:
+    "Необязательно. Укажите полные годы. Например, максимум 6 — до седьмого дня рождения.",
   groupCapacity: "Вместимость",
   capacityHint: "Оставьте пустым, если ограничения нет.",
   groupTrialPolicy: "Пробное занятие",
@@ -272,7 +274,7 @@ const ru: BookingAdminMessages = {
   noTeachersDescription:
     "Можно работать без преподавателей или добавить первого в справочник.",
   teacherName: "Имя преподавателя",
-  teacherBuzzUsername: "Имя в Buzz",
+  teacherBuzzUsername: "Имя пользователя в Центре",
   teacherBuzzUsernameHint: "Необязательно. Укажите имя без символа @.",
   createTeacherTitle: "Новый преподаватель",
   editTeacherTitle: "Редактирование преподавателя",
@@ -304,7 +306,7 @@ const ru: BookingAdminMessages = {
   tariffCurrency: "Валюта",
   tariffWeeklyScheduleLimit: "Занятий в неделю",
   tariffWeeklyScheduleLimitHint:
-    "При зачислении сотрудник выберет не больше этого числа дней.",
+    "До 21 занятия в неделю. Можно выбрать несколько занятий в один день.",
   tariffPaymentDay: "День оплаты",
   tariffPaymentDayInherited: (day) => `Как у центра — ${day}-го числа`,
   tariffPaymentDayCustom: "Другой день",
@@ -331,7 +333,7 @@ const ru: BookingAdminMessages = {
   tariffPerWeek: (count) => `${count} в неделю`,
   tariffPaymentDaySummary: (day) => `Оплата ${day}-го числа`,
   tariffPaymentDayCenterSummary: (day) => `Оплата как у центра: ${day}-го`,
-  invalidWeeklyScheduleLimit: "Выберите от 1 до 7 занятий в неделю.",
+  invalidWeeklyScheduleLimit: "Выберите от 1 до 21 занятия в неделю.",
   invalidPaymentDay: "Укажите число от 1 до 28.",
   enrollChildTitle: "Зачислить в группу",
   enrollChildDescription:
@@ -438,7 +440,8 @@ const ru: BookingAdminMessages = {
   requestStatusIntakeClosed: "Закрыта",
   requestNeedsLesson: "Нужно подобрать занятие",
   requestTransferPending: "Запрошен перенос",
-  requestPossibleDuplicate: "Возможный дубль клиента",
+  requestPossibleDuplicate:
+    "Возможно, у этой семьи уже есть карточка. Сверьте имя и телефон в разделе «Клиенты», прежде чем создавать новую запись. Карточки не объединяются автоматически.",
   requestConfirm: "Подтвердить",
   requestReject: "Отклонить",
   requestConfirmed: "Заявка подтверждена",

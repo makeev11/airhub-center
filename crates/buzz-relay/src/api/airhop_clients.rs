@@ -34,13 +34,13 @@ pub(crate) async fn inbox(
     )
     .map_err(|_| api_error(StatusCode::BAD_REQUEST, "Invalid Inbox filters"))?
     .0;
-    Ok(Json(
-        state
-            .db
-            .client_inbox(&principal.tenant, &principal.pubkey.to_bytes(), &query)
-            .await
-            .map_err(map_db)?,
-    ))
+    let mut result = state
+        .db
+        .client_inbox(&principal.tenant, &principal.pubkey.to_bytes(), &query)
+        .await
+        .map_err(map_db)?;
+    result["systemPubkey"] = serde_json::json!(state.relay_keypair.public_key().to_hex());
+    Ok(Json(result))
 }
 
 pub(crate) async fn migration_preview(

@@ -3,6 +3,24 @@ import test from "node:test";
 
 import { mapMentionCandidateToSuggestion } from "./mentionSuggestionMapping.ts";
 
+test("unresolved membership is not presented as confirmed absence", () => {
+  const input = {
+    candidate: { kind: "identity", isAgent: true, isMember: false },
+    label: "Гермес",
+    channelType: "private",
+  };
+  assert.equal(
+    mapMentionCandidateToSuggestion({ ...input, membershipResolved: false })
+      .notInChannel,
+    false,
+  );
+  assert.equal(
+    mapMentionCandidateToSuggestion({ ...input, membershipResolved: true })
+      .notInChannel,
+    true,
+  );
+});
+
 test("Center mentions keep agent identity and membership, not owner bylines", () => {
   const candidate = {
     kind: "identity",

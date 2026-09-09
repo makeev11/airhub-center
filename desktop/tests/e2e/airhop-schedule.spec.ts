@@ -386,6 +386,7 @@ test("AirHop settings and archived branches survive a browser preview reload", a
 
   const organizationName = page.getByTestId("airhop-settings-name");
   await organizationName.fill("AirHop Север");
+  await page.getByRole("textbox", { name: "Валюта", exact: true }).fill("BRL");
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByTestId("airhop-settings-saved")).toContainText(
     "Настройки сохранены",
@@ -440,6 +441,19 @@ test("AirHop settings and archived branches survive a browser preview reload", a
   await expect(page.getByTestId("airhop-settings-name")).toHaveValue(
     "AirHop Север",
   );
+  await expect(
+    page.getByRole("textbox", { name: "Валюта", exact: true }),
+  ).toHaveValue("BRL");
+  await page.getByTestId("open-airhop-tariffs").click();
+  await page.getByTestId("airhop-add-tariff").click();
+  await expect(
+    page.getByRole("dialog").getByText("Стоимость, BRL", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("textbox", { name: "Валюта", exact: true }),
+  ).toHaveCount(0);
 });
 
 test("AirHop settings use a time zone select and persist its value", async ({
@@ -799,7 +813,12 @@ test("AirHop manages teachers and groups without losing archived history", async
     label: "Лаборатория 1",
   });
   await groupForm.getByLabel("Анна Орлова", { exact: true }).click();
-  await groupForm.getByTestId("airhop-group-min-age").fill("71");
+  await groupForm.getByTestId("airhop-group-min-age").fill("5");
+  await groupForm.getByTestId("airhop-group-max-age").fill("6");
+  await expect(groupForm.getByTestId("airhop-group-max-age")).toHaveAttribute(
+    "aria-label",
+    "Максимальный возраст, лет включительно",
+  );
   await groupForm.getByTestId("airhop-group-trial-policy").selectOption("paid");
   await groupForm.getByLabel("Валюта").fill("RUB");
   await groupForm.getByLabel("Стоимость").fill("750");
@@ -845,6 +864,8 @@ test("AirHop manages teachers and groups without losing archived history", async
   await groupCard.getByRole("button", { name: "Редактировать" }).click();
   groupForm = page.getByTestId("airhop-group-form");
   await groupForm.getByTestId("airhop-group-name").fill("Клуб тестировщиков 2");
+  await expect(groupForm.getByTestId("airhop-group-min-age")).toHaveValue("5");
+  await expect(groupForm.getByTestId("airhop-group-max-age")).toHaveValue("6");
   await groupForm
     .getByTestId("airhop-group-schedule-1")
     .getByRole("button", { name: "Удалить занятие" })

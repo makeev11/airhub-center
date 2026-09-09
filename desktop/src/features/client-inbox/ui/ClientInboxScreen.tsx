@@ -127,7 +127,14 @@ export function ClientInboxScreen() {
       className="flex h-full min-h-0 flex-col"
       data-testid="airhop-client-inbox"
     >
-      <PageHeader title={t("Обращения клиентов", "Client Inbox")} />
+      <PageHeader
+        className="shrink-0 border-b border-border px-6 py-5"
+        title={t("Обращения клиентов", "Client Inbox")}
+        description={t(
+          "Очередь обращений: выберите ответственного и откройте переписку в канале.",
+          "Manage incoming conversations: assign a staff member and open the thread in its channel.",
+        )}
+      />
       <div className="min-h-0 flex-1 space-y-5 overflow-auto p-6">
         <p className="max-w-3xl text-sm text-muted-foreground">
           {t(
@@ -277,7 +284,7 @@ export function ClientInboxScreen() {
               data-testid="client-conversation"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0 flex-1 break-words">
                   <Link
                     className="font-medium hover:underline"
                     to="/channels/$channelId"

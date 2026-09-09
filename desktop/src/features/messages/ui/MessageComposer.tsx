@@ -134,6 +134,7 @@ function MessageComposerImpl({
   } | null>(null);
   const mentions = useMentions(channelId, undefined, profiles, {
     channelType,
+    threadRootId: audienceThreadRootId ?? typingRootEventId,
   });
   const channelLinks = useChannelLinks();
   const customEmoji = useCustomEmoji();

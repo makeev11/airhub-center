@@ -30,14 +30,21 @@ export function shouldNotifyForEvent(
   currentPubkey: string,
   options: NotifyOptions,
 ): boolean {
-  // Client work is notified by relay-authored needs-action mentions. A shared
-  // parent channel must not notify every member or past thread participant.
+  // Provider messages notify explicit thread followers, not the entire shared
+  // channel or everyone who happened to participate in an older conversation.
   if (
     event.tags.some(
       (tag) => tag[0] === "airhop-direction" && tag[1] === "inbound",
     )
-  )
-    return false;
+  ) {
+    const { rootId } = getThreadReference(event.tags);
+    return (
+      rootId !== null &&
+      options.followedRootIds.has(rootId) &&
+      !options.mutedRootIds?.has(rootId) &&
+      !(options.channelId && options.mutedChannelIds?.has(options.channelId))
+    );
+  }
   if (
     event.tags.some(
       (tag) => tag[0] === "airhop-internal" && tag[1] === "client-routing",

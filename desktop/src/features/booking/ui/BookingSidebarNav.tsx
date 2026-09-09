@@ -77,11 +77,7 @@ export function BookingSidebarNav({ isActive }: { isActive: boolean }) {
     : 0;
   const presentation = {
     inbox: {
-      label: (booking.workspace?.organization.locale ?? "ru-RU").startsWith(
-        "ru",
-      )
-        ? "Обращения"
-        : "Client Inbox",
+      label: messages.navInbox,
       icon: Inbox,
     },
     schedule: { label: messages.navSchedule, icon: CalendarDays },

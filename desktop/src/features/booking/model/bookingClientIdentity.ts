@@ -69,7 +69,7 @@ export function resolveBookingApplicantIdentity(
     const family: BookingFamily = {
       id: familyId,
       organizationId,
-      displayName: `Семья ${parentName}`,
+      displayName: `Семья ${applicant.parentLastName || parentName}`,
       primaryRepresentativeId: representativeId,
       status: "active",
       createdAt: options.now,

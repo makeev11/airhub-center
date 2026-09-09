@@ -1947,7 +1947,7 @@ fn validate_trial_enrollment(input: &EnrollStaffTrialParticipantInput) -> Result
         || input.child_id.is_nil()
         || input.tariff_id.is_nil()
         || input.schedule.is_empty()
-        || input.schedule.len() > 7
+        || input.schedule.len() > 21
         || unique.len() != input.schedule.len()
         || input
             .schedule
@@ -1967,7 +1967,7 @@ fn validate_staff_enrollment(input: &EnrollStaffParticipantInput) -> Result<()> 
         || input.group_id.is_nil()
         || input.tariff_id.is_nil()
         || input.schedule.is_empty()
-        || input.schedule.len() > 7
+        || input.schedule.len() > 21
         || unique.len() != input.schedule.len()
         || input
             .schedule

@@ -9,6 +9,59 @@ const branch = "22222222-2222-4222-8222-222222222222";
 const connection = "33333333-3333-4333-8333-333333333333";
 const conversation = "44444444-4444-4444-8444-444444444444";
 const owner = TEST_IDENTITIES.tyler.pubkey;
+
+test("feedback dialog is Russian and explains its actual destination", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.getByTestId("sidebar-profile-avatar-button").click();
+  await page.getByTestId("profile-popover-send-feedback").click();
+  const dialog = page.getByTestId("send-feedback-dialog");
+  await expect(dialog).toContainText("Отправить отзыв");
+  await expect(dialog).toContainText("администраторам сервера");
+  await expect(dialog).not.toContainText("Buzz");
+  await expect(page.getByTestId("feedback-category-bug")).toHaveText("Ошибка");
+  await expect(page.getByTestId("feedback-submit")).toBeDisabled();
+  await waitForAnimations(page);
+  await dialog.screenshot({ path: "test-results/feedback-russian.png" });
+});
+
+test("channel renders a named client card instead of the transport start command", async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  state.data.items[0].parentName = "Анна Иванова";
+  state.data.items[0].title = "Анна Иванова · Семья Ивановых";
+  state.data.items[0].connectorPubkey = TEST_IDENTITIES.alice.pubkey;
+  await page.getByTestId("channel-general").click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+            channelName: "general",
+          }) ?? false,
+      ),
+    )
+    .toBe(true);
+  await page.evaluate(
+    ({ pubkey, id }) => {
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "general",
+        content: "/start",
+        pubkey,
+        id,
+      });
+    },
+    { pubkey: TEST_IDENTITIES.alice.pubkey, id: "ab".repeat(32) },
+  );
+  const card = page.getByTestId("client-conversation-card");
+  await expect(card).toContainText("Анна Иванова · Семья Ивановых");
+  await expect(card).not.toContainText("/start");
+  await waitForAnimations(page);
+  await card.screenshot({ path: "test-results/client-conversation-card.png" });
+});
+
 async function fixture(page: Page) {
   await page.addInitScript(() =>
     localStorage.setItem("airhop.locale.v1", "ru-RU"),

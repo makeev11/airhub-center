@@ -105,6 +105,7 @@ test("settings repository bootstraps an unconfigured Center with version zero", 
     "settings-command-1234567890",
   );
   assert.equal(body.expectedVersion, 0);
+  assert.equal(body.currency, "RUB");
   assert.equal(body.existingStudentsOnboardingStatus, "not_started");
   assert.equal(body.paymentsBuzzChannelId, PAYMENTS_CHANNEL_ID);
   assert.equal(body.analyticsBuzzChannelId, ANALYTICS_CHANNEL_ID);
@@ -136,6 +137,7 @@ test("settings repository loads and saves the authoritative organization", async
         ? jsonResponse(settingsResponse(4))
         : jsonResponse(
             settingsResponse(5, {
+              currency: "BRL",
               publicBooking: { purpose: "lesson", appearance: "dark" },
             }),
           );
@@ -149,6 +151,7 @@ test("settings repository loads and saves the authoritative organization", async
       ...draft,
       organization: {
         ...draft.organization,
+        currency: "BRL",
         publicBooking: { purpose: "lesson", appearance: "dark" },
       },
     },
@@ -157,6 +160,8 @@ test("settings repository loads and saves the authoritative organization", async
 
   assert.equal(current.revision, 4);
   assert.equal(saved.revision, 5);
+  assert.equal(saved.organization.currency, "BRL");
+  assert.equal(JSON.parse(requests[1].body).currency, "BRL");
   assert.equal(saved.organization.publicBooking.purpose, "lesson");
   assert.equal(JSON.parse(requests[1].body).expectedVersion, 4);
 });

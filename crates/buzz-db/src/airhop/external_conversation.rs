@@ -598,13 +598,7 @@ impl Db {
         }
 
         let projection = if is_parent {
-            super::client_threads::record_inbound(
-                &mut tx,
-                community_id,
-                &mut conversation,
-                event.id.as_bytes(),
-            )
-            .await?;
+            super::client_threads::record_inbound(&mut tx, community_id, &mut conversation).await?;
             let enabled: bool = row.try_get("deployment_enabled")?;
             let deployment_paused: bool = row.try_get("deployment_paused")?;
             let connection_status: Option<String> = row.try_get("connection_status")?;

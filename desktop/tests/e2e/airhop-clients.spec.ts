@@ -13,7 +13,8 @@ async function createPublicBooking(page: Page): Promise<void> {
     .getByTestId("airhop-public-occurrence-robotics-junior-weekly:2026-08-10")
     .click();
   await page.getByRole("button", { name: "Продолжить" }).click();
-  await page.getByLabel("Имя родителя").fill("Мария Соколова");
+  await page.getByLabel("Имя родителя", { exact: true }).fill("Мария");
+  await page.getByLabel("Фамилия родителя").fill("Соколова");
   await page.getByLabel("Телефон").fill("+7 999 123-45-67");
   await page.getByLabel("Имя ребёнка").fill("Лев Соколов");
   await page.getByLabel("Точная дата рождения ребёнка").fill("2020-08-10");

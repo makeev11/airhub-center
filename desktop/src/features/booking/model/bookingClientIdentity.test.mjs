@@ -51,6 +51,7 @@ test("first booking applicant creates a linked family, representative, and child
   assert.equal(resolution.representativeId, "representative-2");
   assert.equal(resolution.childId, "child-3");
   assert.equal(resolution.families.length, 1);
+  assert.equal(resolution.families[0].displayName, "Семья Соколова");
   assert.equal(resolution.representatives.length, 1);
   assert.equal(resolution.children.length, 1);
   assert.deepEqual(resolution.duplicateCandidates, []);

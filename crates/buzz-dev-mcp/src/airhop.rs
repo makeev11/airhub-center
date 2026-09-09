@@ -1835,7 +1835,7 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_list_booking_options",
-        description = "Parent Administrator only: list current authoritative booking options. Optional filters narrow the result but cannot change the organization or Family scope."
+        description = "Parent Administrator only: list current authoritative booking options and seat availability. Use for questions about group size, occupied seats, capacity or free places, even before collecting booking details. Each dated occurrence includes capacity (null means no configured limit), occupied (distinct children holding seats, including applicable active enrollments and pending/confirmed bookings), remaining and available. These are reservations, not actual attendance or total permanent group enrollment. Do not sum occupied across dates. Refresh before quoting availability; a read does not reserve a seat. Optional filters narrow the result but cannot change the organization or Family scope."
     )]
     async fn list_booking_options(
         &self,

@@ -113,13 +113,13 @@ export type BookingPaymentMessages = {
 };
 
 export const ruPaymentMessages: BookingPaymentMessages = {
-  paymentsBuzzChannel: "Канал оплат в Buzz",
+  paymentsBuzzChannel: "Канал оплат",
   paymentsBuzzChannelHint:
-    "Физ будет вести в этом канале ежемесячный тред с изменениями просроченных оплат.",
+    "В этом канале будет ежемесячная ветка с изменениями просроченных оплат.",
   paymentsBuzzChannelNone: "Не публиковать сводки",
-  analyticsBuzzChannel: "Канал аналитики в Buzz",
+  analyticsBuzzChannel: "Канал аналитики",
   analyticsBuzzChannelHint:
-    "Физ будет вести здесь отдельный месячный тред оплат и воронки, обновляя его только при изменениях.",
+    "Здесь будет отдельная ежемесячная ветка оплат и воронки. Она обновляется только при изменениях данных.",
   analyticsBuzzChannelNone: "Не публиковать аналитику",
   paymentExpected: "Ожидается",
   paymentOverdue: "Просрочено",
@@ -183,7 +183,7 @@ export const ruPaymentMessages: BookingPaymentMessages = {
       telegram: "Telegram",
       max: "MAX",
       whatsapp: "WhatsApp",
-      buzz: "Buzz",
+      buzz: "AirHop Center",
       other: "Другое",
     })[channel] ?? channel,
   paymentFilterOpen: "Нужно оплатить",
@@ -260,13 +260,13 @@ export const ruPaymentMessages: BookingPaymentMessages = {
 };
 
 export const enPaymentMessages: BookingPaymentMessages = {
-  paymentsBuzzChannel: "Payments channel in Buzz",
+  paymentsBuzzChannel: "Payments channel",
   paymentsBuzzChannelHint:
-    "Fizz will keep a monthly thread with overdue-payment changes in this channel.",
+    "A monthly thread with overdue-payment changes will appear in this channel.",
   paymentsBuzzChannelNone: "Do not publish summaries",
-  analyticsBuzzChannel: "Analytics channel in Buzz",
+  analyticsBuzzChannel: "Analytics channel",
   analyticsBuzzChannelHint:
-    "Fizz will keep a separate monthly payments and funnel thread here, updating it only when the data changes.",
+    "A separate monthly payments and funnel thread will appear here, updated only when the data changes.",
   analyticsBuzzChannelNone: "Do not publish analytics",
   paymentExpected: "Expected",
   paymentOverdue: "Overdue",
@@ -324,7 +324,7 @@ export const enPaymentMessages: BookingPaymentMessages = {
       telegram: "Telegram",
       max: "MAX",
       whatsapp: "WhatsApp",
-      buzz: "Buzz",
+      buzz: "AirHop Center",
       other: "Other",
     })[channel] ?? channel,
   paymentFilterOpen: "Payment due",

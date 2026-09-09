@@ -17,23 +17,61 @@ const PAYMENT_ANALYTICS_PATH = "/api/airhop/staff/v1/payment-analytics";
 const BOOKING_FUNNEL_ANALYTICS_PATH =
   "/api/airhop/staff/v1/booking-funnel-analytics";
 
+// Rust Option fields are serialized as null; the domain model uses undefined.
+function omitNullFields(payload: unknown, fields: string[]): unknown {
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    Array.isArray(payload)
+  ) {
+    return payload;
+  }
+  const result = { ...payload } as Record<string, unknown>;
+  for (const field of fields) {
+    if (result[field] === null) delete result[field];
+  }
+  return result;
+}
+
 const serverPaymentTransactionSchema = paymentTransactionSchema.extend({
   id: z.string().uuid(),
   paymentExpectationId: z.string().uuid(),
 });
 
-const serverPaymentSchema = paymentExpectationSchema.safeExtend({
-  id: z.string().uuid(),
-  organizationId: z.string().uuid(),
-  familyId: z.string().uuid(),
-  childId: z.string().uuid(),
-  enrollmentId: z.string().uuid(),
-  tariffId: z.string().uuid(),
-  version: z.number().int().positive(),
-  paidMinor: z.number().int().nonnegative().safe(),
-  outstandingMinor: z.number().int().nonnegative().safe(),
-  transactions: z.array(serverPaymentTransactionSchema),
-});
+const serverPaymentSchema = z.preprocess(
+  (payload) => {
+    const normalized = omitNullFields(payload, [
+      "paidAt",
+      "paidBy",
+      "cancelledAt",
+      "cancelledBy",
+      "internalReason",
+    ]);
+    if (
+      typeof normalized === "object" &&
+      normalized !== null &&
+      "transactions" in normalized &&
+      Array.isArray(normalized.transactions)
+    ) {
+      normalized.transactions = normalized.transactions.map((entry) =>
+        omitNullFields(entry, ["note"]),
+      );
+    }
+    return normalized;
+  },
+  paymentExpectationSchema.safeExtend({
+    id: z.string().uuid(),
+    organizationId: z.string().uuid(),
+    familyId: z.string().uuid(),
+    childId: z.string().uuid(),
+    enrollmentId: z.string().uuid(),
+    tariffId: z.string().uuid(),
+    version: z.number().int().positive(),
+    paidMinor: z.number().int().nonnegative().safe(),
+    outstandingMinor: z.number().int().nonnegative().safe(),
+    transactions: z.array(serverPaymentTransactionSchema),
+  }),
+);
 
 const paymentQueueItemSchema = z.object({
   payment: serverPaymentSchema,

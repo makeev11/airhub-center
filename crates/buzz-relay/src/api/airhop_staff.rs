@@ -206,6 +206,7 @@ pub(crate) struct SetFamilyPrimaryRepresentativeBody {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PutOrganizationSettingsBody {
+    currency: String,
     expected_version: i64,
     name: String,
     locale: String,
@@ -834,6 +835,7 @@ pub(crate) async fn put_organization_settings(
         payments_buzz_channel_id: request.payments_buzz_channel_id,
         analytics_buzz_channel_id: request.analytics_buzz_channel_id,
         settings: OrganizationSettings {
+            currency: request.currency,
             staff_working_hours: request.staff_working_hours,
             default_trial_policy: request.default_trial_policy,
             track_attendance_by_default: request.track_attendance_by_default,
@@ -3590,6 +3592,7 @@ fn organization_json(
             "appearance": settings.public_booking_appearance,
         },
         "paymentDayOfMonth": settings.payment_day_of_month,
+        "currency": settings.currency,
     });
     if let Some(channel_id) = payments_buzz_channel_id {
         value["paymentsBuzzChannelId"] = json!(channel_id);
@@ -3957,6 +3960,7 @@ mod tests {
     #[test]
     fn organization_settings_payload_matches_the_desktop_contract() {
         let settings = OrganizationSettings {
+            currency: "RUB".to_owned(),
             staff_working_hours: Default::default(),
             default_trial_policy: TrialPolicy::Free,
             track_attendance_by_default: true,

@@ -80,6 +80,7 @@ const occurrencesResponseSchema = z.object({
 });
 
 const managementCardSchema = z.object({
+  confirmationChannels: z.array(z.literal("telegram")).optional(),
   messengerHandoff: z
     .object({
       url: z
@@ -234,6 +235,7 @@ export class HttpPublicBookingService implements PublicBookingService {
           lessonRef: command.lessonRef,
           applicant: {
             parentName: command.applicant.parentName,
+            parentLastName: command.applicant.parentLastName,
             phone: command.applicant.phone,
             childName: command.applicant.childName,
             childBirthDate: command.applicant.childBirthDate,

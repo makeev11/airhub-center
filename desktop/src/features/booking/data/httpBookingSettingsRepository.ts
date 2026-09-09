@@ -227,6 +227,7 @@ export class HttpBookingSettingsRepository implements BookingRepository {
       publicBookingPurpose: organization.publicBooking.purpose,
       publicBookingAppearance: organization.publicBooking.appearance,
       paymentDayOfMonth: organization.paymentDayOfMonth,
+      currency: organization.currency,
       ...(organization.paymentsBuzzChannelId
         ? { paymentsBuzzChannelId: organization.paymentsBuzzChannelId }
         : {}),

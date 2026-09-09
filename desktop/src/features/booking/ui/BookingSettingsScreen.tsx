@@ -1,5 +1,6 @@
 import * as React from "react";
-import { CheckCircle2, Moon, Sun, SunMoon } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 
 import {
   BookingWorkspaceProvider,
@@ -23,7 +24,6 @@ import {
 } from "@/features/booking/lib/bookingTimeZones";
 import { organizationSchema } from "@/features/booking/model/bookingCore";
 import type {
-  PublicBookingAppearance,
   PublicBookingPurpose,
   WeeklyWorkingHours,
 } from "@/features/booking/model/bookingCore";
@@ -43,7 +43,6 @@ import { Input } from "@/shared/ui/input";
 import { PageHeader } from "@/shared/ui/PageHeader";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Switch } from "@/shared/ui/switch";
-import { cn } from "@/shared/lib/cn";
 
 type SettingsForm = {
   name: string;
@@ -59,7 +58,6 @@ type SettingsForm = {
   attendance: boolean;
   singleVisits: boolean;
   publicBookingPurpose: PublicBookingPurpose;
-  publicBookingAppearance: PublicBookingAppearance;
 };
 
 type SettingsErrors = Partial<
@@ -76,7 +74,7 @@ function formFromOrganization(
     organization.defaultTrialPolicy.mode === "paid"
       ? organization.defaultTrialPolicy.price
       : null;
-  const currency = paid?.currency ?? "RUB";
+  const currency = organization.currency;
   return {
     name: organization.name,
     locale: organization.locale,
@@ -91,7 +89,6 @@ function formFromOrganization(
     attendance: organization.trackAttendanceByDefault,
     singleVisits: organization.allowSingleVisitsByDefault,
     publicBookingPurpose: organization.publicBooking.purpose,
-    publicBookingAppearance: organization.publicBooking.appearance,
   };
 }
 
@@ -175,7 +172,7 @@ function SettingsFormContent({
         ? parseMajorMoneyInput(form.price, currency)
         : null;
     const paymentDay = Number(form.paymentDay);
-    if (form.trialMode === "paid" && !currencyIsValid) {
+    if (!currencyIsValid) {
       nextErrors.currency = messages.invalidCurrency;
     }
     if (form.trialMode === "paid" && currencyIsValid && amountMinor === null) {
@@ -194,6 +191,7 @@ function SettingsFormContent({
       timeZone: form.timeZone,
       staffWorkingHours: form.staffWorkingHours,
       paymentDayOfMonth: paymentDay,
+      currency,
       paymentsBuzzChannelId: form.paymentsBuzzChannelId || undefined,
       analyticsBuzzChannelId: form.analyticsBuzzChannelId || undefined,
       defaultTrialPolicy:
@@ -210,7 +208,7 @@ function SettingsFormContent({
       allowSingleVisitsByDefault: form.singleVisits,
       publicBooking: {
         purpose: form.publicBookingPurpose,
-        appearance: form.publicBookingAppearance,
+        appearance: workspace.organization.publicBooking.appearance,
       },
     };
     const parsed = organizationSchema.safeParse(organization);
@@ -419,21 +417,29 @@ function SettingsFormContent({
                 <option value="paid">{messages.trialPaid}</option>
               </BookingSelect>
             </Field>
+            <Field
+              error={errors.currency}
+              label={messages.currency}
+              hint={
+                form.locale.startsWith("ru")
+                  ? "Для новых тарифов и пробных занятий. Существующие тарифы и оплаты сохранят свою валюту; автоматического пересчёта по курсу нет."
+                  : "For new tariffs and trial prices. Existing tariffs and payments keep their currency; no automatic exchange conversion."
+              }
+            >
+              <Input
+                aria-label={messages.currency}
+                maxLength={3}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    currency: event.target.value.toUpperCase(),
+                  }))
+                }
+                value={form.currency}
+              />
+            </Field>
             {form.trialMode === "paid" ? (
               <>
-                <Field error={errors.currency} label={messages.currency}>
-                  <Input
-                    aria-label={messages.currency}
-                    maxLength={3}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        currency: event.target.value.toUpperCase(),
-                      }))
-                    }
-                    value={form.currency}
-                  />
-                </Field>
                 <Field error={errors.price} label={messages.trialPrice}>
                   <Input
                     aria-label={messages.trialPrice}
@@ -522,54 +528,16 @@ function SettingsFormContent({
                 </option>
               </BookingSelect>
             </Field>
-            <Field
-              hint={messages.publicBookingAppearanceHint}
-              label={messages.publicBookingAppearance}
+            <Link
+              to="/settings"
+              search={{ section: "appearance" }}
+              className="w-fit text-sm underline underline-offset-4"
+              data-testid="airhop-public-appearance-link"
             >
-              <div className="grid gap-2 sm:grid-cols-3">
-                {(
-                  [
-                    {
-                      value: "automatic" as const,
-                      label: messages.publicBookingAppearanceAutomatic,
-                      Icon: SunMoon,
-                    },
-                    {
-                      value: "light" as const,
-                      label: messages.publicBookingAppearanceLight,
-                      Icon: Sun,
-                    },
-                    {
-                      value: "dark" as const,
-                      label: messages.publicBookingAppearanceDark,
-                      Icon: Moon,
-                    },
-                  ] as const
-                ).map(({ value, label, Icon }) => (
-                  <button
-                    aria-pressed={form.publicBookingAppearance === value}
-                    className={cn(
-                      "flex min-h-11 items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-                      form.publicBookingAppearance === value
-                        ? "border-primary bg-primary/10"
-                        : "border-border/70 hover:bg-muted/60",
-                    )}
-                    data-testid={`airhop-settings-public-appearance-${value}`}
-                    key={value}
-                    onClick={() =>
-                      setForm((current) => ({
-                        ...current,
-                        publicBookingAppearance: value,
-                      }))
-                    }
-                    type="button"
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </Field>
+              {form.locale.startsWith("ru")
+                ? "Оформление формы: Внешний вид → Виджет"
+                : "Form design: Appearance → Widget"}
+            </Link>
           </CardContent>
         </Card>
       ) : null}

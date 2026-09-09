@@ -113,6 +113,34 @@ test("payment service validates the authoritative queue projection", async () =>
   assert.equal(result.items[0].family.displayName, "Семья Орловых");
 });
 
+test("payment queue accepts Rust nullable fields without weakening audit validation", async () => {
+  const payload = queue();
+  const payment = payload.items[0].payment;
+  Object.assign(payment, {
+    paidAt: null,
+    paidBy: null,
+    cancelledAt: null,
+    cancelledBy: null,
+    internalReason: null,
+  });
+  payment.transactions[0].note = null;
+  const service = new HttpStaffPaymentService({
+    relayHttpUrl: async () => "https://center.example/",
+    signEvent: async (input) => signedEvent(input),
+    fetch: async () => new Response(JSON.stringify(payload)),
+  });
+  const result = await service.listPayments();
+  assert.equal(result.items[0].payment.paidAt, undefined);
+  assert.equal(result.items[0].payment.transactions[0].note, undefined);
+  payment.status = "paid";
+  await assert.rejects(() => service.listPayments(), StaffPaymentApiError);
+  payment.paidAt = "2026-09-09T10:00:00Z";
+  payment.paidBy = "staff-pubkey";
+  assert.equal((await service.listPayments()).items[0].payment.status, "paid");
+  payment.amountMinor = -1;
+  await assert.rejects(() => service.listPayments(), StaffPaymentApiError);
+});
+
 test("payment service validates currency-safe server analytics", async () => {
   let requested;
   const service = new HttpStaffPaymentService({

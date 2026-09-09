@@ -23,6 +23,10 @@ mod tests;
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClientInboxFilter {
+    /// Exact visible work channel for conversation presentation.
+    pub channel_id: Option<Uuid>,
+    /// Up to 100 visible thread roots, comma-separated hexadecimal event IDs.
+    pub root_ids: Option<String>,
     /// A selected branch, or all accessible branches.
     pub branch_id: Option<Uuid>,
     /// Only conversations whose branch has not been selected.
@@ -86,12 +90,35 @@ impl Db {
                     .ok_or_else(|| DbError::InvalidData("invalid assignee public key".into()))
             })
             .transpose()?;
+        let roots = filter
+            .root_ids
+            .as_ref()
+            .map(|value| {
+                let parts: Vec<_> = value.split(',').collect();
+                if parts.is_empty() || parts.len() > 100 {
+                    return Err(DbError::InvalidData("invalid visible roots".into()));
+                }
+                parts
+                    .into_iter()
+                    .map(|part| {
+                        hex::decode(part)
+                            .ok()
+                            .filter(|bytes| bytes.len() == 32)
+                            .ok_or_else(|| DbError::InvalidData("invalid visible root".into()))
+                    })
+                    .collect::<Result<Vec<Vec<u8>>>>()
+            })
+            .transpose()?;
         let rows: Vec<Value> = sqlx::query_scalar(
             "SELECT jsonb_build_object('id',v.id,'channelId',v.channel_id,'rootEventId',encode(v.root_event_id,'hex'),
-                'threaded',v.threaded,'title',v.title,'branchId',v.branch_id,'branchName',b.name,
+                'threaded',v.threaded,'title',COALESCE(p.display_name || ' · ' || family.display_name,v.title),'branchId',v.branch_id,'branchName',b.name,
                 'assignee',encode(v.assignee_pubkey,'hex'),'status',v.queue_status,'version',v.version,
                 'familyId',v.family_id,'representativeId',v.representative_id,'owner',v.owner,
                 'provider',c.provider,'connectionId',c.id,'connectionName',c.display_name,
+                'connectorPubkey',encode(c.connector_pubkey,'hex'),
+                'parentName',p.display_name,
+                'hermesPubkey',(SELECT encode(d.agent_pubkey,'hex') FROM airhop_agent_deployments d WHERE d.community_id=v.community_id AND d.organization_id=v.organization_id AND d.role='parent_administrator' LIMIT 1),
+                'hermesInChannel',EXISTS(SELECT 1 FROM airhop_agent_deployments d JOIN channel_members hm ON hm.community_id=d.community_id AND hm.pubkey=d.agent_pubkey AND hm.channel_id=v.channel_id AND hm.removed_at IS NULL WHERE d.community_id=v.community_id AND d.organization_id=v.organization_id AND d.role='parent_administrator'),
                 'connectionStatus',c.status,'updatedAt',v.updated_at,'lastInboundAt',v.last_inbound_at,
                 'legacyChannelId',(SELECT l.channel_id FROM airhop_conversation_legacy_locations l WHERE l.community_id=v.community_id AND l.conversation_id=v.id))
              FROM airhop_external_conversations v
@@ -102,18 +129,22 @@ impl Db {
              JOIN airhop_external_conversation_routes r ON r.community_id=v.community_id AND r.conversation_id=v.id
              JOIN airhop_channel_connections c ON c.community_id=r.community_id AND c.id=r.connection_id AND c.organization_id=v.organization_id
              LEFT JOIN airhop_branches b ON b.community_id=v.community_id AND b.organization_id=v.organization_id AND b.id=v.branch_id
+             LEFT JOIN airhop_families family ON family.community_id=v.community_id AND family.organization_id=v.organization_id AND family.id=v.family_id AND family.status='active'
+             LEFT JOIN airhop_representatives p ON p.community_id=v.community_id AND p.organization_id=v.organization_id AND p.id=v.representative_id AND p.family_id=family.id AND p.status='active'
              WHERE v.community_id=$1 AND v.status='active' AND m.role<>'bot' AND (NOT v.threaded OR v.root_event_id IS NOT NULL)
                AND ($3::uuid IS NULL OR v.branch_id=$3) AND (NOT $4 OR v.branch_id IS NULL)
                AND ($5::text IS NULL OR v.queue_status=$5) AND ($6::uuid IS NULL OR c.id=$6)
-               AND (NOT $7 OR v.assignee_pubkey=$2) AND ($8::text IS NULL OR strpos(lower(v.title),lower($8))>0)
+               AND (NOT $7 OR v.assignee_pubkey=$2) AND ($8::text IS NULL OR strpos(lower(COALESCE(p.display_name || ' · ' || family.display_name,v.title)),lower($8))>0 OR EXISTS(SELECT 1 FROM airhop_children child WHERE child.community_id=v.community_id AND child.organization_id=v.organization_id AND child.family_id=family.id AND child.status='active' AND strpos(lower(child.display_name),lower($8))>0))
                AND ($9::uuid IS NULL OR v.family_id=$9) AND ($10::uuid IS NULL OR v.id=$10)
                AND ($11::timestamptz IS NULL OR (v.updated_at,v.id)<($11,$12))
                AND ($13::uuid IS NULL OR v.representative_id=$13)
                AND ($14::bytea IS NULL OR v.assignee_pubkey=$14)
+               AND ($15::uuid IS NULL OR v.channel_id=$15)
+               AND ($16::bytea[] IS NULL OR v.root_event_id=ANY($16))
              ORDER BY v.updated_at DESC,v.id DESC LIMIT 101")
             .bind(tenant.community().as_uuid()).bind(actor.as_slice()).bind(filter.branch_id).bind(filter.unassigned_branch)
             .bind(&filter.status).bind(filter.connection_id).bind(filter.mine).bind(&filter.search)
-            .bind(filter.family_id).bind(filter.conversation_id).bind(filter.before).bind(filter.after_id).bind(filter.representative_id).bind(assignee).fetch_all(&self.pool).await?;
+            .bind(filter.family_id).bind(filter.conversation_id).bind(filter.before).bind(filter.after_id).bind(filter.representative_id).bind(assignee).bind(filter.channel_id).bind(roots).fetch_all(&self.pool).await?;
         let more = rows.len() > 100;
         let items: Vec<_> = rows.into_iter().take(100).collect();
         let cursor = if more {
@@ -315,7 +346,6 @@ pub(super) async fn record_inbound(
     tx: &mut Transaction<'_, Postgres>,
     community: Uuid,
     conversation: &mut ExternalConversation,
-    source_event_id: &[u8; 32],
 ) -> Result<()> {
     let row=sqlx::query("SELECT queue_status,branch_id,assignee_pubkey FROM airhop_external_conversations WHERE community_id=$1 AND id=$2")
         .bind(community).bind(conversation.id).fetch_one(&mut **tx).await?;
@@ -357,8 +387,6 @@ pub(super) async fn record_inbound(
         .into_iter()
         .next(),
     };
-    sqlx::query("INSERT INTO airhop_client_inbound_notifications(community_id,organization_id,conversation_id,source_event_id) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING")
-        .bind(community).bind(conversation.organization_id).bind(conversation.id).bind(source_event_id.as_slice()).execute(&mut **tx).await?;
     sqlx::query("UPDATE airhop_external_conversations SET queue_status='waiting_staff',resolved_at=NULL,last_inbound_at=now(),updated_at=now(),version=version+1,assignee_pubkey=$3 WHERE community_id=$1 AND id=$2")
         .bind(community).bind(conversation.id).bind(assignee).execute(&mut **tx).await?;
     Ok(())
@@ -497,7 +525,7 @@ impl Db {
         &self,
         community: Option<CommunityId>,
     ) -> Result<Vec<ClientNotification>> {
-        let rows=sqlx::query("SELECT n.community_id,host.host,n.notification_event_id,l.channel_id AS archived_channel_id FROM (SELECT community_id,notification_event_id,created_at FROM airhop_conversation_changes WHERE notification_event_id IS NOT NULL AND notification_dispatched_at IS NULL UNION ALL SELECT community_id,notification_event_id,created_at FROM airhop_client_inbound_notifications WHERE notification_event_id IS NOT NULL AND notification_dispatched_at IS NULL) n JOIN communities host ON host.id=n.community_id LEFT JOIN airhop_conversation_legacy_locations l ON l.community_id=n.community_id AND l.new_root_event_id=n.notification_event_id WHERE ($1::uuid IS NULL OR n.community_id=$1) ORDER BY n.created_at LIMIT 100")
+        let rows=sqlx::query("SELECT n.community_id,host.host,n.notification_event_id,l.channel_id AS archived_channel_id FROM airhop_conversation_changes n JOIN communities host ON host.id=n.community_id LEFT JOIN airhop_conversation_legacy_locations l ON l.community_id=n.community_id AND l.new_root_event_id=n.notification_event_id WHERE n.notification_event_id IS NOT NULL AND n.notification_dispatched_at IS NULL AND ($1::uuid IS NULL OR n.community_id=$1) ORDER BY n.created_at LIMIT 100")
             .bind(community.map(|id| *id.as_uuid())).fetch_all(&self.pool).await?;
         rows.iter()
             .map(|r| {
