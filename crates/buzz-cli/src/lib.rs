@@ -247,6 +247,12 @@ enum Cmd {
 /// Read-only Airhop Center reporting commands.
 #[derive(Subcommand)]
 pub enum AirhopCmd {
+    /// Call the parent backend with the current supervisor-issued context grant
+    Parent {
+        /// Typed backend request JSON (for example save_booking_draft or commit_booking_draft)
+        #[arg(long)]
+        request: String,
+    },
     /// Operational overview: bookings, attendance, students, occupancy and cash
     CenterAnalytics {
         /// Organization-local calendar days in the selected period

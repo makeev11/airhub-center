@@ -54,3 +54,34 @@ request. The relay selects the newest trigger with a current receipt in the
 same channel, skipping internal notes without extra model calls. Deploy the
 matching migrated relay before updating this runtime; older single-event
 runtime claims remain supported by the new relay.
+
+## Booking in a conversation
+
+Migration 0055 and the matching relay/MCP/runtime add three Parent Administrator
+tools: `airhop_save_booking_draft`, `airhop_commit_booking_draft`, and
+`airhop_cancel_booking_draft`. `get_turn_context` returns the durable
+`bookingDraft` and the `create_booking` capability whenever the existing master
+booking-management switch is enabled, including for an unverified new contact.
+It still does not grant access to another family's records.
+
+Saving collects a versioned full snapshot without reserving a seat. A ready
+draft returns the exact localized summary that must be delivered unchanged
+through `airhop_send_parent_reply` as the last parent-facing message. Only a direct explicit parent confirmation
+from the authenticated gateway can commit it; the summary expires after 24 hours.
+Edits or changed lesson conditions require a new summary and confirmation.
+Staff resume is an internal trigger, not parent consent.
+
+Commit creates identity, consent, booking, audit/outbox and (for a genuinely new
+identity) the current-chat binding atomically. The current grant remains
+unverified; the next turn obtains the newly bound family. Phone matches create
+a separate pending review case, never access to an existing family. Retries are
+idempotent per conversation/draft revision. The existing auto-confirm switch
+also covers conversational trial bookings after current Core checks. Single
+visits have no modeled price yet and remain pending staff confirmation; their
+summary never substitutes the trial price.
+
+For a supervised diagnostic session, the same typed backend is available as
+`buzz airhop parent --request '{"operation":"get_turn_context"}'`. It requires
+the supervisor-issued grant file and the current agent's NIP-98 identity; it
+does not accept caller-selected organization, conversation or family scope.
+No generic shell tool is added to the parent runtime.

@@ -571,7 +571,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 54);
+        assert_eq!(migrations.len(), 55);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -1093,6 +1093,15 @@ mod tests {
             .sql
             .as_str()
             .contains("airhop_site_analytics_booking_idx"));
+        assert_eq!(migrations[54].version, 55);
+        assert!(migrations[54]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_conversation_booking_drafts"));
+        assert!(migrations[54]
+            .sql
+            .as_str()
+            .contains("airhop_consents_channel_check"));
     }
 
     #[test]

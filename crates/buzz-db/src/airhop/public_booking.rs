@@ -661,7 +661,7 @@ pub(super) async fn resolve_identity(
         // typing its phone. Reuse the existing duplicate-review path instead of
         // injecting new children/bookings into a verified family's history.
         // Trusted staff workflows retain their explicit exact-match behavior.
-        if let Some(candidate) = unique_active_representative(&candidates).filter(|_| consent.channel != "web") {
+        if let Some(candidate) = unique_active_representative(&candidates).filter(|_| !matches!(consent.channel, "web" | "hermes")) {
             (candidate.family_id, candidate.id, false)
         } else {
             let family_id = Uuid::new_v4();
@@ -753,7 +753,7 @@ fn unique_active_representative(
     active.next().is_none().then_some(result)
 }
 
-async fn resolve_child(
+pub(super) async fn resolve_child(
     transaction: &mut Transaction<'_, Postgres>,
     tenant: &TenantContext,
     organization_id: Uuid,

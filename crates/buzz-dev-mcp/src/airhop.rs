@@ -506,6 +506,25 @@ pub struct ManageBookingParams {
     pub action: ParentBookingAction,
 }
 
+/// Durable conversation intake. Supply the full collected snapshot; use null
+/// for unknown fields. Read the current revision from turn context first.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SaveBookingDraftParams {
+    /// Zero when no draft exists, otherwise the current draft revision.
+    pub expected_version: i64,
+    /// Data explicitly supplied by the parent or returned by scoped Core reads.
+    pub data: airhop_core::conversation_booking::ConversationBookingData,
+}
+
+/// Exact draft revision to commit or cancel within the granted conversation.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BookingDraftVersionParams {
+    /// Revision from the server's latest booking draft.
+    pub version: i64,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ParentContextClaims {
@@ -1406,6 +1425,33 @@ impl AirhopService {
         }))
         .await
     }
+
+    async fn save_booking_draft(
+        &self,
+        params: SaveBookingDraftParams,
+    ) -> Result<Value, AirhopError> {
+        self.call_parent_backend(json!({"operation":"save_booking_draft", "expectedVersion":params.expected_version,"data":params.data})).await
+    }
+
+    async fn commit_booking_draft(
+        &self,
+        params: BookingDraftVersionParams,
+    ) -> Result<Value, AirhopError> {
+        self.call_parent_backend(
+            json!({"operation":"commit_booking_draft", "version":params.version}),
+        )
+        .await
+    }
+
+    async fn cancel_booking_draft(
+        &self,
+        params: BookingDraftVersionParams,
+    ) -> Result<Value, AirhopError> {
+        self.call_parent_backend(
+            json!({"operation":"cancel_booking_draft", "version":params.version}),
+        )
+        .await
+    }
 }
 
 fn validate_hex_event_id(value: &str, name: &str) -> Result<(), AirhopError> {
@@ -1502,6 +1548,9 @@ fn tools_for(role: AirhopRole) -> BTreeSet<String> {
             "airhop_list_booking_options".to_owned(),
             "airhop_search_knowledge".to_owned(),
             "airhop_manage_booking".to_owned(),
+            "airhop_save_booking_draft".to_owned(),
+            "airhop_commit_booking_draft".to_owned(),
+            "airhop_cancel_booking_draft".to_owned(),
             "airhop_send_parent_reply".to_owned(),
         ]);
     }
@@ -1553,6 +1602,9 @@ impl AirhopMcp {
             "airhop_list_booking_options",
             "airhop_search_knowledge",
             "airhop_manage_booking",
+            "airhop_save_booking_draft",
+            "airhop_commit_booking_draft",
+            "airhop_cancel_booking_draft",
             "airhop_send_parent_reply",
         ] {
             if !allowed.contains(name) {
@@ -1682,6 +1734,45 @@ impl AirhopMcp {
     }
 
     #[tool(
+        name = "airhop_save_booking_draft",
+        description = "Parent Administrator only: persist collected booking data, including for a NEW unverified contact when create_booking is granted. Supply the full snapshot and expectedVersion (0 initially). Ask for missing names, actual birth date and phone; never invent them. Select lessonRef fields from live options. A ready draft returns an exact preview: send it UNCHANGED as the LAST message via airhop_send_parent_reply and wait for the parent's direct confirmation within 24 hours. After intervening conversation, show it again. No seat is reserved by saving a draft."
+    )]
+    async fn save_booking_draft(
+        &self,
+        Parameters(params): Parameters<SaveBookingDraftParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(
+            self.service.save_booking_draft(params).await,
+        ))
+    }
+
+    #[tool(
+        name = "airhop_commit_booking_draft",
+        description = "Parent Administrator only: create the booking from the exact ready draft revision after the CURRENT parent message explicitly confirms its delivered summary. The server verifies source, delivery, consent, current permission, capacity, age, identity and policy. New contacts CAN book; Family verification is not required for creation. Replays return the same booking. Say confirmed only for status confirmed; requiresStaff means send an internal handoff. Never call from a staff resume or before the parent confirms."
+    )]
+    async fn commit_booking_draft(
+        &self,
+        Parameters(params): Parameters<BookingDraftVersionParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(
+            self.service.commit_booking_draft(params).await,
+        ))
+    }
+
+    #[tool(
+        name = "airhop_cancel_booking_draft",
+        description = "Parent Administrator only: cancel the current uncommitted conversation draft at its exact revision. Does not cancel a booked lesson; use airhop_manage_booking for that."
+    )]
+    async fn cancel_booking_draft(
+        &self,
+        Parameters(params): Parameters<BookingDraftVersionParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(
+            self.service.cancel_booking_draft(params).await,
+        ))
+    }
+
+    #[tool(
         name = "airhop_manage_booking",
         description = "Parent Administrator only: confirm_online for the verified online-handoff booking, cancel or request transfer of one booking in the granted Family. Confirmation rechecks current Core rules and requires enabled auto-confirm policy. Report confirmation only after a successful authoritative receipt; otherwise hand off to staff."
     )]
@@ -1801,6 +1892,9 @@ mod tests {
                 "airhop_list_booking_options",
                 "airhop_search_knowledge",
                 "airhop_manage_booking",
+                "airhop_save_booking_draft",
+                "airhop_commit_booking_draft",
+                "airhop_cancel_booking_draft",
                 "airhop_send_parent_reply",
             ])
         );
@@ -1843,6 +1937,18 @@ mod tests {
 
     #[test]
     fn parent_backend_tool_wire_shapes_are_closed() {
+        assert!(serde_json::from_value::<SaveBookingDraftParams>(json!({
+            "expectedVersion":0,"data":{"parentName":"Anna"}
+        }))
+        .is_ok());
+        assert!(serde_json::from_value::<SaveBookingDraftParams>(json!({
+            "expectedVersion":0,"data":{"familyId":Uuid::new_v4()}
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<BookingDraftVersionParams>(json!({
+            "version":1,"consent":true
+        }))
+        .is_err());
         let booking_id = Uuid::new_v4();
         let options: ListBookingOptionsParams = serde_json::from_value(json!({
             "branchId": Uuid::new_v4(),
@@ -2295,15 +2401,59 @@ mod tests {
         );
         config.channel_id = None;
         config.context_grant = Some("relay-signed-turn-context".into());
-        let result = AirhopService::new(config).get_turn_context().await.unwrap();
+        let service = AirhopService::new(config);
+        let result = service.get_turn_context().await.unwrap();
         assert_eq!(
             result["data"]["capabilities"][0],
             "read_organization_public"
         );
 
+        let data = airhop_core::conversation_booking::ConversationBookingData {
+            parent_name: Some("Anna".into()),
+            ..Default::default()
+        };
+        service
+            .save_booking_draft(SaveBookingDraftParams {
+                expected_version: 0,
+                data: data.clone(),
+            })
+            .await
+            .unwrap();
+        service
+            .commit_booking_draft(BookingDraftVersionParams { version: 1 })
+            .await
+            .unwrap();
+        service
+            .cancel_booking_draft(BookingDraftVersionParams { version: 1 })
+            .await
+            .unwrap();
         let requests = state.requests.lock().unwrap();
-        assert_eq!(requests.len(), 1);
+        assert_eq!(requests.len(), 4);
         assert_eq!(requests[0].1, json!({"operation": "get_turn_context"}));
+        assert_eq!(
+            requests[1].1,
+            json!({"operation":"save_booking_draft","expectedVersion":0,"data":data})
+        );
+        assert_eq!(
+            requests[2].1,
+            json!({"operation":"commit_booking_draft","version":1})
+        );
+        assert_eq!(
+            requests[3].1,
+            json!({"operation":"cancel_booking_draft","version":1})
+        );
+        for (headers, _) in requests.iter() {
+            assert_eq!(
+                headers.get(AGENT_CONTEXT_HEADER).unwrap(),
+                "relay-signed-turn-context"
+            );
+            assert!(headers
+                .get("authorization")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("Nostr "));
+        }
         assert_eq!(
             requests[0]
                 .0

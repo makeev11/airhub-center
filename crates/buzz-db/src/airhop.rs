@@ -40,6 +40,8 @@ pub mod center_analytics;
 pub mod center_health;
 /// Provider-neutral external messaging connection and delivery outbox.
 pub mod channel_gateway;
+/// Durable, parent-confirmed booking creation inside an external conversation.
+pub mod conversation_booking;
 /// Optimistic lifecycle and tariff commands for permanent enrollments.
 pub mod enrollment_lifecycle;
 /// Canonical parent conversation ownership and Hermes routing receipts.

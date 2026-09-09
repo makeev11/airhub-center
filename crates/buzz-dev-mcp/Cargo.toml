@@ -14,6 +14,7 @@ name = "buzz-dev-mcp"
 path = "src/main.rs"
 
 [dependencies]
+airhop-core = { path = "../airhop-core" }
 buzz-cli = { path = "../buzz-cli" }
 git-credential-nostr = { path = "../git-credential-nostr" }
 git-sign-nostr = { path = "../git-sign-nostr" }

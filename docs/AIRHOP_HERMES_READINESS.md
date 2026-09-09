@@ -3,6 +3,52 @@
 This checklist distinguishes implemented code from deployed and accepted flows.
 The project is not yet a complete parent-administrator product.
 
+## Conversational booking implementation, 2026-09-09
+
+Implemented in the working tree; this section alone is **not evidence of a live
+deployment or Telegram acceptance**. Requires migration 0055 and matching relay,
+MCP and parent runtime. The Center card labels now describe creation as well as
+management, using the existing settings without resetting owner preferences.
+
+- New unverified contacts can collect a durable, versioned draft with real
+  parent/child names, phone, date of birth and a live stable lesson reference.
+- The exact server-generated summary must be delivered before the current
+  parent confirms. Staff instructions, negative/conditional replies, stale
+  revisions and undelivered/expired summaries cannot authorize creation.
+- Core creates the family/child, consent evidence, booking, audit/outbox and
+  new-chat binding in one transaction. It rechecks current ownership,
+  deployment/connection permissions, age, lesson policy and last-seat capacity.
+  Retry identity survives new turns and does not create duplicate bookings.
+- Existing verified families reuse scoped identities. Typed phone matches never
+  authenticate another family; they create a separate pending review case.
+- Enabled auto-confirm covers trial bookings only after those checks. Disabled
+  auto-confirm, identity review and single visits without a modeled price leave
+  a pending request for staff. The agent must report the actual Core status.
+- The new PostgreSQL regressions are included by the existing CI selector for
+  `airhop::external_conversation::integration_tests`.
+
+Live acceptance must use an explicitly authorized test contact: collect data,
+show summary, confirm, verify the booking in Center and actual Telegram delivery;
+then repeat with auto-confirm disabled and with staff takeover. Also check
+runtime restart during collection and an edited summary. Do not treat local
+database fixtures as proof of real model/provider behavior.
+
+Local verification for this implementation:
+
+- 22 PostgreSQL conversation/handoff regressions passed, including the 13 new
+  conversational-booking tests. They use an isolated UTF-8 test database, not
+  the demo or a production database.
+- Core (15), CLI (317), DB unit/lint (189), MCP (109), and relay (912) unit tests
+  passed. Relay tests use that explicit local database and run serially because
+  some tests exercise global tracing state.
+- Targeted Rust Clippy with warnings denied, workspace formatting and diff
+  whitespace checks passed. Desktop `pnpm check`, TypeScript checking and all
+  7 agent-settings tests passed.
+- `just test` was attempted but its Docker-managed infrastructure phase cannot
+  run with the Docker daemon unavailable. The migration-count assertion found
+  during its first unit pass was updated for 0055 and passed on rerun. This is
+  not a claim that the full repository integration suite or `just ci` passed.
+
 ## Online booking → Telegram slice implemented after the review
 
 - Selecting Telegram on the public success page issues a 15-minute, one-use
@@ -143,8 +189,8 @@ slice accepted. Fake-provider tests do not prove live provider or LLM behaviour.
 
 1. Add existing-parent approval/verified contact flows for returning and second
    parents. The first-booking Telegram grant does not replace those proofs.
-2. Add typed conversational booking creation and actual atomic transfer;
-   parent tools now confirm an online handoff, cancel, and request a transfer.
+2. Accept the conversational booking implementation above in the live pilot and
+   add actual atomic transfer; current transfers are requests, not completed moves.
 3. Finish branch responsibility routing and actionable staff inbox behaviour;
    family navigation and simple family/parent Telegram titles are implemented.
 4. Provide user-editable published knowledge, factual payment guidance, booking

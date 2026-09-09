@@ -71,6 +71,7 @@ name = "airhop-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1035,6 +1036,7 @@ dependencies = [
 name = "buzz-dev-mcp"
 version = "0.1.0"
 dependencies = [
+ "airhop-core",
  "axum",
  "base64 0.22.1",
  "buzz-cli",

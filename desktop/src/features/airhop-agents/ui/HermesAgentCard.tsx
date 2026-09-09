@@ -40,12 +40,12 @@ const COPY: Record<
     role: "Внешний администратор",
     description:
       "Общается с родителями в подключённых каналах, отвечает на вопросы и помогает с занятиями.",
-    capability: "Управлять текущими записями",
-    autoConfirm: "Подтверждать онлайн-записи",
+    capability: "Создавать и управлять записями",
+    autoConfirm: "Автоматически подтверждать записи",
     autoConfirmHint:
-      "После перехода родителя в Telegram Гермес проверяет запись и подтверждает её. Если выключено, он зовёт сотрудника.",
+      "Гермес проверяет и подтверждает записи из переписки и онлайн-формы. Если выключено, создаёт заявку и зовёт сотрудника.",
     capabilityHint:
-      "Гермес может отменить запись или передать запрос на перенос от подтверждённого родителя. Каждое действие проверяет Booking Core.",
+      "Гермес может записать нового клиента после подтверждения данных родителем, отменить текущую запись или передать запрос на перенос.",
     model: "Модель",
     managed: "Управляется Airhop",
     savingError: "Не удалось изменить настройки Гермеса.",
@@ -61,12 +61,12 @@ const COPY: Record<
     role: "External administrator",
     description:
       "Talks with parents in connected channels, answers questions, and helps with classes.",
-    capability: "Manage current bookings",
-    autoConfirm: "Confirm online bookings",
+    capability: "Create and manage bookings",
+    autoConfirm: "Automatically confirm bookings",
     autoConfirmHint:
-      "After a parent connects Telegram, Hermes checks and confirms their booking. If disabled, he asks a staff member.",
+      "Hermes checks and confirms bookings from chat and the online form. If disabled, he creates a request for staff to confirm.",
     capabilityHint:
-      "Hermes can cancel a booking or submit a transfer request for a verified parent. Booking Core checks every action.",
+      "Hermes can book a new client after the parent confirms their details, cancel an existing booking, or request a transfer.",
     model: "Model",
     managed: "Managed by Airhop",
     savingError: "Hermes settings could not be changed.",
@@ -82,12 +82,12 @@ const COPY: Record<
     role: "Administrador externo",
     description:
       "Conversa com responsáveis nos canais conectados, responde perguntas e ajuda com as aulas.",
-    capability: "Gerenciar reservas atuais",
-    autoConfirm: "Confirmar reservas online",
+    capability: "Criar e gerenciar reservas",
+    autoConfirm: "Confirmar reservas automaticamente",
     autoConfirmHint:
-      "Depois que o responsável conectar o Telegram, Hermes verifica e confirma a reserva. Se desativado, chama um funcionário.",
+      "Hermes verifica e confirma reservas da conversa e do formulário online. Se desativado, cria uma solicitação para a equipe confirmar.",
     capabilityHint:
-      "Hermes pode cancelar uma reserva ou enviar um pedido de transferência para um responsável verificado. O Booking Core valida cada ação.",
+      "Hermes pode reservar para novos clientes após a confirmação dos dados pelo responsável, cancelar reservas e solicitar transferências.",
     model: "Modelo",
     managed: "Gerenciado pela Airhop",
     savingError: "Não foi possível alterar as configurações do Hermes.",
@@ -103,12 +103,12 @@ const COPY: Record<
     role: "Harici yönetici",
     description:
       "Bağlı kanallarda velilerle konuşur, soruları yanıtlar ve derslere yardımcı olur.",
-    capability: "Mevcut kayıtları yönet",
-    autoConfirm: "Çevrimiçi kayıtları onayla",
+    capability: "Kayıt oluştur ve yönet",
+    autoConfirm: "Kayıtları otomatik onayla",
     autoConfirmHint:
-      "Veli Telegram'a bağlandıktan sonra Hermes kaydı kontrol edip onaylar. Kapalıysa bir çalışanı çağırır.",
+      "Hermes sohbet ve çevrimiçi form kayıtlarını kontrol edip onaylar. Kapalıysa personelin onaylaması için talep oluşturur.",
     capabilityHint:
-      "Hermes doğrulanmış bir velinin kaydını iptal edebilir veya taşıma talebi iletebilir. Booking Core her işlemi kontrol eder.",
+      "Hermes veli bilgileri onayladıktan sonra yeni kayıt oluşturabilir, mevcut kaydı iptal edebilir veya taşıma talebi iletebilir.",
     model: "Model",
     managed: "Airhop tarafından yönetilir",
     savingError: "Hermes ayarları değiştirilemedi.",

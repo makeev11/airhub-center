@@ -9,6 +9,7 @@
 pub mod age;
 pub mod booking;
 pub mod capacity;
+pub mod conversation_booking;
 pub mod organization;
 pub mod schedule;
 
