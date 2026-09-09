@@ -29,9 +29,11 @@ pub(super) async fn resume_has_no_pending_parent(
 }
 
 impl Db {
-    /// Reads at most 40 chat messages in this lease's conversation, through
-    /// its source event's server receipt time. No caller-selected channel,
-    /// cross-family search, deleted content or future messages are exposed.
+    /// Reads at most 40 chat messages in this lease's conversation. Incoming
+    /// messages stop at the source event; delivered replies additionally extend
+    /// through acquisition of this lease attempt. The server-owned watermark is
+    /// stable across context reads, with started_at as a legacy fallback.
+    /// No caller-selected channel, cross-family search or deleted content.
     pub async fn get_airhop_parent_turn_history(
         &self,
         tenant: &TenantContext,
@@ -60,8 +62,12 @@ impl Db {
                               AND outbound.conversation_id = conversation.id
                               AND outbound.buzz_event_id = message.id
                               AND outbound.status = 'delivered'
+                              AND outbound.delivered_at <= snapshot.reply_cutoff
                          ) END AS internal
              FROM airhop_hermes_turn_receipts turn
+             CROSS JOIN LATERAL (SELECT COALESCE(
+               (turn.configuration_snapshot->>'historySnapshotAt')::TIMESTAMPTZ,
+               turn.started_at) AS reply_cutoff) snapshot
              JOIN airhop_external_conversations conversation
                ON conversation.community_id = turn.community_id
               AND conversation.organization_id = turn.organization_id
@@ -73,7 +79,17 @@ impl Db {
               AND source.id = turn.source_message_id AND source.channel_id = turn.channel_id
              JOIN events message ON message.community_id = turn.community_id
               AND message.channel_id = turn.channel_id AND message.kind = 9
-              AND message.deleted_at IS NULL AND message.received_at <= source.received_at
+              AND message.deleted_at IS NULL
+              AND message.received_at <= GREATEST(source.received_at, snapshot.reply_cutoff)
+              AND (message.received_at <= source.received_at OR (
+                message.received_at <= snapshot.reply_cutoff AND EXISTS (
+                  SELECT 1 FROM airhop_external_message_outbox outbound
+                  WHERE outbound.community_id = message.community_id
+                    AND outbound.conversation_id = conversation.id
+                    AND outbound.buzz_event_id = message.id
+                    AND outbound.actor_kind IN ('hermes', 'staff')
+                    AND outbound.status = 'delivered'
+                    AND outbound.delivered_at <= snapshot.reply_cutoff)))
              WHERE turn.community_id = $1 AND turn.id = $2 AND turn.lease_token = $3
                AND turn.agent_pubkey = $4 AND turn.status = 'leased'
                AND turn.lease_expires_at > now()

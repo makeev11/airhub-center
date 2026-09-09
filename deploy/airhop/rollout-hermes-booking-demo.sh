@@ -13,14 +13,14 @@ test "${build_dir##*-}" = "$short"
 test "$(jq -er .commit build-complete.json)" = "$commit"
 test "$(sha256sum source.tgz | cut -d ' ' -f 1)" = "$(jq -er .sourceArchiveSha256 source-manifest.json)"
 jq -r '.files[] | "\(.sha256)  \(.path)"' source-manifest.json | sha256sum -c --quiet -
-old_relay=airhub-center-relay:airhop-center-0.5.6-097799a4fd61
-old_hermes=airhop-hermes-parent-runtime:airhop-center-0.5.6-097799a4fd61
+old_relay=airhub-center-relay:airhop-center-0.5.6-da09388809b1
+old_hermes=airhop-hermes-parent-runtime:airhop-center-0.5.6-da09388809b1
 relay=airhub-center-relay:$release
 hermes=airhop-hermes-parent-runtime:$release
 test "$(docker inspect buzz-demo-relay-1 --format '{{.Config.Image}}')" = "$old_relay"
-test "$(docker inspect buzz-demo-relay-1 --format '{{.Image}}')" = sha256:356f75e1c6e8c495b0e98d48a63e1cf67e53654974deeba515932e436d1bb28e
+test "$(docker inspect buzz-demo-relay-1 --format '{{.Image}}')" = sha256:99452628d3a8062540f8d41ce91444b587fa7f0139dcf74f0751b5cd66bc7597
 test "$(docker inspect buzz-demo-hermes-parent-runtime-1 --format '{{.Config.Image}}')" = "$old_hermes"
-test "$(docker inspect buzz-demo-hermes-parent-runtime-1 --format '{{.Image}}')" = sha256:66a161ae734b3c6d7181e40c75fb0b1baba2d2f98f3f5dc2526e582a24e6763c
+test "$(docker inspect buzz-demo-hermes-parent-runtime-1 --format '{{.Image}}')" = sha256:60c757895e431fd264a27321231fcd9789bee38d354c302e09b4d44cddcb8693
 for image in "$relay" "$hermes"; do
   test "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$commit"
 done
@@ -39,6 +39,7 @@ files=(
   /opt/airhop/buzz-demo/releases/analytics-demo-20260907.compose.yml
   /opt/airhop/relay-build-0.5.6-4322563f72a7/demo-0.5.6.compose.yml
   /opt/airhop/hermes-booking-097799a4fd61/rollout.compose.json
+  /opt/airhop/hermes-booking-da09388809b1/rollout.compose.json
 )
 compose=(docker compose --project-name buzz-demo --env-file "$env_file")
 for file in "${files[@]}"; do compose+=(-f "$file"); done

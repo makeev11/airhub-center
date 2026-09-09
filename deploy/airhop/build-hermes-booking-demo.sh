@@ -13,12 +13,12 @@ test "${build_dir##*-}" = "${commit:0:12}"
 test "$(sha256sum source.tgz | cut -d ' ' -f 1)" = "$archive_sha"
 jq -r '.files[] | "\(.sha256)  \(.path)"' source-manifest.json | sha256sum -c --quiet -
 
-build_base=airhop-booking-binaries:airhop-center-0.5.6-097799a4fd61
-build_id=sha256:bdb654b8aabd5ada9b0d2eb11cc71ebac197b006f6a2b84bdab3b1da9dfa4b2e
-relay_base=airhub-center-relay:airhop-center-0.5.6-097799a4fd61
-relay_id=sha256:356f75e1c6e8c495b0e98d48a63e1cf67e53654974deeba515932e436d1bb28e
-hermes_base=airhop-hermes-parent-runtime:airhop-center-0.5.6-097799a4fd61
-hermes_id=sha256:66a161ae734b3c6d7181e40c75fb0b1baba2d2f98f3f5dc2526e582a24e6763c
+build_base=airhop-booking-binaries:airhop-center-0.5.6-da09388809b1
+build_id=sha256:fa566640a8ea44349544ed9e07ed85e4376561ca8391e89721690d269901cb0e
+relay_base=airhub-center-relay:airhop-center-0.5.6-da09388809b1
+relay_id=sha256:99452628d3a8062540f8d41ce91444b587fa7f0139dcf74f0751b5cd66bc7597
+hermes_base=airhop-hermes-parent-runtime:airhop-center-0.5.6-da09388809b1
+hermes_id=sha256:60c757895e431fd264a27321231fcd9789bee38d354c302e09b4d44cddcb8693
 verify_bases() {
   test "$(docker image inspect "$build_base" --format '{{.Id}}')" = "$build_id"
   test "$(docker image inspect "$relay_base" --format '{{.Id}}')" = "$relay_id"

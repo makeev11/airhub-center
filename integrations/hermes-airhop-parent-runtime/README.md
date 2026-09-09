@@ -59,7 +59,14 @@ runtime claims remain supported by the new relay.
 
 `airhop_get_turn_context` now supplies a bounded server-side transcript (40
 messages, 2,000 Unicode characters per message) from the exact leased
-conversation through its source event. It survives session resets and includes
+conversation. Incoming messages stop at the source event, while parent-facing
+replies delivered before this lease attempt are also included. The server stores
+`historySnapshotAt` in the turn's configuration snapshot when acquiring or rotating
+a lease; context read-set updates and same-lease replays cannot move that cutoff.
+Legacy leases fall back to `started_at`, without a schema migration. This avoids
+losing an in-flight reply when a parent's follow-up arrives just before delivery,
+without consuming newer parent inputs that still belong to queued batches.
+The transcript survives session resets and includes
 previous ownership cycles, with parent/staff/Hermes and internal-message labels.
 This does not enable cross-conversation profile memory or generic history tools.
 

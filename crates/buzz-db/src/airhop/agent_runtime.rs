@@ -202,7 +202,8 @@ pub struct HermesTurnReceipt {
     pub lease_expires_at: DateTime<Utc>,
     /// Number of leases for this same input batch.
     pub attempt: i32,
-    /// Immutable deployment/capability snapshot.
+    /// Deployment/capability snapshot, with a server-owned `historySnapshotAt`
+    /// watermark refreshed only when a new lease attempt is acquired.
     pub configuration_snapshot: serde_json::Value,
     /// Whether this acquisition replayed the same input batch.
     pub replayed: bool,
@@ -524,6 +525,8 @@ impl Db {
                      SET lease_token = gen_random_uuid(),
                          status = 'leased', finished_at = NULL, error_code = NULL, outcome = NULL,
                          lease_expires_at = now() + ($5::BIGINT * interval '1 second'),
+                         configuration_snapshot = configuration_snapshot ||
+                           jsonb_build_object('historySnapshotAt', clock_timestamp()),
                          attempt = attempt + 1, updated_at = now()
                      WHERE community_id = $1 AND organization_id = $2
                        AND cycle_id = $3 AND input_batch_id = $4
@@ -579,7 +582,8 @@ impl Db {
                 family_id, representative_id, lease_token, lease_expires_at,
                 configuration_snapshot
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                gen_random_uuid(), now() + ($12::BIGINT * interval '1 second'), $13)
+                gen_random_uuid(), now() + ($12::BIGINT * interval '1 second'),
+                $13::JSONB || jsonb_build_object('historySnapshotAt', clock_timestamp()))
              RETURNING *",
         )
         .bind(community_id)
