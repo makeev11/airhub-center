@@ -31,6 +31,9 @@ export default defineConfig({
       testMatch: [
         "**/airhop-schedule.spec.ts",
         "**/airhop-center-analytics.spec.ts",
+        "**/airhop-knowledge.spec.ts",
+        "**/airhop-client-inbox.spec.ts",
+        "**/airhop-interface-consistency.spec.ts",
         "**/airhop-public-booking.spec.ts",
         "**/airhop-settings-localization.spec.ts",
         "**/airhop-clients.spec.ts",

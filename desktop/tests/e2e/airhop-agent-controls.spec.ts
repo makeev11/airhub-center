@@ -21,6 +21,17 @@ const team = [
   status: "stopped" as const,
 }));
 
+const registeredDirectory = {
+  communityId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  agents: team.map((agent) => ({
+    id: agent.role,
+    role: agent.role,
+    pubkey: agent.pubkey,
+    deploymentId: null,
+  })),
+  principals: team.map((agent) => ({ pubkey: agent.pubkey, kind: "agent" })),
+};
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("airhop.locale.v1", "ru-RU");
@@ -48,7 +59,10 @@ async function readEnabledState(page: Page, pubkey: string) {
 test("team switches persist launch preference and control all four agents", async ({
   page,
 }) => {
-  await installMockBridge(page, { managedAgents: team });
+  await installMockBridge(page, {
+    managedAgents: team,
+    principalDirectory: registeredDirectory,
+  });
   await page.goto("/#/agents");
   await expect(
     page.getByRole("heading", { name: "Команда Airhop" }),
@@ -92,6 +106,7 @@ test("failed agent launch is reported and disarms automatic restart", async ({
 }) => {
   await installMockBridge(page, {
     managedAgents: team,
+    principalDirectory: registeredDirectory,
     startManagedAgentErrors: ["Test runtime unavailable"],
   });
   await page.goto("/#/agents");
@@ -108,11 +123,14 @@ test("failed agent launch is reported and disarms automatic restart", async ({
 });
 
 test("missing team members remain visibly unavailable", async ({ page }) => {
-  await installMockBridge(page, { managedAgents: [] });
+  await installMockBridge(page, {
+    managedAgents: [],
+    principalDirectory: registeredDirectory,
+  });
   await page.goto("/#/agents");
   for (const agent of team) {
     const card = page.getByTestId(`airhop-agent-card-${agent.role}`);
-    await expect(card).toContainText("Ещё не подключён");
+    await expect(card).toContainText("Подключён к центру");
     await expect(card.getByRole("switch")).toBeDisabled();
   }
   await expect(

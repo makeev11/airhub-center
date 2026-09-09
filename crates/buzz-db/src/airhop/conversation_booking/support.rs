@@ -3,7 +3,6 @@ use super::*;
 pub(super) struct Scope {
     pub organization_id: Uuid,
     pub conversation_id: Uuid,
-    pub channel_id: Uuid,
     pub family_id: Option<Uuid>,
     pub representative_id: Option<Uuid>,
     pub source_event_id: Vec<u8>,
@@ -56,7 +55,6 @@ pub(super) async fn lock_scope(
     Ok(Scope {
         organization_id: lease.organization_id,
         conversation_id,
-        channel_id: turn.try_get("channel_id")?,
         family_id: turn.try_get("family_id")?,
         representative_id: turn.try_get("representative_id")?,
         source_event_id: turn.try_get("source_message_id")?,
@@ -356,7 +354,7 @@ pub(super) async fn validate_confirmation(
           AND source.received_at<$5 + interval '24 hours'
           AND clock_timestamp()<$5 + interval '24 hours'
           AND NOT EXISTS(SELECT 1 FROM events intervening WHERE intervening.community_id=source.community_id
-              AND intervening.channel_id=source.channel_id AND intervening.pubkey=source.pubkey
+              AND EXISTS(SELECT 1 FROM airhop_gateway_inbound_receipts ir WHERE ir.community_id=intervening.community_id AND ir.buzz_event_id=intervening.id AND ir.conversation_id=$2) AND intervening.pubkey=source.pubkey
               AND intervening.kind=9 AND intervening.deleted_at IS NULL
               AND intervening.received_at>preview.delivered_at AND intervening.received_at<source.received_at)
           AND NOT EXISTS(SELECT 1 FROM airhop_external_message_outbox later_reply
@@ -364,7 +362,7 @@ pub(super) async fn validate_confirmation(
               AND later_reply.status='delivered' AND later_reply.buzz_event_id<>preview.buzz_event_id
               AND later_reply.delivered_at>=preview.delivered_at AND later_reply.delivered_at<source.received_at)
           AND NOT EXISTS(SELECT 1 FROM events newer WHERE newer.community_id=source.community_id AND newer.channel_id=source.channel_id
-              AND newer.pubkey=source.pubkey AND newer.kind=9 AND newer.deleted_at IS NULL AND newer.received_at>source.received_at)
+              AND EXISTS(SELECT 1 FROM airhop_gateway_inbound_receipts nr WHERE nr.community_id=newer.community_id AND nr.buzz_event_id=newer.id AND nr.conversation_id=$2) AND newer.pubkey=source.pubkey AND newer.kind=9 AND newer.deleted_at IS NULL AND newer.received_at>source.received_at)
           ORDER BY preview.delivered_at DESC LIMIT 1")
         .bind(tenant.community().as_uuid()).bind(scope.conversation_id).bind(&scope.source_event_id)
         .bind(draft.try_get::<Option<String>,_>("preview")?).bind(draft.try_get::<DateTime<Utc>,_>("updated_at")?)
@@ -419,9 +417,9 @@ pub(super) async fn bind_new_identity(
             "WhatsApp"
         }
     );
-    sqlx::query("UPDATE channels SET name=$3 WHERE community_id=$1 AND id=$2")
+    sqlx::query("UPDATE airhop_external_conversations SET title=$3,version=version+1,updated_at=now() WHERE community_id=$1 AND id=$2")
         .bind(tenant.community().as_uuid())
-        .bind(scope.channel_id)
+        .bind(scope.conversation_id)
         .bind(title.chars().take(200).collect::<String>())
         .execute(&mut **tx)
         .await?;

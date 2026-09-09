@@ -372,7 +372,7 @@ pub(crate) async fn dispatch_persistent_event(
 
     metrics::counter!("buzz_post_commit_dispatch_scheduled_total").increment(1);
     tokio::spawn(async move {
-        let recipients = dispatch_persistent_event_inner(
+        let (recipients, _) = dispatch_persistent_event_inner(
             &tenant,
             &state,
             &stored_event,
@@ -393,6 +393,29 @@ pub(crate) async fn dispatch_persistent_event(
 }
 
 /// Run post-commit delivery/side effects for a stored event.
+pub(crate) async fn dispatch_stored_recovery_event(
+    tenant: &TenantContext,
+    state: &Arc<AppState>,
+    stored_event: &StoredEvent,
+    kind_u32: u32,
+    actor_pubkey_hex: &str,
+    threaded_visibility: Option<crate::state::ThreadedChannelVisibility>,
+) -> bool {
+    // Recovery must await the dispatch attempt before marking its durable job.
+    dispatch_persistent_event_inner(
+        tenant,
+        state,
+        stored_event,
+        kind_u32,
+        actor_pubkey_hex,
+        true,
+        threaded_visibility,
+    )
+    .await
+    .1
+}
+
+/// Run post-commit delivery/side effects for a stored event.
 async fn dispatch_persistent_event_inner(
     tenant: &TenantContext,
     state: &Arc<AppState>,
@@ -401,7 +424,7 @@ async fn dispatch_persistent_event_inner(
     actor_pubkey_hex: &str,
     enqueue_audit: bool,
     threaded_visibility: Option<crate::state::ThreadedChannelVisibility>,
-) -> usize {
+) -> (usize, bool) {
     // No `crate::conformance` emit here — the spec doesn't have a
     // separate fan-out action. Acceptance was already recorded at the
     // ingest seam (`crates/buzz-relay/src/handlers/ingest.rs`'s
@@ -415,11 +438,13 @@ async fn dispatch_persistent_event_inner(
         None => EventTopic::Global,
     };
     state.mark_local_event(tenant.community(), &stored_event.event.id);
+    let mut published = true;
     if let Err(e) = state
         .pubsub
         .publish_event(tenant, topic, &stored_event.event)
         .await
     {
+        published = false;
         state
             .local_event_ids
             .invalidate(&(tenant.community(), stored_event.event.id.to_bytes()));
@@ -451,7 +476,7 @@ async fn dispatch_persistent_event_inner(
             error!(event_id = %event_id_hex, "Failed to serialize event for fan-out: {e}");
             metrics::counter!("buzz_post_commit_dispatch_errors_total", "stage" => "serialize")
                 .increment(1);
-            return 0;
+            return (0, false);
         }
     };
     // For viewer-private events (kind:30622 DM visibility, kind:44200 agent turn
@@ -557,7 +582,7 @@ async fn dispatch_persistent_event_inner(
         });
     }
 
-    matches.len()
+    (matches.len(), published)
 }
 
 async fn enqueue_event_created_audit(

@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import type { ThreadPanelLayoutProps } from "@/features/channels/lib/threadPanelLayout";
 import {
   THREAD_PANEL_COLUMN_CLASS,
@@ -28,6 +29,7 @@ export function ThreadMessageSkeleton({
 }: {
   isHead?: boolean;
 }) {
+  useMessengerCopy();
   return (
     <article className="relative flex items-start gap-2.5 rounded-2xl px-3 py-2">
       <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
@@ -55,6 +57,7 @@ function ThreadComposerSkeleton({
 }: {
   columnMaxWidthPx?: number;
 }) {
+  useMessengerCopy();
   const hasConstrainedColumn = columnMaxWidthPx != null;
 
   return (
@@ -105,23 +108,19 @@ export function MessageThreadPanelSkeleton({
   widthPx,
   transparentChrome = false,
 }: MessageThreadPanelSkeletonProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useAirHopLocale();
   const isOverlay = useIsThreadPanelOverlay();
   const hasConstrainedColumn = columnMaxWidthPx != null;
   useEscapeKey(onClose, isOverlay || isSinglePanelView || isFocusMode);
 
   const threadHeaderContent = (
     <AuxiliaryPanelHeaderGroup
-      backButtonAriaLabel={
-        isRussian ? "Назад к переписке" : "Back to conversation"
-      }
+      backButtonAriaLabel={messageText("Back to conversation")}
       // Matches the loaded panel's header so it doesn't shift on resolve.
       leading={headerLeading}
       onBack={isSinglePanelView && !isFocusMode ? onClose : undefined}
     >
-      <AuxiliaryPanelTitle>
-        {isRussian ? "Обсуждение" : "Thread"}
-      </AuxiliaryPanelTitle>
+      <AuxiliaryPanelTitle>{messageText("Thread")}</AuxiliaryPanelTitle>
     </AuxiliaryPanelHeaderGroup>
   );
 

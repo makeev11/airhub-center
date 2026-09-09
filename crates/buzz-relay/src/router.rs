@@ -163,6 +163,34 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .with_state(state.clone());
 
+    let airhop_knowledge_router = Router::new()
+        .route(
+            "/api/airhop/staff/v1/client-conversations",
+            get(api::airhop_clients::inbox),
+        )
+        .route(
+            "/api/airhop/staff/v1/client-conversations/{id}/migration-preview",
+            get(api::airhop_clients::migration_preview),
+        )
+        .route(
+            "/api/airhop/knowledge/v1/artifacts",
+            get(api::airhop_knowledge::artifacts),
+        )
+        .route(
+            "/api/airhop/knowledge/v1/sources",
+            post(api::airhop_knowledge::upload_source),
+        )
+        .route(
+            "/api/airhop/knowledge/v1/sources/{id}",
+            get(api::airhop_knowledge::download_source),
+        )
+        .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024))
+        .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024))
+        .layer(axum::middleware::map_response(
+            api::airhop_knowledge::private_response,
+        ))
+        .with_state(state.clone());
+
     let airhop_staff_router = Router::new()
         .route(
             "/api/airhop/staff/v1/settings",
@@ -473,6 +501,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .merge(airhop_agents_router)
         .merge(airhop_public_router)
         .merge(airhop_staff_router);
+    merged = merged.merge(airhop_knowledge_router);
     if let Some(admin_router) = admin_router {
         merged = merged.merge(admin_router);
     }

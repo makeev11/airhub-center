@@ -36,6 +36,8 @@ class RouteResolution:
     route_status: str
     connection_status: str
     handoff_status: str | None = None
+    root_event_id: str | None = None
+    threaded: bool = False
 
 
 @dataclass(frozen=True)
@@ -184,6 +186,8 @@ class AirHopGatewayClient:
             route_status=str(result["routeStatus"]),
             connection_status=str(result["connectionStatus"]),
             handoff_status=result.get("handoffStatus"),
+            root_event_id=result.get("rootEventId"),
+            threaded=result.get("threaded", False),
         )
 
     async def ingest(self, provider_event_id: str, event: dict[str, Any]) -> dict[str, Any]:

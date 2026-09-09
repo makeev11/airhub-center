@@ -246,6 +246,8 @@ pub(crate) struct CommitReplyBody {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AgentContextClaims {
+    #[serde(default)]
+    root_event_id: Option<String>,
     schema_version: String,
     tenant_id: Uuid,
     organization_id: Uuid,
@@ -281,6 +283,12 @@ struct ResolvedAgentContext {
     deny_unknown_fields
 )]
 enum AgentBackendRequest {
+    AssignConversationBranch {
+        branch_id: Uuid,
+        expected_version: i64,
+        idempotency_key: Uuid,
+        parent_quote: String,
+    },
     SaveBookingDraft {
         expected_version: i64,
         data: ConversationBookingData,
@@ -302,6 +310,8 @@ enum AgentBackendRequest {
     SearchKnowledge {
         query: String,
         locale: Option<String>,
+        branch_id: Option<Uuid>,
+        group_id: Option<Uuid>,
         #[serde(default = "default_knowledge_limit")]
         limit: u8,
     },
@@ -314,6 +324,7 @@ enum AgentBackendRequest {
 impl AgentBackendRequest {
     const fn read_operation(&self) -> Option<&'static str> {
         match self {
+            Self::AssignConversationBranch { .. } => None,
             Self::GetTurnContext => Some("get_turn_context"),
             Self::GetFamily => Some("get_family"),
             Self::ListBookingOptions { .. } => Some("list_booking_options"),
@@ -603,6 +614,11 @@ pub(crate) async fn issue_context_grant(
         deployment_version: leased.deployment.version,
         role: AgentBackendRole::ParentAdministrator,
         agent_pubkey: agent_pubkey.to_hex(),
+        root_event_id: state
+            .db
+            .client_thread_root(&issuer.tenant, leased.turn.conversation_id)
+            .await
+            .map_err(map_db_error)?,
         channel_id: leased.turn.channel_id,
         conversation_id: leased.turn.conversation_id,
         family_id: leased.turn.family_id,
@@ -719,6 +735,11 @@ pub(crate) async fn claim_parent_event(
         deployment_version: leased.deployment.version,
         role: AgentBackendRole::ParentAdministrator,
         agent_pubkey: agent_pubkey.to_hex(),
+        root_event_id: state
+            .db
+            .client_thread_root(&principal.tenant, leased.turn.conversation_id)
+            .await
+            .map_err(map_db_error)?,
         channel_id: leased.turn.channel_id,
         conversation_id: leased.turn.conversation_id,
         family_id: leased.turn.family_id,
@@ -861,6 +882,31 @@ pub(crate) async fn call_backend(
                 "actionId":hex::encode(command_digest),"resultType":"booking_created",
                 "authoritativeResult":result,"scope":scope_json(&context.claims)})
         }
+        AgentBackendRequest::AssignConversationBranch {
+            branch_id,
+            expected_version,
+            idempotency_key,
+            parent_quote,
+        } => {
+            let command = airhop_core::client_conversations::ClientCommand {
+                conversation_id: context.claims.conversation_id,
+                idempotency_key,
+                expected_version,
+                action: airhop_core::client_conversations::ClientAction::AssignBranch { branch_id },
+            };
+            let result = state
+                .db
+                .assign_client_branch_from_parent(
+                    &context.principal.tenant,
+                    &booking_lease(&context),
+                    &command,
+                    &parent_quote,
+                    &state.relay_keypair,
+                )
+                .await
+                .map_err(map_db_error)?;
+            json!({"schemaVersion":ACTION_SCHEMA,"status":"committed","authoritativeResult":result})
+        }
         AgentBackendRequest::GetTurnContext => get_turn_context(&state, &context).await?,
         AgentBackendRequest::GetFamily => get_family(&state, &context).await?,
         AgentBackendRequest::ListBookingOptions {
@@ -874,8 +920,10 @@ pub(crate) async fn call_backend(
         AgentBackendRequest::SearchKnowledge {
             query,
             locale,
+            branch_id,
+            group_id,
             limit,
-        } => search_knowledge(&state, &context, &query, locale, limit).await?,
+        } => search_knowledge(&state, &context, &query, locale, branch_id, group_id, limit).await?,
         AgentBackendRequest::ManageBooking { booking_id, action } => {
             manage_booking(&state, &context, booking_id, action, &body).await?
         }
@@ -906,7 +954,7 @@ async fn get_turn_context(
         .db
         .get_airhop_conversation_handoff_targets(
             &context.principal.tenant,
-            context.claims.channel_id,
+            context.claims.conversation_id,
         )
         .await
         .map_err(map_db_error)?;
@@ -959,6 +1007,7 @@ async fn get_turn_context(
             "conversation": {
                 "id": context.claims.conversation_id,
                 "channelId": context.claims.channel_id,
+                "rootEventId": context.claims.root_event_id,
                 "cycleId": context.claims.cycle_id,
                 "inputBatchId": context.claims.input_batch_id,
                 "sourceMessageId": context.claims.source_message_id,
@@ -974,6 +1023,7 @@ async fn get_turn_context(
             "family": family,
             "bookingDraft": state.db.get_airhop_booking_draft(&context.principal.tenant, context.claims.conversation_id).await.map_err(map_db_error)?,
             "handoffTargets": handoff_targets,
+            "conversationRouting": state.db.client_turn_routing(&context.principal.tenant,context.claims.conversation_id).await.map_err(map_db_error)?,
             "policy": { "autoConfirmOnlineBookings": auto_confirm, "autoConfirmConversationBookings": auto_confirm },
             "capabilities": capability_names(&context.claims.capabilities),
         }),
@@ -1066,6 +1116,8 @@ async fn search_knowledge(
     context: &ResolvedAgentContext,
     query: &str,
     locale: Option<String>,
+    branch_id: Option<Uuid>,
+    group_id: Option<Uuid>,
     limit: u8,
 ) -> Result<Value, (StatusCode, Json<Value>)> {
     require_capability(context, AgentCapability::SearchKnowledge)?;
@@ -1075,8 +1127,13 @@ async fn search_knowledge(
         .await
         .map_err(map_db_error)?
         .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "AirHop organization not found"))?;
-    let mut branch_ids = BTreeSet::new();
-    let mut group_ids = BTreeSet::new();
+    let (branches, groups) = state
+        .db
+        .resolve_parent_knowledge_selection(&context.principal.tenant, branch_id, group_id)
+        .await
+        .map_err(map_db_error)?;
+    let mut branch_ids: BTreeSet<_> = branches.into_iter().collect();
+    let mut group_ids: BTreeSet<_> = groups.into_iter().collect();
     if let Some(family_id) = context.claims.family_id {
         let family = load_scoped_family(state, context, family_id).await?;
         for booking in &family.bookings {
@@ -1233,6 +1290,15 @@ async fn validate_live_context(
         )
         .await
         .map_err(map_db_error)?;
+    if state
+        .db
+        .client_thread_root(&principal.tenant, claims.conversation_id)
+        .await
+        .map_err(map_db_error)?
+        != claims.root_event_id
+    {
+        return Err(invalid_context());
+    }
     let source_id = parse_event_id(&claims.source_message_id)?;
     if turn.channel_id != claims.channel_id
         || turn.conversation_id != claims.conversation_id
@@ -1447,8 +1513,22 @@ fn parse_backend_request_value(value: Value) -> Result<AgentBackendRequest, ()> 
     let operation = object.get("operation").and_then(Value::as_str).ok_or(())?;
     let allowed = match operation {
         "get_turn_context" | "get_family" => &["operation"][..],
+        "assign_conversation_branch" => &[
+            "operation",
+            "branchId",
+            "expectedVersion",
+            "idempotencyKey",
+            "parentQuote",
+        ][..],
         "list_booking_options" => &["operation", "branchId", "groupId", "purpose", "ageYears"][..],
-        "search_knowledge" => &["operation", "query", "locale", "limit"][..],
+        "search_knowledge" => &[
+            "operation",
+            "query",
+            "locale",
+            "branchId",
+            "groupId",
+            "limit",
+        ][..],
         "manage_booking" => &["operation", "bookingId", "action"][..],
         "save_booking_draft" => &["operation", "expectedVersion", "data"][..],
         "cancel_booking_draft" | "commit_booking_draft" => &["operation", "version"][..],

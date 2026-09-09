@@ -86,6 +86,8 @@ pub struct AgentModelCapabilities {
 /// spawning a real agent subprocess.
 #[derive(Default)]
 pub struct SessionState {
+    /// Last client thread in the hosted parent session; not a channel ACL.
+    pub parent_thread: Option<(Uuid, String)>,
     /// channel_id → session_id
     pub sessions: HashMap<Uuid, String>,
     pub heartbeat_session: Option<String>,
@@ -107,6 +109,14 @@ pub struct SessionState {
 }
 
 impl SessionState {
+    /// Never reuse model memory from a different client in a shared channel.
+    pub(crate) fn prepare_parent_thread(&mut self, channel: Uuid, root: String) {
+        let next = (channel, root);
+        if self.parent_thread.as_ref() != Some(&next) {
+            self.invalidate_all();
+            self.parent_thread = Some(next);
+        }
+    }
     /// Invalidate the session (and turn counter) for a specific prompt source.
     pub fn invalidate(&mut self, source: &PromptSource) {
         match source {
@@ -131,6 +141,7 @@ impl SessionState {
 
     /// Invalidate all sessions and turn counters (e.g. after agent exit).
     pub fn invalidate_all(&mut self) {
+        self.parent_thread = None;
         self.sessions.clear();
         self.turn_counts.clear();
         self.heartbeat_session = None;
@@ -5418,6 +5429,27 @@ mod tests {
         s.heartbeat_session = Some("sess-hb".into());
         s.heartbeat_turn_count = 7;
         (s, ch_a, ch_b)
+    }
+
+    #[test]
+    fn parent_session_retains_one_conversation_but_never_a_neighbor() {
+        let (mut state, channel, _) = make_state();
+        state.prepare_parent_thread(channel, "conversation-a".into());
+        assert!(state.sessions.is_empty());
+        state
+            .sessions
+            .insert(channel, "private-parent-memory".into());
+        state.prepare_parent_thread(channel, "conversation-a".into());
+        assert_eq!(
+            state.sessions.get(&channel).map(String::as_str),
+            Some("private-parent-memory")
+        );
+        state.prepare_parent_thread(channel, "conversation-b".into());
+        assert!(state.sessions.is_empty());
+        assert!(state.core_sections.is_empty());
+        assert!(state.canvas_sections.is_empty());
+        state.invalidate_all();
+        assert!(state.parent_thread.is_none());
     }
 
     #[test]

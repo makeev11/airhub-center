@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { ChevronDown } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -16,15 +17,15 @@ import {
 import { ChannelTypePicker } from "./ChannelTypePicker";
 
 const EPHEMERAL_TIMEOUT_OPTIONS = [
-  { label: "30 minutes", seconds: 30 * 60 },
-  { label: "1 hour", seconds: 60 * 60 },
-  { label: "6 hours", seconds: 6 * 60 * 60 },
-  { label: "12 hours", seconds: 12 * 60 * 60 },
-  { label: "1 day", seconds: 24 * 60 * 60 },
-  { label: "3 days", seconds: 3 * 24 * 60 * 60 },
-  { label: "7 days", seconds: DEFAULT_EPHEMERAL_TTL_SECONDS },
-  { label: "14 days", seconds: 14 * 24 * 60 * 60 },
-  { label: "30 days", seconds: 30 * 24 * 60 * 60 },
+  { label: messageText("30 minutes"), seconds: 30 * 60 },
+  { label: messageText("1 hour"), seconds: 60 * 60 },
+  { label: messageText("6 hours"), seconds: 6 * 60 * 60 },
+  { label: messageText("12 hours"), seconds: 12 * 60 * 60 },
+  { label: messageText("1 day"), seconds: 24 * 60 * 60 },
+  { label: messageText("3 days"), seconds: 3 * 24 * 60 * 60 },
+  { label: messageText("7 days"), seconds: DEFAULT_EPHEMERAL_TTL_SECONDS },
+  { label: messageText("14 days"), seconds: 14 * 24 * 60 * 60 },
+  { label: messageText("30 days"), seconds: 30 * 24 * 60 * 60 },
 ] as const;
 
 const CHANNEL_TYPE_RESIZE_TRANSITION = {
@@ -34,7 +35,7 @@ const CHANNEL_TYPE_RESIZE_TRANSITION = {
 
 export function ChannelTypeSettings({
   disabled,
-  label = "Channel type",
+  label = messageText("Channel type"),
   onOpenChange,
   onTemporaryChange,
   onTtlSecondsChange,
@@ -53,6 +54,7 @@ export function ChannelTypeSettings({
   testIdPrefix: string;
   ttlSeconds: number;
 }) {
+  useMessengerCopy();
   const shouldReduceMotion = useReducedMotion();
   const channelTypeResizeTransition = shouldReduceMotion
     ? { duration: 0 }
@@ -64,7 +66,9 @@ export function ChannelTypeSettings({
     ? EPHEMERAL_TIMEOUT_OPTIONS
     : [
         {
-          label: `Current (${formatTtlDuration(ttlSeconds)})`,
+          label: messageText("Current ({duration})", {
+            duration: formatTtlDuration(ttlSeconds),
+          }),
           seconds: ttlSeconds,
         },
         ...EPHEMERAL_TIMEOUT_OPTIONS,
@@ -109,12 +113,12 @@ export function ChannelTypeSettings({
                 className="text-sm font-medium"
                 htmlFor={`${testIdPrefix}-ttl`}
               >
-                Expires after
+                {messageText("Expires after")}{" "}
               </label>
               <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
                   <Button
-                    aria-label="Expires after"
+                    aria-label={messageText("Expires after")}
                     className="-mr-2.5 ml-auto h-9 w-fit justify-end px-2.5 text-right text-sm font-medium text-foreground hover:bg-muted/50"
                     data-testid={`${testIdPrefix}-ttl`}
                     disabled={disabled}
@@ -124,7 +128,9 @@ export function ChannelTypeSettings({
                   >
                     <span className="text-right">
                       {selectedTimeoutOption?.label ??
-                        `Current (${formatTtlDuration(ttlSeconds)})`}
+                        messageText("Current ({duration})", {
+                          duration: formatTtlDuration(ttlSeconds),
+                        })}
                     </span>
                     <ChevronDown className="size-4 shrink-0 text-muted-foreground/70" />
                   </Button>

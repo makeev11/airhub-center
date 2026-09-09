@@ -1,7 +1,9 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { Bot } from "lucide-react";
 
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { formatOwnerLabel } from "@/features/profile/lib/identity";
+import { AIRHOP_PRODUCT } from "@/shared/product/airhopProduct";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import type { UserSearchResult } from "@/shared/api/types";
@@ -28,6 +30,7 @@ function HoverRecipientIdentity({
   displayName: string;
   pubkey: string;
 }) {
+  useMessengerCopy();
   const identityLabel = truncatePubkey(pubkey);
 
   return (
@@ -82,7 +85,7 @@ export function NewMessageResultRow({
   ownerProfiles?: UserProfileLookup;
   user: UserSearchResult;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useAirHopLocale();
   const name = formatRecipientName(user);
   const ownerLabel = formatOwnerLabel(
     user.ownerPubkey,
@@ -97,13 +100,7 @@ export function NewMessageResultRow({
     >
       <button
         aria-label={`${
-          isAlreadySelected
-            ? isRussian
-              ? "Уже добавлен"
-              : "Already added"
-            : isRussian
-              ? "Добавить"
-              : "Add"
+          isAlreadySelected ? messageText("Already added") : messageText("Add")
         } ${name}`}
         aria-selected={isAlreadySelected || isKeyboardHighlighted}
         className={cn(
@@ -140,12 +137,12 @@ export function NewMessageResultRow({
                     className="h-3 w-3"
                     data-testid="new-dm-agent-icon"
                   />
-                  {isRussian ? "агент" : "agent"}
+                  {messageText("agent")}
                 </span>
               </div>
-              {ownerLabel ? (
+              {AIRHOP_PRODUCT.showAgentOwnerLabels && ownerLabel ? (
                 <span className="block truncate text-xs text-muted-foreground">
-                  {isRussian ? "управляет" : "managed by"} {ownerLabel}
+                  {messageText("managed by")} {ownerLabel}
                 </span>
               ) : null}
             </div>

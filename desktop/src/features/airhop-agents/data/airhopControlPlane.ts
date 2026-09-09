@@ -9,6 +9,9 @@ const CONNECTIONS_PATH = "/api/airhop/integrations/v1/channel-connections";
 const DEPLOYMENTS_PATH = "/api/airhop/agents/v1/deployments";
 
 const channelConnectionSchema = z.object({
+  buzzChannelId: z.string().uuid().nullable().default(null),
+  branchId: z.string().uuid().nullable().default(null),
+  routingMode: z.enum(["central", "branch"]).default("central"),
   id: z.string().uuid(),
   organizationId: z.string().uuid(),
   provider: z.enum(["telegram", "whatsapp_cloud"]),
@@ -86,6 +89,7 @@ export type AirhopTelegramConnection = z.infer<
 export type AirhopHermesDeployment = z.infer<typeof hermesDeploymentSchema>;
 
 export type PutAirhopChannelConnection = Readonly<{
+  routing?: ConnectionRouting;
   id: string;
   provider: AirhopChannelConnection["provider"];
   displayName: string;
@@ -95,6 +99,11 @@ export type PutAirhopChannelConnection = Readonly<{
   capabilities: Record<string, unknown>;
   expectedVersion: number;
 }>;
+
+export type ConnectionRouting = {
+  buzzChannelId: string | null;
+  branchId: string | null;
+};
 
 type EventSigner = (input: {
   kind: number;
@@ -185,6 +194,11 @@ export class AirhopControlPlaneClient {
     this.nonceFactory = options.nonceFactory ?? (() => crypto.randomUUID());
   }
 
+  async getPrincipalDirectory(): Promise<unknown> {
+    const payload = await this.request("GET", "/api/airhop/staff/v1/settings");
+    return (payload as { principalDirectory?: unknown }).principalDirectory;
+  }
+
   async listConnections(): Promise<AirhopChannelConnection[]> {
     return (await this.getConnectionsOverview()).connections;
   }
@@ -194,9 +208,13 @@ export class AirhopControlPlaneClient {
     return connectionsResponseSchema.parse(payload);
   }
 
-  async connectTelegram(token: string): Promise<AirhopTelegramConnection> {
+  async connectTelegram(
+    token: string,
+    routing?: ConnectionRouting,
+  ): Promise<AirhopTelegramConnection> {
     const payload = await this.request("POST", `${CONNECTIONS_PATH}/telegram`, {
       token,
+      routing,
       hermesEnabled: true,
     });
     return telegramConnectionResponseSchema.parse(payload);
@@ -210,6 +228,7 @@ export class AirhopControlPlaneClient {
       `${CONNECTIONS_PATH}/${input.id}`,
       {
         provider: input.provider,
+        routing: input.routing,
         displayName: input.displayName,
         connectorPubkey: input.connectorPubkey,
         status: input.status,

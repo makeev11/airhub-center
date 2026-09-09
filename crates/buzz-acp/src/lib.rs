@@ -1554,8 +1554,9 @@ async fn tokio_main() -> Result<()> {
 
     let runtime_start_nonce = std::env::var("BUZZ_MANAGED_AGENT_START_NONCE").unwrap_or_default();
     let dedup_mode = config.dedup_mode;
-    let mut queue =
-        EventQueue::new(dedup_mode).with_in_flight_deadline(config.max_turn_duration_secs);
+    let mut queue = EventQueue::new(dedup_mode)
+        .with_in_flight_deadline(config.max_turn_duration_secs)
+        .with_thread_isolation(config.airhop_role == Some(airhop::AirhopRole::ParentAdministrator));
 
     let welcome_route_gate = airhop::WelcomeRouteGate::new(
         config.airhop_route_gate,
@@ -3110,7 +3111,7 @@ async fn dispatch_pending(
                 break;
             }
         };
-        if !parent_supervisor_gate.claim_batch(&batch).await {
+        let Some(parent_scope) = parent_supervisor_gate.claim_batch(&batch).await else {
             tracing::debug!(
                 channel = %channel_id,
                 "AirHop parent supervisor rejected queued batch"
@@ -3118,6 +3119,9 @@ async fn dispatch_pending(
             pool.return_agent(agent);
             queue.mark_complete(channel_id);
             continue;
+        };
+        if parent_supervisor_gate.enabled() {
+            agent.state.prepare_parent_thread(channel_id, parent_scope);
         }
         tracing::debug!(agent = agent.index, channel = %channel_id, affinity_hit, "agent_claimed");
 

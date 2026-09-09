@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 
 import { Markdown as TiptapMarkdown } from "tiptap-markdown";
@@ -455,7 +456,8 @@ export function useRichTextEditor({
         MentionHighlightExtension,
         customEmojiWiring.extension,
         Placeholder.configure({
-          placeholder: () => placeholderRef.current ?? "Write a message…",
+          placeholder: () =>
+            placeholderRef.current ?? messageText("Write a message…"),
         }),
         Link.extend({
           inclusive() {

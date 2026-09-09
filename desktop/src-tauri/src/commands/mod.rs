@@ -18,6 +18,8 @@ mod clipboard;
 mod dms;
 mod engrams;
 mod export_util;
+mod knowledge_export;
+pub use knowledge_export::*;
 mod global_agent_config;
 mod identity;
 mod identity_archive;

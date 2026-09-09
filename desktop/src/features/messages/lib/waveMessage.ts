@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 export const WAVE_MESSAGE_MARKER = "<!-- buzz:wave:v1 -->";
 
 export type WaveMessageContent = {
@@ -5,7 +6,7 @@ export type WaveMessageContent = {
 };
 
 export function buildWaveMessageContent(senderName: string): string {
-  const trimmedName = senderName.trim() || "Someone";
+  const trimmedName = senderName.trim() || messageText("Someone");
   return `${WAVE_MESSAGE_MARKER}\n${trimmedName} waved at you.`;
 }
 
@@ -21,6 +22,6 @@ export function parseWaveMessageContent(
   const fallbackText = trimmedContent.slice(WAVE_MESSAGE_MARKER.length).trim();
 
   return {
-    fallbackText: fallbackText || "Someone waved at you.",
+    fallbackText: fallbackText || messageText("Someone waved at you."),
   };
 }

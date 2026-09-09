@@ -14,6 +14,7 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
   navTariffs: "Plans",
   navPayments: "Payments",
   navAnalytics: "Analytics",
+  navKnowledge: "Knowledge base",
   navTeachers: "Teachers",
   navSettings: "Settings",
   loadingTitle: "Loading AirHop",

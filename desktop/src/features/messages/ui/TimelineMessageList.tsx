@@ -1,3 +1,4 @@
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import * as React from "react";
 import { VList } from "virtua";
 import type { VListHandle } from "virtua";
@@ -172,6 +173,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   onVirtualizerRangeChanged,
   onVirtualizerScrollerChange,
 }: TimelineMessageListProps) {
+  useAirHopLocale();
   const entries = React.useMemo(
     () =>
       mainEntries ??

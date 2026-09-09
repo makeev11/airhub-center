@@ -2,6 +2,7 @@ import * as React from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   CalendarDays,
+  BookOpen,
   ChartNoAxesCombined,
   ChevronDown,
   Inbox,
@@ -75,6 +76,12 @@ export function BookingSidebarNav({ isActive }: { isActive: boolean }) {
       ).length
     : 0;
   const presentation = {
+    inbox: {
+      label: booking.workspace?.organization.locale?.startsWith("ru")
+        ? "Обращения"
+        : "Client Inbox",
+      icon: Inbox,
+    },
     schedule: { label: messages.navSchedule, icon: CalendarDays },
     requests: {
       label: messages.navRequests,
@@ -91,6 +98,7 @@ export function BookingSidebarNav({ isActive }: { isActive: boolean }) {
       label: messages.navAnalytics,
       icon: ChartNoAxesCombined,
     },
+    knowledge: { label: messages.navKnowledge, icon: BookOpen },
     settings: { label: messages.navSettings, icon: Settings2 },
   } satisfies Record<
     (typeof PRIMARY_BOOKING_DESTINATIONS)[number]["id"],

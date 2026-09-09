@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { SmilePlus } from "lucide-react";
 import * as React from "react";
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
@@ -72,6 +73,7 @@ function EmojiGlyph({
   reaction: TimelineReaction;
   className?: string;
 }) {
+  useMessengerCopy();
   const displayName = emojiDisplayName(reaction.emoji);
   if (reaction.emojiUrl) {
     return (
@@ -144,7 +146,7 @@ function ReactionPopoverContent({ reaction }: { reaction: TimelineReaction }) {
       <div className="max-w-[14rem] text-balance text-sm font-semibold leading-snug text-popover-foreground">
         {userText}{" "}
         <span className="text-muted-foreground">
-          {isRussian ? "отреагировали" : "reacted with"}
+          {messageText("reacted with")}
         </span>
       </div>
       <div
@@ -176,6 +178,7 @@ export function MessageReactions({
   burstEmojiOnRender?: string | null;
   onBurstEmojiRendered?: (emoji: string) => void;
 }) {
+  useMessengerCopy();
   const { burstEmoji } = useEmojiBurst();
   const [pendingBadgeBurstEmoji, setPendingBadgeBurstEmoji] = React.useState<
     string | null
@@ -311,7 +314,7 @@ function InlineReactionPicker({
   reactions: TimelineReaction[];
   requestBadgeBurst: (emoji: string) => void;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useAirHopLocale();
   const [open, setOpen] = React.useState(false);
   const wouldAddReaction = (emoji: string) =>
     !reactions.some(
@@ -324,7 +327,7 @@ function InlineReactionPicker({
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
             <button
-              aria-label={isRussian ? "Добавить реакцию" : "Add reaction"}
+              aria-label={messageText("Add reaction")}
               className={cn(
                 REACTION_PILL_BASE_CLASSES,
                 "pointer-events-none w-10 min-w-10 justify-center p-0 text-muted-foreground opacity-0",
@@ -345,7 +348,7 @@ function InlineReactionPicker({
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent>{isRussian ? "Реакция" : "React"}</TooltipContent>
+        <TooltipContent>{messageText("React")}</TooltipContent>
       </Tooltip>
       <PopoverContent
         align="start"
@@ -382,6 +385,7 @@ function ReactionPill({
   registerPill: (emoji: string, element: HTMLButtonElement | null) => void;
   onSelect: (emoji: string) => void;
 }) {
+  useMessengerCopy();
   const { burstEmoji } = useEmojiBurst();
   const [open, setOpen] = React.useState(false);
   const openTimeout = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -456,7 +460,9 @@ function ReactionPill({
   if (reaction.users.length === 0) {
     return (
       <button
-        aria-label={`Toggle ${reaction.emoji} reaction`}
+        aria-label={messageText("Toggle {emoji} reaction", {
+          emoji: reaction.emoji,
+        })}
         aria-pressed={reaction.reactedByCurrentUser}
         title={displayName}
         className={pillClasses}
@@ -497,7 +503,9 @@ function ReactionPill({
           onBlur={scheduleClose}
         >
           <button
-            aria-label={`Toggle ${reaction.emoji} reaction`}
+            aria-label={messageText("Toggle {emoji} reaction", {
+              emoji: reaction.emoji,
+            })}
             aria-pressed={reaction.reactedByCurrentUser}
             title={displayName}
             className={pillClasses}

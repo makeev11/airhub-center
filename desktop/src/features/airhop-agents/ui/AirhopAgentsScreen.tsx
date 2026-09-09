@@ -1,3 +1,5 @@
+import { useAirhopPrincipalDirectory } from "../data/principalDirectory";
+import { useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { Bot, Power } from "lucide-react";
 import { toast } from "sonner";
@@ -53,6 +55,7 @@ const COPY: Record<
       stopped: "Выключен",
       attention: "Нужно внимание",
       unavailable: "Ещё не подключён",
+      registered: "Подключён к центру",
     },
     access: {
       "owner-only": "Только владелец",
@@ -79,6 +82,7 @@ const COPY: Record<
       stopped: "Disabled",
       attention: "Needs attention",
       unavailable: "Not connected yet",
+      registered: "Registered with this center",
     },
     access: {
       "owner-only": "Owner only",
@@ -105,6 +109,7 @@ const COPY: Record<
       stopped: "Devre dışı",
       attention: "İlgilenilmesi gerekiyor",
       unavailable: "Henüz bağlı değil",
+      registered: "Merkeze kayıtlı",
     },
     access: {
       "owner-only": "Yalnızca işletme sahibi",
@@ -131,6 +136,7 @@ const COPY: Record<
       stopped: "Desativado",
       attention: "Precisa de atenção",
       unavailable: "Ainda não conectado",
+      registered: "Registrado neste centro",
     },
     access: {
       "owner-only": "Somente o proprietário",
@@ -150,6 +156,8 @@ export function AirhopAgentsScreen({
   embedded?: boolean;
 }) {
   const locale = useAirHopLocale();
+  const m = useMessengerCopy();
+  const directory = useAirhopPrincipalDirectory();
   const copy = COPY[locale];
   const managedAgents = useManagedAgentsQuery();
   const { activeCommunity } = useCommunities();
@@ -162,16 +170,21 @@ export function AirhopAgentsScreen({
   const serverEnabled = currentAirhopStaffDataRuntime() === "server";
   const cards = React.useMemo(
     () =>
-      materializeAirhopAgentCards(managedAgents.data ?? [], locale, relayUrl),
-    [locale, managedAgents.data, relayUrl],
+      materializeAirhopAgentCards(
+        managedAgents.data ?? [],
+        locale,
+        relayUrl,
+        directory.data?.agents ?? [],
+      ),
+    [locale, managedAgents.data, relayUrl, directory.data],
   );
-  const available = cards.filter((card) => card.pubkey !== null);
+  const available = cards.filter((card) => card.controllable);
   const allRunning =
     available.length > 0 && available.every((card) => card.state === "running");
 
   const toggle = React.useCallback(
     async (card: AirhopAgentCardModel, enable: boolean) => {
-      if (!card.pubkey) return false;
+      if (!card.pubkey || !card.controllable) return false;
       const pubkey = card.pubkey;
       setPending((current) => new Set(current).add(pubkey));
       try {
@@ -250,22 +263,29 @@ export function AirhopAgentsScreen({
 
         <div className="grid gap-4">
           <HermesAgentCard serverEnabled={serverEnabled} />
-          {managedAgents.isLoading ? (
+          {managedAgents.isLoading || directory.isLoading ? (
             <p className="py-10 text-sm text-muted-foreground">
               {copy.loading}
             </p>
-          ) : managedAgents.isError ? (
+          ) : managedAgents.isError || directory.isError ? (
             <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
               <p className="text-sm">{copy.loadError}</p>
               <Button
                 className="mt-4"
-                onClick={() => void managedAgents.refetch()}
+                onClick={() => {
+                  void managedAgents.refetch();
+                  void directory.refetch();
+                }}
                 size="sm"
                 variant="outline"
               >
                 {copy.retry}
               </Button>
             </div>
+          ) : cards.length === 0 ? (
+            <p className="py-6 text-sm text-muted-foreground">
+              {m("No registered agents are available.")}
+            </p>
           ) : (
             cards.map((card) => {
               const enabled =
@@ -314,7 +334,11 @@ export function AirhopAgentsScreen({
                     <Switch
                       aria-label={`${card.name}: ${copy.state[enabled ? "running" : "stopped"]}`}
                       checked={enabled}
-                      disabled={!card.pubkey || pending.has(card.pubkey)}
+                      disabled={
+                        !card.controllable ||
+                        !card.pubkey ||
+                        pending.has(card.pubkey)
+                      }
                       onCheckedChange={(checked) => void toggle(card, checked)}
                     />
                   </div>

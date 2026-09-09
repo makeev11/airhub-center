@@ -68,7 +68,7 @@ async fn inbound(f: &Fixture, text: &str) -> Event {
     );
     f.insert(&event).await;
     sqlx::query("INSERT INTO airhop_gateway_inbound_receipts(community_id,organization_id,connection_id,conversation_id,provider_event_digest,buzz_event_id,connector_pubkey)
-        SELECT r.community_id,r.organization_id,r.connection_id,r.conversation_id,$3,$3,c.connector_pubkey FROM airhop_external_conversation_routes r JOIN airhop_channel_connections c ON c.community_id=r.community_id AND c.id=r.connection_id WHERE r.community_id=$1 AND r.conversation_id=$2")
+        SELECT r.community_id,r.organization_id,r.connection_id,r.conversation_id,$3,$3,c.connector_pubkey FROM airhop_external_conversation_routes r JOIN airhop_channel_connections c ON c.community_id=r.community_id AND c.id=r.connection_id WHERE r.community_id=$1 AND r.conversation_id=$2 ON CONFLICT DO NOTHING")
         .bind(f.tenant.community().as_uuid()).bind(f.conversation).bind(event.id.as_bytes().as_slice()).execute(&f.db.pool).await.unwrap();
     event
 }
@@ -157,7 +157,17 @@ async fn count(f: &Fixture, table: &str) -> i64 {
 #[tokio::test]
 #[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
 async fn conversational_booking_creates_confirms_binds_and_replays() {
-    let f = Fixture::new().await;
+    assert_booking_binds_same_conversation(Fixture::new().await).await;
+}
+
+#[tokio::test]
+#[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
+async fn conversational_booking_binds_shared_thread_without_replacing_root() {
+    assert_booking_binds_same_conversation(Fixture::new_threaded().await).await;
+}
+
+async fn assert_booking_binds_same_conversation(f: Fixture) {
+    let location:Value=sqlx::query_scalar("SELECT jsonb_build_array(channel_id,encode(root_event_id,'hex')) FROM airhop_external_conversations WHERE community_id=$1 AND id=$2").bind(f.tenant.community().as_uuid()).bind(f.conversation).fetch_one(&f.db.pool).await.unwrap();
     let reference = lesson(&f).await;
     let (turn, draft) = prepare(&f, reference).await;
     assert_eq!(count(&f, "airhop_families").await, 0);
@@ -221,6 +231,8 @@ async fn conversational_booking_creates_confirms_binds_and_replays() {
     let next = inbound(&f, "Что взять с собой?").await;
     let next_turn = f.lease(&next).await;
     assert_eq!(next_turn.turn.family_id, binding.0);
+    let after:Value=sqlx::query_scalar("SELECT jsonb_build_array(channel_id,encode(root_event_id,'hex')) FROM airhop_external_conversations WHERE community_id=$1 AND id=$2").bind(f.tenant.community().as_uuid()).bind(f.conversation).fetch_one(&f.db.pool).await.unwrap();
+    assert_eq!(location, after);
 }
 
 #[tokio::test]

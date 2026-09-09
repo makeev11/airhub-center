@@ -3,7 +3,7 @@
 use buzz_core::{CommunityId, TenantContext};
 use chrono::{DateTime, Utc};
 use nostr::Event;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
@@ -13,11 +13,25 @@ use crate::{Db, DbError, Result};
 const MAX_EXTERNAL_DELIVERY_ATTEMPTS: i32 = 5;
 const MAX_HERMES_PUBLICATION_ATTEMPTS: i32 = 10;
 
+mod routing;
+
+/// Owner-selected physical channel and independent operational branch.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConnectionRouting {
+    /// Existing private stream, or omitted to use the central/branch default.
+    pub buzz_channel_id: Option<Uuid>,
+    /// Active branch, or absent for an organization-wide connection.
+    pub branch_id: Option<Uuid>,
+}
+
 /// Owner-authored desired state for one Hermes messaging adapter.
 #[derive(Debug, Clone)]
 pub struct PutChannelConnectionInput {
     /// Stable connection identity.
     pub connection_id: Uuid,
+    /// Omitted on updates to preserve routing; creates default to central.
+    pub routing: Option<ConnectionRouting>,
     /// `telegram` or the official `whatsapp_cloud` adapter in the first release.
     pub provider: String,
     /// Human-facing name shown in AirHop Center.
@@ -86,6 +100,12 @@ pub struct ChannelGatewayAssignment {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelConnection {
+    /// Validated private parent channel; null means legacy setup is required.
+    pub buzz_channel_id: Option<Uuid>,
+    /// Independent operational branch, unknown for central connections.
+    pub branch_id: Option<Uuid>,
+    /// `central` or `branch`.
+    pub routing_mode: String,
     /// Server-resolved organization.
     pub organization_id: Uuid,
     /// Stable connection identity.
@@ -170,6 +190,10 @@ pub struct ConversationRoute {
 /// tenant-keyed digest resolves the canonical Buzz destination instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedConversationRoute {
+    /// Accepted first inbound, null while reserved or for legacy channel mode.
+    pub root_event_id: Option<String>,
+    /// Whether normalized messages must use the canonical thread protocol.
+    pub threaded: bool,
     /// Canonical external conversation.
     pub conversation_id: Uuid,
     /// Private Buzz stream that stores the conversation.
@@ -199,7 +223,7 @@ pub struct ProvisionExternalConversationRouteInput {
 pub struct ProvisionedExternalConversationRoute {
     /// Canonical route, whether newly created or replayed.
     pub route: ResolvedConversationRoute,
-    /// True only for the transaction that created the channel and conversation.
+    /// True only for the transaction that reserved the conversation (never a channel).
     pub created: bool,
 }
 
@@ -294,12 +318,13 @@ impl Db {
         let mut tx = self.pool.begin().await?;
         let organization_id = active_organization(&mut tx, community_id).await?;
         require_owner_or_admin(&mut tx, community_id, input.updated_by_pubkey).await?;
-        require_owner_or_admin(&mut tx, community_id, input.connector_pubkey).await?;
+        require_staff_member(&mut tx, community_id, input.connector_pubkey).await?;
 
         let existing = sqlx::query(
             "SELECT organization_id, id, provider, display_name, connector_pubkey,
                     status, hermes_enabled, capabilities, observed_status,
-                    observed_capabilities, last_heartbeat_at, last_error_code, version
+                    observed_capabilities, last_heartbeat_at, last_error_code, version,
+                    buzz_channel_id, branch_id, routing_mode
              FROM airhop_channel_connections
              WHERE community_id = $1 AND id = $2 FOR UPDATE",
         )
@@ -307,7 +332,7 @@ impl Db {
         .bind(input.connection_id)
         .fetch_optional(&mut *tx)
         .await?;
-        let row = if let Some(row) = existing {
+        let _row = if let Some(row) = existing {
             let current = connection_from_row(&row)?;
             if current.organization_id != organization_id {
                 return Err(DbError::AccessDenied(
@@ -330,7 +355,8 @@ impl Db {
                  WHERE community_id = $1 AND organization_id = $2 AND id = $3
                  RETURNING organization_id, id, provider, display_name, connector_pubkey,
                     status, hermes_enabled, capabilities, observed_status,
-                    observed_capabilities, last_heartbeat_at, last_error_code, version",
+                    observed_capabilities, last_heartbeat_at, last_error_code, version,
+                    buzz_channel_id, branch_id, routing_mode",
             )
             .bind(community_id)
             .bind(organization_id)
@@ -371,7 +397,8 @@ impl Db {
                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                  RETURNING organization_id, id, provider, display_name, connector_pubkey,
                     status, hermes_enabled, capabilities, observed_status,
-                    observed_capabilities, last_heartbeat_at, last_error_code, version",
+                    observed_capabilities, last_heartbeat_at, last_error_code, version,
+                    buzz_channel_id, branch_id, routing_mode",
             )
             .bind(community_id)
             .bind(organization_id)
@@ -386,7 +413,7 @@ impl Db {
             .fetch_one(&mut *tx)
             .await?
         };
-        let connection = connection_from_row(&row)?;
+        let connection = routing::configure(&mut tx, community_id, organization_id, input).await?;
         tx.commit().await?;
         Ok(connection)
     }
@@ -428,7 +455,7 @@ impl Db {
             ));
         }
 
-        let row = sqlx::query(
+        let _row = sqlx::query(
             "INSERT INTO airhop_channel_connections (
                 community_id, organization_id, id, provider, display_name,
                 connector_pubkey, status, hermes_enabled, capabilities,
@@ -436,7 +463,8 @@ impl Db {
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING organization_id, id, provider, display_name, connector_pubkey,
                 status, hermes_enabled, capabilities, observed_status,
-                observed_capabilities, last_heartbeat_at, last_error_code, version",
+                observed_capabilities, last_heartbeat_at, last_error_code, version,
+                    buzz_channel_id, branch_id, routing_mode",
         )
         .bind(community_id)
         .bind(organization_id)
@@ -473,7 +501,8 @@ impl Db {
         .execute(&mut *tx)
         .await?;
 
-        let connection = connection_from_row(&row)?;
+        let connection =
+            routing::configure(&mut tx, community_id, organization_id, &input.connection).await?;
         tx.commit().await?;
         Ok(connection)
     }
@@ -491,7 +520,8 @@ impl Db {
         let rows = sqlx::query(
             "SELECT organization_id, id, provider, display_name, connector_pubkey,
                     status, hermes_enabled, capabilities, observed_status,
-                    observed_capabilities, last_heartbeat_at, last_error_code, version
+                    observed_capabilities, last_heartbeat_at, last_error_code, version,
+                    buzz_channel_id, branch_id, routing_mode
              FROM airhop_channel_connections
              WHERE community_id = $1 AND organization_id = $2
              ORDER BY provider, display_name, id",
@@ -617,7 +647,8 @@ impl Db {
                AND connector_pubkey = $4
              RETURNING organization_id, id, provider, display_name, connector_pubkey,
                 status, hermes_enabled, capabilities, observed_status,
-                observed_capabilities, last_heartbeat_at, last_error_code, version",
+                observed_capabilities, last_heartbeat_at, last_error_code, version,
+                    buzz_channel_id, branch_id, routing_mode",
         )
         .bind(community_id)
         .bind(organization_id)
@@ -815,6 +846,7 @@ impl Db {
         let community_id = *tenant.community().as_uuid();
         let row = sqlx::query(
             "SELECT conversation.id AS conversation_id, conversation.channel_id,
+                    conversation.threaded, encode(conversation.root_event_id, 'hex') AS root_event_id,
                     route.status AS route_status,
                     connection.status AS connection_status
              FROM airhop_external_conversation_routes route
@@ -843,6 +875,8 @@ impl Db {
         Ok(ResolvedConversationRoute {
             conversation_id: row.try_get("conversation_id")?,
             channel_id: row.try_get("channel_id")?,
+            root_event_id: row.try_get("root_event_id")?,
+            threaded: row.try_get("threaded")?,
             route_status: row.try_get("route_status")?,
             connection_status: row.try_get("connection_status")?,
         })
@@ -850,7 +884,8 @@ impl Db {
 
     /// Creates the minimal unverified private conversation for a first direct
     /// provider message. A scoped advisory lock and the route digest make
-    /// concurrent/replayed first messages return one canonical channel.
+    /// concurrent/replayed first messages reserve one canonical conversation.
+    /// No channel or event is created here: the first accepted inbound claims its root.
     pub async fn provision_airhop_external_conversation_route(
         &self,
         tenant: &TenantContext,
@@ -878,6 +913,7 @@ impl Db {
 
         let existing = sqlx::query(
             "SELECT conversation.id AS conversation_id, conversation.channel_id,
+                    conversation.threaded, encode(conversation.root_event_id, 'hex') AS root_event_id,
                     route.status AS route_status,
                     connection.status AS connection_status
              FROM airhop_external_conversation_routes route
@@ -913,7 +949,7 @@ impl Db {
 
         let scope = sqlx::query(
             "SELECT connection.organization_id, connection.provider,
-                    connection.display_name, connection.status AS connection_status,
+                    connection.buzz_channel_id, connection.branch_id, connection.status AS connection_status,
                     deployment.agent_pubkey
              FROM airhop_channel_connections connection
              JOIN airhop_agent_deployments deployment
@@ -937,7 +973,6 @@ impl Db {
         })?;
         let organization_id: Uuid = scope.try_get("organization_id")?;
         let provider: String = scope.try_get("provider")?;
-        let display_name: String = scope.try_get("display_name")?;
         let agent_pubkey: Vec<u8> = scope.try_get("agent_pubkey")?;
         if agent_pubkey.len() != 32 {
             return Err(DbError::InvalidData(
@@ -945,76 +980,38 @@ impl Db {
             ));
         }
 
-        let channel_id = Uuid::new_v4();
+        let channel_id: Uuid = scope
+            .try_get::<Option<Uuid>, _>("buzz_channel_id")?
+            .ok_or_else(|| {
+                DbError::InvalidData(
+                    "Configure a parent channel before accepting new contacts".into(),
+                )
+            })?;
+        routing::validate_live_channel(
+            &mut tx,
+            community_id,
+            channel_id,
+            &input.connector_pubkey,
+            &agent_pubkey,
+        )
+        .await?;
+        let branch_id: Option<Uuid> = scope.try_get("branch_id")?;
+        if let Some(branch_id) = branch_id {
+            let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM airhop_branches WHERE community_id=$1 AND organization_id=$2 AND id=$3 AND status='active')")
+                .bind(community_id).bind(organization_id).bind(branch_id).fetch_one(&mut *tx).await?;
+            if !active {
+                return Err(DbError::AccessDenied(
+                    "Connection branch is archived".into(),
+                ));
+            }
+        }
         let conversation_id = Uuid::new_v4();
         let cycle_id = Uuid::new_v4();
-        let channel_name = format!("{} · новый контакт", display_name.trim());
-        sqlx::query(
-            "INSERT INTO channels (
-                community_id, id, name, channel_type, visibility, description,
-                created_by, nip29_group_id
-             ) VALUES ($1, $2, $3, 'stream', 'private', $4, $5, $6)",
-        )
-        .bind(community_id)
-        .bind(channel_id)
-        .bind(channel_name)
-        .bind(format!("Личный диалог из канала {provider}"))
-        .bind(input.connector_pubkey.as_slice())
-        .bind(channel_id.to_string())
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            "INSERT INTO channel_members (
-                community_id, channel_id, pubkey, role, invited_by
-             )
-             SELECT $1, $2, decode(member.pubkey, 'hex'),
-                    CASE member.role
-                      WHEN 'owner' THEN 'owner'::member_role
-                      ELSE 'admin'::member_role
-                    END,
-                    $3
-             FROM relay_members member
-             WHERE member.community_id = $1 AND member.role IN ('owner', 'admin')
-             ON CONFLICT (community_id, channel_id, pubkey) DO UPDATE
-             SET removed_at = NULL, removed_by = NULL",
-        )
-        .bind(community_id)
-        .bind(channel_id)
-        .bind(input.connector_pubkey.as_slice())
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "INSERT INTO channel_members (
-                community_id, channel_id, pubkey, role, invited_by
-             ) VALUES ($1, $2, $3, 'member', $3)
-             ON CONFLICT (community_id, channel_id, pubkey) DO UPDATE
-             SET removed_at = NULL, removed_by = NULL",
-        )
-        .bind(community_id)
-        .bind(channel_id)
-        .bind(input.connector_pubkey.as_slice())
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "INSERT INTO channel_members (
-                community_id, channel_id, pubkey, role, invited_by
-             ) VALUES ($1, $2, $3, 'bot', $4)
-             ON CONFLICT (community_id, channel_id, pubkey) DO UPDATE
-             SET role = 'bot', removed_at = NULL, removed_by = NULL",
-        )
-        .bind(community_id)
-        .bind(channel_id)
-        .bind(agent_pubkey.as_slice())
-        .bind(input.connector_pubkey.as_slice())
-        .execute(&mut *tx)
-        .await?;
-
         sqlx::query(
             "INSERT INTO airhop_external_conversations (
                 community_id, organization_id, id, channel_id, parent_pubkey,
-                current_cycle_id, opened_by_pubkey
-             ) VALUES ($1, $2, $3, $4, $5, $6, $5)",
+                current_cycle_id, opened_by_pubkey, threaded, branch_id, title
+             ) VALUES ($1, $2, $3, $4, $5, $6, $5, TRUE, $7, $8)",
         )
         .bind(community_id)
         .bind(organization_id)
@@ -1022,6 +1019,8 @@ impl Db {
         .bind(channel_id)
         .bind(input.connector_pubkey.as_slice())
         .bind(cycle_id)
+        .bind(branch_id)
+        .bind(format!("Новый контакт · {provider}"))
         .execute(&mut *tx)
         .await?;
         sqlx::query(
@@ -1056,6 +1055,8 @@ impl Db {
             route: ResolvedConversationRoute {
                 conversation_id,
                 channel_id,
+                root_event_id: None,
+                threaded: true,
                 route_status: "active".to_owned(),
                 connection_status: "active".to_owned(),
             },
@@ -1119,6 +1120,7 @@ impl Db {
                 WHERE outbox.community_id = $1
                   AND connection.connector_pubkey = $2
                   AND connection.status = 'active' AND route.status = 'active'
+                  AND EXISTS (SELECT 1 FROM airhop_external_conversations v JOIN channels ch ON ch.community_id=v.community_id AND ch.id=v.channel_id JOIN channel_members m ON m.community_id=v.community_id AND m.channel_id=v.channel_id AND m.pubkey=$2 AND m.removed_at IS NULL WHERE v.community_id=outbox.community_id AND v.id=outbox.conversation_id AND v.status='active' AND ch.archived_at IS NULL AND ch.deleted_at IS NULL)
                   AND ($6::UUID IS NULL OR outbox.connection_id = $6)
                   AND outbox.next_attempt_at <= now()
                   AND outbox.attempts < $5
@@ -1295,6 +1297,9 @@ impl Db {
                 .bind(provider_message_id.as_deref())
                 .execute(&mut *tx)
                 .await?;
+                // A later inbound wins over a delayed acknowledgement of an older reply.
+                sqlx::query("UPDATE airhop_external_conversations v SET queue_status='waiting_parent',version=v.version+1,updated_at=now() FROM airhop_external_message_outbox o WHERE o.community_id=$1 AND o.id=$2 AND v.community_id=o.community_id AND v.id=o.conversation_id AND v.queue_status='waiting_staff' AND v.updated_at<=o.created_at AND (o.actor_kind='staff' OR NOT v.hermes_paused) AND (v.last_inbound_at IS NULL OR v.last_inbound_at<=o.created_at)")
+                    .bind(community_id).bind(outbox_id).execute(&mut *tx).await?;
             }
             ExternalDeliveryCompletion::Failed {
                 error_code,
@@ -1592,6 +1597,9 @@ fn connection_from_row(row: &sqlx::postgres::PgRow) -> Result<ChannelConnection>
         DbError::InvalidData("stored channel connector pubkey is invalid".to_owned())
     })?;
     Ok(ChannelConnection {
+        buzz_channel_id: row.try_get("buzz_channel_id")?,
+        branch_id: row.try_get("branch_id")?,
+        routing_mode: row.try_get("routing_mode")?,
         organization_id: row.try_get("organization_id")?,
         id: row.try_get("id")?,
         provider: row.try_get("provider")?,
@@ -1622,6 +1630,8 @@ fn resolved_route_from_row(row: &sqlx::postgres::PgRow) -> Result<ResolvedConver
     Ok(ResolvedConversationRoute {
         conversation_id: row.try_get("conversation_id")?,
         channel_id: row.try_get("channel_id")?,
+        root_event_id: row.try_get("root_event_id")?,
+        threaded: row.try_get("threaded")?,
         route_status: row.try_get("route_status")?,
         connection_status: row.try_get("connection_status")?,
     })
@@ -1665,6 +1675,7 @@ mod tests {
 
     fn connection() -> PutChannelConnectionInput {
         PutChannelConnectionInput {
+            routing: None,
             connection_id: Uuid::new_v4(),
             provider: "telegram".to_owned(),
             display_name: "Telegram центра".to_owned(),

@@ -1161,6 +1161,15 @@ impl Config {
             ));
         }
 
+        if airhop_role == Some(crate::airhop::AirhopRole::ParentAdministrator)
+            && !flat_channel_ids.is_empty()
+        {
+            return Err(ConfigError::ConfigFile(
+                "parent_administrator cannot read shared-channel history through flat channels"
+                    .into(),
+            ));
+        }
+
         let config = Config {
             keys,
             relay_url: args.relay_url,

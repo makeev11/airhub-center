@@ -79,7 +79,7 @@ const OPENAI_THEME_PALETTES: Readonly<
     border: "#ededed",
     input: "#dfdfdf",
     accent: "#339cff",
-    destructive: "#e02e2a",
+    destructive: "#cf2724",
     added: "#00a240",
     deleted: "#e02e2a",
     modified: "#e25507",

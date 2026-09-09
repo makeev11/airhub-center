@@ -353,6 +353,9 @@ type MockBridgeOptions = {
    * evaluates false).
    */
   relayRole?: "owner" | "admin" | "member" | null;
+  principalDirectory?: unknown;
+  relayMembers?: Array<{ pubkey: string; role: "owner" | "admin" | "member" }>;
+  emptyChannelHistory?: boolean;
   /**
    * Descriptors returned by the mocked `pick_and_upload_media` /
    * `upload_media_bytes` commands. When omitted, the bridge returns a single

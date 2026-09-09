@@ -792,7 +792,12 @@ pub(crate) async fn get_organization_settings(
                 "AirHub organization is not configured",
             )
         })?;
-    Ok(Json(organization_settings_payload(
+    let directory = state
+        .db
+        .airhop_principal_directory(&tenant, organization.id)
+        .await
+        .map_err(map_db_error)?;
+    let mut response = organization_settings_payload(
         organization_settings_json(
             organization.id,
             &organization.name,
@@ -804,7 +809,9 @@ pub(crate) async fn get_organization_settings(
         ),
         organization.version,
         false,
-    )))
+    );
+    response["principalDirectory"] = directory;
+    Ok(Json(response))
 }
 
 /// Idempotently bootstraps or replaces authoritative organization settings.

@@ -1,3 +1,4 @@
+import { ComposerUploadError } from "./ComposerUploadError";
 import * as React from "react";
 
 import { EditorContent } from "@tiptap/react";
@@ -943,18 +944,12 @@ function MessageComposerImpl({
               selectedIndex={mentions.mentionSelectedIndex}
               suggestions={mentions.isMentionOpen ? mentions.suggestions : []}
             />
-            {media.uploadState.status === "error" ? (
-              <div className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                Upload failed: {media.uploadState.message}
-                <button
-                  className="ml-2 underline"
-                  onClick={() => media.setUploadState({ status: "idle" })}
-                  type="button"
-                >
-                  Dismiss
-                </button>
-              </div>
-            ) : null}
+            {media.uploadState.status === "error" && (
+              <ComposerUploadError
+                message={media.uploadState.message}
+                onDismiss={() => media.setUploadState({ status: "idle" })}
+              />
+            )}
 
             {(media.pendingImeta.length > 0 || media.isUploading) && (
               <div className="mb-2 flex items-center gap-2">

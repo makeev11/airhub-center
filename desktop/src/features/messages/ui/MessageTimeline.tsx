@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
@@ -212,6 +213,7 @@ const MessageTimelineBase = React.forwardRef<
   }: MessageTimelineProps,
   ref,
 ) {
+  useMessengerCopy();
   const isRussian = useAirHopLocale() === "ru-RU";
   const internalScrollRef = React.useRef<HTMLDivElement>(null);
   const scrollContainerRef = externalScrollRef ?? internalScrollRef;
@@ -619,7 +621,7 @@ const MessageTimelineBase = React.forwardRef<
             {activeDirectMessageIntro.displayName}
           </p>
           <p className="mt-1 max-w-full truncate whitespace-nowrap text-sm leading-5 text-muted-foreground">
-            This is the beginning of your direct message with{" "}
+            {messageText("This is the beginning of your direct message with")}{" "}
             <span className="font-medium text-foreground">
               {activeDirectMessageIntro.displayName}
             </span>
@@ -802,7 +804,9 @@ const MessageTimelineBase = React.forwardRef<
                     <p className="mt-1 max-w-full truncate whitespace-nowrap text-sm leading-5 text-muted-foreground">
                       {isRussian
                         ? "Это начало вашей личной переписки с "
-                        : "This is the beginning of your direct message with "}
+                        : messageText(
+                            "This is the beginning of your direct message with",
+                          )}
                       <span className="font-medium text-foreground">
                         {activeDirectMessageIntro.displayName}
                       </span>
@@ -830,14 +834,13 @@ const MessageTimelineBase = React.forwardRef<
                     data-testid="message-empty"
                   >
                     <p className="text-base font-semibold tracking-tight">
-                      {emptyTitle ??
-                        (isRussian ? "Сообщений пока нет" : "No messages yet")}
+                      {emptyTitle ?? messageText("No messages yet")}
                     </p>
                     <p className="mt-2 text-sm text-muted-foreground">
                       {emptyDescription ??
-                        (isRussian
-                          ? "Отправьте первое сообщение, чтобы начать обсуждение."
-                          : "Send the first message to start the thread.")}
+                        messageText(
+                          "Send the first message to start the thread.",
+                        )}
                     </p>
                   </div>
                 ) : null}
@@ -873,9 +876,7 @@ const MessageTimelineBase = React.forwardRef<
                   ? unreadCountLabel(bufferedTimeline.pendingCount)
                   : newMessageCount > 0
                     ? unreadCountLabel(newMessageCount)
-                    : isRussian
-                      ? "К последним сообщениям"
-                      : "Jump to latest"
+                    : messageText("Jump to latest")
               }
               onClick={() => {
                 setIsSemanticallyAtBottom(true);

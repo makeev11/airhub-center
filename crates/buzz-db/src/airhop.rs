@@ -40,6 +40,8 @@ pub mod center_analytics;
 pub mod center_health;
 /// Provider-neutral external messaging connection and delivery outbox.
 pub mod channel_gateway;
+/// Client inbox, routing metadata and explicit legacy thread cutover.
+pub mod client_threads;
 /// Durable, parent-confirmed booking creation inside an external conversation.
 pub mod conversation_booking;
 /// Optimistic lifecycle and tariff commands for permanent enrollments.
@@ -64,6 +66,8 @@ pub mod family_primary_representative;
 pub mod group_directory;
 /// Versioned parent-safe Markdown retrieval for AirHop agents.
 pub mod knowledge;
+/// Private authoring, original attachments and immutable knowledge revisions.
+pub mod knowledge_workspace;
 /// Tenant-scoped commands for cancelling, overriding, and restoring one lesson.
 pub mod lesson_exception;
 /// Authoritative per-lesson roster, direct participants, and attendance.
@@ -76,6 +80,8 @@ pub mod payment_analytics;
 pub mod payment_automation;
 /// Tenant-scoped payment work queue and audited staff commands.
 pub mod payment_queue;
+/// Registered organization agent identities and human/service classification.
+pub mod principal_directory;
 /// Atomic public booking command application service.
 pub mod public_booking;
 /// Credential-scoped parent booking management.

@@ -23,8 +23,17 @@ export function FamilyConversationLinks({
   return conversations
     .filter((chat) => chat.representativeId === representativeId)
     .map((chat) => (
-      <Button asChild key={chat.channelId} size="sm" variant="outline">
-        <Link to="/channels/$channelId" params={{ channelId: chat.channelId }}>
+      <Button
+        asChild
+        key={chat.conversationId ?? chat.channelId}
+        size="sm"
+        variant="outline"
+      >
+        <Link
+          to="/channels/$channelId"
+          params={{ channelId: chat.channelId }}
+          search={chat.rootEventId ? { thread: chat.rootEventId } : {}}
+        >
           <MessageCircleCheck className="mr-1 h-4 w-4" />
           {label} · {chat.provider === "telegram" ? "Telegram" : chat.provider}
         </Link>

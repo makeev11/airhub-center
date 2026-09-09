@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import {
   ArrowLeft,
@@ -57,9 +58,9 @@ type BrowserTab = "all" | "joined" | "archived";
 type ChannelSort = ChannelSortMode | "members";
 
 const CHANNEL_SORT_OPTIONS: { label: string; value: ChannelSort }[] = [
-  { label: "Alphabetical", value: "alpha" },
-  { label: "Recent", value: "recent" },
-  { label: "Most members", value: "members" },
+  { label: messageText("Alphabetical"), value: "alpha" },
+  { label: messageText("Recent"), value: "recent" },
+  { label: messageText("Most members"), value: "members" },
 ];
 
 function BrowseState({
@@ -71,6 +72,7 @@ function BrowseState({
   title: string;
   description: string;
 }) {
+  useMessengerCopy();
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -110,6 +112,7 @@ export function ChannelBrowserDialog({
   onCreateChannel,
   isCreatingChannel = false,
 }: ChannelBrowserDialogProps) {
+  useMessengerCopy();
   const isRussian = useAirHopLocale() === "ru-RU";
   const [query, setQuery] = React.useState("");
   const [activeTab, setActiveTab] = React.useState<BrowserTab>("all");
@@ -265,7 +268,7 @@ export function ChannelBrowserDialog({
         ? "Недавние"
         : "Больше участников"
     : (CHANNEL_SORT_OPTIONS.find((option) => option.value === sort)?.label ??
-      "Alphabetical");
+      messageText("Alphabetical"));
 
   const allTabLabel = isRussian
     ? isForumMode
@@ -491,9 +494,7 @@ export function ChannelBrowserDialog({
                 <DialogTitle>{browseTitle}</DialogTitle>
                 <DialogClose className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-1 focus:ring-ring">
                   <X className="h-4 w-4" />
-                  <span className="sr-only">
-                    {isRussian ? "Закрыть" : "Close"}
-                  </span>
+                  <span className="sr-only">{messageText("Close")}</span>
                 </DialogClose>
               </div>
               <div className={MODAL_SEARCH_SHELL_CLASS}>
@@ -584,7 +585,7 @@ export function ChannelBrowserDialog({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuLabel>
-                      {isRussian ? "Сортировать" : "Sort by"}
+                      {messageText("Sort by")}
                     </DropdownMenuLabel>
                     <DropdownMenuRadioGroup
                       onValueChange={(value) => {
@@ -653,7 +654,7 @@ export function ChannelBrowserDialog({
                       }}
                       value="joined"
                     >
-                      {isRussian ? "Мои" : "Joined"}
+                      {messageText("Joined")}
                     </TabsTrigger>
                     <TabsTrigger
                       className="rounded-none border-b-2 border-transparent bg-transparent px-0 py-2 text-sm font-medium shadow-none transition-colors duration-150 ease-out data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
@@ -662,7 +663,7 @@ export function ChannelBrowserDialog({
                       }}
                       value="archived"
                     >
-                      {isRussian ? "Архив" : "Archived"}
+                      {messageText("Archived")}
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
@@ -732,6 +733,7 @@ function CreateChannelRow({
   onClick: () => void;
   query: string;
 }) {
+  useMessengerCopy();
   const hasQuery = query.length > 0;
   return (
     <button
@@ -777,13 +779,14 @@ function ChannelCreateView({
   onBack: () => void;
   onClose: () => void;
 }) {
+  useMessengerCopy();
   return (
     <div className="flex h-[min(72vh,38rem)] flex-col">
       <DialogHeader className="space-y-0 pb-4">
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-2">
             <button
-              aria-label={isRussian ? "Назад к поиску" : "Back to search"}
+              aria-label={messageText("Back to search")}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-1 focus:ring-ring"
               data-testid="channel-browser-create-back"
               onClick={onBack}
@@ -796,13 +799,13 @@ function ChannelCreateView({
             </DialogTitle>
           </div>
           <button
-            aria-label={isRussian ? "Закрыть" : "Close"}
+            aria-label={messageText("Close")}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-1 focus:ring-ring"
             onClick={onClose}
             type="button"
           >
             <X className="h-4 w-4" />
-            <span className="sr-only">{isRussian ? "Закрыть" : "Close"}</span>
+            <span className="sr-only">{messageText("Close")}</span>
           </button>
         </div>
       </DialogHeader>
@@ -839,6 +842,7 @@ function ChannelCard({
   onJoin?: () => void;
   onSelect: () => void;
 }) {
+  useMessengerCopy();
   const memberLabel = isRussian
     ? `${channel.memberCount} ${channel.memberCount === 1 ? "участник" : "участников"}`
     : `${channel.memberCount} ${
@@ -904,13 +908,7 @@ function ChannelCard({
           type="button"
           variant="default"
         >
-          {isJoining
-            ? isRussian
-              ? "Входим…"
-              : "Joining..."
-            : isRussian
-              ? "Войти"
-              : "Join"}
+          {isJoining ? messageText("Joining...") : messageText("Join")}
         </Button>
       ) : null}
     </div>

@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { FileDiff, Maximize2 } from "lucide-react";
 
@@ -36,7 +37,8 @@ export default function DiffMessage({
   truncated,
   onExpand,
 }: DiffMessageProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useMessengerCopy();
+  useAirHopLocale();
   const diffCardRef = React.useRef<HTMLDivElement | null>(null);
   useSmoothCorners(diffCardRef);
 
@@ -100,9 +102,7 @@ export default function DiffMessage({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  aria-label={
-                    isRussian ? "Развернуть изменения" : "Expand diff"
-                  }
+                  aria-label={messageText("Expand diff")}
                   className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
                   onClick={onExpand}
                   size="sm"
@@ -112,9 +112,7 @@ export default function DiffMessage({
                   <Maximize2 className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                {isRussian ? "Развернуть изменения" : "Expand diff"}
-              </TooltipContent>
+              <TooltipContent>{messageText("Expand diff")}</TooltipContent>
             </Tooltip>
           )}
         </div>
@@ -139,7 +137,7 @@ export default function DiffMessage({
       {/* Truncation warning */}
       {truncated && (
         <div className="px-3 py-2 border-t border-border/50 bg-amber-500/10 text-xs text-warning">
-          Diff truncated.{" "}
+          {messageText("Diff truncated.")}{" "}
           {safeRepoUrl && commitUrl ? (
             <a
               className="underline hover:no-underline"
@@ -147,7 +145,7 @@ export default function DiffMessage({
               rel="noreferrer noopener"
               target="_blank"
             >
-              View full diff on {getHostname(safeRepoUrl)}
+              {messageText("View full diff on")} {getHostname(safeRepoUrl)}
             </a>
           ) : (
             "View the full diff at the source repository."

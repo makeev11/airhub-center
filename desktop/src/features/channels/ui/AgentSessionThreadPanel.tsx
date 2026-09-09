@@ -1,3 +1,5 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
+import { resolveAirHopLocale } from "@/shared/locale/airhopLocale";
 import * as React from "react";
 import {
   Clock3,
@@ -96,6 +98,7 @@ export function AgentSessionThreadPanel({
   widthPx,
   transparentChrome = false,
 }: AgentSessionThreadPanelProps) {
+  useMessengerCopy();
   const isLive = isManagedAgentActive(agent);
   const isOverlay = useIsThreadPanelOverlay();
   const sessionChannelId = channelId ?? channel?.id ?? null;
@@ -136,7 +139,11 @@ export function AgentSessionThreadPanel({
   const lastUpdatedTitle =
     latestActivityAt === null
       ? undefined
-      : `Last updated ${new Date(latestActivityAt).toLocaleString()}`;
+      : messageText("Last updated {time}", {
+          time: new Date(latestActivityAt).toLocaleString(
+            resolveAirHopLocale(),
+          ),
+        });
 
   const { fetchOlderArchived, hasOlderArchived } =
     useLoadArchivedObserverEvents(
@@ -258,13 +265,18 @@ export function AgentSessionThreadPanel({
     try {
       await cancelManagedAgentTurn(agent.pubkey, channel.id);
       toast.success(
-        `Stop signal sent to ${agent.name}. It may take a moment to respond.`,
+        messageText(
+          "Stop signal sent to {name}. It may take a moment to respond.",
+          { name: agent.name },
+        ),
       );
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : `Failed to stop ${agent.name}'s current turn.`,
+          : messageText("Failed to stop {name}'s current turn.", {
+              name: agent.name,
+            }),
       );
     }
   }
@@ -275,11 +287,11 @@ export function AgentSessionThreadPanel({
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button
-              aria-label="Open activity settings"
+              aria-label={messageText("Open activity settings")}
               className="relative"
               data-testid="agent-session-settings-menu-trigger"
               size="icon"
-              title="Activity settings"
+              title={messageText("Activity settings")}
               type="button"
               variant="ghost"
             >
@@ -307,19 +319,21 @@ export function AgentSessionThreadPanel({
               }}
               title={
                 showRawFeed
-                  ? "Hide raw JSON-RPC payloads."
+                  ? messageText("Hide raw JSON-RPC payloads.")
                   : channel
-                    ? "Show raw JSON-RPC payloads for this channel."
-                    : "Show raw JSON-RPC payloads for this agent."
+                    ? messageText(
+                        "Show raw JSON-RPC payloads for this channel.",
+                      )
+                    : messageText("Show raw JSON-RPC payloads for this agent.")
               }
             >
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2 text-sm font-medium">
                   <TerminalSquare className="h-4 w-4 text-muted-foreground" />
-                  Raw
+                  {messageText("Raw")}{" "}
                 </span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  Show raw JSON-RPC activity.
+                  {messageText("Show raw JSON-RPC activity.")}{" "}
                 </span>
               </span>
               <Switch
@@ -339,16 +353,16 @@ export function AgentSessionThreadPanel({
               }}
               title={
                 showRawFeed
-                  ? "Raw activity rows don't animate in."
+                  ? messageText("Raw activity rows don't animate in.")
                   : animateActivity
-                    ? "Stop animating new activity rows."
-                    : "Animate new activity rows as they arrive."
+                    ? messageText("Stop animating new activity rows.")
+                    : messageText("Animate new activity rows as they arrive.")
               }
             >
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2 text-sm font-medium">
                   <Sparkles className="h-4 w-4 text-muted-foreground" />
-                  Show Animations
+                  {messageText("Show Animations")}{" "}
                 </span>
               </span>
               <Switch
@@ -367,14 +381,14 @@ export function AgentSessionThreadPanel({
               }}
               title={
                 showTimestamps
-                  ? "Hide per-row activity timestamps."
-                  : "Show a timestamp under each activity row."
+                  ? messageText("Hide per-row activity timestamps.")
+                  : messageText("Show a timestamp under each activity row.")
               }
             >
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2 text-sm font-medium">
                   <Clock3 className="h-4 w-4 text-muted-foreground" />
-                  Show Timestamps
+                  {messageText("Show Timestamps")}{" "}
                 </span>
               </span>
               <Switch
@@ -394,22 +408,28 @@ export function AgentSessionThreadPanel({
               }}
               title={
                 canStopCurrentTurn
-                  ? "Interrupt the current ACP turn without stopping the agent process."
+                  ? messageText(
+                      "Interrupt the current ACP turn without stopping the agent process.",
+                    )
                   : isWorking
-                    ? "Only locally managed agents can be interrupted from this community."
-                    : "Available while the agent is working."
+                    ? messageText(
+                        "Only locally managed agents can be interrupted from this community.",
+                      )
+                    : messageText("Available while the agent is working.")
               }
             >
               <Octagon className="mt-0.5 h-4 w-4 text-muted-foreground" />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium">
-                  Stop current turn
+                  {messageText("Stop current turn")}{" "}
                 </span>
                 {!canStopCurrentTurn ? (
                   <span className="mt-0.5 block text-xs text-muted-foreground">
                     {isWorking
-                      ? "Only available for locally managed agents."
-                      : "Available while the agent is working."}
+                      ? messageText(
+                          "Only available for locally managed agents.",
+                        )
+                      : messageText("Available while the agent is working.")}
                   </span>
                 ) : null}
               </span>
@@ -498,8 +518,14 @@ export function AgentSessionThreadPanel({
             className="border-0 bg-transparent px-0 py-2 shadow-none"
             emptyDescription={
               sessionChannelId
-                ? `Mention ${agent.name} in the channel to see its work here.`
-                : `Mention ${agent.name} in any channel to see its work here.`
+                ? messageText(
+                    "Mention {name} in the channel to see its work here.",
+                    { name: agent.name },
+                  )
+                : messageText(
+                    "Mention {name} in any channel to see its work here.",
+                    { name: agent.name },
+                  )
             }
             profiles={profiles}
             rawLayout="exclusive"
@@ -537,10 +563,12 @@ function getLatestActivityTimestamp(
 
 function formatLastUpdatedLabel(timestamp: number | null, now: number): string {
   if (timestamp === null) {
-    return "No updates yet";
+    return messageText("No updates yet");
   }
 
-  return `Last updated ${formatRelativeActivityTime(timestamp, now)}`;
+  return messageText("Last updated {time}", {
+    time: formatRelativeActivityTime(timestamp, now),
+  });
 }
 
 function formatRelativeActivityTime(timestamp: number, now: number): string {
@@ -548,7 +576,29 @@ function formatRelativeActivityTime(timestamp: number, now: number): string {
   const totalSeconds = Math.floor(elapsedMs / 1_000);
 
   if (totalSeconds < 60) {
-    return "just now";
+    return messageText("just now");
+  }
+
+  if (resolveAirHopLocale() !== "en-US") {
+    const unit =
+      totalSeconds < 3600
+        ? "minute"
+        : totalSeconds < 86400
+          ? "hour"
+          : totalSeconds < 604800
+            ? "day"
+            : "week";
+    const divisor =
+      unit === "minute"
+        ? 60
+        : unit === "hour"
+          ? 3600
+          : unit === "day"
+            ? 86400
+            : 604800;
+    return new Intl.RelativeTimeFormat(resolveAirHopLocale(), {
+      numeric: "always",
+    }).format(-Math.floor(totalSeconds / divisor), unit);
   }
 
   const totalMinutes = Math.floor(totalSeconds / 60);

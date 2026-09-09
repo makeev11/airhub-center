@@ -1,3 +1,5 @@
+import { messageText } from "@/shared/locale/messengerCopy";
+import { resolveAirHopLocale } from "@/shared/locale/airhopLocale";
 /**
  * Copy for channel system events (the "joined", "added by", "changed the
  * topic" captions in the message timeline).
@@ -33,6 +35,17 @@ export function describeChannelTextFieldChange(
   value: string | null | undefined,
 ): string {
   const trimmed = value?.trim();
+  if (resolveAirHopLocale() === "ru-RU")
+    return messageText(
+      trimmed
+        ? field === "topic"
+          ? "Topic changed to {value}"
+          : "Purpose changed to {value}"
+        : field === "topic"
+          ? "Topic cleared"
+          : "Purpose cleared",
+      { value: trimmed ?? "" },
+    );
   if (!trimmed) {
     return `cleared the ${field}`;
   }
@@ -55,5 +68,5 @@ export function describeChannelTextFieldChange(
  * untouched.
  */
 export function toInlineName(label: string, isSelf: boolean): string {
-  return isSelf ? "you" : label;
+  return isSelf ? messageText("you") : label;
 }

@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 
 import {
@@ -68,12 +69,13 @@ export function ForumChannelContent({
   selectedPostId,
   targetReplyId,
 }: ForumChannelContentProps) {
+  useMessengerCopy();
   return (
     <>
       {header}
       <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
         <section
-          aria-label="Forum posts"
+          aria-label={messageText("Forum posts")}
           className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
         >
           <React.Suspense fallback={<ViewLoadingFallback kind="forum" />}>

@@ -29,10 +29,10 @@ impl Db {
     pub async fn get_airhop_conversation_handoff_targets(
         &self,
         tenant: &TenantContext,
-        channel_id: Uuid,
+        conversation_id: Uuid,
     ) -> Result<Vec<HermesHandoffTarget>> {
         let mut tx = self.pool.begin().await?;
-        let targets = targets(&mut tx, *tenant.community().as_uuid(), channel_id).await?;
+        let targets = targets(&mut tx, *tenant.community().as_uuid(), conversation_id).await?;
         tx.commit().await?;
         Ok(targets)
     }
@@ -41,27 +41,21 @@ impl Db {
 async fn targets(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     community_id: Uuid,
-    channel_id: Uuid,
+    conversation_id: Uuid,
 ) -> Result<Vec<HermesHandoffTarget>> {
-    let rows = sqlx::query(
-        "SELECT encode(member.pubkey, 'hex') AS pubkey,
-                COALESCE(NULLIF(profile.display_name, ''), encode(member.pubkey, 'hex')) AS display_name
-         FROM channel_members member
-         JOIN relay_members staff
-           ON staff.community_id = member.community_id
-          AND staff.pubkey = encode(member.pubkey, 'hex')
-         LEFT JOIN users profile
-           ON profile.community_id = member.community_id AND profile.pubkey = member.pubkey
-         WHERE member.community_id = $1 AND member.channel_id = $2
-           AND member.removed_at IS NULL AND member.role <> 'bot'
-           AND staff.role IN ('owner', 'admin') AND profile.deactivated_at IS NULL
-         ORDER BY CASE staff.role WHEN 'owner' THEN 0 ELSE 1 END, member.pubkey
-         LIMIT 8",
+    let scope=sqlx::query("SELECT organization_id,channel_id,branch_id FROM airhop_external_conversations WHERE community_id=$1 AND id=$2 AND status='active'")
+        .bind(community_id).bind(conversation_id).fetch_optional(&mut **tx).await?.ok_or_else(||DbError::NotFound("conversation".into()))?;
+    let selected = crate::airhop::client_threads::responsibles(
+        tx,
+        community_id,
+        scope.try_get("organization_id")?,
+        scope.try_get("channel_id")?,
+        scope.try_get("branch_id")?,
     )
-    .bind(community_id)
-    .bind(channel_id)
-    .fetch_all(&mut **tx)
     .await?;
+    let rows=sqlx::query("SELECT encode(key,'hex') AS pubkey,COALESCE(NULLIF(profile.display_name,''),encode(key,'hex')) AS display_name FROM unnest($2::bytea[]) WITH ORDINALITY AS chosen(key,n) LEFT JOIN users profile ON profile.community_id=$1 AND profile.pubkey=chosen.key ORDER BY n")
+        .bind(community_id).bind(selected).fetch_all(&mut **tx).await?;
+
     rows.iter()
         .map(|row| {
             Ok(HermesHandoffTarget {
@@ -75,7 +69,7 @@ async fn targets(
 pub(super) async fn validate_handoff_targets(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     community_id: Uuid,
-    channel_id: Uuid,
+    conversation_id: Uuid,
     input: &CommitHermesReplyInput,
 ) -> Result<()> {
     let event = input
@@ -84,7 +78,7 @@ pub(super) async fn validate_handoff_targets(
         .ok_or_else(|| DbError::InvalidData("missing handoff".to_owned()))?;
     let recipients = mentioned_pubkeys(event);
     let actual: BTreeSet<_> = recipients.iter().cloned().collect();
-    let expected: BTreeSet<_> = targets(tx, community_id, channel_id)
+    let expected: BTreeSet<_> = targets(tx, community_id, conversation_id)
         .await?
         .into_iter()
         .map(|target| target.pubkey)

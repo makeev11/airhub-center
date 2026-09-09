@@ -277,6 +277,7 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         // Ingest persists them to `moderation_reports` and suppresses public
         // storage/fanout; reports are signals, never enforcement triggers.
         KIND_REPORT | KIND_PRODUCT_FEEDBACK => Ok(Scope::MessagesWrite),
+        buzz_core::kind::KIND_AIRHOP_KNOWLEDGE_COMMAND | buzz_core::kind::KIND_AIRHOP_CLIENT_COMMAND => Ok(Scope::MessagesWrite),
         // Community moderation commands are direct, mod-authz-gated writes.
         // Scope only proves the transport can submit message writes; the
         // command handler owns role/capability authorization.
@@ -449,7 +450,9 @@ pub(crate) async fn derive_reaction_channel(
 pub(crate) fn is_global_only_kind(kind: u32) -> bool {
     matches!(
         kind,
-        KIND_PROFILE
+        buzz_core::kind::KIND_AIRHOP_KNOWLEDGE_COMMAND
+            | buzz_core::kind::KIND_AIRHOP_CLIENT_COMMAND
+            | KIND_PROFILE
             | KIND_TEXT_NOTE
             | KIND_CONTACT_LIST
             | KIND_LONG_FORM
@@ -2289,6 +2292,35 @@ async fn ingest_event_inner(
             event_id: event_id_hex,
             accepted: true,
             message: String::new(),
+        });
+    }
+
+    if kind_u32 == buzz_core::kind::KIND_AIRHOP_KNOWLEDGE_COMMAND {
+        if auth.channel_ids().is_some() {
+            return Err(IngestError::AuthFailed(
+                "restricted: knowledge requires a global owner/admin credential".into(),
+            ));
+        }
+        let result = crate::api::airhop_knowledge::apply_command(state, tenant, &event).await?;
+        emit_product_feedback_success(tracer, tenant, &event, &auth);
+        return Ok(IngestResult {
+            event_id: event_id_hex,
+            accepted: true,
+            message: result.to_string(),
+        });
+    }
+
+    if kind_u32 == buzz_core::kind::KIND_AIRHOP_CLIENT_COMMAND {
+        if auth.channel_ids().is_some() {
+            return Err(IngestError::AuthFailed(
+                "restricted: client commands require an unscoped staff credential".into(),
+            ));
+        }
+        let result = crate::api::airhop_clients::apply_command(state, tenant, &event).await?;
+        return Ok(IngestResult {
+            event_id: event_id_hex,
+            accepted: true,
+            message: result.to_string(),
         });
     }
 

@@ -3,6 +3,22 @@
 This checklist distinguishes implemented code from deployed and accepted flows.
 The project is not yet a complete parent-administrator product.
 
+## Shared client threads candidate, 2026-09-09 — not deployed
+
+The current checkout adds migration 0057, configured central/branch parent channels,
+atomic first-inbound roots, conversation-scoped supervisor batching/session memory,
+threaded replies, the Client Inbox, responsibility settings, family/booking links,
+and explicit previewed legacy cutover. It preserves the knowledge-workspace changes
+in this same checkout. This is not evidence that a running demo/Mac app was updated.
+
+See [the gateway contract](AIRHOP_HERMES_CHANNEL_GATEWAY_CONTRACT.md) for exact
+permissions, signed commands, routing and migration/rollback limits, and
+[the local verification report](superpowers/reviews/2026-09-09-airhop-client-threads.md)
+for passing CI/integration/browser checks and remaining acceptance gates. Before release: build
+one identified candidate, back up data, deploy all participating runtime components
+together, then accept a real two-client Telegram conversation and explicit legacy
+cutover on demo. Do not run an old channel-only parent runtime against shared threads.
+
 ## Conversational booking implementation, 2026-09-09
 
 Implemented and deployed to the isolated demo on 2026-09-09 with migration 0055

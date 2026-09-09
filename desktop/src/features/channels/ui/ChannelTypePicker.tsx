@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { ChevronDown, ClockFading, Hash } from "lucide-react";
 import * as React from "react";
 
@@ -34,6 +35,7 @@ export function ChannelTypePicker({
   temporaryOptionAriaLabel?: string;
   testId?: string;
 }) {
+  useMessengerCopy();
   const [internalOpen, setInternalOpen] = React.useState(false);
   const pickerOpen = open ?? internalOpen;
   const setPickerOpen = onOpenChange ?? setInternalOpen;
@@ -75,14 +77,17 @@ export function ChannelTypePicker({
           onValueChange={selectType}
           value={temporary ? "temporary" : "ongoing"}
         >
-          <DropdownMenuRadioItem aria-label="Ongoing channel" value="ongoing">
-            Ongoing
+          <DropdownMenuRadioItem
+            aria-label={messageText("Ongoing channel")}
+            value="ongoing"
+          >
+            {messageText("Ongoing")}{" "}
           </DropdownMenuRadioItem>
           <DropdownMenuRadioItem
             aria-label={temporaryOptionAriaLabel}
             value="temporary"
           >
-            Temporary
+            {messageText("Temporary")}{" "}
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>

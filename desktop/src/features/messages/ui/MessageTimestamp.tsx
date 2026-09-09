@@ -1,5 +1,7 @@
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import {
   formatFullDateTime,
+  formatTime,
   formatTimeWithoutDayPeriod,
 } from "@/features/messages/lib/dateFormatters";
 import { cn } from "@/shared/lib/cn";
@@ -23,7 +25,11 @@ export function MessageTimestamp({
   hideDayPeriod?: boolean;
   time: string;
 }) {
-  const displayTime = hideDayPeriod ? formatTimeWithoutDayPeriod(time) : time;
+  const locale = useAirHopLocale();
+  const localTime = locale === "en-US" ? time : formatTime(createdAt);
+  const displayTime = hideDayPeriod
+    ? formatTimeWithoutDayPeriod(localTime)
+    : localTime;
 
   return (
     <TooltipProvider

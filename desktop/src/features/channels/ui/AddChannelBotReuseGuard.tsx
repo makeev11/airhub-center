@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import type { ManagedAgent } from "@/shared/api/types";
 
 type AddChannelBotReuseGuardProps = {
@@ -13,6 +14,7 @@ export function AddChannelBotReuseGuard({
   onForceNewChange,
   disabled,
 }: AddChannelBotReuseGuardProps) {
+  useMessengerCopy();
   const statusLabel =
     reusableAgent.status === "running" || reusableAgent.status === "deployed"
       ? "running"
@@ -21,7 +23,7 @@ export function AddChannelBotReuseGuard({
   return (
     <div className="space-y-2" data-testid="agent-instance-mode">
       <label className="text-sm font-medium" htmlFor="agent-instance-mode">
-        Agent instance
+        {messageText("Agent instance")}{" "}
       </label>
       <select
         className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs"
@@ -30,15 +32,17 @@ export function AddChannelBotReuseGuard({
         onChange={(e) => onForceNewChange(e.target.value === "new")}
         value={forceNew ? "new" : "reuse"}
       >
-        <option value="reuse">Reuse existing agent</option>
-        <option value="new">Create new instance</option>
+        <option value="reuse">{messageText("Reuse existing agent")}</option>
+        <option value="new">{messageText("Create new instance")}</option>
       </select>
       <p className="text-xs text-muted-foreground">
         <span className="font-medium text-foreground">
           {reusableAgent.name}
         </span>{" "}
-        is already {statusLabel}. Reusing adds it to this channel without
-        creating a duplicate keypair.
+        {messageText("is already")} {statusLabel}
+        {messageText(
+          ". Reusing adds it to this channel without creating a duplicate keypair.",
+        )}{" "}
       </p>
     </div>
   );

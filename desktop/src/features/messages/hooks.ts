@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import { useEffect, useEffectEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -236,7 +237,7 @@ export function useChannelMessagesQuery(channel: Channel | null) {
     enabled: channel !== null && channel.channelType !== "forum",
     queryKey,
     queryFn: async () => {
-      if (!channel) throw new Error("No channel selected.");
+      if (!channel) throw new Error(messageText("No channel selected."));
       const previousMessages =
         queryClient.getQueryData<RelayEvent[]>(queryKey) ?? [];
       const events = await getChannelWindowEvents(channel.id);
@@ -439,17 +440,23 @@ export function useSendMessageMutation(
 
       if (effectiveChannel == null) {
         if (capturedChannelId != null) {
-          throw new Error("Channel is no longer available.");
+          throw new Error(messageText("Channel is no longer available."));
         }
-        throw new Error("This channel does not support message sending yet.");
+        throw new Error(
+          messageText("This channel does not support message sending yet."),
+        );
       }
 
       if (effectiveChannel.channelType === "forum") {
-        throw new Error("This channel does not support message sending yet.");
+        throw new Error(
+          messageText("This channel does not support message sending yet."),
+        );
       }
 
       if (!identity) {
-        throw new Error("No identity available for sending messages.");
+        throw new Error(
+          messageText("No identity available for sending messages."),
+        );
       }
 
       // `mediaTags` arrives as the merged outgoing tag set (imeta + NIP-30
@@ -681,7 +688,7 @@ export function useDeleteMessageMutation(channel: Channel | null) {
   return useMutation<void, Error, { eventId: string }>({
     mutationFn: async ({ eventId }) => {
       if (!channel) {
-        throw new Error("No channel selected.");
+        throw new Error(messageText("No channel selected."));
       }
       await deleteMessage(channel.id, eventId);
     },
@@ -715,7 +722,7 @@ export function useEditMessageMutation(channel: Channel | null) {
   >({
     mutationFn: async ({ eventId, content, mediaTags, mentionPubkeys }) => {
       if (!channel) {
-        throw new Error("No channel selected.");
+        throw new Error(messageText("No channel selected."));
       }
 
       // `mediaTags` arrives as the merged outgoing set (imeta + NIP-30 emoji).

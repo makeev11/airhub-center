@@ -42,6 +42,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 buzz-core = { workspace = true }
 buzz-sdk = { workspace = true }
 uuid = { workspace = true }
+url = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 

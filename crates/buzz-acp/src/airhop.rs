@@ -80,6 +80,18 @@ pub(crate) enum RouteGate {
 #[serde(rename_all = "camelCase")]
 struct ParentClaimResponse {
     token: String,
+    context: ParentClaimContext,
+}
+
+#[derive(Debug, Deserialize)]
+struct ParentClaimContext {
+    scope: ParentClaimScope,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParentClaimScope {
+    conversation_id: Uuid,
 }
 
 /// Dispatch-time hosted supervisor gate for the parent-facing Hermes role.
@@ -91,13 +103,16 @@ pub(crate) struct ParentSupervisorGate {
 }
 
 impl ParentSupervisorGate {
+    pub(crate) fn enabled(&self) -> bool {
+        self.enabled
+    }
     pub(crate) fn new(
         role: Option<AirhopRole>,
         context_file: Option<PathBuf>,
         client: RestClient,
     ) -> Self {
         Self {
-            enabled: role == Some(AirhopRole::ParentAdministrator) && context_file.is_some(),
+            enabled: role == Some(AirhopRole::ParentAdministrator),
             context_file,
             client,
         }
@@ -106,14 +121,15 @@ impl ParentSupervisorGate {
     /// Claims the newest triggerable event in a coalesced batch. Receipts prove
     /// that it is current parent input or an explicit authorized staff resume;
     /// all other staff/internal events fail closed.
-    pub(crate) async fn claim_batch(&self, batch: &FlushBatch) -> bool {
+    pub(crate) async fn claim_batch(&self, batch: &FlushBatch) -> Option<String> {
         if !self.enabled {
-            return true;
+            return Some(String::new());
         }
+        // A static grant can support a single explicitly scoped invocation, but
+        // must never bypass fresh supervisor authorization in the live queue.
+        let context_path = self.context_file.as_deref()?;
         let source_event_ids = parent_batch_source_ids(batch);
-        let Some(event_id) = source_event_ids.first() else {
-            return false;
-        };
+        let event_id = source_event_ids.first()?;
         let input_batch_id = deterministic_batch_id(batch);
         let path = format!("/api/airhop/agents/v1/supervisor/events/{event_id}/claim");
         let response = self
@@ -130,19 +146,16 @@ impl ParentSupervisorGate {
             .await
             .and_then(|value| serde_json::from_value(value).map_err(RelayError::Json));
         match response {
-            Ok(ParentClaimResponse { token }) => {
-                let Some(path) = self.context_file.as_deref() else {
-                    return false;
-                };
-                match write_context_grant(path, &token) {
-                    Ok(()) => true,
+            Ok(ParentClaimResponse { token, context }) => {
+                match write_context_grant(context_path, &token) {
+                    Ok(()) => Some(context.scope.conversation_id.to_string()),
                     Err(error) => {
                         tracing::error!(
                             event_id,
                             error = %error,
                             "AirHop supervisor could not hand context to MCP"
                         );
-                        false
+                        None
                     }
                 }
             }
@@ -152,7 +165,7 @@ impl ParentSupervisorGate {
                     error = %bounded_error(&error),
                     "AirHop supervisor dropped non-triggerable event batch"
                 );
-                false
+                None
             }
         }
     }
@@ -656,6 +669,28 @@ mod tests {
                 .unwrap(),
         };
         assert_eq!(make_gate().evaluate(&forged).await, RouteGate::Drop);
+    }
+
+    #[tokio::test]
+    async fn parent_live_queue_without_rotating_grant_fails_closed() {
+        let gate = ParentSupervisorGate::new(
+            Some(AirhopRole::ParentAdministrator),
+            None,
+            RestClient {
+                http: reqwest::Client::new(),
+                base_url: "http://127.0.0.1:1".into(),
+                keys: nostr::Keys::generate(),
+                auth_tag_json: None,
+            },
+        );
+        assert!(gate.enabled());
+        let batch = FlushBatch {
+            channel_id: Uuid::new_v4(),
+            events: Vec::new(),
+            cancelled_events: Vec::new(),
+            cancel_reason: None,
+        };
+        assert!(gate.claim_batch(&batch).await.is_none());
     }
 
     #[test]

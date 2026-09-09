@@ -247,6 +247,48 @@ enum Cmd {
 /// Read-only Airhop Center reporting commands.
 #[derive(Subcommand)]
 pub enum AirhopCmd {
+    /// Membership-scoped client conversation Inbox
+    Clients {
+        /// Optional active branch filter
+        #[arg(long)]
+        branch_id: Option<uuid::Uuid>,
+        /// Only conversations without a selected branch
+        #[arg(long)]
+        unassigned: bool,
+        /// waiting_staff, waiting_parent, resolved
+        #[arg(long)]
+        status: Option<String>,
+        /// Current client/family title search
+        #[arg(long)]
+        search: Option<String>,
+    },
+    /// Submit a versioned client command through the ordinary signed Nostr bridge
+    ClientCommand {
+        /// Exact tenant community UUID
+        #[arg(long)]
+        community_id: uuid::Uuid,
+        /// Typed JSON with conversationId, expectedVersion, idempotencyKey and action
+        #[arg(long)]
+        request: String,
+    },
+    /// Preview a legacy migration without mutating history or routes
+    ClientMigrationPreview {
+        /// Exact conversation UUID from Clients
+        #[arg(long)]
+        conversation_id: uuid::Uuid,
+    },
+    /// Export published, role-permitted knowledge artifacts (never drafts or originals)
+    Knowledge {
+        /// Keywords; omitted to list the published catalog without full text
+        #[arg(long)]
+        query: Option<String>,
+        /// Exact published document to read
+        #[arg(long)]
+        document_id: Option<uuid::Uuid>,
+        /// nextCursor from a previous page
+        #[arg(long)]
+        after: Option<uuid::Uuid>,
+    },
     /// Call the parent backend with the current supervisor-issued context grant
     Parent {
         /// Typed backend request JSON (for example save_booking_draft or commit_booking_draft)

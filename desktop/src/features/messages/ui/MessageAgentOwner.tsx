@@ -1,15 +1,22 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { Bot } from "lucide-react";
+import { AIRHOP_PRODUCT } from "@/shared/product/airhopProduct";
 
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { UserProfilePopover } from "@/features/profile/ui/UserProfilePopover";
 
-export function MessageAgentOwner({
-  ownerLabel,
-  ownerPubkey,
-}: {
+type MessageAgentOwnerProps = {
   ownerLabel?: string | null;
   ownerPubkey?: string | null;
-}) {
+};
+
+export function MessageAgentOwner(props: MessageAgentOwnerProps) {
+  useMessengerCopy();
+  if (!AIRHOP_PRODUCT.showAgentOwnerLabels) return null;
+  return <AgentOwnerLabel {...props} />;
+}
+
+function AgentOwnerLabel({ ownerLabel, ownerPubkey }: MessageAgentOwnerProps) {
   const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <span
@@ -18,9 +25,7 @@ export function MessageAgentOwner({
     >
       <span className="sr-only">
         {ownerLabel
-          ? isRussian
-            ? "Агент под управлением"
-            : "Agent managed by"
+          ? messageText("Agent managed by")
           : isRussian
             ? "Агент; владелец недоступен"
             : "Agent; owner unavailable"}
@@ -32,7 +37,7 @@ export function MessageAgentOwner({
             className="inline-flex shrink-0 items-baseline gap-1 leading-4"
           >
             <Bot className="relative -top-px h-3.5 w-3.5 self-center" />
-            <span>{isRussian ? "управляет" : "managed by"}</span>
+            <span>{messageText("managed by")}</span>
           </span>
           <UserProfilePopover
             pubkey={ownerPubkey}
@@ -50,9 +55,7 @@ export function MessageAgentOwner({
           className="inline-flex min-w-0 items-center gap-1"
         >
           <Bot className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">
-            {isRussian ? "владелец недоступен" : "owner unavailable"}
-          </span>
+          <span className="truncate">{messageText("owner unavailable")}</span>
         </span>
       )}
     </span>

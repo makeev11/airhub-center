@@ -1,3 +1,8 @@
+import {
+  messageError,
+  messageText,
+  useMessengerCopy,
+} from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { Loader2, Redo2, Undo2 } from "lucide-react";
 
@@ -17,12 +22,12 @@ type EditorStroke = {
 };
 
 const PEN_COLORS = [
-  { label: "Red", value: "#ef4444" },
-  { label: "Yellow", value: "#f59e0b" },
-  { label: "Green", value: "#22c55e" },
-  { label: "Blue", value: "#3b82f6" },
-  { label: "White", value: "#ffffff" },
-  { label: "Black", value: "#111111" },
+  { label: messageText("Red"), value: "#ef4444" },
+  { label: messageText("Yellow"), value: "#f59e0b" },
+  { label: messageText("Green"), value: "#22c55e" },
+  { label: messageText("Blue"), value: "#3b82f6" },
+  { label: messageText("White"), value: "#ffffff" },
+  { label: messageText("Black"), value: "#111111" },
 ] as const;
 
 /** Pen stroke width range, in CSS pixels: five whole-pixel slider stops. */
@@ -103,7 +108,7 @@ async function renderAnnotatedPng(
     const blob = await new Promise<Blob | null>((resolve) => {
       canvas.toBlob(resolve, "image/png");
     });
-    if (!blob) throw new Error("PNG encoding failed");
+    if (!blob) throw new Error(messageText("PNG encoding failed"));
     return new Uint8Array(await blob.arrayBuffer());
   } finally {
     URL.revokeObjectURL(blobUrl);
@@ -140,6 +145,7 @@ export function ComposerImageEditor({
   onSave,
   onSavingChange,
 }: ComposerImageEditorProps) {
+  useMessengerCopy();
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const activeStrokeRef = React.useRef<EditorStroke | null>(null);
   // Committed strokes plus the undone strokes available for redo. Kept in
@@ -344,7 +350,7 @@ export function ComposerImageEditor({
         {naturalSize ? (
           <>
             <canvas
-              aria-label="Drawing canvas"
+              aria-label={messageText("Drawing canvas")}
               className="absolute inset-0 h-full w-full cursor-none touch-none rounded-lg"
               data-testid="composer-image-editor-canvas"
               height={naturalSize.height}
@@ -380,7 +386,7 @@ export function ComposerImageEditor({
           data-testid="composer-image-editor-toolbar"
         >
           <input
-            aria-label="Stroke width"
+            aria-label={messageText("Stroke width")}
             className="h-1 w-12 cursor-pointer appearance-none rounded-full bg-white/25 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
             max={PEN_WIDTH_MAX_CSS}
             min={PEN_WIDTH_MIN_CSS}
@@ -421,7 +427,7 @@ export function ComposerImageEditor({
           <Tooltip disableHoverableContent>
             <TooltipTrigger asChild>
               <button
-                aria-label="Undo last stroke"
+                aria-label={messageText("Undo last stroke")}
                 className="flex h-7 w-7 items-center justify-center rounded-full text-white transition-colors hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent"
                 disabled={!hasStrokes}
                 onClick={undo}
@@ -430,12 +436,12 @@ export function ComposerImageEditor({
                 <Undo2 className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Undo (⌘Z)</TooltipContent>
+            <TooltipContent>{messageText("Undo (⌘Z)")}</TooltipContent>
           </Tooltip>
           <Tooltip disableHoverableContent>
             <TooltipTrigger asChild>
               <button
-                aria-label="Redo stroke"
+                aria-label={messageText("Redo stroke")}
                 className="flex h-7 w-7 items-center justify-center rounded-full text-white transition-colors hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent"
                 disabled={history.undone.length === 0}
                 onClick={redo}
@@ -444,7 +450,7 @@ export function ComposerImageEditor({
                 <Redo2 className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Redo (⇧⌘Z)</TooltipContent>
+            <TooltipContent>{messageText("Redo (⇧⌘Z)")}</TooltipContent>
           </Tooltip>
         </div>
 
@@ -456,7 +462,7 @@ export function ComposerImageEditor({
           type="button"
           variant="ghost"
         >
-          Cancel
+          {messageText("Cancel")}{" "}
         </Button>
         <Button
           data-testid="composer-image-editor-save"
@@ -466,13 +472,13 @@ export function ComposerImageEditor({
           type="button"
         >
           {saving ? <Loader2 className="animate-spin" /> : null}
-          Save
+          {messageText("Save")}{" "}
         </Button>
       </div>
 
       {saveError ? (
         <p className="text-xs text-red-300" role="alert">
-          {saveError}
+          {messageError(saveError)}
         </p>
       ) : null}
     </div>

@@ -18,6 +18,8 @@ struct Fixture {
     parent: Keys,
     channel: Uuid,
     conversation: Uuid,
+    connection: Uuid,
+    root: Option<Event>,
 }
 
 impl Fixture {
@@ -132,10 +134,29 @@ impl Fixture {
             parent,
             channel,
             conversation,
+            connection,
+            root: None,
         }
     }
 
-    fn event(&self, keys: &Keys, text: &str, tags: Vec<Tag>) -> Event {
+    async fn new_threaded() -> Self {
+        let mut f = Self::new().await;
+        sqlx::query("UPDATE airhop_external_conversations SET threaded=TRUE WHERE community_id=$1 AND id=$2").bind(f.tenant.community().as_uuid()).bind(f.conversation).execute(&f.db.pool).await.unwrap();
+        let root = f.event(&f.parent, "Первое сообщение клиента", vec![]);
+        f.insert(&root).await;
+        f.root = Some(root);
+        f
+    }
+
+    fn event(&self, keys: &Keys, text: &str, mut tags: Vec<Tag>) -> Event {
+        if keys.public_key() == self.parent.public_key() {
+            tags.push(Tag::parse(["airhop-conversation", &self.conversation.to_string()]).unwrap());
+        }
+        if let Some(root) = &self.root {
+            for marker in ["root", "reply"] {
+                tags.push(Tag::parse(["e", &root.id.to_hex(), "", marker]).unwrap());
+            }
+        }
         EventBuilder::new(Kind::Custom(9), text)
             .tags([Tag::parse(["h", &self.channel.to_string()]).unwrap()])
             .tags(tags)
@@ -144,13 +165,30 @@ impl Fixture {
     }
 
     async fn insert(&self, event: &Event) -> ExternalConversationEventInsert {
+        let gateway = (event.pubkey == self.parent.public_key()).then_some(GatewayInboundContext {
+            connection_id: self.connection,
+            provider_event_digest: *event.id.as_bytes(),
+            connector_pubkey: self.parent.public_key().to_bytes(),
+        });
+        let created =
+            |e: &Event| DateTime::from_timestamp(e.created_at.as_secs() as i64, 0).unwrap();
         self.db
             .insert_airhop_external_conversation_event(
                 &self.tenant,
                 event,
                 self.channel,
-                None,
-                None,
+                Some(ThreadMetadataParams {
+                    event_id: event.id.as_bytes(),
+                    event_created_at: created(event),
+                    channel_id: self.channel,
+                    parent_event_id: self.root.as_ref().map(|e| e.id.as_bytes().as_slice()),
+                    parent_event_created_at: self.root.as_ref().map(created),
+                    root_event_id: self.root.as_ref().map(|e| e.id.as_bytes().as_slice()),
+                    root_event_created_at: self.root.as_ref().map(created),
+                    depth: i32::from(self.root.is_some()),
+                    broadcast: false,
+                }),
+                gateway.as_ref(),
             )
             .await
             .unwrap()
@@ -299,10 +337,9 @@ async fn handoff_notifies_only_authorized_staff_and_never_leaks_internal_note() 
     let other = TenantContext::resolved(CommunityId::from_uuid(Uuid::new_v4()), "other.test");
     assert!(f
         .db
-        .get_airhop_conversation_handoff_targets(&other, f.channel)
+        .get_airhop_conversation_handoff_targets(&other, f.conversation)
         .await
-        .unwrap()
-        .is_empty());
+        .is_err());
 }
 
 #[tokio::test]

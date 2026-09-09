@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { Spinner } from "@/shared/ui/spinner";
 
@@ -16,6 +17,7 @@ type QuickBotBarProps = {
 };
 
 export function QuickBotBar({ personas, pending, onAdd }: QuickBotBarProps) {
+  useMessengerCopy();
   const [pendingId, setPendingId] = React.useState<string | null>(null);
 
   // Clear pending state when the mutation finishes
@@ -31,7 +33,7 @@ export function QuickBotBar({ personas, pending, onAdd }: QuickBotBarProps) {
     <div
       className="flex items-center"
       role="toolbar"
-      aria-label="Quick add bots"
+      aria-label={messageText("Quick add bots")}
     >
       <div
         className={cn(
@@ -87,7 +89,7 @@ export function QuickBotBar({ personas, pending, onAdd }: QuickBotBarProps) {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">
-                Add {instanceName} ({persona.displayName})
+                {messageText("Add")} {instanceName} ({persona.displayName})
               </TooltipContent>
             </Tooltip>
           );

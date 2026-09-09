@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import { ChevronDown, LoaderCircle } from "lucide-react";
 
 import type { ChannelVisibility } from "@/shared/api/types";
@@ -25,15 +26,11 @@ export function ChannelPermissionsSettings({
   testIdPrefix: string;
   visibility: ChannelVisibility;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useAirHopLocale();
   const visibilityLabel =
     visibility === "private"
-      ? isRussian
-        ? "Только по приглашению"
-        : "Invitation only"
-      : isRussian
-        ? "Для всех сотрудников"
-        : "All employees";
+      ? messageText("Invitation only")
+      : messageText("All employees");
 
   return (
     <div
@@ -44,7 +41,7 @@ export function ChannelPermissionsSettings({
       data-testid={`${testIdPrefix}-permissions-container`}
     >
       <span className="text-sm font-medium text-foreground">
-        {isRussian ? "Доступ" : "Access"}
+        {messageText("Access")}
       </span>
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
@@ -52,10 +49,8 @@ export function ChannelPermissionsSettings({
             aria-busy={isPending}
             aria-label={
               isPending
-                ? isRussian
-                  ? "Обновляем доступ"
-                  : "Updating access"
-                : `${isRussian ? "Доступ" : "Access"}: ${visibilityLabel}`
+                ? messageText("Updating access")
+                : `${messageText("Access")}: ${visibilityLabel}`
             }
             className="-mr-2.5 ml-auto h-9 w-fit justify-end px-2.5 text-right text-sm font-medium text-foreground hover:bg-muted/50"
             data-testid={`${testIdPrefix}-permissions`}
@@ -64,11 +59,7 @@ export function ChannelPermissionsSettings({
             variant="ghost"
           >
             <span aria-live="polite" className="text-right">
-              {isPending
-                ? isRussian
-                  ? "Обновляем…"
-                  : "Updating…"
-                : visibilityLabel}
+              {isPending ? messageText("Updating…") : visibilityLabel}
             </span>
             {isPending ? (
               <LoaderCircle
@@ -99,13 +90,13 @@ export function ChannelPermissionsSettings({
               data-testid={`${testIdPrefix}-permissions-option-open`}
               value="open"
             >
-              {isRussian ? "Для всех сотрудников" : "All employees"}
+              {messageText("All employees")}
             </DropdownMenuRadioItem>
             <DropdownMenuRadioItem
               data-testid={`${testIdPrefix}-permissions-option-private`}
               value="private"
             >
-              {isRussian ? "Только по приглашению" : "Invitation only"}
+              {messageText("Invitation only")}
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>

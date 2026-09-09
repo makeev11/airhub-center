@@ -65,6 +65,10 @@ impl ConversationOwner {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalConversation {
+    /// Canonical first message; null until accepted or for legacy channel layout.
+    pub root_event_id: Option<String>,
+    /// Whether this conversation uses one root inside a shared channel.
+    pub threaded: bool,
     /// Server-resolved organization.
     pub organization_id: Uuid,
     /// Stable conversation identity.
@@ -216,7 +220,14 @@ impl Db {
                ON anchor.community_id = conversation.community_id
               AND anchor.id = $4 AND anchor.channel_id = conversation.channel_id
               AND anchor.deleted_at IS NULL
-             WHERE receipt.community_id = $1 AND receipt.event_id = ANY($2::bytea[])
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM unnest($2::bytea[]) requested(id)
+                 LEFT JOIN events input_event ON input_event.community_id=conversation.community_id AND input_event.id=requested.id
+                 LEFT JOIN thread_metadata input_thread ON input_thread.community_id=input_event.community_id AND input_thread.event_id=input_event.id
+                 WHERE input_event.channel_id IS DISTINCT FROM conversation.channel_id
+                   OR input_event.deleted_at IS NOT NULL
+                   OR (conversation.threaded AND COALESCE(input_thread.root_event_id,input_thread.parent_event_id,input_event.id) IS DISTINCT FROM conversation.root_event_id)
+             ) AND receipt.community_id = $1 AND receipt.event_id = ANY($2::bytea[])
                AND receipt.decision = 'trigger'
                AND receipt.cycle_id = conversation.current_cycle_id
                AND receipt.control_version = conversation.control_version
@@ -313,9 +324,9 @@ impl Db {
         let existing = sqlx::query(
             "SELECT organization_id, id, channel_id, family_id, representative_id,
                     parent_pubkey, current_cycle_id, owner, hermes_paused,
-                    control_version, created_at, updated_at
+                    control_version, created_at, updated_at, threaded, encode(root_event_id,'hex') AS root_event_id
              FROM airhop_external_conversations
-             WHERE community_id = $1 AND channel_id = $2 FOR UPDATE",
+             WHERE community_id = $1 AND channel_id = $2 AND NOT threaded FOR UPDATE",
         )
         .bind(community_id)
         .bind(input.channel_id)
@@ -347,7 +358,7 @@ impl Db {
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              RETURNING organization_id, id, channel_id, family_id, representative_id,
                 parent_pubkey, current_cycle_id, owner, hermes_paused,
-                control_version, created_at, updated_at",
+                control_version, created_at, updated_at, threaded, encode(root_event_id,'hex') AS root_event_id",
         )
         .bind(community_id)
         .bind(organization_id)
@@ -390,13 +401,42 @@ impl Db {
         let community = tenant.community();
         let community_id = *community.as_uuid();
         let mut tx = self.pool.begin().await?;
+        let legacy_archive:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM airhop_conversation_legacy_locations WHERE community_id=$1 AND channel_id=$2)")
+            .bind(community_id).bind(channel_id).fetch_one(&mut *tx).await?;
+        if legacy_archive {
+            return Err(DbError::AccessDenied(
+                "Legacy conversation history is read-only".into(),
+            ));
+        }
+        let tagged_conversation = event
+            .tags
+            .iter()
+            .filter(|tag| {
+                tag.as_slice()
+                    .first()
+                    .is_some_and(|v| v == "airhop-conversation")
+            })
+            .map(|tag| tag.as_slice().get(1).and_then(|v| Uuid::parse_str(v).ok()))
+            .collect::<Vec<_>>();
+        if gateway_inbound.is_some()
+            && (tagged_conversation.len() != 1 || tagged_conversation[0].is_none())
+        {
+            return Err(DbError::AccessDenied(
+                "Gateway requires one valid conversation tag".into(),
+            ));
+        }
+        let requested_conversation =
+            gateway_inbound.and_then(|_| tagged_conversation.first().copied().flatten());
+        let root = thread_meta
+            .as_ref()
+            .and_then(|meta| meta.root_event_id.or(meta.parent_event_id));
         let row = sqlx::query(
             "SELECT conversation.organization_id, conversation.id, conversation.channel_id,
                     conversation.family_id, conversation.representative_id,
                     conversation.parent_pubkey, conversation.current_cycle_id,
                     conversation.owner, conversation.hermes_paused,
                     conversation.control_version, conversation.created_at,
-                    conversation.updated_at, deployment.id AS deployment_id,
+                    conversation.updated_at, conversation.threaded, encode(conversation.root_event_id,'hex') AS root_event_id, deployment.id AS deployment_id,
                     deployment.agent_pubkey, deployment.enabled AS deployment_enabled,
                     deployment.paused AS deployment_paused,
                     agent_profile.display_name AS agent_display_name,
@@ -424,23 +464,75 @@ impl Db {
               AND connection.id = route.connection_id
              WHERE conversation.community_id = $1 AND conversation.channel_id = $2
                AND conversation.status = 'active'
+               AND (($3::uuid IS NOT NULL AND conversation.id=$3)
+                 OR ($3 IS NULL AND (NOT conversation.threaded OR conversation.root_event_id=$4)))
              FOR UPDATE OF conversation",
         )
         .bind(community_id)
         .bind(channel_id)
+        .bind(requested_conversation)
+        .bind(root)
         .fetch_optional(&mut *tx)
         .await?;
         let Some(row) = row else {
+            if gateway_inbound.is_some() {
+                return Err(DbError::AccessDenied(
+                    "Gateway conversation or thread is unavailable".into(),
+                ));
+            }
+            let service_in_parent_channel:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM airhop_channel_connections c JOIN airhop_agent_deployments d ON d.community_id=c.community_id AND d.organization_id=c.organization_id WHERE c.community_id=$1 AND (c.buzz_channel_id=$2 OR EXISTS(SELECT 1 FROM airhop_external_conversations v WHERE v.community_id=c.community_id AND v.channel_id=$2 AND v.threaded)) AND (c.connector_pubkey=$3 OR d.agent_pubkey=$3))")
+                .bind(community_id).bind(channel_id).bind(event.pubkey.to_bytes().as_slice()).fetch_one(&mut *tx).await?;
+            if service_in_parent_channel {
+                return Err(DbError::AccessDenied(
+                    "Service output must identify an existing client thread".into(),
+                ));
+            }
             tx.rollback().await?;
             return Ok(None);
         };
-        let conversation = conversation_from_row(&row)?;
+        let mut conversation = conversation_from_row(&row)?;
         let agent_pubkey: Vec<u8> = row.try_get("agent_pubkey")?;
         let deployment_id: Uuid = row.try_get("deployment_id")?;
         let author = event.pubkey.to_bytes();
         let mut is_parent = author == conversation.parent_pubkey;
         let is_agent = author.as_slice() == agent_pubkey.as_slice();
 
+        if conversation.threaded {
+            let canonical = conversation
+                .root_event_id
+                .as_deref()
+                .map(hex::decode)
+                .transpose()
+                .map_err(|_| DbError::InvalidData("invalid stored conversation root".into()))?;
+            match canonical {
+                Some(ref accepted)
+                    if accepted.as_slice() == event.id.as_bytes() && root.is_none() => {}
+                Some(ref accepted) if root == Some(accepted.as_slice()) => {}
+                None if gateway_inbound.is_some()
+                    && root.is_none()
+                    && !event
+                        .tags
+                        .iter()
+                        .any(|tag| tag.as_slice().first().is_some_and(|v| v == "e")) =>
+                {
+                    sqlx::query("UPDATE airhop_external_conversations SET root_event_id=$3 WHERE community_id=$1 AND id=$2 AND root_event_id IS NULL")
+                        .bind(community_id).bind(conversation.id).bind(event.id.as_bytes().as_slice()).execute(&mut *tx).await?;
+                    conversation.root_event_id = Some(event.id.to_hex());
+                }
+                _ => return Err(DbError::AccessDenied("airhop_thread_changed".into())),
+            }
+        }
+
+        if is_parent
+            && row
+                .try_get::<Option<Uuid>, _>("route_connection_id")?
+                .is_some()
+            && gateway_inbound.is_none()
+        {
+            return Err(DbError::AccessDenied(
+                "Provider input requires authenticated gateway ingress".into(),
+            ));
+        }
         if let Some(gateway) = gateway_inbound {
             validate_and_record_gateway_inbound(
                 &mut tx,
@@ -504,6 +596,13 @@ impl Db {
         }
 
         let projection = if is_parent {
+            super::client_threads::record_inbound(
+                &mut tx,
+                community_id,
+                &mut conversation,
+                event.id.as_bytes(),
+            )
+            .await?;
             let enabled: bool = row.try_get("deployment_enabled")?;
             let deployment_paused: bool = row.try_get("deployment_paused")?;
             let connection_status: Option<String> = row.try_get("connection_status")?;
@@ -635,10 +734,11 @@ impl Db {
                     turn.lease_token, turn.lease_expires_at, turn.status AS turn_status,
                     turn.outcome AS turn_outcome,
                     conversation.current_cycle_id, conversation.control_version,
+                    conversation.channel_id AS current_channel_id,
                     conversation.owner, conversation.hermes_paused,
                     conversation.parent_pubkey, conversation.id,
                     conversation.family_id, conversation.representative_id,
-                    conversation.created_at, conversation.updated_at,
+                    conversation.created_at, conversation.updated_at, conversation.threaded, encode(conversation.root_event_id,'hex') AS root_event_id,
                     deployment.enabled AS deployment_enabled,
                     deployment.paused AS deployment_paused
              FROM airhop_hermes_turn_receipts turn
@@ -741,10 +841,21 @@ impl Db {
             }
         }
         let channel_id: Uuid = row.try_get("channel_id")?;
-        validate_signed_reply_events(input, channel_id)?;
+        if row.try_get::<Uuid, _>("current_channel_id")? != channel_id {
+            return Err(DbError::AccessDenied(
+                "Hermes turn predates conversation migration".into(),
+            ));
+        }
+        validate_signed_reply_events(
+            input,
+            channel_id,
+            row.try_get::<Option<String>, _>("root_event_id")?
+                .as_deref(),
+        )?;
         let hands_off = input.events.last().is_some_and(is_hermes_handoff_event);
         if hands_off {
-            handoff::validate_handoff_targets(&mut tx, community_id, channel_id, input).await?;
+            handoff::validate_handoff_targets(&mut tx, community_id, conversation_id, input)
+                .await?;
         }
         let deployment_id: Uuid = row.try_get("deployment_id")?;
         let control_version: i64 = row.try_get("control_version")?;
@@ -869,7 +980,32 @@ fn validate_reply_shape(input: &CommitHermesReplyInput) -> Result<()> {
     Ok(())
 }
 
-fn validate_signed_reply_events(input: &CommitHermesReplyInput, channel_id: Uuid) -> Result<()> {
+fn valid_reply_thread(event: &Event, root: Option<&str>) -> bool {
+    let refs: Vec<_> = event
+        .tags
+        .iter()
+        .map(|t| t.as_slice())
+        .filter(|t| t.first().is_some_and(|v| v == "e"))
+        .collect();
+    match root {
+        None => refs.is_empty(),
+        Some(root) => {
+            !refs.is_empty()
+                && refs.len() <= 2
+                && refs.iter().all(|t| {
+                    t.len() >= 4 && t[1] == root && matches!(t[3].as_str(), "root" | "reply")
+                })
+                && refs.iter().filter(|t| t[3] == "root").count() <= 1
+                && refs.iter().filter(|t| t[3] == "reply").count() <= 1
+        }
+    }
+}
+
+fn validate_signed_reply_events(
+    input: &CommitHermesReplyInput,
+    channel_id: Uuid,
+    root_event_id: Option<&str>,
+) -> Result<()> {
     let channel = channel_id.to_string();
     let handoff = input.events.last().is_some_and(is_hermes_handoff_event);
     let parent_count = input.events.len() - usize::from(handoff);
@@ -899,7 +1035,7 @@ fn validate_signed_reply_events(input: &CommitHermesReplyInput, channel_id: Uuid
             || event.content.len() > 16_000
             || channel_tags.len() != 1
             || channel_tags[0][1] != channel
-            || tags.iter().any(|tag| !tag.is_empty() && tag[0] == "e")
+            || !valid_reply_thread(event, root_event_id)
             || if handoff && index == parent_count {
                 recipient_tags.is_empty()
             } else {
@@ -907,8 +1043,7 @@ fn validate_signed_reply_events(input: &CommitHermesReplyInput, channel_id: Uuid
             }
         {
             return Err(DbError::InvalidData(
-                "AirHop Hermes reply must be a signed top-level message in the granted parent channel"
-                    .to_owned(),
+                "AirHop Hermes reply must be signed in the granted conversation thread".to_owned(),
             ));
         }
     }
@@ -990,6 +1125,13 @@ async fn enqueue_external_message(
     batch_key: [u8; 32],
     sequence: i16,
 ) -> Result<()> {
+    if event.tags.iter().any(|tag| {
+        tag.as_slice()
+            .first()
+            .is_some_and(|value| value == "airhop-internal" || value == "p")
+    }) {
+        return Ok(());
+    }
     let route = sqlx::query(
         "SELECT route.connection_id, route.routing_version,
                 route.status AS route_status, connection.status AS connection_status
@@ -1314,6 +1456,8 @@ async fn validate_channel_binding(
          WHERE channel.community_id = $1 AND channel.id = $2
            AND channel.channel_type = 'stream' AND channel.visibility = 'private'
            AND channel.archived_at IS NULL AND channel.deleted_at IS NULL
+           AND NOT EXISTS(SELECT 1 FROM airhop_channel_connections c WHERE c.community_id=channel.community_id AND c.buzz_channel_id=channel.id)
+           AND NOT EXISTS(SELECT 1 FROM airhop_external_conversations v WHERE v.community_id=channel.community_id AND v.channel_id=channel.id AND v.threaded)
            AND EXISTS(SELECT 1 FROM channel_members parent
              WHERE parent.community_id = channel.community_id
                AND parent.channel_id = channel.id AND parent.pubkey = $3
@@ -1381,6 +1525,8 @@ fn conversation_from_row(row: &sqlx::postgres::PgRow) -> Result<ExternalConversa
         DbError::InvalidData("stored external conversation parent pubkey is invalid".to_owned())
     })?;
     Ok(ExternalConversation {
+        root_event_id: row.try_get("root_event_id")?,
+        threaded: row.try_get("threaded")?,
         organization_id: row.try_get("organization_id")?,
         id: row.try_get("id")?,
         channel_id: row.try_get("channel_id")?,
@@ -1451,7 +1597,7 @@ mod tests {
             events: vec![event],
         };
         validate_reply_shape(&input).unwrap();
-        validate_signed_reply_events(&input, channel_id).unwrap();
+        validate_signed_reply_events(&input, channel_id, None).unwrap();
 
         let reply = EventBuilder::new(Kind::Custom(9), "nested")
             .tags([
@@ -1464,6 +1610,6 @@ mod tests {
             events: vec![reply],
             ..input
         };
-        assert!(validate_signed_reply_events(&nested, channel_id).is_err());
+        assert!(validate_signed_reply_events(&nested, channel_id, None).is_err());
     }
 }

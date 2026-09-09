@@ -75,7 +75,12 @@ docker run --rm \
 ```
 
 The connector principal must be a current workspace member and a member of each
-private external-conversation channel routed through its connections.
+configured private parent channel routed through its connections. A central connection
+uses one organization-wide parents channel; a branch connection uses the branch's
+work channel. In Center connection settings choose the branch (or general inbox)
+and optional private channel. Setup adds connector and Hermes; inbound never creates
+channels. All members of a shared channel can read all its client threads. Branch
+responsibility changes notifications, not permissions.
 
 ## Failure semantics
 
@@ -97,7 +102,11 @@ Only private Telegram DMs and text/command/location content are readable in this
 slice. Other content produces a durable, visible unsupported-attachment notice
 instead of being discarded. It does not upload the original or transcribe voice;
 the parent runtime asks for text and can notify staff through an internal handoff.
-A previously unseen private chat creates one unverified Buzz conversation.
+A previously unseen private chat reserves one unverified Buzz conversation in the
+configured channel. The first accepted signed inbound becomes its root; subsequent
+input uses the returned rootEventId as NIP-10 root/reply. A 409 airhop_thread_changed
+is an explicit pre-insert rejection and permits resolving/re-signing the candidate.
+All uncertain transport failures preserve the exact signed event.
 A valid `/start ahh_…` additionally redeems a 15-minute public-booking grant
 through the authenticated route-resolution boundary. Its irreversible digest is
 durably queued before provider acknowledgement, so a restart can retry binding
@@ -107,7 +116,10 @@ Invalid links never expose booking details. Existing-family/duplicate conflicts
 ask Hermes for staff verification, not repeated blind link retries. Anonymous
 phone matches do not grant access to established family history.
 Continuous typing projection and original media remain later capabilities.
-Deploy Relay migration 0052 before this gateway revision.
+Deploy Relay migration 0057, the updated parent ACP/MCP/persona and matching Center
+with this gateway revision. Legacy channels require an explicit previewed migration;
+see docs/AIRHOP_HERMES_CHANNEL_GATEWAY_CONTRACT.md. Do not downgrade the gateway
+once shared threads have been created.
 
 ## Tests
 

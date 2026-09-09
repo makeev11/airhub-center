@@ -73,6 +73,8 @@
     "jdenticon": "^3.3.0",
     "lucide-react": "^1.0.0",
     "motion": "^12.38.0",
+    "mammoth": "1.12.2",
+    "pdfjs-dist": "6.3.289",
     "qrcode": "^1.5.4",
     "qrcode.react": "^4.2.0",
     "react": "^19.1.0",

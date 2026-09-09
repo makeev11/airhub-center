@@ -1,5 +1,10 @@
 @layer base {
   :root {
+    --control-disabled-foreground: color-mix(
+      in srgb,
+      hsl(var(--foreground)) 70%,
+      hsl(var(--background))
+    );
     /* Catppuccin Latte (mauve accent) */
     --radius: 0.625rem;
     --background: 220 23.08% 94.9%;
@@ -287,11 +292,24 @@
   --buzz-active-foreground: 0 0% 100%;
 }
 
+[data-testid="app-top-chrome"] {
+  --chrome-control-hover: color-mix(
+    in srgb,
+    hsl(var(--sidebar-foreground)) 12%,
+    transparent
+  );
+  --chrome-control-active: color-mix(
+    in srgb,
+    hsl(var(--sidebar-foreground)) 22%,
+    transparent
+  );
+}
+
 :root[data-buzz-theme^="new-slack"] [data-testid="app-sidebar"],
 :root[data-buzz-theme^="new-slack"] [data-testid="settings-sidebar"],
 :root[data-buzz-theme^="new-slack"] [data-testid="app-top-chrome"] {
   --sidebar-foreground: 0 0% 100%;
-  --sidebar-accent: 0 0% 100%;
+  --sidebar-accent: 0 0% 100% / 12%;
   --sidebar-accent-foreground: 0 0% 100%;
   --sidebar-active: 0 0% 100%;
   --sidebar-active-foreground: 0 0% 100%;
@@ -598,7 +616,7 @@
     [data-testid="global-back"],
     [data-testid="global-forward"]
   ) {
-  color: var(--buzz-chrome-foreground);
+  color: hsl(var(--sidebar-foreground));
 }
 
 /*

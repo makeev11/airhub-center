@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Bot, Check } from "lucide-react";
@@ -165,6 +166,7 @@ function getWelcomePersonaEnterTotalSeconds(characterCount: number) {
 }
 
 function WelcomeComposerPersonaMention() {
+  useMessengerCopy();
   const shouldReduceMotion = useReducedMotion();
   const [personaIndex, setPersonaIndex] = React.useState(0);
   const activePersonaName = WELCOME_PERSONA_NAMES[personaIndex];
@@ -393,7 +395,7 @@ export function WelcomeComposerBanner({
                 key="complete-copy"
                 variants={welcomeComposerBannerSuccessCopyVariants}
               >
-                {isRussian ? "Отлично." : "Nice work."}
+                {messageText("Nice work.")}
               </motion.span>
             ) : settingUp ? (
               <motion.span
@@ -405,9 +407,7 @@ export function WelcomeComposerBanner({
                 key="setting-up-copy"
                 variants={welcomeComposerBannerContentVariants}
               >
-                {isRussian
-                  ? "Настраиваем вашу команду…"
-                  : "Setting up your welcome team…"}
+                {messageText("Setting up your welcome team…")}
               </motion.span>
             ) : (
               <motion.span
@@ -418,11 +418,13 @@ export function WelcomeComposerBanner({
                 key="prompt-copy"
                 variants={welcomeComposerBannerContentVariants}
               >
-                {isRussian ? "Позовите " : "Mention "}
+                {isRussian ? "Позовите " : messageText("Mention")}
                 <WelcomeComposerPersonaMention />
                 {isRussian
                   ? " или другого коллегу, когда понадобится помощь."
-                  : " or another teammate whenever you want their help."}
+                  : messageText(
+                      "or another teammate whenever you want their help.",
+                    )}
               </motion.span>
             )}
           </AnimatePresence>

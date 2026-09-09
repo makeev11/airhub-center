@@ -135,6 +135,7 @@ pub struct FlushBatch {
 ///     else: push_front with original received_at, set exponential backoff retry_after with jitter
 /// ```
 pub struct EventQueue {
+    isolate_threads: bool,
     queues: HashMap<Uuid, VecDeque<QueuedEvent>>,
     in_flight_channels: HashSet<Uuid>,
     /// Per-channel deadline for auto-expiring stuck in-flight entries.
@@ -178,6 +179,7 @@ impl EventQueue {
     /// derive the deadline from the configured `max_turn_duration`.
     pub fn new(dedup_mode: DedupMode) -> Self {
         Self {
+            isolate_threads: false,
             queues: HashMap::new(),
             in_flight_channels: HashSet::new(),
             in_flight_deadlines: HashMap::new(),
@@ -197,6 +199,12 @@ impl EventQueue {
     pub fn with_in_flight_deadline(mut self, max_turn_duration_secs: u64) -> Self {
         self.in_flight_deadline =
             Duration::from_secs(max_turn_duration_secs + IN_FLIGHT_DEADLINE_BUFFER_SECS);
+        self
+    }
+
+    /// Keep parent-agent batches inside one NIP-10 thread while preserving queue fairness.
+    pub fn with_thread_isolation(mut self, enabled: bool) -> Self {
+        self.isolate_threads = enabled;
         self
     }
 
@@ -258,6 +266,21 @@ impl EventQueue {
     /// across channels), drains ALL events for that channel into a single batch,
     /// inserts into `in_flight_channels`, and returns the batch.
     pub fn flush_next(&mut self) -> Option<FlushBatch> {
+        if self.isolate_threads {
+            // Parent runtime is queue-only. Requeue cancellation without mixing clients.
+            for (channel_id, events) in std::mem::take(&mut self.cancelled_batches) {
+                let queue = self.queues.entry(channel_id).or_default();
+                for item in events.into_iter().rev() {
+                    queue.push_front(QueuedEvent {
+                        channel_id,
+                        event: item.event,
+                        received_at: item.received_at,
+                        prompt_tag: item.prompt_tag,
+                    });
+                }
+            }
+            self.cancel_reasons.clear();
+        }
         let now = Instant::now();
 
         // Auto-expire any stuck in-flight entries that missed mark_complete.
@@ -334,7 +357,18 @@ impl EventQueue {
 
         // Drain up to MAX_BATCH_EVENTS; leave any remainder in the queue.
         let queue = self.queues.entry(channel_id).or_default();
-        let drain_count = MAX_BATCH_EVENTS.min(queue.len());
+        let drain_count = if self.isolate_threads {
+            let scope = queue
+                .front()
+                .map(|item| conversation_thread_key(&item.event));
+            queue
+                .iter()
+                .take(MAX_BATCH_EVENTS)
+                .take_while(|item| Some(conversation_thread_key(&item.event)) == scope)
+                .count()
+        } else {
+            MAX_BATCH_EVENTS.min(queue.len())
+        };
         let mut events: Vec<BatchEvent> = queue
             .drain(..drain_count)
             .map(|qe| BatchEvent {
@@ -889,6 +923,13 @@ pub fn parse_thread_tags(event: &Event) -> ThreadTags {
         parent_event_id,
         mentioned_pubkeys: mentions,
     }
+}
+
+/// Canonical conversation context key, including a first top-level message.
+pub(crate) fn conversation_thread_key(event: &Event) -> String {
+    parse_thread_tags(event)
+        .root_event_id
+        .unwrap_or_else(|| event.id.to_hex())
 }
 
 /// Extract a leading slash command from message content.
@@ -1905,6 +1946,32 @@ mod tests {
         // All drained.
         assert_eq!(pending_count(&q), 0);
         assert_eq!(q.queues.len(), 0);
+    }
+
+    #[test]
+    fn parent_batches_never_mix_clients_in_a_shared_channel() {
+        let mut q = EventQueue::new(DedupMode::Queue).with_thread_isolation(true);
+        let ch = Uuid::new_v4();
+        let first = make_queued(ch, "client A");
+        let root = first.event.id.to_hex();
+        q.push(first);
+        let mut reply = make_queued(ch, "client A reply");
+        reply.event = EventBuilder::new(Kind::Custom(9), "client A reply")
+            .tags([nostr::Tag::parse(["e", &root, "", "root"]).unwrap()])
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+        q.push(reply);
+        q.push(make_queued(ch, "client B"));
+        let a = q.flush_next().unwrap();
+        assert_eq!(a.events.len(), 2);
+        assert!(a
+            .events
+            .iter()
+            .all(|e| conversation_thread_key(&e.event) == root));
+        q.mark_complete(ch);
+        let b = q.flush_next().unwrap();
+        assert_eq!(b.events.len(), 1);
+        assert_eq!(b.events[0].event.content, "client B");
     }
 
     #[test]

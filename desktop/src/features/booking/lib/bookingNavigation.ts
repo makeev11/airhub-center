@@ -4,6 +4,8 @@ export type BookingPrimaryDestinationId =
   | "clients"
   | "payments"
   | "analytics"
+  | "knowledge"
+  | "inbox"
   | "settings";
 
 export type BookingSettingsDestinationId =
@@ -24,10 +26,13 @@ export type BookingRoute =
   | "/booking/tariffs"
   | "/booking/payments"
   | "/booking/analytics"
+  | "/booking/knowledge"
+  | "/booking/inbox"
   | "/booking/teachers"
   | "/booking/settings";
 
 export const PRIMARY_BOOKING_DESTINATIONS = [
+  { id: "inbox", to: "/booking/inbox", testId: "open-airhop-inbox" },
   {
     id: "schedule",
     to: "/booking/schedule",
@@ -52,6 +57,11 @@ export const PRIMARY_BOOKING_DESTINATIONS = [
     id: "analytics",
     to: "/booking/analytics",
     testId: "open-airhop-analytics",
+  },
+  {
+    id: "knowledge",
+    to: "/booking/knowledge",
+    testId: "open-airhop-knowledge",
   },
   {
     id: "settings",
