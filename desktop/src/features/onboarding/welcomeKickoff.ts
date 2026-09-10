@@ -159,10 +159,12 @@ export function shouldDispatchKickoff(
   snapshot: WelcomeKickoffSnapshot & {
     targetRuntimeReady?: boolean;
     providerReady?: boolean;
+    historyReady?: boolean;
   },
 ) {
   return (
     snapshot.inFlightStage === null &&
+    (snapshot.historyReady ?? true) &&
     (snapshot.targetRuntimeReady ?? true) &&
     (snapshot.providerReady ?? true) &&
     nextKickoffStages(snapshot.observedStages).length > 0
@@ -287,6 +289,7 @@ function loadKickoffContext(cacheKey: string): Promise<KickoffContext> {
 export function useWelcomeKickoff(
   activeChannel: Channel | null,
   channelEvents: readonly RelayEvent[],
+  historyReady: boolean,
 ) {
   const { activeCommunity } = useCommunities();
   const managedAgentsQuery = useManagedAgentsQuery();
@@ -330,6 +333,10 @@ export function useWelcomeKickoff(
     () => resolveAgentReadiness(acpRuntimesQuery.data ?? [], globalConfig),
     [acpRuntimesQuery.data, globalConfig],
   );
+  const latestSnapshotRef = React.useRef(snapshot);
+  latestSnapshotRef.current = snapshot;
+  const historyReadyRef = React.useRef(historyReady);
+  historyReadyRef.current = historyReady;
 
   React.useEffect(() => {
     void channelId;
@@ -352,6 +359,7 @@ export function useWelcomeKickoff(
       !isActiveWelcome ||
       !welcomeAgents ||
       !snapshot ||
+      !historyReady ||
       configLoading ||
       acpRuntimesQuery.isPending ||
       runtimePairsQuery.isPending
@@ -413,6 +421,16 @@ export function useWelcomeKickoff(
     void loadKickoffContext(cacheKey)
       .then((context) => {
         if (activeChannelIdRef.current !== channelId) return;
+        // Context loading can finish after history hydration or a live receipt.
+        // Never publish the stale stage chosen before that update.
+        if (
+          !historyReadyRef.current ||
+          latestSnapshotRef.current?.observedStages.has(stage)
+        ) {
+          dispatchingStageRef.current = null;
+          setInFlightStage(null);
+          return;
+        }
         const task = buildKickoffTask(stage, context.locale, {
           channelId,
           ownerName: context.ownerName,
@@ -437,6 +455,7 @@ export function useWelcomeKickoff(
     acpRuntimesQuery.isPending,
     channelId,
     configLoading,
+    historyReady,
     inFlightStage,
     isActiveWelcome,
     providerReadiness,

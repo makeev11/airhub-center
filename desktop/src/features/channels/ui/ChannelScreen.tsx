@@ -267,7 +267,11 @@ export function ChannelScreen({
   const {
     entranceMessageId: welcomeEntranceMessageId,
     handleEntranceComplete: handleWelcomeEntranceComplete,
-  } = useWelcomeKickoffEntrance(activeChannel, resolvedMessages);
+  } = useWelcomeKickoffEntrance(
+    activeChannel,
+    resolvedMessages,
+    messagesQuery.isSuccess && !messagesQuery.isFetching,
+  );
   const messageEventProfilePubkeys = useMessageEventProfilePubkeys(
     resolvedMessages,
     threadReplyEvents,

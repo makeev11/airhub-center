@@ -54,6 +54,24 @@ test("semantic kickoff advances exactly one durable stage at a time", () => {
   assert.deepEqual(nextKickoffStages(ALL_WELCOME_KICKOFF_STAGES), []);
 });
 
+test("cold Welcome waits for history before treating an empty view as new", () => {
+  const empty = buildWelcomeKickoffSnapshot([], OWNER, agents, null);
+  assert.equal(shouldDispatchKickoff({ ...empty, historyReady: false }), false);
+  assert.equal(shouldDispatchKickoff({ ...empty, historyReady: true }), true);
+  const complete = buildWelcomeKickoffSnapshot(
+    ALL_WELCOME_KICKOFF_STAGES.map((stage) =>
+      event(agents[welcomeKickoffTargetRole(stage)].pubkey, stage),
+    ),
+    OWNER,
+    agents,
+    null,
+  );
+  assert.equal(
+    shouldDispatchKickoff({ ...complete, historyReady: true }),
+    false,
+  );
+});
+
 test("stage target roles cover Fizz and all three specialists", () => {
   assert.equal(welcomeKickoffTargetRole("fizz_intro"), "fizz");
   assert.equal(welcomeKickoffTargetRole("fizz_invite_administrator"), "fizz");
