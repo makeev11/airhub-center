@@ -35,7 +35,7 @@ import {
   ContextMenuTrigger,
 } from "@/shared/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
-import { AirHopMark } from "@/shared/ui/airhop-brand/AirHopBrand";
+import { CommunityIcon } from "@/features/communities/ui/CommunityIcon";
 import { cn } from "@/shared/lib/cn";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 
@@ -137,9 +137,12 @@ function CommunityButton({
               <span
                 className={cn(
                   "flex h-9 w-9 items-center justify-center overflow-hidden rounded-2xl text-xs font-semibold transition-all",
-                  isActive
-                    ? "rounded-xl bg-primary text-primary-foreground"
-                    : "bg-sidebar-accent/60 text-sidebar-foreground/80 hover:rounded-xl hover:bg-primary/80 hover:text-primary-foreground",
+                  isActive &&
+                    "rounded-xl ring-1 ring-inset ring-sidebar-foreground/40",
+                  iconUrl &&
+                    (isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-sidebar-accent/60 text-sidebar-foreground/80 hover:rounded-xl hover:bg-primary/80 hover:text-primary-foreground"),
                   pending && !isActive && "opacity-60",
                 )}
               >
@@ -154,9 +157,9 @@ function CommunityButton({
                 ) : (
                   <span
                     className="h-full w-full"
-                    data-testid="community-rail-default-airhop-mark"
+                    data-testid="community-rail-default-sunflower"
                   >
-                    <AirHopMark className="h-full w-full" />
+                    <CommunityIcon className="h-full w-full text-2xl" />
                   </span>
                 )}
               </span>
@@ -190,7 +193,10 @@ function CommunityButton({
 function CommunityDragOverlay({ iconUrl }: { iconUrl: string | null }) {
   return (
     <div
-      className="flex h-9 w-9 cursor-grabbing items-center justify-center overflow-hidden rounded-xl bg-primary text-xs font-semibold text-primary-foreground opacity-90 shadow-lg ring-1 ring-sidebar-border"
+      className={cn(
+        "flex h-9 w-9 cursor-grabbing items-center justify-center overflow-hidden rounded-xl text-xs font-semibold opacity-90 ring-1 ring-sidebar-border",
+        iconUrl && "bg-primary text-primary-foreground shadow-lg",
+      )}
       data-buzz-flat
     >
       {iconUrl ? (
@@ -203,9 +209,9 @@ function CommunityDragOverlay({ iconUrl }: { iconUrl: string | null }) {
       ) : (
         <span
           className="h-full w-full"
-          data-testid="community-rail-default-airhop-mark"
+          data-testid="community-rail-default-sunflower"
         >
-          <AirHopMark className="h-full w-full" />
+          <CommunityIcon className="h-full w-full text-2xl" />
         </span>
       )}
     </div>

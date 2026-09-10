@@ -1,4 +1,8 @@
 import * as React from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getChannelMessagesBefore } from "@/shared/api/tauriChannels";
+import { loadWelcomeHistory } from "./welcomeHistory";
+import { createAirhopControlPlaneClient } from "@/features/airhop-agents/data/airhopControlPlane";
 
 import {
   useAcpRuntimesQuery,
@@ -45,6 +49,16 @@ export const ALL_WELCOME_KICKOFF_STAGES = [
   "fizz_first_question",
 ] as const satisfies readonly WelcomeKickoffStage[];
 
+// Legacy invitation receipts remain readable, but new onboarding does not
+// interleave a second Fizz message before each specialist's introduction.
+const WELCOME_KICKOFF_SEQUENCE: readonly WelcomeKickoffStage[] = [
+  "fizz_intro",
+  "administrator_intro",
+  "analyst_intro",
+  "content_marketer_intro",
+  "fizz_first_question",
+];
+
 export const WELCOME_KICKOFF_PROVIDER_MARKER =
   "airhop-welcome-kickoff.provider-required.v2";
 
@@ -59,6 +73,7 @@ type WelcomeKickoffAgentIdentities = Readonly<
 export type WelcomeKickoffSnapshot = Readonly<{
   observedStages: ReadonlySet<WelcomeKickoffStage>;
   ownerHasSpoken: boolean;
+  pendingOwnerQuestion?: boolean;
   inFlightStage: WelcomeKickoffStage | null;
 }>;
 
@@ -113,8 +128,31 @@ export function nextKickoffStages(
   observedStages: Iterable<WelcomeKickoffStage>,
 ): WelcomeKickoffStage[] {
   const observed = new Set(observedStages);
-  const next = ALL_WELCOME_KICKOFF_STAGES.find((stage) => !observed.has(stage));
+  const next = WELCOME_KICKOFF_SEQUENCE.find((stage) => !observed.has(stage));
   return next ? [next] : [];
+}
+
+/** Accept the guest receipt only from the server-registered Hermes identity. */
+export function hasWelcomeGuestIntroduction(
+  events: readonly RelayEvent[],
+  guestPubkey: string | null | undefined,
+): boolean {
+  if (!guestPubkey) return false;
+  return events.some(
+    (event) =>
+      event.kind === 9 &&
+      normalizePubkey(event.pubkey) === normalizePubkey(guestPubkey) &&
+      event.tags.some(
+        (tag) =>
+          tag[0] === "airhop-kickoff-stage" && tag[1] === "hermes_guest_intro",
+      ) &&
+      event.tags.some(
+        (tag) =>
+          tag[0] === "airhop-guest-invitation" &&
+          /^[0-9a-f]{64}$/i.test(tag[1] ?? ""),
+      ) &&
+      !event.tags.some((tag) => tag[0] === "e"),
+  );
 }
 
 export function buildWelcomeKickoffSnapshot(
@@ -152,7 +190,33 @@ export function buildWelcomeKickoffSnapshot(
         !agentPubkeys.has(normalizePubkey(event.pubkey)),
     );
 
-  return { observedStages, ownerHasSpoken, inFlightStage };
+  const answered = new Set(
+    events
+      .filter(
+        (event) =>
+          OWNER_MESSAGE_KINDS.has(event.kind) &&
+          agentPubkeys.has(normalizePubkey(event.pubkey)) &&
+          !event.tags.some((tag) => tag[0] === KICKOFF_STAGE_TAG),
+      )
+      .flatMap((event) =>
+        event.tags
+          .filter((tag) => tag[0] === "airhop-responds-to")
+          .map((tag) => tag[1]),
+      ),
+  );
+  const pendingOwnerQuestion = events.some(
+    (event) =>
+      OWNER_MESSAGE_KINDS.has(event.kind) &&
+      normalizePubkey(event.pubkey) === normalizedOwner &&
+      event.content.trim().length > 0 &&
+      !answered.has(event.id),
+  );
+  return {
+    observedStages,
+    ownerHasSpoken,
+    pendingOwnerQuestion,
+    inFlightStage,
+  };
 }
 
 export function shouldDispatchKickoff(
@@ -164,6 +228,7 @@ export function shouldDispatchKickoff(
 ) {
   return (
     snapshot.inFlightStage === null &&
+    !snapshot.pendingOwnerQuestion &&
     (snapshot.historyReady ?? true) &&
     (snapshot.targetRuntimeReady ?? true) &&
     (snapshot.providerReady ?? true) &&
@@ -200,7 +265,15 @@ export function buildKickoffTask(
       "Write only top-level messages in the Welcome channel; never create or reply in a thread.",
       "Send exactly one short message for this stage, then finish the task. Do not perform other kickoff stages.",
       stage === "fizz_first_question"
-        ? "You may ask the owner one question now."
+        ? [
+            "Before asking, use airhop_read to read fresh organization_settings, schedule and knowledge. The organization name above is not a setup inventory.",
+            "Briefly acknowledge the data that already exists. Select the first missing setup topic in this order: branches, teachers, groups/schedule, tariffs, knowledge, Telegram connection.",
+            "Ask exactly one concrete question about that topic, offering to skip it. Do not ask vague priorities such as what matters most. Do not ask the owner to re-enter existing data.",
+            "Include that question in the same message as the short inventory and set expects_reply=true. An inventory without a question is not a completed first setup stage.",
+            "A failed or unavailable read means unknown, not empty: explain the limitation without inventing missing data. Do not claim a Telegram connection is configured unless verified.",
+            "Collect details in conversation; delegate setup changes to the Administrator for a preview and explicit confirmation. Never claim data is saved before a successful confirmed action.",
+            "If all checked topics are populated, briefly summarize and offer one practical test of the connected Telegram bot instead of asking for a new organizational brief.",
+          ].join("\n")
         : "Do not ask the owner a question yet; the final stage handles that. Set expects_reply=false.",
       `Call airhop_send_messages with kickoff_stage="${stage}" so every output carries the airhop-kickoff-stage receipt.`,
       "Do not announce that onboarding or setup is complete.",
@@ -317,17 +390,58 @@ export function useWelcomeKickoff(
         : null,
     [managedAgentsQuery.data, relayUrl],
   );
+  const guestDeployment = useQuery({
+    queryKey: ["airhop-welcome-guest", relayUrl, channelId],
+    queryFn: () =>
+      createAirhopControlPlaneClient().getCurrentHermesDeployment(),
+    enabled: isActiveWelcome && !!relayUrl,
+    staleTime: 30_000,
+    refetchInterval: 10_000,
+  });
+  const durableHistory = useQuery({
+    queryKey: ["airhop-welcome-history", relayUrl, channelId],
+    queryFn: ({ signal }) => {
+      if (!channelId) throw new Error("Welcome channel is unavailable.");
+      return loadWelcomeHistory(channelId, getChannelMessagesBefore, signal);
+    },
+    enabled: isActiveWelcome && !!channelId && !!relayUrl,
+    staleTime: 0,
+    // Live delivery is an optimization, not a durable kickoff receipt. In
+    // particular, the isolated guest publishes outside the desktop process.
+    // Reconcile until setup starts so a missed update cannot strand Welcome.
+    refetchInterval: (query) =>
+      query.state.data?.some(
+        (event) =>
+          event.kind === 9 &&
+          event.pubkey === welcomeAgents?.fizz.pubkey &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === KICKOFF_STAGE_TAG && tag[1] === "fizz_first_question",
+          ),
+      )
+        ? false
+        : 10_000,
+  });
+  const completeEvents = React.useMemo(() => {
+    const combined = new Map(
+      (durableHistory.data ?? []).map((event) => [event.id, event]),
+    );
+    for (const event of channelEvents) combined.set(event.id, event);
+    return [...combined.values()];
+  }, [durableHistory.data, channelEvents]);
+  const completeHistoryReady =
+    historyReady && durableHistory.isSuccess && !durableHistory.isFetching;
   const snapshot = React.useMemo(
     () =>
       welcomeAgents
         ? buildWelcomeKickoffSnapshot(
-            channelEvents,
+            completeEvents,
             identityQuery.data?.pubkey,
             welcomeAgents,
             inFlightStage,
           )
         : null,
-    [channelEvents, identityQuery.data?.pubkey, inFlightStage, welcomeAgents],
+    [completeEvents, identityQuery.data?.pubkey, inFlightStage, welcomeAgents],
   );
   const providerReadiness = React.useMemo(
     () => resolveAgentReadiness(acpRuntimesQuery.data ?? [], globalConfig),
@@ -336,13 +450,21 @@ export function useWelcomeKickoff(
   const latestSnapshotRef = React.useRef(snapshot);
   latestSnapshotRef.current = snapshot;
   const historyReadyRef = React.useRef(historyReady);
-  historyReadyRef.current = historyReady;
+  historyReadyRef.current = completeHistoryReady;
+  const guestReadyRef = React.useRef(false);
+  guestReadyRef.current = hasWelcomeGuestIntroduction(
+    completeEvents,
+    guestDeployment.data?.agentPubkey,
+  );
 
   React.useEffect(() => {
-    void channelId;
+    activeChannelIdRef.current = channelId;
     dispatchingStageRef.current = null;
     providerNoticeInFlightRef.current = false;
     setInFlightStage(null);
+    return () => {
+      activeChannelIdRef.current = null;
+    };
   }, [channelId]);
 
   React.useEffect(() => {
@@ -359,7 +481,7 @@ export function useWelcomeKickoff(
       !isActiveWelcome ||
       !welcomeAgents ||
       !snapshot ||
-      !historyReady ||
+      !completeHistoryReady ||
       configLoading ||
       acpRuntimesQuery.isPending ||
       runtimePairsQuery.isPending
@@ -374,6 +496,7 @@ export function useWelcomeKickoff(
       inFlightStage !== null && !snapshot.observedStages.has(inFlightStage);
     if (hasUnobservedInFlightStage || dispatchingStageRef.current !== null)
       return;
+    if (snapshot.pendingOwnerQuestion) return;
 
     const cacheKey = `${normalizeRelayUrl(relayUrl)}:${channelId}`;
 
@@ -404,6 +527,14 @@ export function useWelcomeKickoff(
 
     const [stage] = nextKickoffStages(snapshot.observedStages);
     if (!stage) return;
+    if (
+      stage === "fizz_first_question" &&
+      !hasWelcomeGuestIntroduction(
+        completeEvents,
+        guestDeployment.data?.agentPubkey,
+      )
+    )
+      return;
     const targetRole = welcomeKickoffTargetRole(stage);
     const targetAgent = welcomeAgents[targetRole];
     if (
@@ -419,12 +550,22 @@ export function useWelcomeKickoff(
     dispatchingStageRef.current = stage;
     setInFlightStage(stage);
     void loadKickoffContext(cacheKey)
-      .then((context) => {
+      .then(async (context) => {
+        // Nostr timestamps have one-second precision. Leave a full second
+        // after the preceding receipt so replay cannot reorder introductions
+        // by their random event IDs (including the guest before setup).
+        if (stage !== "fizz_intro") {
+          await new Promise<void>((resolve) =>
+            setTimeout(resolve, stage === "fizz_first_question" ? 2100 : 1100),
+          );
+        }
         if (activeChannelIdRef.current !== channelId) return;
         // Context loading can finish after history hydration or a live receipt.
         // Never publish the stale stage chosen before that update.
         if (
           !historyReadyRef.current ||
+          (stage === "fizz_first_question" && !guestReadyRef.current) ||
+          latestSnapshotRef.current?.pendingOwnerQuestion ||
           latestSnapshotRef.current?.observedStages.has(stage)
         ) {
           dispatchingStageRef.current = null;
@@ -455,7 +596,9 @@ export function useWelcomeKickoff(
     acpRuntimesQuery.isPending,
     channelId,
     configLoading,
-    historyReady,
+    completeHistoryReady,
+    completeEvents,
+    guestDeployment.data?.agentPubkey,
     inFlightStage,
     isActiveWelcome,
     providerReadiness,
@@ -466,5 +609,37 @@ export function useWelcomeKickoff(
     welcomeAgents,
   ]);
 
-  return snapshot;
+  const awaitingGuest =
+    isActiveWelcome &&
+    completeHistoryReady &&
+    snapshot?.observedStages.has("content_marketer_intro") &&
+    !snapshot.observedStages.has("fizz_first_question") &&
+    !snapshot.pendingOwnerQuestion &&
+    !guestReadyRef.current;
+  const guestStatus:
+    | "loading"
+    | "error"
+    | "missing"
+    | "paused"
+    | "waiting"
+    | null = !awaitingGuest
+    ? null
+    : guestDeployment.isError
+      ? "error"
+      : guestDeployment.isPending
+        ? "loading"
+        : !guestDeployment.data
+          ? "missing"
+          : !guestDeployment.data.enabled || guestDeployment.data.paused
+            ? "paused"
+            : "waiting";
+
+  return {
+    snapshot,
+    guestStatus,
+    guestPubkey: isActiveWelcome
+      ? (guestDeployment.data?.agentPubkey ?? null)
+      : null,
+    retryGuest: guestDeployment.refetch,
+  };
 }

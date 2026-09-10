@@ -198,6 +198,24 @@ async fn assert_booking_binds_same_conversation(f: Fixture) {
             .unwrap();
     assert!(replay.replayed);
     assert_eq!(result.booking_id, replay.booking_id);
+    let analytics = f
+        .db
+        .get_airhop_consultation_analytics(&f.tenant, &f.owner.public_key().to_bytes(), 7, false)
+        .await
+        .unwrap();
+    assert_eq!(analytics["summary"]["started"], 1);
+    assert_eq!(analytics["summary"]["booked"], 1);
+    for key in ["group", "time", "details", "booked"] {
+        assert_eq!(
+            analytics["stages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|s| s["key"] == key)
+                .unwrap()["reached"],
+            1
+        );
+    }
     // An already booked pre-upgrade receipt must not require collecting a
     // surname again or create another family just to replay its result.
     sqlx::query("UPDATE airhop_conversation_booking_drafts SET data=data-'parentFirstName'-'parentLastName' WHERE community_id=$1 AND state='booked'")
@@ -247,6 +265,33 @@ async fn assert_booking_binds_same_conversation(f: Fixture) {
     assert_eq!(next_turn.turn.family_id, binding.0);
     let after:Value=sqlx::query_scalar("SELECT jsonb_build_array(channel_id,encode(root_event_id,'hex')) FROM airhop_external_conversations WHERE community_id=$1 AND id=$2").bind(f.tenant.community().as_uuid()).bind(f.conversation).fetch_one(&f.db.pool).await.unwrap();
     assert_eq!(location, after);
+    // A confirmed booking must not count early, or outside the seven-day window.
+    assert_eq!(analytics["learning"]["eligible"], 0);
+    assert_eq!(analytics["learning"]["booked"], 0);
+    sqlx::query("UPDATE airhop_consultations SET started_at=now()-interval '8 days',closed_at=now()-interval '2 days' WHERE community_id=$1")
+        .bind(f.tenant.community().as_uuid()).execute(&f.db.pool).await.unwrap();
+    sqlx::query("UPDATE airhop_consultation_exposures SET recorded_at=now()-interval '8 days'+interval '1 minute' WHERE community_id=$1")
+        .bind(f.tenant.community().as_uuid()).execute(&f.db.pool).await.unwrap();
+    let mature = f
+        .db
+        .get_airhop_consultation_analytics(&f.tenant, &f.owner.public_key().to_bytes(), 30, false)
+        .await
+        .unwrap();
+    assert_eq!(mature["learning"]["eligible"], 1);
+    assert_eq!(mature["learning"]["booked"], 1);
+    assert_eq!(mature["learning"]["versions"][0]["booked"], 1);
+    sqlx::query("UPDATE airhop_consultations SET closed_at=now() WHERE community_id=$1")
+        .bind(f.tenant.community().as_uuid())
+        .execute(&f.db.pool)
+        .await
+        .unwrap();
+    let late = f
+        .db
+        .get_airhop_consultation_analytics(&f.tenant, &f.owner.public_key().to_bytes(), 30, false)
+        .await
+        .unwrap();
+    assert_eq!(late["summary"]["booked"], 1);
+    assert_eq!(late["learning"]["booked"], 0);
 }
 
 #[tokio::test]

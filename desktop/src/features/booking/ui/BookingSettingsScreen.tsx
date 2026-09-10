@@ -31,6 +31,7 @@ import {
   BookingFeedbackBanners,
   BookingWorkspaceGate,
 } from "@/features/booking/ui/BookingWorkspaceState";
+import { BookingCurrencySelect } from "@/features/booking/ui/BookingCurrencySelect";
 import { BookingSelect } from "@/features/booking/ui/BookingSelect";
 import { BookingSettingsNav } from "@/features/booking/ui/BookingSettingsNav";
 import { WorkingHoursEditor } from "@/features/booking/ui/WorkingHoursEditor";
@@ -104,7 +105,7 @@ function Field({
   label: string;
 }) {
   return (
-    <div className="grid gap-1.5 text-sm">
+    <div className="grid min-w-0 content-start gap-1.5 text-sm">
       <span className="font-medium">{label}</span>
       {children}
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
@@ -253,7 +254,7 @@ function SettingsFormContent({
               {messages.organizationCardTitle}
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-5 lg:grid-cols-2">
+          <CardContent className="grid items-start gap-5 lg:grid-cols-2">
             <Field error={errors.name} label={messages.organizationName}>
               <Input
                 aria-label={messages.organizationName}
@@ -426,14 +427,11 @@ function SettingsFormContent({
                   : "For new tariffs and trial prices. Existing tariffs and payments keep their currency; no automatic exchange conversion."
               }
             >
-              <Input
-                aria-label={messages.currency}
-                maxLength={3}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    currency: event.target.value.toUpperCase(),
-                  }))
+              <BookingCurrencySelect
+                label={messages.currency}
+                locale={form.locale}
+                onChange={(currency) =>
+                  setForm((current) => ({ ...current, currency }))
                 }
                 value={form.currency}
               />

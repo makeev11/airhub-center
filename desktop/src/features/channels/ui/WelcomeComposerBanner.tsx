@@ -172,7 +172,7 @@ function WelcomeComposerPersonaMention() {
   const shouldReduceMotion = useReducedMotion();
   const [personaIndex, setPersonaIndex] = React.useState(0);
   const activePersonaName = WELCOME_PERSONA_NAMES[personaIndex];
-  const activeMention = `@${resolveWelcomeLocale(locale).names.fizz}`;
+  const activeMention = resolveWelcomeLocale(locale).names.fizz;
   const activeMentionCharacters = React.useMemo(
     () => getWelcomeMentionCharacters(activeMention),
     [activeMention],
@@ -306,7 +306,13 @@ export function WelcomeComposerBanner({
   settingUp = false,
   state,
 }: WelcomeComposerBannerProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const prompt = {
+    "ru-RU": ["Напишите свой вопрос — ", " поможет. Упоминание не нужно."],
+    "en-US": ["Write your question — ", " will help. No mention needed."],
+    "pt-BR": ["Escreva sua pergunta — ", " vai ajudar. Não precisa mencionar."],
+    "tr-TR": ["Sorunuzu yazın — ", " yardımcı olur. Etiketlemeniz gerekmez."],
+  }[locale];
 
   if (state === "hidden") {
     return null;
@@ -420,13 +426,9 @@ export function WelcomeComposerBanner({
                 key="prompt-copy"
                 variants={welcomeComposerBannerContentVariants}
               >
-                {isRussian ? "Позовите " : messageText("Mention")}
+                {prompt[0]}
                 <WelcomeComposerPersonaMention />
-                {isRussian
-                  ? " или другого коллегу, когда понадобится помощь."
-                  : messageText(
-                      "or another teammate whenever you want their help.",
-                    )}
+                {prompt[1]}
               </motion.span>
             )}
           </AnimatePresence>

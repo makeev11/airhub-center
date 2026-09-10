@@ -571,7 +571,31 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 60);
+        assert_eq!(migrations.len(), 64);
+        assert_eq!(migrations[63].version, 64);
+        assert!(migrations[63]
+            .sql
+            .as_str()
+            .contains("CREATE TRIGGER airhop_welcome_kickoff_publication"));
+        assert_eq!(migrations[62].version, 63);
+        assert!(migrations[62]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_welcome_guest_invitations"));
+        assert_eq!(migrations[61].version, 62);
+        assert!(migrations[61]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_consultation_exposures"));
+        assert_eq!(migrations[60].version, 61);
+        assert!(migrations[60]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_consultations"));
+        assert!(migrations[60]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_consultation_questions"));
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]

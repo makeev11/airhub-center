@@ -725,7 +725,7 @@ impl Db {
         let community_id = *tenant.community().as_uuid();
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
-            "SELECT turn.organization_id, turn.deployment_id, turn.channel_id,
+            "SELECT turn.organization_id, turn.deployment_id, turn.channel_id, turn.source_message_id,
                     turn.conversation_id, turn.cycle_id, turn.agent_pubkey,
                     turn.lease_token, turn.lease_expires_at, turn.status AS turn_status,
                     turn.outcome AS turn_outcome,
@@ -848,6 +848,15 @@ impl Db {
             row.try_get::<Option<String>, _>("root_event_id")?
                 .as_deref(),
         )?;
+        super::consultation::record_reply(
+            &mut tx,
+            community_id,
+            organization_id,
+            conversation_id,
+            &row.try_get::<Vec<u8>, _>("source_message_id")?,
+            &input.events,
+        )
+        .await?;
         let hands_off = input.events.last().is_some_and(is_hermes_handoff_event);
         if hands_off {
             handoff::validate_handoff_targets(&mut tx, community_id, conversation_id, input)

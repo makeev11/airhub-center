@@ -297,7 +297,7 @@ async function expectPrivateWelcomeLanding(page: Page) {
 async function expectWelcomeView(page: Page) {
   await expectPrivateWelcomeLanding(page);
   await expect(page.getByTestId("channel-general")).toBeVisible();
-  await expect(page.getByTestId("channel-welcome-everyone")).toBeVisible();
+  await expect(page.getByTestId("channel-welcome-everyone")).toHaveCount(0);
   await expect(page.getByTestId("channel-ephemeral-Welcome")).toHaveCount(0);
   await expect(page.getByTestId("chat-ephemeral-badge")).toHaveCount(0);
   await expect(page.getByTestId("message-unread-pill")).toHaveCount(0);
@@ -362,31 +362,6 @@ async function expectWelcomeView(page: Page) {
   );
   await expectWelcomePersonaMention(page);
   await expectWelcomeComposerBannerLayout(page);
-}
-
-async function expectWelcomeComposerBannerCompletesAfterPersonaMention(
-  page: Page,
-) {
-  const banner = page.getByTestId("welcome-composer-guide-banner");
-  const channelIntro = page.getByTestId("message-channel-intro");
-
-  await page.getByTestId("message-input").fill("Thanks @Fizz");
-  await page.getByTestId("send-message").click();
-
-  await expect(banner).toHaveAttribute("data-state", "complete");
-  await expect(banner).toHaveAttribute("data-tone", "success");
-  await expect(
-    banner.getByTestId("welcome-composer-complete-icon"),
-  ).toBeVisible();
-  await expect(
-    banner.locator('[data-animation-target="success-icon"]'),
-  ).toBeVisible();
-  await expect(
-    banner.locator('[data-animation-target="success-copy"]'),
-  ).toBeVisible();
-  await expect(banner).toContainText("Nice work.");
-  await expect(banner).not.toContainText("Try mentioning");
-  await expect(channelIntro).toBeVisible();
 }
 
 async function getMockChannels(page: Page) {
@@ -487,7 +462,7 @@ async function expectStarterChannels(page: Page) {
   await expect
     .poll(async () => {
       const channels = await getMockChannels(page);
-      return ["general", "welcome-everyone"].map((name) => {
+      return ["general"].map((name) => {
         const channel = channels.find(
           (candidate) =>
             candidate.name === name && candidate.visibility === "open",
@@ -505,13 +480,6 @@ async function expectStarterChannels(page: Page) {
       });
     })
     .toEqual([
-      {
-        channelType: "stream",
-        isMember: true,
-        memberCountAtLeastOne: true,
-        ttlSeconds: null,
-        visibility: "open",
-      },
       {
         channelType: "stream",
         isMember: true,
@@ -2951,12 +2919,12 @@ test("completed onboarding backfills missing starter channels", async ({
   await expect(page.getByTestId("onboarding-gate")).toHaveCount(0);
   await expectHomeView(page);
   await expect(page.getByTestId("channel-general")).toBeVisible();
-  await expect(page.getByTestId("channel-welcome-everyone")).toBeVisible();
+  await expect(page.getByTestId("channel-welcome-everyone")).toHaveCount(0);
   await expectStarterChannels(page);
-  await expectWelcomeGuideIntro(page, { expectVisible: false });
+  await expect(page.getByTestId("channel-Welcome")).toHaveCount(0);
 });
 
-test("finishing onboarding creates starter channels and focuses welcome-everyone for a new member", async ({
+test("finishing member onboarding creates general without owner Welcome or legacy public Welcome", async ({
   page,
 }) => {
   await seedActiveIdentity(page, BLANK_TYLER_IDENTITY);
@@ -2966,11 +2934,48 @@ test("finishing onboarding creates starter channels and focuses welcome-everyone
   await page.getByTestId("onboarding-display-name").fill("Morty QA");
   await completeProfileOnboarding(page);
 
-  await expectWelcomeView(page);
+  await expectHomeView(page);
   await expect(page.getByTestId("channel-general")).toBeVisible();
   await expectStarterChannels(page);
-  await expectWelcomeGuideIntro(page);
-  await expectWelcomeComposerBannerCompletesAfterPersonaMention(page);
+  await expect(page.getByTestId("channel-Welcome")).toHaveCount(0);
+  await expect(page.getByTestId("channel-welcome-everyone")).toHaveCount(0);
+});
+
+test("fresh owner lands in one private Welcome without the retired public channel", async ({
+  page,
+}) => {
+  await page.route("**/api/airhop/agents/v1/welcome-team", async (route) => {
+    if (route.request().method() !== "PUT") return route.fallback();
+    await route.fulfill({
+      json: {
+        ...route.request().postDataJSON(),
+        version: 1,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  });
+  await seedActiveIdentity(page, BLANK_TYLER_IDENTITY);
+  await installMockBridge(
+    page,
+    {
+      relayRequiresMembership: true,
+      relayRole: "owner",
+      personas: ["fizz", "administrator", "analyst", "content-marketer"].map(
+        (role) => ({
+          id: `builtin:airhop-${role}`,
+          displayName: role,
+          systemPrompt: "AirHop test persona",
+        }),
+      ),
+    },
+    { skipOnboardingSeed: true },
+  );
+  await page.goto("/");
+  await page.getByTestId("onboarding-display-name").fill("Owner QA");
+  await completeProfileOnboarding(page);
+  await expectPrivateWelcomeLanding(page);
+  await expect(page.getByTestId("channel-Welcome")).toHaveCount(1);
+  await expect(page.getByTestId("channel-welcome-everyone")).toHaveCount(0);
 });
 
 test("initial profile read failures still hold incomplete users in onboarding", async ({

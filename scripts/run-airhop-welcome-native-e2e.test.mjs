@@ -26,9 +26,11 @@ test("native AirHop runner owns the complete clean-room lifecycle", () => {
   assert.match(script, /airhop-e2e-activation-fixture\.mjs digest/);
   assert.doesNotMatch(
     script,
-    /INSERT INTO relay_members/,
+    /INSERT INTO relay_members[\s\S]*?VALUES\([^;]*\$\{OWNER_PUBKEY\}/,
     "the owner must be assigned by the atomic activation claim, not pre-seeded",
   );
+  assert.match(script, /for resume in 0 1; do/);
+  assert.match(script, /AIRHOP_E2E_RESUME="\$\{resume\}"/);
   assert.match(
     script,
     /e5ebc6cdb579be112e336cc319b5989b4bb6af11786ea90dbe52b5f08d741b34/,

@@ -19,18 +19,13 @@ struct StarterChannelSpec {
     description: &'static str,
 }
 
-const STARTER_CHANNELS: &[StarterChannelSpec] = &[
-    StarterChannelSpec {
-        slug: "general",
-        name: "general",
-        description: "General conversation and community updates.",
-    },
-    StarterChannelSpec {
-        slug: "welcome-everyone",
-        name: "welcome-everyone",
-        description: "Say hi, ask a question, or share what brought you here.",
-    },
-];
+// AirHop has one private, organization-aware Welcome provisioned by onboarding.
+// Do not recreate the legacy public welcome-everyone on every fresh installation.
+const STARTER_CHANNELS: &[StarterChannelSpec] = &[StarterChannelSpec {
+    slug: "general",
+    name: "general",
+    description: "General conversation and community updates.",
+}];
 
 fn advance_directory_cursor(filter: &mut serde_json::Value, page: &[nostr::Event]) {
     let last = page

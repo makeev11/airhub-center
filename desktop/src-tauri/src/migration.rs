@@ -525,26 +525,8 @@ struct LegacyBuiltInAvatar<'a> {
     persona_content_hash: &'a str,
 }
 
-const LEGACY_BUILTIN_AVATARS: &[LegacyBuiltInAvatar<'static>] = &[
-    LegacyBuiltInAvatar {
-        persona_id: "builtin:fizz",
-        data_url_sha256: "2771b8c9c46aa3c8ac1c4d2acfa23fa9ba35b79c4b1694554e923081e3b8b4d0",
-        sanitized_media_sha256: "1a4964ff4cf6c499df1a77a941c211c7d1e7ef755f1c395bc9a3b0f2878114a6",
-        persona_content_hash: "b36381d042c8eb5c786a1a692c7ba5a47ae129b9972a1473b64d8fe03f4817c1",
-    },
-    LegacyBuiltInAvatar {
-        persona_id: "builtin:honey",
-        data_url_sha256: "1979e54ef77fc94ec688170bd74dade35c563e7fcc82bb0714c672dfb018eab9",
-        sanitized_media_sha256: "0e0ed9a35d4050bdd290aa8138d5ab811f222549f6acc3cee40a7feb65933e1f",
-        persona_content_hash: "9c9b6b11f1cdd56ba645de02213c562e59c3690bf3f217f74a85df8e6575fd06",
-    },
-    LegacyBuiltInAvatar {
-        persona_id: "builtin:bumble",
-        data_url_sha256: "c08cf3b8b4c3f8721df6143367ababdebae8f913b9c654401ba74bb3d233655b",
-        sanitized_media_sha256: "9f798c61f8965b80beb808f505feb0a5b33726545188ea8212cc9ab22d05f0b6",
-        persona_content_hash: "544a73f9106a3c8848b0f308b7a8b6f95077ac8deccdb9ed5552caa833d66c95",
-    },
-];
+mod builtin_avatars;
+use builtin_avatars::LEGACY_BUILTIN_AVATARS;
 
 struct LegacyAvatarMatch<'a> {
     persona_id: String,

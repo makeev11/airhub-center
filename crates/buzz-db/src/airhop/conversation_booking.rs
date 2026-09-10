@@ -134,6 +134,16 @@ impl Db {
             .bind(expected_version + 1).bind(state).bind(serde_json::to_value(&data)?)
             .bind(quote).bind(preview).fetch_one(&mut *tx).await?;
         let result = draft_from_row(&row)?;
+        super::consultation::record_draft(
+            &mut tx,
+            *tenant.community().as_uuid(),
+            scope.organization_id,
+            scope.conversation_id,
+            &scope.source_event_id,
+            &data,
+            state == "ready",
+        )
+        .await?;
         tx.commit().await?;
         Ok(result)
     }
@@ -158,6 +168,15 @@ impl Db {
         let row = sqlx::query("UPDATE airhop_conversation_booking_drafts SET state='cancelled',preview=NULL,quote=NULL,updated_at=clock_timestamp() WHERE community_id=$1 AND conversation_id=$2 RETURNING *")
             .bind(tenant.community().as_uuid()).bind(scope.conversation_id).fetch_one(&mut *tx).await?;
         let result = draft_from_row(&row)?;
+        super::consultation::close_session(
+            &mut tx,
+            *tenant.community().as_uuid(),
+            scope.conversation_id,
+            &scope.source_event_id,
+            "cancelled",
+            None,
+        )
+        .await?;
         tx.commit().await?;
         Ok(result)
     }
@@ -357,6 +376,23 @@ impl Db {
         }
         sqlx::query("UPDATE airhop_conversation_booking_drafts SET state='booked',booking_id=$3 WHERE community_id=$1 AND conversation_id=$2")
             .bind(tenant.community().as_uuid()).bind(scope.conversation_id).bind(booking_id).execute(&mut *tx).await?;
+        super::consultation::ensure_session(
+            &mut tx,
+            *tenant.community().as_uuid(),
+            scope.organization_id,
+            scope.conversation_id,
+            &scope.source_event_id,
+        )
+        .await?;
+        super::consultation::close_session(
+            &mut tx,
+            *tenant.community().as_uuid(),
+            scope.conversation_id,
+            &scope.source_event_id,
+            "booked",
+            Some(booking_id),
+        )
+        .await?;
         let result =
             booking_result(&mut tx, tenant, scope.organization_id, booking_id, replayed).await?;
         commit_command(

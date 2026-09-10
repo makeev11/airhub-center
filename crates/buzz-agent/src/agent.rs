@@ -36,6 +36,9 @@ const MAX_REPLY_NAGS: u32 = 2;
 /// in-process guard rather than an MCP server that could be impersonated.
 const REPLY_GUARD_SERVER: &str = "buzz-agent";
 
+const AIRHOP_REPLY_TOOL: &str = "airhop-agent-mcp__airhop_send_messages";
+const AIRHOP_REPLY_NAG: &str = "Your final text is not published in Welcome. Send the answer with airhop_send_messages, including respondsTo for the exact owner messages handled. For a kickoff task use its kickoff_stage instead. Do not repeat already published messages or claim an unconfirmed change was saved.";
+
 /// Reminder text emitted when a turn is about to end with nothing published.
 ///
 /// Explicitly licenses silence. The base prompt tells agents that publishing is
@@ -214,6 +217,9 @@ impl RunCtx<'_> {
         // Named for what it proves: a *recognized attempt* to publish, not a
         // successful publish. See `is_buzz_reply_call`.
         let mut buzz_reply_call_seen = false;
+        // The product Welcome tool is the only publication path for these
+        // sessions. Unlike optional general Buzz replies, it requires delivery.
+        let airhop_reply_required = self.mcp.has(AIRHOP_REPLY_TOOL);
         let mut reply_nags = 0u32;
         loop {
             if self.cfg.max_rounds > 0 && round >= self.cfg.max_rounds {
@@ -226,7 +232,9 @@ impl RunCtx<'_> {
             // round. They land as user turns so the model incorporates them on
             // its next request — the turn continues, it is not restarted. Drain
             // non-blocking; an empty queue is the common case.
-            self.drain_steers();
+            if self.drain_steers() {
+                buzz_reply_call_seen = false;
+            }
             match self.maybe_handoff().await {
                 HandoffOutcome::Cancelled => return Ok(StopReason::Cancelled),
                 // Context was just reset — the prior request's token count no
@@ -402,10 +410,7 @@ impl RunCtx<'_> {
                 });
                 let stop = map_stop(response.stop);
                 // Only gate genuine end_turn — don't override max_tokens/refusal.
-                if stop == StopReason::EndTurn {
-                    if stop_rejections >= self.cfg.stop_max_rejections {
-                        return Ok(stop);
-                    }
+                if stop == StopReason::EndTurn && stop_rejections < self.cfg.stop_max_rejections {
                     let mut objections = self
                         .mcp
                         .call_hooks(
@@ -418,18 +423,42 @@ impl RunCtx<'_> {
                     // Reply guard shares this gate and this budget, so a round
                     // carrying both a hook objection and a reply reminder costs
                     // one rejection and delivers both texts.
-                    if self.cfg.require_reply
+                    if (self.cfg.require_reply || airhop_reply_required)
                         && !buzz_reply_call_seen
                         && reply_nags < MAX_REPLY_NAGS
                     {
                         reply_nags += 1;
-                        objections
-                            .push((REPLY_GUARD_SERVER.to_string(), REPLY_GUARD_NAG.to_string()));
+                        objections.push((
+                            REPLY_GUARD_SERVER.to_string(),
+                            if airhop_reply_required {
+                                AIRHOP_REPLY_NAG
+                            } else {
+                                REPLY_GUARD_NAG
+                            }
+                            .to_string(),
+                        ));
                     }
                     if !objections.is_empty() {
                         stop_rejections = stop_rejections.saturating_add(1);
                         push_hook_outputs_as_tool_results(self.history, "_Stop", &objections);
                         continue;
+                    }
+                }
+                if stop == StopReason::EndTurn {
+                    // A steer may have been acknowledged while the last model
+                    // response or stop hooks were in flight. Close admission
+                    // before draining: a racing later send must fail so the
+                    // harness retains it, not acknowledge input we will drop.
+                    self.steer.close();
+                    if self.drain_steers() {
+                        buzz_reply_call_seen = false;
+                        continue;
+                    }
+                    if airhop_reply_required && !buzz_reply_call_seen {
+                        return Err(AgentError::Llm(
+                            "Welcome reply was not published after bounded delivery reminders"
+                                .into(),
+                        ));
                     }
                 }
                 return Ok(stop);
@@ -445,7 +474,7 @@ impl RunCtx<'_> {
             }
             // Deliberately after truncation: a publish-shaped call that was
             // discarded never runs, so it must not suppress the reminder.
-            if self.cfg.require_reply && !buzz_reply_call_seen {
+            if self.cfg.require_reply && !airhop_reply_required && !buzz_reply_call_seen {
                 buzz_reply_call_seen = calls.iter().any(|c| is_buzz_reply_call(c, self.mcp));
             }
             self.history.push(HistoryItem::Assistant {
@@ -454,8 +483,18 @@ impl RunCtx<'_> {
                 reasoning_details: response.reasoning_details,
             });
 
+            let results_start = self.history.len();
             if let Some(stop) = self.execute_calls(&calls).await {
                 return Ok(stop);
+            }
+            if airhop_reply_required {
+                buzz_reply_call_seen |= calls.iter().any(|call| {
+                    call.name == AIRHOP_REPLY_TOOL
+                        && self.history[results_start..].iter().any(|item| {
+                            matches!(item, HistoryItem::ToolResult(result)
+                                if result.provider_id == call.provider_id && !result.is_error)
+                        })
+                });
             }
         }
     }
@@ -465,11 +504,13 @@ impl RunCtx<'_> {
     /// steer whose blocks all fail to render (e.g. unsupported content) is
     /// skipped rather than aborting the turn — steering is best-effort
     /// augmentation, not a hard input contract like the initial prompt.
-    fn drain_steers(&mut self) {
+    fn drain_steers(&mut self) -> bool {
+        let mut appended = false;
         while let Ok(blocks) = self.steer.try_recv() {
             match prompt_to_text(blocks) {
                 Ok(text) if !text.trim().is_empty() => {
                     self.history.push(HistoryItem::User(text));
+                    appended = true;
                 }
                 Ok(_) => {
                     tracing::debug!("dropping empty steer message");
@@ -479,6 +520,7 @@ impl RunCtx<'_> {
                 }
             }
         }
+        appended
     }
 
     /// Unified tool-call execution. Three phases:

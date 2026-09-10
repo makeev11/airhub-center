@@ -53,7 +53,7 @@ const kickoffMessages = {
     expectsReply: false,
   },
   fizz_first_question: {
-    messages: ["Как называется ваш центр?"],
+    messages: ["Вижу центр «AirHop E2E Center». Начнём с филиалов?"],
     expectsReply: true,
   },
 };
@@ -73,8 +73,8 @@ function textResponse(content) {
   };
 }
 
-function toolResponse(channelId, stage, toolName) {
-  const kickoff = kickoffMessages[stage];
+function toolResponse(channelId, stage, toolName, reply) {
+  const kickoff = reply ?? kickoffMessages[stage];
   return {
     id: `airhop-e2e-${stage}`,
     object: "chat.completion",
@@ -93,9 +93,8 @@ function toolResponse(channelId, stage, toolName) {
                 name: toolName,
                 arguments: JSON.stringify({
                   channelId,
-                  messages: kickoff.messages,
-                  expectsReply: kickoff.expectsReply,
-                  kickoffStage: stage,
+                  ...kickoff,
+                  ...(stage ? { kickoffStage: stage } : {}),
                 }),
               },
             },
@@ -151,6 +150,24 @@ export function fakeResponse(payload) {
     sendMessagesToolName ?? "airhop-agent-mcp__airhop_send_messages";
   if (stage && channelId && kickoffMessages[stage]) {
     return toolResponse(channelId, stage, toolName);
+  }
+  // Exercise the real unmentioned-message route and response acknowledgement.
+  // Only the last triggering event is matched, never a prior history message.
+  const eventBlocks = [...instruction.matchAll(/Event ID: ([0-9a-f]{64})\n([\s\S]*?)(?=\nEvent ID: |$)/g)];
+  const trigger = eventBlocks.at(-1);
+  if (channelId && trigger?.[2].includes("Content: Проверка связи после перезапуска")) {
+    return toolResponse(channelId, null, toolName, {
+      messages: ["На связи после перезапуска. Продолжаем Welcome."],
+      expectsReply: true,
+      respondsTo: [trigger[1]],
+    });
+  }
+  if (channelId && trigger?.[2].includes("Content: Проверка связи без упоминания")) {
+    return toolResponse(channelId, null, toolName, {
+      messages: ["На связи. В Welcome можно писать без упоминания."],
+      expectsReply: true,
+      respondsTo: [trigger[1]],
+    });
   }
   return textResponse(
     "Детерминированный E2E-провайдер не получил Welcome-задачу.",

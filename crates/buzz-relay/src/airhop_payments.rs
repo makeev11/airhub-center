@@ -1,5 +1,7 @@
 //! AirHub overdue-summary publication into a durable Buzz thread.
 
+mod service_profile;
+
 use std::sync::Arc;
 
 use buzz_core::kind::KIND_STREAM_MESSAGE;
@@ -225,6 +227,9 @@ pub(crate) async fn persist_message(
     root: Option<(&[u8], DateTime<Utc>)>,
     depth: i32,
 ) -> anyhow::Result<bool> {
+    if event.pubkey == state.relay_keypair.public_key() {
+        service_profile::ensure(state, tenant).await?;
+    }
     let event_id = event.id.as_bytes().to_vec();
     let metadata = buzz_db::event::ThreadMetadataParams {
         event_id: &event_id,

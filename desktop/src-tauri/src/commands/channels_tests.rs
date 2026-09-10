@@ -254,6 +254,12 @@ fn starter_channel_uuid_is_stable_and_scoped() {
 }
 
 #[test]
+fn starter_channels_do_not_recreate_public_welcome() {
+    assert_eq!(STARTER_CHANNELS.len(), 1);
+    assert_eq!(STARTER_CHANNELS[0].slug, "general");
+}
+
+#[test]
 fn duplicate_channel_rejection_is_ensure_success_only() {
     assert!(is_duplicate_channel_rejection(
         "relay rejected event: duplicate: channel already exists"

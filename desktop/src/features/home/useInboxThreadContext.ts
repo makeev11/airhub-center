@@ -1,4 +1,5 @@
 import * as React from "react";
+import { loadInboxContextEvent } from "./lib/loadInboxContextEvent";
 
 import { isInboxThreadContextEvent } from "@/features/home/lib/inboxViewHelpers";
 import { relayEventFromFeedItem } from "@/features/home/lib/inbox";
@@ -20,6 +21,7 @@ type InboxThreadContextResult = {
   reactionEvents: RelayEvent[];
   /** Re-fetch reaction events (e.g. after a toggle) without reloading context. */
   refreshReactions: () => Promise<void>;
+  retry: () => void;
 };
 
 const THREAD_CONTEXT_LIMIT = 100;
@@ -50,6 +52,13 @@ export function useInboxThreadContext(
     isChannelLoading?: boolean;
   } = {},
 ): InboxThreadContextResult {
+  const [retryVersion, setRetryVersion] = React.useState(0);
+  const retry = React.useCallback(
+    () => setRetryVersion((version) => version + 1),
+    [],
+  );
+  const channelMessagesRef = React.useRef(channelMessages);
+  channelMessagesRef.current = channelMessages;
   const [fetchedEvents, setFetchedEvents] = React.useState<RelayEvent[]>([]);
   const [hasLoadError, setHasLoadError] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -68,6 +77,7 @@ export function useInboxThreadContext(
   const selectedChannelId = item?.channelId ?? null;
   const fullChannel = options.fullChannel === true;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: retryVersion explicitly restarts a failed context load on user request.
   React.useEffect(() => {
     let isCancelled = false;
 
@@ -107,10 +117,28 @@ export function useInboxThreadContext(
             }
 
             try {
-              const event = await getEventById(eventId);
+              const event = await loadInboxContextEvent({
+                eventId,
+                channelId: selectedChannelId,
+                getCachedEvents: () => channelMessagesRef.current ?? [],
+                fetchEvent: getEventById,
+                fetchChannelEvents: (channelId, id) =>
+                  relayClient.fetchEvents({
+                    ids: [id],
+                    "#h": [channelId],
+                    kinds: [...CHANNEL_TIMELINE_CONTENT_KINDS],
+                    limit: 1,
+                  }),
+              });
               eventsById.set(event.id, event);
               return event;
-            } catch {
+            } catch (error) {
+              console.error(
+                "Failed to hydrate Inbox ancestor",
+                selectedChannelId,
+                eventId,
+                error,
+              );
               failed = true;
               return null;
             }
@@ -201,6 +229,7 @@ export function useInboxThreadContext(
     selectedParentId,
     selectedThreadRootId,
     fullChannel,
+    retryVersion,
   ]);
 
   const events = React.useMemo(() => {
@@ -315,5 +344,6 @@ export function useInboxThreadContext(
     isLoading: fullChannel ? options.isChannelLoading === true : isLoading,
     reactionEvents,
     refreshReactions,
+    retry,
   };
 }

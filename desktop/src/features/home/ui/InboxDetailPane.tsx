@@ -71,6 +71,7 @@ type InboxDetailPaneProps = {
   isSendingReply?: boolean;
   isSinglePanelView?: boolean;
   hasThreadContextLoadError?: boolean;
+  onRetryContext?: () => void;
   isThreadContextLoading?: boolean;
   item: InboxItem | null;
   messages?: InboxContextMessage[];
@@ -142,6 +143,7 @@ function InboxMessageDetailPane({
   isSendingReply = false,
   isSinglePanelView = false,
   hasThreadContextLoadError = false,
+  onRetryContext,
   isThreadContextLoading = false,
   item,
   messages = [],
@@ -605,6 +607,17 @@ function InboxMessageDetailPane({
                     ? "Не удалось загрузить часть контекста сообщения."
                     : "Some message context could not be loaded."}
                 </span>
+                {onRetryContext ? (
+                  <button
+                    className="ml-auto shrink-0 rounded px-2 py-1 font-medium underline underline-offset-2 disabled:opacity-50"
+                    data-testid="home-inbox-context-retry"
+                    disabled={isThreadContextLoading}
+                    onClick={onRetryContext}
+                    type="button"
+                  >
+                    {isRussian ? "Повторить" : "Retry"}
+                  </button>
+                ) : null}
               </div>
             ) : null}
             {displayMessages.map((message, index) => {

@@ -30,6 +30,7 @@ import { mergeChannelKnownAgentPubkeys } from "@/features/agents/knownAgentPubke
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { pickWelcomeGuideAgent } from "@/features/onboarding/welcomeGuide";
 import { useWelcomeKickoffEntrance } from "@/features/onboarding/useWelcomeKickoffEntrance";
+import { WelcomeGuestStatus } from "@/features/onboarding/ui/WelcomeGuestStatus";
 import { useWelcomeKickoffStagePresence } from "@/features/onboarding/useWelcomeKickoffStagePresence";
 import { useWelcomeAgentCreate } from "@/features/channels/useWelcomeAgentCreate";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -43,7 +44,7 @@ import {
   useToggleReactionMutation,
 } from "@/features/messages/hooks";
 import { formatTimelineMessages } from "@/features/messages/lib/formatTimelineMessages";
-import { DeleteMessageConfirmDialog } from "@/features/messages/ui/DeleteMessageConfirmDialog";
+import { EmptyMessageDeleteDialog } from "@/features/channels/ui/EmptyMessageDeleteDialog";
 import { imetaMediaFromTags } from "@/features/messages/lib/imetaMediaMarkdown";
 import { getThreadReference } from "@/features/messages/lib/threading";
 import {
@@ -267,6 +268,9 @@ export function ChannelScreen({
   const {
     entranceMessageId: welcomeEntranceMessageId,
     handleEntranceComplete: handleWelcomeEntranceComplete,
+    guestStatus: welcomeGuestStatus,
+    guestPubkey: welcomeGuestPubkey,
+    retryGuest: retryWelcomeGuest,
   } = useWelcomeKickoffEntrance(
     activeChannel,
     resolvedMessages,
@@ -364,6 +368,7 @@ export function ChannelScreen({
     typingEntries,
   });
   const messageProfiles = useMessageProfiles({
+    welcomeGuestPubkey,
     channelMembers,
     currentProfile,
     currentPubkey,
@@ -793,18 +798,11 @@ export function ChannelScreen({
           open={welcomeAgentCreate.isOpen}
           sendError={welcomeAgentCreate.error}
         />
-        <DeleteMessageConfirmDialog
-          onConfirm={() => {
-            if (emptyDeleteId) {
-              setEditTargetId(null);
-              void handleDelete({ id: emptyDeleteId });
-            }
-            setEmptyDeleteId(null);
-          }}
-          onOpenChange={(open) => {
-            if (!open) setEmptyDeleteId(null);
-          }}
-          open={emptyDeleteId !== null}
+        <EmptyMessageDeleteDialog
+          messageId={emptyDeleteId}
+          onDelete={handleDelete}
+          onClearEdit={setEditTargetId}
+          onDismiss={setEmptyDeleteId}
         />
         <div
           className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
@@ -855,7 +853,17 @@ export function ChannelScreen({
                   currentPubkey={currentPubkey}
                   canResetThreadPanelWidth={canResetThreadPanelWidth}
                   fetchOlder={fetchOlder}
-                  header={channelHeader}
+                  header={
+                    <>
+                      {channelHeader}
+                      <WelcomeGuestStatus
+                        status={welcomeGuestStatus}
+                        onRetry={() => {
+                          void retryWelcomeGuest();
+                        }}
+                      />
+                    </>
+                  }
                   hasOlderMessages={hasOlderMessages}
                   historyExhausted={historyExhausted}
                   onAddAgent={handleOpenAddBot}

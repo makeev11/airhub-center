@@ -297,12 +297,14 @@ export function AirhopAgentsScreen({
                   data-testid={`airhop-agent-card-${card.role}`}
                   key={card.personaId}
                 >
-                  <img
-                    alt=""
-                    className="size-[88px] rounded-2xl border border-border/70 bg-muted object-cover"
-                    draggable={false}
-                    src={card.avatarUrl}
-                  />
+                  <div className="size-[88px] overflow-hidden rounded-2xl border border-border/70 bg-muted">
+                    <img
+                      alt=""
+                      className="h-full w-full rounded-full object-cover"
+                      draggable={false}
+                      src={card.avatarUrl}
+                    />
+                  </div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-lg font-semibold">{card.name}</h2>

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { browser } from "@wdio/globals";
+import { runLiveWelcomeProbe } from "./welcomeLiveProbe";
 
 const selectorForTestId = (testId: string) => `[data-testid="${testId}"]`;
 const activationCode = process.env.AIRHOP_E2E_ACTIVATION_CODE;
@@ -21,6 +22,21 @@ type RuntimeStatus = Readonly<{
 
 async function bodyText() {
   return await browser.execute(() => document.body.innerText);
+}
+
+async function saveSettledScreenshot(path: string) {
+  // Native WebDriver equivalent of helpers/animations.ts (no Playwright Page).
+  await browser.execute(async () => {
+    await Promise.race([
+      Promise.all(
+        document
+          .getAnimations()
+          .map((animation) => animation.finished.catch(() => undefined)),
+      ),
+      new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]);
+  });
+  await browser.saveScreenshot(path);
 }
 
 async function isVisible(selector: string) {
@@ -222,7 +238,50 @@ async function waitForWelcomeRuntimesReady(timeout = 30_000) {
 }
 
 describe("Airhop Welcome agent team", () => {
-  it("activates the first owner and runs the flat Welcome kickoff in native Tauri", async () => {
+  it("restores the same Welcome after a full process restart", async function () {
+    if (process.env.AIRHOP_E2E_RESUME !== "1") this.skip();
+    await waitForVisible(selectorForTestId("channel-Welcome"));
+    await click(selectorForTestId("channel-Welcome"));
+    if (process.env.AIRHOP_E2E_PROVIDER_CONFIG) {
+      await waitForWelcomeRuntimesReady();
+      await runLiveWelcomeProbe(true);
+      if (screenshotPath) {
+        await saveSettledScreenshot(
+          screenshotPath.replace(/\.png$/, "-live-restored.png"),
+        );
+      }
+      return;
+    }
+    await waitForText("На связи. В Welcome можно писать без упоминания.");
+    await waitForWelcomeRuntimesReady();
+    const text = await bodyText();
+    for (const greeting of [
+      "Привет! Я Физ, руководитель вашей команды Airhop.",
+      "Я Администратор. Помогаю с расписанием, детьми, родителями и оплатами.",
+      "Я Аналитик. Готовлю короткие отчёты по данным центра.",
+      "Я Контент-маркетолог. Помогаю готовить публичные материалы.",
+      "Я Гермес — общаюсь с родителями",
+      "Вижу центр «AirHop E2E Center». Начнём с филиалов?",
+    ]) {
+      assert.equal(text.split(greeting).length - 1, 1);
+    }
+    assert.equal(
+      await isVisible(selectorForTestId("airhop-owner-setup")),
+      false,
+    );
+    const input = await browser.$(selectorForTestId("message-input"));
+    await input.setValue("Проверка связи после перезапуска");
+    await click(selectorForTestId("send-message"));
+    await waitForText("На связи после перезапуска. Продолжаем Welcome.");
+    if (screenshotPath) {
+      await saveSettledScreenshot(
+        screenshotPath.replace(/\.png$/i, "-restarted.png"),
+      );
+    }
+  });
+
+  it("activates the first owner and runs the flat Welcome kickoff in native Tauri", async function () {
+    if (process.env.AIRHOP_E2E_RESUME === "1") this.skip();
     const nativeTauri = await browser.execute(
       () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window,
     );
@@ -235,7 +294,7 @@ describe("Airhop Welcome agent team", () => {
       "fresh AirHop owners must not see inherited Buzz machine onboarding",
     );
     if (screenshotPath) {
-      await browser.saveScreenshot(
+      await saveSettledScreenshot(
         screenshotPath.replace(/\.png$/i, "-first-run.png"),
       );
     }
@@ -264,7 +323,7 @@ describe("Airhop Welcome agent team", () => {
       "/airhop/owner-background.jpg",
     );
     if (screenshotPath) {
-      await browser.saveScreenshot(
+      await saveSettledScreenshot(
         screenshotPath.replace(/\.png$/i, "-profile.png"),
       );
     }
@@ -289,7 +348,11 @@ describe("Airhop Welcome agent team", () => {
     await click(selectorForTestId("channel-Welcome"));
     await waitForHidden(selectorForTestId("community-onboarding-flow"));
     await waitForText("Это начало закрытого приветственного канала.");
-    await waitForText("или другого коллегу, когда понадобится помощь.");
+    assert.equal(
+      await isVisible(selectorForTestId("channel-welcome-everyone")),
+      false,
+      "fresh onboarding must not create a second public Welcome",
+    );
 
     const brand = await browser.execute(() => ({
       markCount: document.querySelectorAll(
@@ -340,16 +403,25 @@ describe("Airhop Welcome agent team", () => {
       avatars["builtin:airhop-analyst"],
       avatars["builtin:airhop-administrator"],
     );
-    assert.equal(
+    assert.notEqual(
       avatars["builtin:airhop-administrator"],
       avatars["builtin:airhop-content-marketer"],
-      "Administrator and Content Marketer intentionally share Honey",
+      "Administrator and Content Marketer have distinct product identities",
     );
 
     if (screenshotPath) {
-      await browser.saveScreenshot(screenshotPath);
+      await saveSettledScreenshot(screenshotPath);
     }
 
+    if (process.env.AIRHOP_E2E_PROVIDER_CONFIG) {
+      await runLiveWelcomeProbe(false);
+      if (screenshotPath) {
+        await saveSettledScreenshot(
+          screenshotPath.replace(/\.png$/, "-live-initial.png"),
+        );
+      }
+      return;
+    }
     await waitForText("Привет! Я Физ, руководитель вашей команды Airhop.");
     await waitForText(
       "Я Администратор. Помогаю с расписанием, детьми, родителями и оплатами.",
@@ -358,7 +430,58 @@ describe("Airhop Welcome agent team", () => {
     await waitForText(
       "Я Контент-маркетолог. Помогаю готовить публичные материалы.",
     );
-    await waitForText("Как называется ваш центр?");
+    await waitForText("Я Гермес");
+    await waitForText("Вижу центр «AirHop E2E Center». Начнём с филиалов?");
+
+    const input = await browser.$(selectorForTestId("message-input"));
+    await input.setValue("Проверка связи без упоминания");
+    await click(selectorForTestId("send-message"));
+    await waitForText("На связи. В Welcome можно писать без упоминания.");
+
+    await browser.refresh();
+    await waitForVisible(selectorForTestId("channel-Welcome"));
+    await click(selectorForTestId("channel-Welcome"));
+    await waitForText("На связи. В Welcome можно писать без упоминания.");
+    await waitForText("Упоминание не нужно.");
+    const restored = await bodyText();
+    assert.ok(
+      restored.indexOf("Проверка связи без упоминания") <
+        restored.indexOf("На связи. В Welcome можно писать без упоминания."),
+      "a restored answer must remain after its owner question",
+    );
+    assert.ok(
+      await browser.execute(
+        () => document.querySelector('img[src="/agents/hermes.png"]') !== null,
+      ),
+      "registered Hermes must have a recognizable guest profile",
+    );
+    let previousGreetingIndex = -1;
+    for (const greeting of [
+      "Привет! Я Физ, руководитель вашей команды Airhop.",
+      "Я Администратор. Помогаю с расписанием, детьми, родителями и оплатами.",
+      "Я Аналитик. Готовлю короткие отчёты по данным центра.",
+      "Я Контент-маркетолог. Помогаю готовить публичные материалы.",
+      "Я Гермес — общаюсь с родителями",
+      "Вижу центр «AirHop E2E Center». Начнём с филиалов?",
+    ]) {
+      assert.equal(
+        (await bodyText()).split(greeting).length - 1,
+        1,
+        "reloading Welcome must restore each introduction exactly once",
+      );
+      const index = restored.indexOf(greeting);
+      assert(
+        index > previousGreetingIndex,
+        "introductions must keep their agreed order after reload",
+      );
+      previousGreetingIndex = index;
+    }
+
+    if (screenshotPath) {
+      await saveSettledScreenshot(
+        screenshotPath.replace(/\.png$/i, "-restored.png"),
+      );
+    }
 
     assert.equal(
       await browser.execute(

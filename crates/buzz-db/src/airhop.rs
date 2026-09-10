@@ -42,6 +42,7 @@ pub mod center_health;
 pub mod channel_gateway;
 /// Client inbox, routing metadata and explicit legacy thread cutover.
 pub mod client_threads;
+pub mod consultation;
 /// Durable, parent-confirmed booking creation inside an external conversation.
 pub mod conversation_booking;
 /// Optimistic lifecycle and tariff commands for permanent enrollments.
@@ -102,6 +103,8 @@ pub mod tariff_directory;
 pub mod teacher_directory;
 /// Tenant-scoped Airhop Welcome agent manifest and routing state.
 pub mod welcome_agents;
+/// Narrow, read-only eligibility for the external administrator's introduction.
+pub mod welcome_guest;
 
 /// Lifecycle of an Airhop organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

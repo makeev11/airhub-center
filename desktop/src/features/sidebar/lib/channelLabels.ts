@@ -1,8 +1,9 @@
+import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import {
-  resolveUserLabel,
-  type UserProfileLookup,
-} from "@/features/profile/lib/identity";
-import { formatDmParticipantDisplayName } from "@/features/channels/lib/dmParticipantDisplay";
+  formatDmParticipantDisplayName,
+  isSelfDirectMessage,
+  resolveDmParticipantLabel,
+} from "@/features/channels/lib/dmParticipantDisplay";
 import type { Channel } from "@/shared/api/types";
 
 function isGenericDmChannelName(name: string) {
@@ -21,7 +22,11 @@ export function resolveChannelDisplayLabel(
   currentPubkey: string | undefined,
   profiles: UserProfileLookup | undefined,
 ) {
-  if (channel.channelType !== "dm" || !isGenericDmChannelName(channel.name)) {
+  if (
+    channel.channelType !== "dm" ||
+    (!isGenericDmChannelName(channel.name) &&
+      !isSelfDirectMessage(channel, currentPubkey))
+  ) {
     return channel.name;
   }
 
@@ -38,7 +43,7 @@ export function resolveChannelDisplayLabel(
   const resolvedLabels = (
     otherParticipants.length > 0 ? otherParticipants : participants
   ).map((participant) =>
-    resolveUserLabel({
+    resolveDmParticipantLabel({
       currentPubkey,
       fallbackName: participant.fallbackName,
       profiles,

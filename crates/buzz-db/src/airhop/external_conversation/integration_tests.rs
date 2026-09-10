@@ -8,6 +8,7 @@ use nostr::{EventBuilder, Keys, Kind, Tag};
 use serde_json::json;
 
 mod booking_handoff_tests;
+mod consultation_tests;
 mod conversation_booking_tests;
 mod history_snapshot_tests;
 mod runtime_recovery_tests;

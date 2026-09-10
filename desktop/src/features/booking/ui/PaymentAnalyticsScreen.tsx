@@ -6,6 +6,7 @@ import type {
 } from "../data/centerAnalyticsSchema";
 import { buildCenterAnalyticsPreview } from "../lib/centerAnalytics";
 import { CenterAnalyticsView } from "./CenterAnalyticsView";
+import { ConsultationAnalyticsView } from "./ConsultationAnalyticsView";
 
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
 import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
@@ -263,7 +264,13 @@ function AnalyticsDashboard({
 }) {
   const messages = getBookingAdminMessages(organization.locale);
   const [selectedTab, setTab] = React.useState<
-    "overview" | "sources" | "students" | "capacity" | "money" | "links"
+    | "overview"
+    | "sources"
+    | "students"
+    | "capacity"
+    | "money"
+    | "links"
+    | "consultations"
   >("overview");
   const tab =
     selectedTab === "links" && !trackingLinks ? "overview" : selectedTab;
@@ -278,6 +285,7 @@ function AnalyticsDashboard({
           [
             ["overview", russian ? "Обзор" : "Overview"],
             ["sources", russian ? "Привлечение" : "Acquisition"],
+            ["consultations", russian ? "Консультации" : "Consultations"],
             ["students", russian ? "Ученики" : "Students"],
             ["capacity", russian ? "Загрузка" : "Capacity"],
             ["money", russian ? "Деньги" : "Money"],
@@ -311,6 +319,14 @@ function AnalyticsDashboard({
             redirectBaseUrl={trackingLinks.redirectBaseUrl}
           />
         </div>
+      ) : tab === "consultations" ? (
+        <ConsultationAnalyticsView
+          key={centerReport.generatedAt}
+          report={centerReport.consultations}
+          locale={organization.locale}
+          periodStart={centerReport.periodStart}
+          periodEnd={centerReport.asOfDate}
+        />
       ) : tab !== "links" ? (
         <CenterAnalyticsView
           key={centerReport.generatedAt}

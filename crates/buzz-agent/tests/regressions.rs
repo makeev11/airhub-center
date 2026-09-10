@@ -1886,9 +1886,63 @@ async fn prompt_to_completion(h: &mut Harness, sid: &str) -> Value {
     }
 }
 
-/// Default off: a silent turn ends on the first end_turn with no extra round.
-/// This is the invariant that keeps the feature free for everyone who hasn't
-/// opted in.
+/// Welcome's tool-only publication path retries an invisible final answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn airhop_welcome_retries_unpublished_final_text() {
+    let llm = spawn_capturing_llm(vec![
+        openai_text("This answer is not visible yet"),
+        openai_tool_call(
+            "publish",
+            "airhop-agent-mcp__airhop_send_messages",
+            json!({}),
+        ),
+        openai_text("Posted"),
+    ])
+    .await;
+    let mut h = Harness::spawn(&llm.url).await;
+    let sid = init_session(
+        &mut h,
+        json!([{
+            "name": "airhop-agent-mcp",
+            "command": env!("CARGO_BIN_EXE_fake-mcp"),
+            "args": [],
+            "env": [{"name": "FAKE_MCP_AIRHOP_TOOL", "value": "1"}],
+        }]),
+    )
+    .await;
+    let result = prompt_to_completion(&mut h, &sid).await;
+    assert_eq!(result["result"]["stopReason"], "end_turn");
+    let requests = llm.captured.lock().await;
+    assert_eq!(
+        requests.len(),
+        3,
+        "unpublished text must not silently end Welcome"
+    );
+    assert_eq!(reply_nag_count(&requests[1]), 1);
+    h.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn airhop_welcome_missing_delivery_is_a_bounded_error() {
+    let llm = spawn_capturing_llm(vec![openai_text("done"); 4]).await;
+    let mut h = Harness::spawn(&llm.url).await;
+    let sid = init_session(
+        &mut h,
+        json!([{
+            "name": "airhop-agent-mcp",
+            "command": env!("CARGO_BIN_EXE_fake-mcp"),
+            "args": [],
+            "env": [{"name": "FAKE_MCP_AIRHOP_TOOL", "value": "1"}],
+        }]),
+    )
+    .await;
+    let result = prompt_to_completion(&mut h, &sid).await;
+    assert!(result.get("error").is_some(), "{result}");
+    assert_eq!(llm.captured.lock().await.len(), 3);
+    h.shutdown().await;
+}
+
+/// General sessions retain the existing opt-in reply policy.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reply_guard_off_by_default() {
     let llm = spawn_capturing_llm(vec![openai_text("done"), openai_text("unexpected")]).await;

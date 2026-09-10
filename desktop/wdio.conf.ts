@@ -1,4 +1,10 @@
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -86,14 +92,48 @@ export const config: Options.Testrunner = {
   ],
   framework: "mocha",
   reporters: ["spec"],
-  mochaOpts: { timeout: 300_000 },
+  mochaOpts: {
+    timeout: process.env.AIRHOP_E2E_SETUP_PROBE === "1" ? 600_000 : 300_000,
+  },
   waitforTimeout: 120_000,
   connectionRetryTimeout: 120_000,
   connectionRetryCount: 1,
   onPrepare() {
+    // A second native run must restore the same isolated identity and state.
+    // Never use this switch for the initial activation run.
+    if (process.env.AIRHOP_E2E_RESUME === "1") return;
     resetE2eAppState();
     const agentsDir = join(appDataDir, "agents");
     mkdirSync(agentsDir, { recursive: true });
+    // Explicit opt-in only: credentials are copied to the isolated profile with
+    // owner-only permissions, never printed or added to the repository.
+    const providerConfigPath = process.env.AIRHOP_E2E_PROVIDER_CONFIG;
+    if (providerConfigPath) {
+      const provider = JSON.parse(readFileSync(providerConfigPath, "utf8"));
+      if (
+        !provider.provider ||
+        !provider.model ||
+        !provider.env_vars?.OPENAI_COMPAT_API_KEY
+      ) {
+        throw new Error("Live Welcome provider configuration is incomplete");
+      }
+      writeFileSync(
+        join(agentsDir, "global-agent-config.json"),
+        JSON.stringify({
+          provider: provider.provider,
+          model: provider.model,
+          preferred_runtime: "buzz-agent",
+          env_vars: {
+            ...provider.env_vars,
+            BUZZ_AGENT_LLM_TIMEOUT_SECS: "60",
+            BUZZ_AGENT_TOOL_TIMEOUT_SECS: "30",
+            BUZZ_AGENT_MAX_ROUNDS: "12",
+          },
+        }),
+        { mode: 0o600 },
+      );
+      return;
+    }
     writeFileSync(
       join(agentsDir, "global-agent-config.json"),
       `${JSON.stringify(

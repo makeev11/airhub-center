@@ -480,6 +480,7 @@ export function AppSidebar({
       enabled: shouldLoadDmMetadata,
       fallbackDisplayName,
       profileDisplayName: profile?.displayName,
+      selfPresenceStatus,
     });
   const sortedDirectMessages = React.useMemo(
     () =>

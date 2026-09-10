@@ -50,6 +50,7 @@ type MessageTimelineProps = {
    *  fallback, so badge rows survive while a scrollback page commits. */
   threadSummaries?: ReadonlyMap<string, ChannelWindowThreadSummary>;
   directMessageIntro?: {
+    isSelf?: boolean;
     displayName: string;
     participants: DirectMessageIntroParticipant[];
   } | null;
@@ -621,15 +622,32 @@ const MessageTimelineBase = React.forwardRef<
             {activeDirectMessageIntro.displayName}
           </p>
           <p className="mt-1 max-w-full truncate whitespace-nowrap text-sm leading-5 text-muted-foreground">
-            {messageText("This is the beginning of your direct message with")}{" "}
-            <span className="font-medium text-foreground">
-              {activeDirectMessageIntro.displayName}
-            </span>
-            .
+            {activeDirectMessageIntro.isSelf ? (
+              isRussian ? (
+                "Ваше место для заметок, ссылок и файлов."
+              ) : (
+                "Your space for notes, links, and files."
+              )
+            ) : (
+              <>
+                {messageText(
+                  "This is the beginning of your direct message with",
+                )}{" "}
+                <span className="font-medium text-foreground">
+                  {activeDirectMessageIntro.displayName}
+                </span>
+                .
+              </>
+            )}
           </p>
         </div>
       ) : null,
-    [activeChannelIntro, activeDirectMessageIntro, activePinnedIntro],
+    [
+      activeChannelIntro,
+      activeDirectMessageIntro,
+      activePinnedIntro,
+      isRussian,
+    ],
   );
 
   const handleVirtualizerRangeChanged = React.useCallback(() => {
@@ -802,15 +820,25 @@ const MessageTimelineBase = React.forwardRef<
                       {activeDirectMessageIntro.displayName}
                     </p>
                     <p className="mt-1 max-w-full truncate whitespace-nowrap text-sm leading-5 text-muted-foreground">
-                      {isRussian
-                        ? "Это начало вашей личной переписки с "
-                        : messageText(
-                            "This is the beginning of your direct message with",
-                          )}
-                      <span className="font-medium text-foreground">
-                        {activeDirectMessageIntro.displayName}
-                      </span>
-                      .
+                      {activeDirectMessageIntro.isSelf ? (
+                        isRussian ? (
+                          "Ваше место для заметок, ссылок и файлов."
+                        ) : (
+                          "Your space for notes, links, and files."
+                        )
+                      ) : (
+                        <>
+                          {isRussian
+                            ? "Это начало вашей личной переписки с "
+                            : messageText(
+                                "This is the beginning of your direct message with",
+                              )}
+                          <span className="font-medium text-foreground">
+                            {activeDirectMessageIntro.displayName}
+                          </span>
+                          .
+                        </>
+                      )}
                     </p>
                   </div>
                 ) : null}

@@ -766,6 +766,10 @@ export function HomeView({
               isSendingReply={isSendingReply}
               isSinglePanelView={isSinglePanelDetailView}
               hasThreadContextLoadError={threadContext.hasLoadError}
+              onRetryContext={() => {
+                threadContext.retry();
+                void channelMessagesQuery.refetch();
+              }}
               isThreadContextLoading={threadContext.isLoading}
               item={selectedItem}
               latchedDefaultParentId={latchedDefaultParentId}

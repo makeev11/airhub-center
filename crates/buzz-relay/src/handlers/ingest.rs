@@ -1922,6 +1922,35 @@ async fn ingest_event_inner(
     }
     let event = std::sync::Arc::try_unwrap(event).unwrap_or_else(|arc| (*arc).clone());
 
+    let has_guest_marker = event.tags.iter().any(|tag| {
+        let values = tag.as_slice();
+        values
+            .first()
+            .is_some_and(|name| name == "airhop-guest-invitation")
+            || (values
+                .first()
+                .is_some_and(|name| name == "airhop-kickoff-stage")
+                && values
+                    .get(1)
+                    .is_some_and(|stage| stage == buzz_core::welcome_guest::HERMES_GUEST_STAGE))
+    });
+    let authorized_guest_reply = if has_guest_marker {
+        let allowed = event.pubkey == *auth.pubkey()
+            && state
+                .db
+                .is_authorized_airhop_guest_reply(tenant, &event)
+                .await
+                .map_err(|error| IngestError::Internal(format!("guest authorization: {error}")))?;
+        if !allowed {
+            return Err(IngestError::AuthFailed(
+                "restricted: invalid Welcome guest introduction".into(),
+            ));
+        }
+        true
+    } else {
+        false
+    };
+
     const MAX_TIMESTAMP_DRIFT_SECS: i64 = 900; // ±15 minutes
     let now = chrono::Utc::now().timestamp();
     let event_ts = event.created_at.as_secs() as i64;
@@ -2216,6 +2245,7 @@ async fn ingest_event_inner(
         // without being a member (OQ1 decision; see validate_edit_ownership /
         // validate_admin_event for per-kind enforcement).
         let skip_membership = kind_u32 == KIND_NIP29_JOIN_REQUEST
+            || authorized_guest_reply
             || kind_u32 == KIND_NIP29_CREATE_GROUP
             || kind_u32 == KIND_STREAM_MESSAGE_EDIT
             || kind_u32 == KIND_NIP29_EDIT_METADATA

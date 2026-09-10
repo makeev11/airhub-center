@@ -4,7 +4,8 @@ import * as React from "react";
 import { useEphemeralChannelDisplay } from "@/features/channels/useEphemeralChannelDisplay";
 import { usePresenceQuery } from "@/features/presence/hooks";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
-import { resolveUserLabel } from "@/features/profile/lib/identity";
+import { resolveDmParticipantLabel } from "./lib/dmParticipantDisplay";
+import { useProfilesWithSelf } from "@/features/profile/useProfilesWithSelf";
 import { resolveChannelDisplayLabel } from "@/features/sidebar/lib/channelLabels";
 import type { Channel, PresenceStatus } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
@@ -29,15 +30,17 @@ export function useActiveChannelHeader(
       ? normalizePubkey(currentPubkey)
       : null;
 
-    return activeChannel.participantPubkeys
-      .map((pubkey, index) => ({
+    const participants = activeChannel.participantPubkeys.map(
+      (pubkey, index) => ({
         fallbackName: activeChannel.participants[index] ?? null,
         pubkey,
-      }))
-      .filter(
-        (participant) =>
-          normalizePubkey(participant.pubkey) !== normalizedCurrentPubkey,
-      );
+      }),
+    );
+    const others = participants.filter(
+      (participant) =>
+        normalizePubkey(participant.pubkey) !== normalizedCurrentPubkey,
+    );
+    return others.length > 0 ? others : participants;
   }, [activeChannel, currentPubkey]);
   const activeDmParticipantPubkeys = React.useMemo(
     () => activeDmParticipants.map((participant) => participant.pubkey),
@@ -49,6 +52,10 @@ export function useActiveChannelHeader(
   const activeDmProfilesQuery = useUsersBatchQuery(activeDmParticipantPubkeys, {
     enabled: activeDmParticipantPubkeys.length > 0,
   });
+  const profiles = useProfilesWithSelf(
+    activeDmProfilesQuery.data?.profiles,
+    currentPubkey,
+  );
   const activeChannelEphemeralDisplay =
     useEphemeralChannelDisplay(activeChannel);
   const activeDmPresenceStatus: PresenceStatus | null =
@@ -59,39 +66,31 @@ export function useActiveChannelHeader(
       : null;
   const activeDmAvatarUrl =
     activeDmParticipantPubkeys.length > 0
-      ? (activeDmProfilesQuery.data?.profiles?.[
-          normalizePubkey(activeDmParticipantPubkeys[0] ?? "")
-        ]?.avatarUrl ?? null)
+      ? (profiles?.[normalizePubkey(activeDmParticipantPubkeys[0] ?? "")]
+          ?.avatarUrl ?? null)
       : null;
   const activeDmHeaderParticipants = React.useMemo(
     () =>
       activeDmParticipants.map((participant) => {
-        const profile =
-          activeDmProfilesQuery.data?.profiles?.[
-            normalizePubkey(participant.pubkey)
-          ] ?? null;
+        const profile = profiles?.[normalizePubkey(participant.pubkey)] ?? null;
 
         return {
           pubkey: participant.pubkey,
-          displayName: resolveUserLabel({
+          displayName: resolveDmParticipantLabel({
             currentPubkey,
             fallbackName: participant.fallbackName,
-            profiles: activeDmProfilesQuery.data?.profiles,
+            profiles: profiles,
             pubkey: participant.pubkey,
           }),
           avatarUrl: profile?.avatarUrl ?? null,
         };
       }),
-    [activeDmParticipants, activeDmProfilesQuery.data?.profiles, currentPubkey],
+    [activeDmParticipants, profiles, currentPubkey],
   );
 
   return {
     activeChannelTitle: activeChannel
-      ? resolveChannelDisplayLabel(
-          activeChannel,
-          currentPubkey,
-          activeDmProfilesQuery.data?.profiles,
-        )
+      ? resolveChannelDisplayLabel(activeChannel, currentPubkey, profiles)
       : m("Channels"),
     activeDmAvatarUrl,
     activeDmHeaderParticipants,

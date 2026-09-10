@@ -20,9 +20,36 @@ export type DirectMessageIntroParticipant = {
 };
 
 export type DirectMessageIntro = {
+  isSelf: boolean;
   displayName: string;
   participants: DirectMessageIntroParticipant[];
 };
+
+/** Whether this is a nonempty direct conversation containing only yourself. */
+export function isSelfDirectMessage(
+  channel: Channel | null,
+  currentPubkey?: string,
+) {
+  return Boolean(
+    currentPubkey &&
+      channel?.channelType === "dm" &&
+      channel.participantPubkeys.length > 0 &&
+      channel.participantPubkeys.every(
+        (pubkey) => normalizePubkey(pubkey) === normalizePubkey(currentPubkey),
+      ),
+  );
+}
+
+/** Keep the person's name in self conversations, with a localized “you” suffix. */
+export function resolveDmParticipantLabel(
+  input: Parameters<typeof resolveUserLabel>[0],
+) {
+  const label = resolveUserLabel({ ...input, preferResolvedSelfLabel: true });
+  return input.currentPubkey &&
+    normalizePubkey(input.pubkey) === normalizePubkey(input.currentPubkey)
+    ? `${label} (${messageText("you")})`
+    : label;
+}
 
 export function getDmParticipantPreview<T>(participants: readonly T[]) {
   const visibleParticipants = participants.slice(
@@ -97,7 +124,7 @@ export function buildDirectMessageIntro({
 
     return {
       avatarUrl: profile?.avatarUrl ?? null,
-      displayName: resolveUserLabel({
+      displayName: resolveDmParticipantLabel({
         currentPubkey,
         fallbackName: participant.fallbackName,
         profiles,
@@ -108,6 +135,7 @@ export function buildDirectMessageIntro({
   });
 
   return {
+    isSelf: isSelfDirectMessage(channel, currentPubkey),
     displayName: formatDmParticipantDisplayName(introParticipants, locale),
     participants: introParticipants,
   };

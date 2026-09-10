@@ -54,7 +54,17 @@ export function useWelcomeKickoffEntrance(
     setEntranceMessageId((current) => (current === eventId ? null : current));
   }, []);
 
-  useWelcomeKickoff(activeChannel, resolvedMessages, historyReady);
+  const { guestStatus, guestPubkey, retryGuest } = useWelcomeKickoff(
+    activeChannel,
+    resolvedMessages,
+    historyReady,
+  );
 
-  return { entranceMessageId, handleEntranceComplete };
+  return {
+    entranceMessageId,
+    handleEntranceComplete,
+    guestStatus,
+    guestPubkey,
+    retryGuest,
+  };
 }

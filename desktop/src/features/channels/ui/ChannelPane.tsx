@@ -777,9 +777,11 @@ export const ChannelPane = React.memo(function ChannelPane({
                             : activeChannel
                               ? activeChannel.channelType === "dm" &&
                                 directMessageIntro
-                                ? copy.messagePerson(
-                                    directMessageIntro.displayName,
-                                  )
+                                ? directMessageIntro.isSelf
+                                  ? copy.messageSelf
+                                  : copy.messagePerson(
+                                      directMessageIntro.displayName,
+                                    )
                                 : copy.messageChannel(activeChannel.name)
                               : copy.selectChannel
                   }

@@ -386,7 +386,21 @@ test("AirHop settings and archived branches survive a browser preview reload", a
 
   const organizationName = page.getByTestId("airhop-settings-name");
   await organizationName.fill("AirHop Север");
-  await page.getByRole("textbox", { name: "Валюта", exact: true }).fill("BRL");
+  await page.getByTestId("airhop-settings-currency").click();
+  const currencySearch = page.getByRole("combobox", { name: "Поиск валюты" });
+  await currencySearch.fill("российский");
+  await expect(
+    page.getByRole("option", { name: /Российский рубль/ }),
+  ).toBeVisible();
+  await waitForAnimations(page);
+  await page.screenshot({ path: "test-results/settings-currency-search.png" });
+  await currencySearch.fill("no-such-currency");
+  await expect(page.getByText("Валюта не найдена")).toBeVisible();
+  await currencySearch.fill("BRL");
+  await currencySearch.press("Enter");
+  await expect(page.getByTestId("airhop-settings-currency")).toContainText(
+    "BRL",
+  );
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByTestId("airhop-settings-saved")).toContainText(
     "Настройки сохранены",
@@ -441,9 +455,9 @@ test("AirHop settings and archived branches survive a browser preview reload", a
   await expect(page.getByTestId("airhop-settings-name")).toHaveValue(
     "AirHop Север",
   );
-  await expect(
-    page.getByRole("textbox", { name: "Валюта", exact: true }),
-  ).toHaveValue("BRL");
+  await expect(page.getByTestId("airhop-settings-currency")).toContainText(
+    "BRL",
+  );
   await page.getByTestId("open-airhop-tariffs").click();
   await page.getByTestId("airhop-add-tariff").click();
   await expect(

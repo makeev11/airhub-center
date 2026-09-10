@@ -1488,7 +1488,7 @@ async fn tokio_main() -> Result<()> {
     tracing::info!("discovered {} channel(s)", channel_info_map.len());
     let channel_ids: Vec<Uuid> = channel_info_map.keys().copied().collect();
 
-    let rules: Vec<SubscriptionRule> = match config.subscribe_mode {
+    let mut rules: Vec<SubscriptionRule> = match config.subscribe_mode {
         SubscribeMode::Mentions => {
             vec![SubscriptionRule {
                 name: "mentions".into(),
@@ -1525,6 +1525,11 @@ async fn tokio_main() -> Result<()> {
         }
     };
 
+    if let Some(rule) =
+        airhop::welcome_message_rule(config.airhop_route_gate, &config.flat_channel_ids)
+    {
+        rules.push(rule);
+    }
     let channel_filters = config::resolve_channel_filters(&config, &channel_ids, &rules);
     if channel_filters.is_empty() {
         tracing::warn!("no channel subscriptions resolved — agent will sit idle");
@@ -1648,6 +1653,10 @@ async fn tokio_main() -> Result<()> {
         None
     };
     let mut heartbeat_in_flight = false;
+    let mut guest_intro_timer = (config.airhop_role
+        == Some(airhop::AirhopRole::ParentAdministrator))
+    .then(|| tokio::time::interval(Duration::from_secs(10)));
+    let mut published_guest_intro = None;
 
     let mut presence_heartbeat = if config.presence_enabled {
         let interval = Duration::from_secs(60);
@@ -2394,6 +2403,22 @@ async fn tokio_main() -> Result<()> {
                                 break;
                             }
                         }
+                    }
+                    None
+                }
+                _ = async {
+                    match guest_intro_timer.as_mut() {
+                        Some(timer) => timer.tick().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    let _ = result_rx;
+                    match tokio::time::timeout(Duration::from_secs(3),
+                        airhop::guest::publish_if_invited(&relay.rest_client(), published_guest_intro)
+                    ).await {
+                        Ok(Ok(receipt)) => published_guest_intro = receipt,
+                        Ok(Err(error)) => tracing::debug!(%error, "Welcome guest introduction will retry"),
+                        Err(_) => tracing::debug!("Welcome guest introduction timed out; will retry"),
                     }
                     None
                 }

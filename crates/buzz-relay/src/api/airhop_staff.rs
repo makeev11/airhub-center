@@ -1206,7 +1206,7 @@ pub(crate) async fn get_booking_funnel_analytics(
         }
         _ => "/api/airhop/staff/v1/booking-funnel-analytics".to_owned(),
     };
-    let (tenant, _) = authenticate(&state, &headers, "GET", &path, None, Access::Staff).await?;
+    let (tenant, actor) = authenticate(&state, &headers, "GET", &path, None, Access::Staff).await?;
     let Query(query) =
         query.map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid analytics query"))?;
     if !query.is_valid() {
@@ -1227,7 +1227,7 @@ pub(crate) async fn get_booking_funnel_analytics(
             )
         })?;
     let analytics = if query.view.as_deref() == Some("center") {
-        state
+        let mut report = state
             .db
             .get_airhop_staff_center_analytics(
                 &tenant,
@@ -1235,7 +1235,21 @@ pub(crate) async fn get_booking_funnel_analytics(
                 matches!(query.until, Some(AnalyticsUntil::Yesterday)),
             )
             .await
-            .map_err(map_db_error)?
+            .map_err(map_db_error)?;
+        match state
+            .db
+            .get_airhop_consultation_analytics(
+                &tenant,
+                &actor.to_bytes(),
+                query.days.unwrap_or(30),
+                matches!(query.until, Some(AnalyticsUntil::Yesterday)),
+            )
+            .await
+        {
+            Ok(consultations) => report["consultations"] = consultations,
+            Err(error) => tracing::warn!(%error, "consultation analytics unavailable"),
+        }
+        report
     } else {
         serde_json::to_value(
             state

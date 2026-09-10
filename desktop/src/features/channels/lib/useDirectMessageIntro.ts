@@ -1,3 +1,4 @@
+import { useProfilesWithSelf } from "@/features/profile/useProfilesWithSelf";
 import { useMemo } from "react";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { buildDirectMessageIntro } from "./dmParticipantDisplay";
@@ -9,8 +10,15 @@ export function useDirectMessageIntro({
   profiles,
 }: Parameters<typeof buildDirectMessageIntro>[0]) {
   const locale = useAirHopLocale();
+  const resolvedProfiles = useProfilesWithSelf(profiles, currentPubkey);
   return useMemo(
-    () => buildDirectMessageIntro({ channel, currentPubkey, profiles, locale }),
-    [channel, currentPubkey, profiles, locale],
+    () =>
+      buildDirectMessageIntro({
+        channel,
+        currentPubkey,
+        profiles: resolvedProfiles,
+        locale,
+      }),
+    [channel, currentPubkey, resolvedProfiles, locale],
   );
 }

@@ -6375,10 +6375,7 @@ async function handleEnsureStarterChannels(
     touchMockChannel(channel);
   };
 
-  for (const channelName of [
-    STARTER_GENERAL_CHANNEL_NAME,
-    STARTER_WELCOME_CHANNEL_NAME,
-  ]) {
+  for (const channelName of [STARTER_GENERAL_CHANNEL_NAME]) {
     const channel = mockChannels.find(
       (candidate) =>
         candidate.name === channelName &&

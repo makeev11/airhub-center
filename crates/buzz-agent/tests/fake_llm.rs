@@ -605,7 +605,16 @@ async fn recv_active_run_id(h: &mut Harness) -> String {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn steer_folds_into_active_turn_without_cancelling() {
-    // A two-round turn (tool call → text). A steer sent once the run is live
+    assert_steer_reaches_provider(openai_tool_call("call_steer", "fake__noop", json!({}))).await;
+}
+
+#[tokio::test]
+async fn steer_accepted_during_final_response_is_not_lost() {
+    assert_steer_reaches_provider(openai_text("finished the original task")).await;
+}
+
+async fn assert_steer_reaches_provider(first_response: Value) {
+    // A two-round turn (tool call or final text → text). A steer sent once the run is live
     // must (a) be accepted with the matching runId, (b) NOT cancel the turn —
     // it still ends with end_turn — and (c) reach the provider as a user turn.
     // Hold the first response until the steer is acknowledged. Without this
@@ -613,10 +622,7 @@ async fn steer_folds_into_active_turn_without_cancelling() {
     // stdin, making the assertion depend on subprocess scheduling.
     let response_gate = Arc::new(Notify::new());
     let (url, captures) = spawn_gated_capturing_fake_llm(
-        vec![
-            openai_tool_call("call_steer", "fake__noop", json!({})),
-            openai_text("acknowledged the steer"),
-        ],
+        vec![first_response, openai_text("acknowledged the steer")],
         Some(response_gate.clone()),
     )
     .await;
@@ -635,6 +641,16 @@ async fn steer_folds_into_active_turn_without_cancelling() {
 
     // Learn the run id, then steer into it before the turn finishes.
     let run_id = recv_active_run_id(&mut h).await;
+    // The run-id notification precedes the provider request. Wait for that
+    // request too, otherwise a fast steer can land before the initial drain
+    // and accidentally avoid the final-response race this test must exercise.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while captures.lock().await.is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("initial provider request must be in flight");
     let steer_text = "STEER-CANARY: also consider the edge case";
     let s_id = h
         .send(

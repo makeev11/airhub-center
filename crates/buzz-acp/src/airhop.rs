@@ -15,7 +15,30 @@ use uuid::Uuid;
 use crate::queue::FlushBatch;
 use crate::relay::{BuzzEvent, RelayError, RestClient};
 
+pub(crate) mod guest;
 mod staff_intent;
+
+/// Welcome's server route claim, not a mandatory mention, chooses the responder.
+pub(crate) fn welcome_message_rule(
+    enabled: bool,
+    channels: &HashSet<Uuid>,
+) -> Option<crate::filter::SubscriptionRule> {
+    if !enabled || channels.is_empty() {
+        return None;
+    }
+    Some(crate::filter::SubscriptionRule {
+        name: "airhop-welcome-owner-messages".into(),
+        channels: crate::filter::ChannelScope::List(
+            channels.iter().map(ToString::to_string).collect(),
+        ),
+        kinds: vec![buzz_core::kind::KIND_STREAM_MESSAGE],
+        require_mention: false,
+        filter: None,
+        compiled_filter: None,
+        consecutive_timeouts: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
+        prompt_tag: Some("airhop-welcome".into()),
+    })
+}
 
 /// Stable product role carried by managed-agent environment and relay APIs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -650,6 +673,35 @@ mod tests {
         assert!(overlay.contains(
             "integrations/hermes-airhop-parent-runtime/config.yaml /opt/airhop-hermes/config.yaml"
         ));
+    }
+
+    #[tokio::test]
+    async fn welcome_plain_message_rule_is_channel_and_kind_scoped() {
+        let welcome = Uuid::new_v4();
+        let channels = HashSet::from([welcome]);
+        assert!(welcome_message_rule(false, &channels).is_none());
+        assert!(welcome_message_rule(true, &HashSet::new()).is_none());
+        let rules = vec![welcome_message_rule(true, &channels).unwrap()];
+        let message = event(welcome).event;
+        let agent = Keys::generate().public_key().to_hex();
+        assert!(
+            crate::filter::match_event(&message, welcome, &rules, &agent)
+                .await
+                .is_some()
+        );
+        assert!(
+            crate::filter::match_event(&message, Uuid::new_v4(), &rules, &agent)
+                .await
+                .is_none()
+        );
+        let reaction = EventBuilder::new(Kind::Custom(7), "+")
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+        assert!(
+            crate::filter::match_event(&reaction, welcome, &rules, &agent)
+                .await
+                .is_none()
+        );
     }
 
     async fn supervisor_server(

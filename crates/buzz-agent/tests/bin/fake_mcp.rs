@@ -38,6 +38,7 @@
 //!                              `command` string. Lets a test drive the
 //!                              reply guard's recognition of a real,
 //!                              registered shell tool.
+//!   FAKE_MCP_AIRHOP_TOOL=1 — expose the Welcome publication tool.
 
 use std::io::{BufRead, Write};
 
@@ -115,6 +116,13 @@ fn make_tools(
                 "properties": { "command": { "type": "string" } },
                 "required": ["command"],
             },
+        }));
+    }
+    if env_flag("FAKE_MCP_AIRHOP_TOOL") {
+        tools.push(json!({
+            "name": "airhop_send_messages",
+            "description": "publish a Welcome reply",
+            "inputSchema": { "type": "object", "properties": {} },
         }));
     }
     tools

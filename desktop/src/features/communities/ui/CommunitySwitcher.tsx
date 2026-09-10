@@ -1,6 +1,5 @@
 import {
   Check,
-  Send,
   ChevronDown,
   ChevronRight,
   Link2,
@@ -28,7 +27,6 @@ import {
 } from "@/shared/ui/sidebar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
-import { cn } from "@/shared/lib/cn";
 import type { ConnectionState } from "@/shared/api/relayClientShared";
 import {
   isRelayConnectionDegraded,
@@ -36,6 +34,7 @@ import {
 } from "@/shared/api/useRelayConnection";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { useActiveCommunityIcon } from "@/features/communities/useCommunityIcons";
+import { CommunityIcon } from "./CommunityIcon";
 import { EditCommunityDialog } from "./EditCommunityDialog";
 
 const CONNECTION_STATE_LABEL: Record<ConnectionState, string> = {
@@ -69,35 +68,6 @@ type CommunitySwitcherProps = {
   ) => void;
   onRemoveCommunity: (id: string) => void;
 };
-
-export function CommunityEmojiIcon({
-  className,
-  iconUrl,
-}: {
-  className: string;
-  iconUrl?: string | null;
-}) {
-  if (iconUrl) {
-    return (
-      <span
-        aria-hidden="true"
-        className={cn(className, "h-5 overflow-hidden rounded-md")}
-      >
-        <img
-          alt=""
-          className="h-full w-full object-cover"
-          draggable={false}
-          src={iconUrl}
-        />
-      </span>
-    );
-  }
-  return (
-    <span aria-hidden="true" className={className}>
-      <Send className="h-3.5 w-3.5" />
-    </span>
-  );
-}
 
 export function CommunitySwitcher({
   activeCommunity,
@@ -183,14 +153,7 @@ export function CommunitySwitcher({
           </TooltipContent>
         </Tooltip>
       ) : (
-        <CommunityEmojiIcon
-          className={
-            isProfileVariant
-              ? "flex w-5 shrink-0 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/40 text-2xs"
-              : "flex w-5 shrink-0 items-center justify-center text-xs"
-          }
-          iconUrl={activeIcon}
-        />
+        <CommunityIcon className="h-5 w-5 text-base" iconUrl={activeIcon} />
       )}
       <span
         className={

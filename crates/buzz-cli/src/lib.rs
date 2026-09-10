@@ -295,7 +295,10 @@ pub enum AirhopCmd {
         #[arg(long)]
         request: String,
     },
-    /// Operational overview: bookings, attendance, students, occupancy and cash
+    /// Operational overview with consultation outcomes and configuration-version feedback.
+    /// Compare learning.booked / learning.eligible over the fixed seven-day window;
+    /// pending, mixed and unattributed cohorts must not be mistaken for a winning version.
+    /// Registered Analyst/Fizz receive organization aggregates without conversation identities.
     CenterAnalytics {
         /// Organization-local calendar days in the selected period
         #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u16).range(1..=366))]

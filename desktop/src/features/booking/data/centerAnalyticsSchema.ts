@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { consultationAnalyticsSchema } from "./consultationAnalyticsSchema";
 import { organizationSchema } from "@/features/booking/model/bookingCore";
 
 const count = z.number().int().nonnegative().safe();
@@ -6,9 +7,10 @@ const signedAmount = z.number().int().safe();
 const date = z.iso.date();
 const currency = z.string().regex(/^[A-Z]{3}$/);
 
-/** Shared wire contract: aggregates only, never family/child identifiers. */
+/** Operational aggregates and membership-scoped consultation drilldowns. */
 export const centerAnalyticsReportSchema = z.object({
   version: z.literal(1),
+  consultations: consultationAnalyticsSchema.optional(),
   generatedAt: z.iso.datetime({ offset: true }),
   timeZone: z.string().min(1),
   periodStart: date,

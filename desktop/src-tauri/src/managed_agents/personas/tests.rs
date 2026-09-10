@@ -192,6 +192,34 @@ fn merge_personas_preserves_custom_airhop_product_prompts() {
 }
 
 #[test]
+fn fizz_onboarding_prompt_upgrades_v2_but_preserves_custom_instructions() {
+    for previous in [AIRHOP_FIZZ_SYSTEM_PROMPT_V1, AIRHOP_FIZZ_SYSTEM_PROMPT_V2] {
+        let mut fizz = custom_persona("builtin:airhop-fizz", "Fizz");
+        fizz.is_builtin = true;
+        fizz.system_prompt = previous.into();
+        let (records, changed) = merge_personas(vec![fizz], "2026-09-10T12:00:00Z");
+        assert!(changed);
+        let updated = records
+            .iter()
+            .find(|record| record.id == "builtin:airhop-fizz")
+            .unwrap();
+        assert_eq!(updated.system_prompt, AIRHOP_FIZZ_SYSTEM_PROMPT);
+    }
+    let mut fizz = custom_persona("builtin:airhop-fizz", "My Fizz");
+    fizz.is_builtin = true;
+    fizz.system_prompt = "Custom organization instructions".into();
+    let (records, _) = merge_personas(vec![fizz], "2026-09-10T12:00:00Z");
+    assert_eq!(
+        records
+            .iter()
+            .find(|record| record.id == "builtin:airhop-fizz")
+            .unwrap()
+            .system_prompt,
+        "Custom organization instructions"
+    );
+}
+
+#[test]
 fn merge_personas_restores_builtin_marker_without_resetting_edits() {
     let mut edited_builtin = custom_persona("builtin:fizz", "My Fizz");
     edited_builtin.is_builtin = false;
@@ -511,3 +539,4 @@ fn fizz_builtin_resolves_to_buzz_agent() {
         "Fizz must resolve to buzz-agent specifically"
     );
 }
+use super::AIRHOP_FIZZ_SYSTEM_PROMPT_V2;

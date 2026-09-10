@@ -1,5 +1,4 @@
 import * as React from "react";
-import { Send } from "lucide-react";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 
 import { getPresenceLabel } from "@/features/presence/lib/presence";
@@ -13,6 +12,8 @@ import {
 import { ProfilePopover } from "@/features/profile/ui/ProfilePopover";
 import { StatusEmoji } from "@/features/user-status/ui/StatusEmoji";
 import type { Community } from "@/features/communities/types";
+import { CommunityIcon } from "@/features/communities/ui/CommunityIcon";
+import { useActiveCommunityIcon } from "@/features/communities/useCommunityIcons";
 import { CommunitySwitcher } from "@/features/communities/ui/CommunitySwitcher";
 import { useMyRelayMembershipLookupQuery } from "@/features/community-members/hooks";
 import type { SettingsSection } from "@/features/settings/ui/SettingsPanels";
@@ -61,6 +62,7 @@ export function SidebarProfileCard({
 }: SidebarProfileCardProps) {
   const isRussian = useAirHopLocale() === "ru-RU";
   const selfProfileCache = useSelfProfileCache();
+  const communityIconQuery = useActiveCommunityIcon(activeCommunity?.relayUrl);
   const myMembershipQuery = useMyRelayMembershipLookupQuery();
   const activeRole = myMembershipQuery.data?.membership?.role;
   const canInvite = activeRole === "owner" || activeRole === "admin";
@@ -91,12 +93,10 @@ export function SidebarProfileCard({
       className="flex min-w-0 cursor-pointer items-center gap-1 text-xs leading-snug text-sidebar-foreground/70"
       data-buzz-sidebar-secondary
     >
-      <span
-        aria-hidden="true"
-        className="flex w-3.5 shrink-0 items-center justify-center text-2xs"
-      >
-        <Send className="h-3.5 w-3.5" />
-      </span>
+      <CommunityIcon
+        className="h-3.5 w-3.5 text-xs"
+        iconUrl={communityIconQuery.data}
+      />
       <span className="truncate">{communityLabel}</span>
     </span>
   );

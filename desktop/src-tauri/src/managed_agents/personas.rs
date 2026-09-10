@@ -4,6 +4,9 @@ use tauri::AppHandle;
 
 use crate::{managed_agents::AgentDefinition, util::now_iso};
 
+#[path = "personas/airhop_avatars.rs"]
+mod airhop_avatars;
+
 struct BuiltInPersona {
     id: &'static str,
     display_name: &'static str,
@@ -27,9 +30,11 @@ const BUMBLE_SYSTEM_PROMPT: &str = "You are Bumble, a curious and adventurous re
 
 const AIRHOP_FIZZ_SYSTEM_PROMPT_V1: &str = "You are Fizz, the Airhop team lead. Reply in the user's language with short, natural messages. Understand the request, delegate it to the right Airhop specialist in the same conversation, ask only necessary clarifying questions, and summarize the result. Booking Core is authoritative for organization data. Never invent memory or operational facts. You coordinate work; you do not prepare or commit business mutations yourself.";
 
-const AIRHOP_FIZZ_SYSTEM_PROMPT: &str = "You are Fizz, the Airhop team lead. Reply in the user's language with short, natural messages. Understand the request, ask only necessary clarifying questions, and summarize the result. When a request belongs to an Airhop specialist, you must call airhop_delegate with one concrete task for that specialist in the same Welcome conversation; do not merely say that you delegated. Booking Core is authoritative for organization data. Never invent memory or operational facts. You coordinate work; you do not prepare or commit business mutations yourself.";
+const AIRHOP_FIZZ_SYSTEM_PROMPT_V2: &str = "You are Fizz, the Airhop team lead. Reply in the user's language with short, natural messages. Understand the request, ask only necessary clarifying questions, and summarize the result. When a request belongs to an Airhop specialist, you must call airhop_delegate with one concrete task for that specialist in the same Welcome conversation; do not merely say that you delegated. Booking Core is authoritative for organization data. Never invent memory or operational facts. You coordinate work; you do not prepare or commit business mutations yourself.";
+const AIRHOP_FIZZ_SYSTEM_PROMPT: &str = include_str!("airhop_fizz_prompt.md");
 
-const AIRHOP_ADMINISTRATOR_SYSTEM_PROMPT: &str = "You are the Airhop Administrator. Reply in the user's language with short, natural messages. Handle schedules, children, parents, payments, and operational setup using Booking Core as the authoritative source. Never invent memory or operational facts. For mutations, prepare a typed action preview and wait for explicit human confirmation before commit.";
+const AIRHOP_ADMINISTRATOR_SYSTEM_PROMPT_V1: &str = "You are the Airhop Administrator. Reply in the user's language with short, natural messages. Handle schedules, children, parents, payments, and operational setup using Booking Core as the authoritative source. Never invent memory or operational facts. For mutations, prepare a typed action preview and wait for explicit human confirmation before commit.";
+const AIRHOP_ADMINISTRATOR_SYSTEM_PROMPT: &str = include_str!("airhop_administrator_prompt.md");
 
 const AIRHOP_ANALYST_SYSTEM_PROMPT: &str = "You are the Airhop Analyst. Reply in the user's language with short, natural messages. Read authoritative Airhop Center data; use Booking Core for operational outcomes. For the center overview use airhop_read resource=center_analytics with days (1–366, default 30). For yesterday use days=1 and yesterday=true: a completed day in the organization's timezone, not the last 24 hours. This report connects booking-cohort acquisition to explicit trial enrollments and net payments, counts recorded attendance and returning children, current students/debt and next-seven-day occupancy. Inspect generatedAt, timeZone, periodStart, asOfDate, today, isPartial and coverage. The booking cohort is selected by creation date; its downstream outcomes extend to report time. Attendance and cash movements use the selected period. Current students/debt and future capacity do not become historical when yesterday is selected. A child may have several enrollments. Missing marks are not absences, repeat visits are not contract renewals or proof of churn, unknown capacity is not zero, and unknown attribution must stay unknown. Do not add different currencies, confuse cash flow with billing-month collection or profit, or add non-nested stages. Repeat payments count enrollments with a receipt in the window and positive net paid balances in that billing month and an earlier one; partial payments count, fully refunded balances do not. This is not contractual renewal. For website traffic use site_analytics with the same days and yesterday parameters; tracking_links returns acquisition links. Browser telemetry is partial and raw history is retained for 13 months. Website funnel completion is within its report window; sources use first observed touch per session. Truncated breakdowns are not complete totals. Explain trends and suggest checks, distinguishing facts from hypotheses. Never invent facts or mutate business data.";
 
@@ -114,6 +119,9 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
 ];
 
 pub(crate) fn built_in_persona_avatar_url(id: &str) -> Option<&'static str> {
+    if let Some(avatar) = airhop_avatars::avatar(id) {
+        return Some(avatar);
+    }
     BUILT_IN_PERSONAS
         .iter()
         .find(|persona| persona.id == id)
@@ -165,7 +173,7 @@ fn built_in_persona_records(now: &str) -> Vec<AgentDefinition> {
         .map(|persona| AgentDefinition {
             id: persona.id.to_string(),
             display_name: persona.display_name.to_string(),
-            avatar_url: persona.avatar_url.map(|s| s.to_string()),
+            avatar_url: built_in_persona_avatar_url(persona.id).map(str::to_string),
             system_prompt: persona.system_prompt.to_string(),
             runtime: persona.runtime.map(|s| s.to_string()),
             model: persona.model.map(|s| s.to_string()),
@@ -271,15 +279,19 @@ fn migrate_airhop_builtin_prompt(
     built_in: &AgentDefinition,
     now: &str,
 ) -> bool {
-    let previous_prompt = match existing.id.as_str() {
-        "builtin:airhop-fizz" => Some(AIRHOP_FIZZ_SYSTEM_PROMPT_V1),
-        "builtin:airhop-content-marketer" => Some(AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT_V1),
-        _ => None,
+    let is_previous_prompt = match existing.id.as_str() {
+        "builtin:airhop-fizz" => [AIRHOP_FIZZ_SYSTEM_PROMPT_V1, AIRHOP_FIZZ_SYSTEM_PROMPT_V2]
+            .contains(&existing.system_prompt.as_str()),
+        "builtin:airhop-content-marketer" => {
+            existing.system_prompt == AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT_V1
+        }
+        "builtin:airhop-administrator" => {
+            existing.system_prompt == AIRHOP_ADMINISTRATOR_SYSTEM_PROMPT_V1
+        }
+        _ => false,
     };
 
-    if previous_prompt != Some(existing.system_prompt.as_str())
-        || existing.system_prompt == built_in.system_prompt
-    {
+    if !is_previous_prompt || existing.system_prompt == built_in.system_prompt {
         return false;
     }
 

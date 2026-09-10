@@ -189,12 +189,14 @@ export function HermesAgentCard({ serverEnabled }: { serverEnabled: boolean }) {
       className="grid gap-5 rounded-2xl border border-primary/25 bg-primary/5 p-5 shadow-xs sm:grid-cols-[88px_minmax(0,1fr)_auto]"
       data-testid="airhop-agent-card-hermes"
     >
-      <img
-        alt=""
-        className="size-[88px] rounded-2xl border border-primary/20 bg-muted object-cover"
-        draggable={false}
-        src="/agents/hermes.png"
-      />
+      <div className="size-[88px] overflow-hidden rounded-2xl border border-primary/20 bg-muted">
+        <img
+          alt=""
+          className="h-full w-full rounded-full object-cover"
+          draggable={false}
+          src="/agents/hermes.png"
+        />
+      </div>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold">{copy.name}</h2>

@@ -3,6 +3,7 @@ import {
   BookOpen,
   CircleHelp,
   FilePlus2,
+  LoaderCircle,
   MessageCircleQuestion,
   Plus,
   Search,
@@ -14,6 +15,8 @@ import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { Badge } from "@/shared/ui/badge";
 import { Input } from "@/shared/ui/input";
+import { SkeletonReveal } from "@/shared/ui/skeleton";
+import { KnowledgeBaseSkeleton } from "./KnowledgeBaseSkeleton";
 import { PageHeader } from "@/shared/ui/PageHeader";
 import { KnowledgeService } from "../data/knowledgeService";
 import { importKnowledge } from "../data/importKnowledge";
@@ -289,12 +292,14 @@ export function KnowledgeBaseScreen() {
             </Button>
           </div>
         )}
-        {loading && !community ? (
-          <p role="status" className="py-8 text-sm text-muted-foreground">
-            {t("Загружаем материалы…", "Loading materials…")}
-          </p>
-        ) : (
-          community && (
+        <SkeletonReveal
+          loading={loading && !community}
+          skeleton={<KnowledgeBaseSkeleton />}
+          contentClassName="space-y-6"
+          data-testid="knowledge-base-content"
+          aria-busy={loading}
+        >
+          {community && (
             <>
               <Card className="space-y-5 p-5 sm:p-6">
                 <div className="flex items-start gap-3">
@@ -531,12 +536,20 @@ export function KnowledgeBaseScreen() {
                     disabled={loading}
                     onClick={() => void load(after)}
                   >
+                    {loading && (
+                      <LoaderCircle className="size-4 animate-spin" />
+                    )}
                     {t("Загрузить ещё", "Load more")}
                   </Button>
                 )}
               </section>
             </>
-          )
+          )}
+        </SkeletonReveal>
+        {loading && (
+          <span className="sr-only" role="status">
+            {t("Загружаем материалы…", "Loading materials…")}
+          </span>
         )}
       </div>
       <KnowledgeIntro
