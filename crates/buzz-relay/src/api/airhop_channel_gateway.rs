@@ -166,7 +166,23 @@ pub(crate) async fn list_connections(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let principal = authenticate_airhop(&state, &headers, "GET", CONNECTION_PREFIX, None).await?;
+    let principal = super::airhop_auth::authenticate_airhop_agent(
+        &state,
+        &headers,
+        "GET",
+        CONNECTION_PREFIX,
+        None,
+    )
+    .await?;
+    if principal.member_role == "agent" {
+        super::airhop_staff::authorize_registered_agent_read(
+            &state,
+            &principal.tenant,
+            &principal.pubkey,
+            CONNECTION_PREFIX,
+        )
+        .await?;
+    }
     let connections = state
         .db
         .list_airhop_channel_connections(&principal.tenant, principal.pubkey.to_bytes())

@@ -68,6 +68,7 @@ export async function startManagedAgentRuntime(
 export async function startManagedAgentRuntimesForRelay(
   agents: readonly ManagedAgent[],
   relayUrl: string,
+  changedEnvironments: ReadonlySet<string> = new Set(),
 ): Promise<ManagedAgentRuntimeStatus[]> {
   // Native runtime transitions touch a shared process registry and receipt
   // directory. Keep the four-role Welcome startup deterministic instead of
@@ -75,9 +76,10 @@ export async function startManagedAgentRuntimesForRelay(
   // process state.
   const statuses: ManagedAgentRuntimeStatus[] = [];
   for (const agent of agents) {
-    statuses.push(
-      await startManagedAgentRuntime(agent.pubkey, agent.relayUrl ?? relayUrl),
-    );
+    const start = changedEnvironments.has(agent.pubkey)
+      ? restartManagedAgentRuntime
+      : startManagedAgentRuntime;
+    statuses.push(await start(agent.pubkey, agent.relayUrl ?? relayUrl));
   }
   return statuses;
 }

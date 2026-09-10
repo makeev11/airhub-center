@@ -246,6 +246,11 @@ test("first setup question requires fresh facts and confirmed changes", () => {
   });
   assert.match(task.instruction, /airhop_read/);
   assert.match(task.instruction, /unknown, not empty/);
+  assert.match(task.instruction, /channel_connections/);
+  assert.match(
+    task.instruction,
+    /Hermes agent or a tracking link is not evidence/,
+  );
   assert.match(
     task.instruction,
     /branches, teachers, groups\/schedule, tariffs, knowledge, Telegram/,

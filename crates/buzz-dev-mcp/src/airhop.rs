@@ -75,6 +75,7 @@ impl AirhopRole {
             Self::Fizz => matches!(
                 resource,
                 ReadResource::OrganizationSettings
+                    | ReadResource::ChannelConnections
                     | ReadResource::Schedule
                     | ReadResource::SiteAnalytics { .. }
                     | ReadResource::CenterAnalytics { .. }
@@ -201,6 +202,7 @@ pub enum ReadResource {
         after: Option<Uuid>,
     },
     OrganizationSettings,
+    ChannelConnections,
     Families,
     FamilyDetail {
         family_id: Uuid,
@@ -225,6 +227,7 @@ pub enum ReadResource {
 pub enum ReadResourceKind {
     Knowledge,
     OrganizationSettings,
+    ChannelConnections,
     Families,
     FamilyDetail,
     Schedule,
@@ -241,6 +244,7 @@ impl ReadResource {
         match self {
             Self::Knowledge { .. } => "knowledge",
             Self::OrganizationSettings => "organization_settings",
+            Self::ChannelConnections => "channel_connections",
             Self::Families => "families",
             Self::FamilyDetail { .. } => "family_detail",
             Self::Schedule => "schedule",
@@ -277,6 +281,9 @@ impl ReadResource {
                 ))
             }
             Self::OrganizationSettings | Self::PublicBookingSettings => None,
+            Self::ChannelConnections => {
+                Some("/api/airhop/integrations/v1/channel-connections".to_owned())
+            }
             Self::Families => Some("/api/airhop/staff/v1/families".to_owned()),
             Self::FamilyDetail { family_id } => {
                 Some(format!("/api/airhop/staff/v1/families/{family_id}"))
@@ -365,6 +372,7 @@ impl ReadParams {
                 Ok(ReadResource::OrganizationSettings)
             }
             (ReadResourceKind::Families, None) => Ok(ReadResource::Families),
+            (ReadResourceKind::ChannelConnections, None) => Ok(ReadResource::ChannelConnections),
             (ReadResourceKind::Knowledge, None) => Ok(ReadResource::Knowledge {
                 query: self.query.clone(),
                 document_id: self.document_id,
@@ -2812,6 +2820,24 @@ mod tests {
 
     #[test]
     fn authoritative_reads_are_role_scoped() {
+        let connections = ReadResource::ChannelConnections;
+        assert!(AirhopRole::Fizz.allows(&connections));
+        assert!(!AirhopRole::ParentAdministrator.allows(&connections));
+        assert!(!AirhopRole::ContentMarketer.allows(&connections));
+        assert_eq!(connections.name(), "channel_connections");
+        let params: ReadParams = serde_json::from_value(json!({
+            "channelId": Uuid::new_v4(),
+            "resource": "channel_connections"
+        }))
+        .unwrap();
+        assert_eq!(
+            params.resolve_resource().unwrap().name(),
+            connections.name()
+        );
+        assert_eq!(
+            connections.path().as_deref(),
+            Some("/api/airhop/integrations/v1/channel-connections")
+        );
         let center = ReadResource::CenterAnalytics {
             days: 1,
             yesterday: true,

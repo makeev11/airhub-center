@@ -516,7 +516,20 @@ impl Db {
         let community_id = *tenant.community().as_uuid();
         let mut tx = self.pool.begin().await?;
         let organization_id = active_organization(&mut tx, community_id).await?;
-        require_staff_member(&mut tx, community_id, requester_pubkey).await?;
+        // Only this credential-free read accepts the registered Welcome Fizz.
+        // Connector mutations continue to require direct staff membership.
+        let is_fizz: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM airhop_welcome_teams
+             WHERE community_id = $1 AND organization_id = $2 AND fizz_pubkey = $3)",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(requester_pubkey.as_slice())
+        .fetch_one(&mut *tx)
+        .await?;
+        if !is_fizz {
+            require_staff_member(&mut tx, community_id, requester_pubkey).await?;
+        }
         let rows = sqlx::query(
             "SELECT organization_id, id, provider, display_name, connector_pubkey,
                     status, hermes_enabled, capabilities, observed_status,

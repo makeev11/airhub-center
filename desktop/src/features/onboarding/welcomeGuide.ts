@@ -365,6 +365,7 @@ async function provisionWelcomeTeam(
     (runtime): runtime is AcpRuntime => runtime.availability === "available",
   );
   const mutableAgents = {} as Record<AirhopWelcomeRole, ManagedAgent>;
+  const changedEnvironments = new Set<string>();
 
   for (const baseStarter of WELCOME_TEAM_STARTERS) {
     const localized = welcomeRoleDefinition(
@@ -394,6 +395,7 @@ async function provisionWelcomeTeam(
     );
     if (existing) {
       const update = welcomeStarterRuntimeUpdate(existing, desired);
+      if (update?.envVars) changedEnvironments.add(existing.pubkey);
       mutableAgents[starter.role] = update
         ? (await updateManagedAgent(update)).agent
         : existing;
@@ -441,9 +443,13 @@ async function provisionWelcomeTeam(
   if (!runtimeRelayUrl) {
     throw new Error("Welcome Team provisioning requires a relay URL.");
   }
+  // Updating persisted configuration does not replace a running process's
+  // environment. Rebind reused agents only after the new channel membership
+  // and role registry exist, before delivering the Welcome kickoff.
   await startManagedAgentRuntimesForRelay(
     Object.values(agents),
     runtimeRelayUrl,
+    changedEnvironments,
   );
   return agents;
 }

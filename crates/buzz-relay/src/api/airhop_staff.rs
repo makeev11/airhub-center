@@ -3008,7 +3008,7 @@ async fn authenticate(
     Ok((principal.tenant, principal.pubkey))
 }
 
-async fn authorize_registered_agent_read(
+pub(super) async fn authorize_registered_agent_read(
     state: &Arc<AppState>,
     tenant: &buzz_core::TenantContext,
     pubkey: &nostr::PublicKey,
@@ -3048,6 +3048,7 @@ async fn authorize_registered_agent_read(
 fn registered_agent_role_allows_path(role: AirhopWelcomeRole, path: &str) -> bool {
     let path = path.split('?').next().unwrap_or(path);
     match path {
+        "/api/airhop/integrations/v1/channel-connections" => role == AirhopWelcomeRole::Fizz,
         "/api/airhop/staff/v1/settings" => true,
         "/api/airhop/staff/v1/branches" => matches!(
             role,
@@ -3897,6 +3898,19 @@ mod tests {
 
     #[test]
     fn registered_agent_reads_are_server_side_role_scoped() {
+        for role in AirhopWelcomeRole::ALL {
+            assert_eq!(
+                registered_agent_role_allows_path(
+                    role,
+                    "/api/airhop/integrations/v1/channel-connections",
+                ),
+                role == AirhopWelcomeRole::Fizz,
+            );
+            assert!(!registered_agent_role_allows_path(
+                role,
+                "/api/airhop/integrations/v1/channel-connections/telegram",
+            ));
+        }
         let family_id = Uuid::new_v4();
         let family_path = format!("/api/airhop/staff/v1/families/{family_id}");
 

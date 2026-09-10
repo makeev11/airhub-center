@@ -266,11 +266,12 @@ export function buildKickoffTask(
       "Send exactly one short message for this stage, then finish the task. Do not perform other kickoff stages.",
       stage === "fizz_first_question"
         ? [
-            "Before asking, use airhop_read to read fresh organization_settings, schedule and knowledge. The organization name above is not a setup inventory.",
+            "Before asking, use airhop_read to read fresh organization_settings, schedule, knowledge and channel_connections. The organization name above is not a setup inventory.",
             "Briefly acknowledge the data that already exists. Select the first missing setup topic in this order: branches, teachers, groups/schedule, tariffs, knowledge, Telegram connection.",
             "Ask exactly one concrete question about that topic, offering to skip it. Do not ask vague priorities such as what matters most. Do not ask the owner to re-enter existing data.",
             "Include that question in the same message as the short inventory and set expects_reply=true. An inventory without a question is not a completed first setup stage.",
             "A failed or unavailable read means unknown, not empty: explain the limitation without inventing missing data. Do not claim a Telegram connection is configured unless verified.",
+            "Verify Telegram with channel_connections: distinguish configured status from observed health and heartbeat freshness. A configured Hermes agent or a tracking link is not evidence that Telegram is connected or healthy.",
             "Collect details in conversation; delegate setup changes to the Administrator for a preview and explicit confirmation. Never claim data is saved before a successful confirmed action.",
             "If all checked topics are populated, briefly summarize and offer one practical test of the connected Telegram bot instead of asking for a new organizational brief.",
           ].join("\n")

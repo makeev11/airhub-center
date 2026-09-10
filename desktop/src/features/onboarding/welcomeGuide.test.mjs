@@ -290,6 +290,29 @@ test("existing Welcome starter needs no update when runtime already matches", ()
   );
 });
 
+test("recreated Welcome changes the reused agent environment, not its identity", () => {
+  const existing = makeAgent({
+    envVars: { BUZZ_AIRHOP_WELCOME_CHANNEL_ID: "old-channel" },
+  });
+  const desired = {
+    name: existing.name,
+    agentCommand: existing.agentCommand,
+    mcpCommand: existing.mcpCommand,
+    envVars: { BUZZ_AIRHOP_WELCOME_CHANNEL_ID: "new-channel" },
+  };
+  assert.deepEqual(welcomeStarterRuntimeUpdate(existing, desired), {
+    pubkey: existing.pubkey,
+    envVars: desired.envVars,
+  });
+  assert.equal(
+    welcomeStarterRuntimeUpdate(
+      { ...existing, envVars: desired.envVars },
+      desired,
+    ),
+    null,
+  );
+});
+
 test("welcome team starter definitions and role identities are stable", () => {
   assert.equal(WELCOME_TEAM_ID, "builtin-team:welcome");
   assert.deepEqual(
