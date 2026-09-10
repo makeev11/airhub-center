@@ -433,3 +433,27 @@ desktop suite found one locale wording assertion, now fixed and verified with
 
 Parallel UI edits in the working tree are not part of this checkpoint's authored
 changes and must be reconciled, not overwritten or silently staged.
+
+## Latest acceptance — 2026-09-10
+
+The unified 0.5.11 candidate at 9aede01c1f9c includes the approved parallel UI
+and public-form changes, but is superseded by the response-reference fix below.
+Live testing found that optional `respondsTo` let a real answer publish without
+acknowledging its owner question; the kickoff gate then correctly kept waiting.
+Normal Welcome messages now require nonempty exact source IDs before publication;
+kickoff messages remain exempt and cannot carry response references. A corrective
+tool error lets the agent retry without publishing an unlinked answer.
+The regression test failed before the fix and passed after it.
+
+Native run `/private/tmp/airhop-welcome-0511-receipt-fix.log` passed initial start,
+mid-intro interruption, minimized-window introductions, normal owner dialogue,
+skip to teachers, pause, full process restart, and confirmed branch creation.
+The final SQL assertions passed, including isolated Hermes access and no branch
+creation before confirmation. Internal agents used real DeepSeek; the isolated
+guest introduction used the deterministic test provider. Only synthetic data
+was used. Temporary production-hook diagnostics were removed after this run.
+
+Still required: rebuild and verify the final candidate; authorized demo/Mac
+rollout with backups and scoped Welcome reset; populated-organization and real
+Telegram acceptance. Legacy unlinked history is not claimed repaired: the agreed
+reset must create a new Welcome ID while retaining organization and account data.

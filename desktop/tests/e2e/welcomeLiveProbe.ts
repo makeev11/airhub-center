@@ -248,6 +248,9 @@ export async function runLiveWelcomeProbe(resume: boolean) {
       );
       interruptionAnswer = await ask("Кто ты?", true);
     }
+    const backgroundProbe =
+      !resume && process.env.AIRHOP_E2E_BACKGROUND_PROBE === "1";
+    if (backgroundProbe) await browser.minimizeWindow();
     await browser.waitUntil(
       async () => {
         const history = await events();
@@ -265,6 +268,25 @@ export async function runLiveWelcomeProbe(resume: boolean) {
         timeoutMsg: "Live model did not finish Welcome introductions",
       },
     );
+    if (backgroundProbe) {
+      // WebDriver maximize does not unminimize a macOS window. Restore using
+      // the existing Tauri capability, then verify visibility before typing.
+      await browser.execute(async () => {
+        const invoke = (
+          window as unknown as {
+            __TAURI_INTERNALS__: {
+              invoke: (command: string, args: unknown) => Promise<unknown>;
+            };
+          }
+        ).__TAURI_INTERNALS__.invoke;
+        await invoke("plugin:window|unminimize", { label: "main" });
+        await invoke("plugin:window|set_focus", { label: "main" });
+      });
+      await browser.waitUntil(() => browser.execute(() => !document.hidden), {
+        timeout: 10_000,
+        timeoutMsg: "Test window did not restore after background probe",
+      });
+    }
     const introductions = lastEvents;
     const firstQuestion = introductions.find((event) =>
       event.tags.some(
@@ -348,6 +370,20 @@ export async function runLiveWelcomeProbe(resume: boolean) {
       );
     }
   } finally {
+    try {
+      const presentation = await browser.execute(() => ({
+        hidden: document.hidden,
+        focused: document.hasFocus(),
+        text: document.body.innerText,
+      }));
+      writeFileSync(
+        `/private/tmp/airhop-welcome-ui-${resume ? "resumed" : "initial"}.json`,
+        JSON.stringify(presentation, null, 2),
+        { mode: 0o600 },
+      );
+    } catch {
+      // A lost native session must not replace the original test failure.
+    }
     // Synthetic organization and test messages only. Provider credentials are
     // neither in relay events nor in this diagnostic artifact.
     writeFileSync(

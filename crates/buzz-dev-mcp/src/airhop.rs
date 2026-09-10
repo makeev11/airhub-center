@@ -166,7 +166,8 @@ pub struct SendMessagesParams {
     pub expects_reply: bool,
     #[serde(default)]
     pub kickoff_stage: Option<WelcomeKickoffStage>,
-    /// Owner message IDs answered by this completed response, without thread tags.
+    /// Exact source message IDs handled by this response. Required and nonempty
+    /// outside kickoff stages; use the owner question or specialist handoff ID.
     #[serde(default)]
     pub responds_to: Vec<String>,
 }
@@ -1118,6 +1119,12 @@ fn build_message_events(
 ) -> Result<Vec<Event>, AirhopError> {
     config.require_channel(params.channel_id)?;
     validate_messages(&params.messages)?;
+    if params.kickoff_stage.is_none() && params.responds_to.is_empty() {
+        return Err(AirhopError(
+            "No message was published: a Welcome response requires nonempty respondsTo containing the exact source message event IDs actually handled (owner question or specialist handoff). Retry the same answer with those IDs from the supplied context; do not invent IDs or use a kickoff stage for a normal answer."
+                .to_owned(),
+        ));
+    }
     if params.responds_to.len() > 32
         || params
             .responds_to
@@ -1948,7 +1955,7 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_send_messages",
-        description = "Send one to three short top-level messages to the registered Airhop Welcome channel. When answering the owner, set respondsTo to the exact owner message event IDs you have answered from the supplied context. Only acknowledge questions actually handled; this lets paused introductions resume without losing the owner's question. Never put response references on a kickoff stage. The final message can remain an open question. Never creates a thread."
+        description = "Send one to three short top-level messages to the registered Airhop Welcome channel. Outside kickoff stages, respondsTo MUST contain the exact source message event IDs actually handled: owner questions or the specialist handoff from the supplied context. Empty references are rejected before publication. Only acknowledge questions actually handled; this lets paused introductions resume without losing the owner's question. Never put response references on a kickoff stage. The final message can remain an open question. Never creates a thread."
     )]
     async fn send_messages(
         &self,
@@ -2716,6 +2723,17 @@ mod tests {
             responds_to: vec!["a".repeat(64)],
         };
         let events = build_message_events(&config, params.clone()).unwrap();
+        assert!(
+            build_message_events(
+                &config,
+                SendMessagesParams {
+                    responds_to: vec![],
+                    ..params.clone()
+                }
+            )
+            .is_err(),
+            "an unlinked answer must not be published as a successful response"
+        );
         assert!(!events[0]
             .tags
             .iter()
