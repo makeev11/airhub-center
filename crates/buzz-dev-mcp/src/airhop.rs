@@ -1073,9 +1073,19 @@ fn build_message_events(
             )));
         }
     }
-    let message_count = params.messages.len();
-    params
-        .messages
+    // A stage receipt and its text are atomic: second-resolution timestamps
+    // cannot preserve the order of several separate greeting events on replay.
+    let messages = if params.kickoff_stage.is_some() {
+        vec![params.messages.join("\n\n")]
+    } else {
+        params.messages
+    };
+    let message_count = messages.len();
+    let expects_reply = params.expects_reply
+        && params
+            .kickoff_stage
+            .is_none_or(|stage| stage == WelcomeKickoffStage::FizzFirstQuestion);
+    messages
         .into_iter()
         .enumerate()
         .map(|(index, message)| {
@@ -1084,7 +1094,7 @@ fn build_message_events(
                 parse_tag(["h", channel.as_str()])?,
                 parse_tag(["airhop-agent-turn", config.role.as_str()])?,
             ];
-            if params.expects_reply && index + 1 == message_count {
+            if expects_reply && index + 1 == message_count {
                 tags.push(parse_tag(["airhop-question", config.role.as_str()])?);
             }
             if let Some(stage) = params.kickoff_stage {
@@ -2344,8 +2354,9 @@ mod tests {
             },
         )
         .expect("valid Welcome messages");
-        assert_eq!(events.len(), 2);
-        for (index, event) in events.into_iter().enumerate() {
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].content, "Первое\n\nВторое");
+        for event in events {
             let tags: Vec<Vec<String>> = event
                 .tags
                 .iter()
@@ -2355,10 +2366,7 @@ mod tests {
                 .iter()
                 .any(|tag| tag == &["h", &channel_id.to_string()]));
             assert!(tags.iter().any(|tag| tag[0] == "airhop-agent-turn"));
-            assert_eq!(
-                tags.iter().any(|tag| tag[0] == "airhop-question"),
-                index == 1
-            );
+            assert!(!tags.iter().any(|tag| tag[0] == "airhop-question"));
             assert!(tags.iter().any(|tag| tag[0] == "airhop-kickoff-stage"));
             assert!(!tags.iter().any(|tag| tag[0] == "e"));
         }

@@ -87,6 +87,42 @@ async function changeLocale(page: Page, locale: string) {
     );
   }, locale);
 }
+
+test("Welcome keeps a compact introduction and clips sidebar scrolling below search", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.evaluate(async () => {
+    const bridge = window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: (command: string, args: unknown) => Promise<{ id: string }>;
+      };
+    };
+    const channel = await bridge.__TAURI_INTERNALS__.invoke("create_channel", {
+      name: "Welcome",
+      channelType: "stream",
+      visibility: "private",
+      description: "A private channel for getting oriented in this community.",
+    });
+    await window.__BUZZ_E2E_INVALIDATE_CHANNELS__?.();
+    window.location.hash = `/channels/${channel.id}`;
+  });
+  const intro = page.getByTestId("message-channel-intro");
+  await expect(intro).toContainText("Здесь вы познакомитесь с командой центра");
+  await expect(intro.getByRole("button")).toHaveCount(0);
+  await expect(
+    page.getByTestId("welcome-composer-persona-mention"),
+  ).toContainText("@Физ");
+  const content = page.getByTestId("sidebar-channel-content");
+  await expect(content).toHaveCSS("overflow-y", "hidden");
+  const header = await page.getByTestId("sidebar-pinned-header").boundingBox();
+  const body = await content.boundingBox();
+  expect(body?.y).toBeGreaterThanOrEqual(
+    (header?.y ?? 0) + (header?.height ?? 0),
+  );
+  await shot(page, page.getByTestId("app-sidebar"), "welcome-sidebar");
+  await shot(page, intro, "welcome-introduction");
+});
 async function shot(page: Page, locator: Locator, name: string) {
   await waitForAnimations(page);
   return createHash("sha256")

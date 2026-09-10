@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Bot, Check } from "lucide-react";
 
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
+import { resolveWelcomeLocale } from "@/features/onboarding/welcomeTeamLocale";
 import { cn } from "@/shared/lib/cn";
 
 const WELCOME_PERSONA_NAMES = ["Fizz"] as const;
@@ -139,7 +140,7 @@ const welcomeComposerBannerSuccessCopyVariants = {
 export function containsWelcomePersonaMention(content: string) {
   const normalizedContent = content.toLowerCase();
 
-  return WELCOME_PERSONA_NAMES.some((personaName) =>
+  return ["Fizz", "Физ", "Fiz"].some((personaName) =>
     normalizedContent.includes(`@${personaName.toLowerCase()}`),
   );
 }
@@ -167,10 +168,11 @@ function getWelcomePersonaEnterTotalSeconds(characterCount: number) {
 
 function WelcomeComposerPersonaMention() {
   useMessengerCopy();
+  const locale = useAirHopLocale();
   const shouldReduceMotion = useReducedMotion();
   const [personaIndex, setPersonaIndex] = React.useState(0);
   const activePersonaName = WELCOME_PERSONA_NAMES[personaIndex];
-  const activeMention = `@${activePersonaName}`;
+  const activeMention = `@${resolveWelcomeLocale(locale).names.fizz}`;
   const activeMentionCharacters = React.useMemo(
     () => getWelcomeMentionCharacters(activeMention),
     [activeMention],
@@ -251,7 +253,7 @@ function WelcomeComposerPersonaMention() {
         ...(mentionWidth === null ? {} : { width: mentionWidth }),
       }}
     >
-      <span className="sr-only">@Fizz</span>
+      <span className="sr-only">{activeMention}</span>
       <span
         aria-hidden
         className="pointer-events-none invisible inline-block whitespace-nowrap leading-[inherit]"

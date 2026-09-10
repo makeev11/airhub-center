@@ -3,6 +3,7 @@ import { useAppShell } from "@/app/AppShellContext";
 import { cacheSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useActiveChannelHeader } from "@/features/channels/useActiveChannelHeader";
+import { useChannelAgentLabels } from "@/features/channels/useChannelAgentLabels";
 import { useChannelPaneHandlers } from "@/features/channels/useChannelPaneHandlers";
 import { useMessageEventProfilePubkeys } from "@/features/channels/useMessageEventProfilePubkeys";
 import { useMessageOwnerProfiles } from "@/features/channels/useMessageOwnerProfiles";
@@ -23,7 +24,6 @@ import { ForumChannelContent } from "@/features/channels/ui/ForumChannelContent"
 import { MembersSidebar } from "@/features/channels/ui/MembersSidebar";
 import {
   useManagedAgentsQuery,
-  usePersonasQuery,
   useRelayAgentsQuery,
 } from "@/features/agents/hooks";
 import { mergeChannelKnownAgentPubkeys } from "@/features/agents/knownAgentPubkeys";
@@ -57,7 +57,7 @@ import { useChannelTyping } from "@/features/messages/useChannelTyping";
 import type { TimelineMessage } from "@/features/messages/types";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { useRelaySelfQuery } from "@/features/moderation/hooks";
-import type { RelayEvent, RespondToMode, SearchHit } from "@/shared/api/types";
+import type { RelayEvent, SearchHit } from "@/shared/api/types";
 import { useChannelFind } from "@/features/search/useChannelFind";
 import { ChannelScreenLoadingFallback } from "@/features/channels/ui/ChannelScreenLoadingFallback";
 import {
@@ -378,22 +378,8 @@ export function ChannelScreen({
     }
     return pubkeys;
   }, [knownAgentPubkeys, messageProfiles, communityAgentPubkeys]);
-  const personasQuery = usePersonasQuery();
-  const { personaLookup, respondToLookup } = React.useMemo(() => {
-    const agents = managedAgentsQuery.data ?? [];
-    const personaById = new Map(
-      (personasQuery.data ?? []).map((p) => [p.id, p.displayName]),
-    );
-    const pLookup = new Map<string, string>();
-    const rLookup = new Map<string, RespondToMode>();
-    for (const agent of agents) {
-      const key = agent.pubkey.toLowerCase();
-      rLookup.set(key, agent.respondTo);
-      const pName = agent.personaId ? personaById.get(agent.personaId) : null;
-      if (pName) pLookup.set(key, pName);
-    }
-    return { personaLookup: pLookup, respondToLookup: rLookup };
-  }, [managedAgentsQuery.data, personasQuery.data]);
+  const { personaLookup, respondToLookup } =
+    useChannelAgentLabels(managedAgents);
   const timelineMessages = React.useMemo(
     () =>
       formatTimelineMessages(

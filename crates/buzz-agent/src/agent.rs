@@ -249,6 +249,11 @@ impl RunCtx<'_> {
                 tools.push(builtin::load_skill_def());
             }
             round = round.saturating_add(1);
+            tracing::info!(
+                session_id = self.session_id,
+                round,
+                "agent model request started"
+            );
             let response = tokio::select! {
                 biased;
                 _ = self.cancel.changed() => return Ok(StopReason::Cancelled),
@@ -275,6 +280,13 @@ impl RunCtx<'_> {
                     }
                 } => unreachable!(),
             };
+
+            tracing::info!(
+                session_id = self.session_id,
+                round,
+                tool_calls = response.tool_calls.len(),
+                "agent model request completed"
+            );
 
             // Record provider-reported input usage so the next loop iteration's
             // handoff gate can compare it against the token budget. We capture
@@ -591,7 +603,9 @@ impl RunCtx<'_> {
                     }
                 };
                 emit_in_progress(&wire, &session_id, &call).await;
+                tracing::info!(session_id, tool = call.name, "agent tool started");
                 let outcome = invoke_tool_inner(&mcp, &call, timeout, budget, cancel).await;
+                tracing::info!(session_id, tool = call.name, "agent tool finished");
                 match &outcome {
                     InvokeOutcome::Done(result) => {
                         emit_completed(&wire, &session_id, &call, result).await;

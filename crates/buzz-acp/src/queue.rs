@@ -369,6 +369,14 @@ impl EventQueue {
         } else {
             MAX_BATCH_EVENTS.min(queue.len())
         };
+        // A Welcome stage must retain its own task context and receipt. Keep
+        // conversational messages on either side in separate batches too.
+        let before_kickoff = queue
+            .iter()
+            .take(drain_count)
+            .take_while(|item| !crate::airhop::is_kickoff_task(&item.event))
+            .count();
+        let drain_count = drain_count.min(before_kickoff.max(1));
         let mut events: Vec<BatchEvent> = queue
             .drain(..drain_count)
             .map(|qe| BatchEvent {
@@ -1794,6 +1802,41 @@ mod tests {
             received_at: Instant::now(),
             prompt_tag: "test".into(),
         }
+    }
+
+    #[test]
+    fn welcome_kickoff_is_not_batched_with_owner_messages_or_other_stages() {
+        let channel = Uuid::new_v4();
+        let mut queue = EventQueue::new(DedupMode::Queue);
+        queue.push(make_queued(channel, "hello"));
+        for stage in ["fizz_intro", "fizz_invite_administrator"] {
+            let mut item = make_queued(channel, stage);
+            item.event = EventBuilder::new(
+                Kind::Custom(buzz_core::kind::KIND_AIRHOP_AGENT_TASK as u16),
+                stage,
+            )
+            .tags([
+                nostr::Tag::parse(["airhop-task", stage]).unwrap(),
+                nostr::Tag::parse(["airhop-kickoff-stage", stage]).unwrap(),
+            ])
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+            queue.push(item);
+        }
+        queue.push(make_queued(channel, "question"));
+        for expected in [
+            "hello",
+            "fizz_intro",
+            "fizz_invite_administrator",
+            "question",
+        ] {
+            let batch = queue.flush_next().unwrap();
+            assert_eq!(batch.events.len(), 1);
+            assert_eq!(batch.events[0].event.content, expected);
+            assert!(queue.flush_next().is_none());
+            queue.mark_complete(channel);
+        }
+        assert!(queue.flush_next().is_none());
     }
 
     /// Build a QueuedEvent with a specific `received_at` offset from now.

@@ -2324,7 +2324,13 @@ async fn tokio_main() -> Result<()> {
                             // Event is already queued. If mode requires it AND
                             // the channel has an in-flight task, fire cancel —
                             // OR take the non-cancelling (ACP steer) fork for Steer signals.
-                            if accepted && queue.is_channel_in_flight(buzz_event.channel_id) {
+                            // Kickoff stages are independent tasks with separate receipts.
+                            // Steering them into the preceding turn can acknowledge and
+                            // discard the task without ever producing its stage receipt.
+                            if accepted
+                                && !airhop::is_kickoff_task(&event_for_steer)
+                                && queue.is_channel_in_flight(buzz_event.channel_id)
+                            {
                                 // Author eligibility (owner ∪ allowlist ∪ siblings)
                                 // is already enforced by the inbound author gate
                                 // above, so the mid-turn signal fires for every

@@ -162,7 +162,6 @@ export function shouldDispatchKickoff(
   },
 ) {
   return (
-    !snapshot.ownerHasSpoken &&
     snapshot.inFlightStage === null &&
     (snapshot.targetRuntimeReady ?? true) &&
     (snapshot.providerReady ?? true) &&
@@ -197,7 +196,10 @@ export function buildKickoffTask(
       locale.kickoffInstruction(stage, options.ownerName),
       `Known organization data: ${organizationContext}.`,
       "Write only top-level messages in the Welcome channel; never create or reply in a thread.",
-      "Use one thought per message and at most three short messages.",
+      "Send exactly one short message for this stage, then finish the task. Do not perform other kickoff stages.",
+      stage === "fizz_first_question"
+        ? "You may ask the owner one question now."
+        : "Do not ask the owner a question yet; the final stage handles that. Set expects_reply=false.",
       `Call airhop_send_messages with kickoff_stage="${stage}" so every output carries the airhop-kickoff-stage receipt.`,
       "Do not announce that onboarding or setup is complete.",
     ].join("\n"),
@@ -362,11 +364,7 @@ export function useWelcomeKickoff(
     }
     const hasUnobservedInFlightStage =
       inFlightStage !== null && !snapshot.observedStages.has(inFlightStage);
-    if (
-      snapshot.ownerHasSpoken ||
-      hasUnobservedInFlightStage ||
-      dispatchingStageRef.current !== null
-    )
+    if (hasUnobservedInFlightStage || dispatchingStageRef.current !== null)
       return;
 
     const cacheKey = `${normalizeRelayUrl(relayUrl)}:${channelId}`;

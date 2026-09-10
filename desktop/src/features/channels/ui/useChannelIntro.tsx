@@ -1,6 +1,6 @@
 import { useMessengerCopy, messageText } from "@/shared/locale/messengerCopy";
 import * as React from "react";
-import { Bot, Plus, Sparkles, UserPlus } from "lucide-react";
+import { Bot, Sparkles, UserPlus } from "lucide-react";
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 import {
@@ -12,7 +12,6 @@ import {
   isWelcomeExperienceChannel,
 } from "@/features/onboarding/welcome";
 import type { Channel } from "@/shared/api/types";
-import { HashSearch } from "@/shared/ui/icons";
 
 type ChannelIntroAction = {
   description?: string;
@@ -24,17 +23,13 @@ type ChannelIntroAction = {
 
 /**
  * Builds the empty-channel intro block (heading, description, action cards)
- * for the channel timeline. The Welcome channel gets its onboarding trio
- * (browse / create channel / create agent); other channels get contextual
- * member actions.
+ * for the channel timeline. Welcome introduces the existing registered team,
+ * not generic channel or agent creation; other channels get member actions.
  */
 export function useChannelIntro({
   activeChannel,
   onAddAgent,
-  onBrowseChannels,
-  onCreateChannel,
   onOpenMembers,
-  onWelcomeAddAgent,
 }: {
   activeChannel: Channel | null;
   onAddAgent?: (options?: { beforeSend?: () => void }) => void;
@@ -52,33 +47,6 @@ export function useChannelIntro({
 
     const actions: ChannelIntroAction[] = [];
     if (isWelcomeExperienceChannel(activeChannel)) {
-      if (onBrowseChannels) {
-        actions.push({
-          icon: <HashSearch aria-hidden className="h-6 w-6" />,
-          label: messageText("Browse channels"),
-          onClick: onBrowseChannels,
-          testId: "welcome-intro-action-browse-channels",
-        });
-      }
-
-      if (onCreateChannel) {
-        actions.push({
-          icon: <Plus aria-hidden className="h-6 w-6" />,
-          label: messageText("Create a channel"),
-          onClick: onCreateChannel,
-          testId: "welcome-intro-action-create-channel",
-        });
-      }
-
-      if (onWelcomeAddAgent) {
-        actions.push({
-          icon: <Bot aria-hidden className="h-6 w-6" />,
-          label: messageText("Add AI agent"),
-          onClick: onWelcomeAddAgent,
-          testId: "welcome-intro-action-create-agent",
-        });
-      }
-
       return {
         actions,
         beginning: m("This is the beginning of your private welcome channel."),
@@ -88,9 +56,9 @@ export function useChannelIntro({
             : "private welcome channel"
           : getChannelIntroKind(activeChannel),
         channelName: activeChannel.name,
-        description: isWelcomeChannel(activeChannel)
-          ? null
-          : getChannelIntroDescription(activeChannel),
+        description: isRussian
+          ? "Здесь вы познакомитесь с командой центра. Физ, администратор, аналитик и контент-маркетолог расскажут, с чем могут помочь."
+          : "Meet your center’s team: Fizz, the administrator, analyst and content marketer will explain how they can help.",
         icon: <Sparkles aria-hidden className="h-7 w-7" />,
         leadIn: isRussian ? "Это начало" : undefined,
       };
@@ -129,14 +97,5 @@ export function useChannelIntro({
       channelName: activeChannel.name,
       description: getChannelIntroDescription(activeChannel),
     };
-  }, [
-    activeChannel,
-    m,
-    isRussian,
-    onAddAgent,
-    onBrowseChannels,
-    onCreateChannel,
-    onOpenMembers,
-    onWelcomeAddAgent,
-  ]);
+  }, [activeChannel, m, isRussian, onAddAgent, onOpenMembers]);
 }

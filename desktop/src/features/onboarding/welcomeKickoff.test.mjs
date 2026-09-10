@@ -90,7 +90,7 @@ test("durable receipts count only when authored by the stage role", () => {
   assert.equal(snapshot.inFlightStage, null);
 });
 
-test("a top-level owner message stops all not-yet-dispatched stages", () => {
+test("an owner message does not permanently stop unfinished introductions", () => {
   const snapshot = buildWelcomeKickoffSnapshot(
     [
       event(FIZZ, "fizz_intro"),
@@ -106,7 +106,7 @@ test("a top-level owner message stops all not-yet-dispatched stages", () => {
   );
 
   assert.equal(snapshot.ownerHasSpoken, true);
-  assert.equal(shouldDispatchKickoff(snapshot), false);
+  assert.equal(shouldDispatchKickoff(snapshot), true);
 });
 
 test("in-flight work and an unready target block duplicate dispatch", () => {
@@ -146,7 +146,8 @@ test("kickoff tasks are deterministic, localized, model-driven, and flat", () =>
   assert.match(task.instruction, /Андрей/);
   assert.match(task.instruction, /Airhop Kids/);
   assert.match(task.instruction, /top-level/i);
-  assert.match(task.instruction, /three short messages/i);
+  assert.match(task.instruction, /exactly one short message/i);
+  assert.match(task.instruction, /expects_reply=false/);
   assert.match(task.instruction, /airhop-kickoff-stage/);
 });
 

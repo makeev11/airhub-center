@@ -604,7 +604,7 @@ impl<C: AirhopRouteClient> WelcomeRouteGate<C> {
     }
 }
 
-fn is_kickoff_task(event: &Event) -> bool {
+pub(crate) fn is_kickoff_task(event: &Event) -> bool {
     u32::from(event.kind.as_u16()) == buzz_core::kind::KIND_AIRHOP_AGENT_TASK
         && has_tag(event, "airhop-task", None)
         && has_tag(event, "airhop-kickoff-stage", None)
