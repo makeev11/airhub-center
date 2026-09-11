@@ -568,6 +568,9 @@ type E2eConfig = {
     profileUpdateErrors?: string[];
     searchProfiles?: MockSearchProfileSeed[];
     updateAvailable?: boolean;
+    updateCheckError?: string;
+    updateDownloadError?: string;
+    updateInstallError?: string;
     updateChannelDelayMs?: number;
     updateDownloadDelayMs?: number;
     restartDelayMs?: number;
@@ -603,6 +606,8 @@ type E2eConfig = {
     relayRole?: "owner" | "admin" | "member" | null;
     /** Authoritative directory returned by the isolated AirHop fixture. */
     principalDirectory?: unknown;
+    agentPolicies?: import("@/features/airhop-agents/model/agentPolicy").AgentPolicies;
+    agentPolicyErrors?: string[];
     relayMembers?: Array<{
       pubkey: string;
       role: "owner" | "admin" | "member";
@@ -6861,6 +6866,8 @@ function notifyUpdaterFinished(payload: unknown) {
 }
 
 function handleUpdaterCheck(config: E2eConfig | undefined) {
+  if (config?.mock?.updateCheckError)
+    throw new Error(config.mock.updateCheckError);
   if (!config?.mock?.updateAvailable) {
     return null;
   }
@@ -6881,6 +6888,8 @@ async function handleUpdaterDownload(
   payload: unknown,
   config: E2eConfig | undefined,
 ) {
+  if (config?.mock?.updateDownloadError)
+    throw new Error(config.mock.updateDownloadError);
   const delayMs = config?.mock?.updateDownloadDelayMs ?? 0;
 
   if (delayMs > 0) {
@@ -6891,7 +6900,9 @@ async function handleUpdaterDownload(
   return 43;
 }
 
-function handleUpdaterInstall() {
+function handleUpdaterInstall(config: E2eConfig | undefined) {
+  if (config?.mock?.updateInstallError)
+    throw new Error(config.mock.updateInstallError);
   return null;
 }
 
@@ -10094,6 +10105,8 @@ function installMockAirhopWelcomeApi() {
         return new Response(
           JSON.stringify({
             principalDirectory: config.mock.principalDirectory,
+            agentPolicies: config.mock.agentPolicies,
+            organization: { timeZone: "Europe/Moscow" },
           }),
           { headers: { "Content-Type": "application/json" } },
         );
@@ -10101,6 +10114,24 @@ function installMockAirhopWelcomeApi() {
         status: 404,
         headers: { "Content-Type": "application/json" },
       });
+    }
+    if (
+      method === "POST" &&
+      url.pathname === "/events" &&
+      config.mock?.agentPolicies
+    ) {
+      const event =
+        typeof init?.body === "string" ? JSON.parse(init.body) : null;
+      if (event?.kind === 9052 || event?.kind === 9053) {
+        const { applyMockAgentPolicyCommand } = await import(
+          "./airhopAgentPolicyMock"
+        );
+        return applyMockAgentPolicyCommand(
+          config.mock.agentPolicies,
+          event,
+          config.mock.agentPolicyErrors?.shift(),
+        );
+      }
     }
     if (
       method === "PUT" &&
@@ -12868,7 +12899,7 @@ export function maybeInstallE2eTauriMocks() {
       case "plugin:updater|download":
         return handleUpdaterDownload(payload, activeConfig);
       case "plugin:updater|install":
-        return handleUpdaterInstall();
+        return handleUpdaterInstall(activeConfig);
       case "is_auto_update_supported":
         // Default true so all existing tests continue to use the auto-update
         // path. Set mock.autoUpdateSupported: false to simulate a .deb install.

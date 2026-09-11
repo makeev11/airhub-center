@@ -29,6 +29,7 @@ export default defineConfig({
       // Keep the upstream projects below for explicit compatibility audits.
       name: "airhop-center",
       testMatch: [
+        "**/airhop-updates.spec.ts",
         "**/airhop-schedule.spec.ts",
         "**/airhop-branch-settings-screenshots.spec.ts",
         "**/airhop-center-analytics.spec.ts",

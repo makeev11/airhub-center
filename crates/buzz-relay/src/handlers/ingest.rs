@@ -277,7 +277,7 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         // Ingest persists them to `moderation_reports` and suppresses public
         // storage/fanout; reports are signals, never enforcement triggers.
         KIND_REPORT | KIND_PRODUCT_FEEDBACK => Ok(Scope::MessagesWrite),
-        buzz_core::kind::KIND_AIRHOP_KNOWLEDGE_COMMAND | buzz_core::kind::KIND_AIRHOP_CLIENT_COMMAND => Ok(Scope::MessagesWrite),
+        buzz_core::kind::KIND_AIRHOP_KNOWLEDGE_COMMAND | buzz_core::kind::KIND_AIRHOP_CLIENT_COMMAND | buzz_core::kind::KIND_AIRHOP_AGENT_POLICY_COMMAND | buzz_core::kind::KIND_AIRHOP_AGENT_LEARNING_COMMAND => Ok(Scope::MessagesWrite),
         // Community moderation commands are direct, mod-authz-gated writes.
         // Scope only proves the transport can submit message writes; the
         // command handler owns role/capability authorization.
@@ -452,6 +452,7 @@ pub(crate) fn is_global_only_kind(kind: u32) -> bool {
         kind,
         buzz_core::kind::KIND_AIRHOP_KNOWLEDGE_COMMAND
             | buzz_core::kind::KIND_AIRHOP_CLIENT_COMMAND
+            | buzz_core::kind::KIND_AIRHOP_AGENT_POLICY_COMMAND
             | KIND_PROFILE
             | KIND_TEXT_NOTE
             | KIND_CONTACT_LIST
@@ -2282,6 +2283,19 @@ async fn ingest_event_inner(
         }
     }
 
+    if matches!(
+        kind_u32,
+        buzz_core::kind::KIND_STREAM_MESSAGE
+            | buzz_core::kind::KIND_STREAM_MESSAGE_V2
+            | buzz_core::kind::KIND_AIRHOP_AGENT_TASK
+    ) {
+        state
+            .db
+            .authorize_airhop_agent_publication(tenant, event.pubkey.as_bytes())
+            .await
+            .map_err(|error| IngestError::Rejected(error.to_string()))?;
+    }
+
     // Desktop publishes owner-signed semantic tasks through POST /events.
     // Keep this kind truly ephemeral while giving HTTP the same projection
     // and live fan-out semantics as the WebSocket EVENT path.
@@ -2333,6 +2347,25 @@ async fn ingest_event_inner(
         }
         let result = crate::api::airhop_knowledge::apply_command(state, tenant, &event).await?;
         emit_product_feedback_success(tracer, tenant, &event, &auth);
+        return Ok(IngestResult {
+            event_id: event_id_hex,
+            accepted: true,
+            message: result.to_string(),
+        });
+    }
+
+    if matches!(
+        kind_u32,
+        buzz_core::kind::KIND_AIRHOP_AGENT_POLICY_COMMAND
+            | buzz_core::kind::KIND_AIRHOP_AGENT_LEARNING_COMMAND
+    ) {
+        let result = crate::api::airhop_agent_policy::apply_command(
+            state,
+            tenant,
+            &event,
+            auth.channel_ids().is_some(),
+        )
+        .await?;
         return Ok(IngestResult {
             event_id: event_id_hex,
             accepted: true,

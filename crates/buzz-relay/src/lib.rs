@@ -4,6 +4,7 @@
 
 mod admission;
 
+pub mod airhop_agent_notices;
 /// AirHub monthly analytics publication.
 pub mod airhop_analytics;
 

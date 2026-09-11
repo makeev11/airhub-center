@@ -3,6 +3,8 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use airhop_core::agent_graph::{ExecutionGraph, GraphAction};
+use airhop_core::agent_policy::AgentRole;
 use airhop_core::conversation_booking::is_booking_confirmation;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -32,17 +34,32 @@ enum Node {
     Done,
 }
 
-#[derive(Default)]
 pub(super) struct Dialogue {
     pub(super) grant: String,
     node: Node,
     context: Option<Value>,
-    reads: usize,
-    writes: usize,
+    execution: ExecutionGraph,
     results: BTreeMap<String, Value>,
     pub(super) reply_receipt: Option<Value>,
     turn_started_at: Option<Instant>,
     pacing: Option<ReplyPacing>,
+    pub(super) learning: airhop_core::agent_learning::LearningTrace,
+}
+
+impl Default for Dialogue {
+    fn default() -> Self {
+        Self {
+            grant: String::new(),
+            node: Node::Context,
+            context: None,
+            execution: ExecutionGraph::new(AgentRole::ParentAdministrator),
+            results: BTreeMap::new(),
+            reply_receipt: None,
+            turn_started_at: None,
+            pacing: None,
+            learning: Default::default(),
+        }
+    }
 }
 
 impl Dialogue {
@@ -71,8 +88,10 @@ impl Dialogue {
                 Node::Recovery => "Use the error to recover or hand off. Do not claim success. Further reads and writes remain bounded.",
                 _ => "Use existing facts. Read only the missing facts for this question, or ask one useful clarification; then send one answer.",
             },
-            "remainingReads": 6usize.saturating_sub(self.reads),
-            "remainingWrites": 4usize.saturating_sub(self.writes),
+            "graphVersion": airhop_core::agent_graph::GRAPH_VERSION,
+            "remainingReads": self.execution.remaining_reads(),
+            "remainingWrites": self.execution.remaining_writes(),
+            "remainingAttempts": self.execution.remaining_attempts(),
         })
     }
 
@@ -83,6 +102,9 @@ impl Dialogue {
         }
         let key = request.to_string();
         if let Some(result) = self.results.get(&key) {
+            self.execution
+                .prepare(graph_action(operation), &key, true)
+                .map_err(str::to_owned)?;
             // A successful mutation receipt is safe to replay. Repeated reads
             // return a small reference instead of injecting the same large data.
             return Ok(Some(if is_read(operation) {
@@ -109,17 +131,9 @@ impl Dialogue {
         {
             return Err("The parent confirmed a ready draft. Commit its current version directly; do not repeat reads or change the draft. Core will recheck consent and availability.".into());
         }
-        if is_read(operation) {
-            if self.reads >= 6 {
-                return Err("Enough lookups for this turn. Answer with the available facts, ask one missing detail, or hand off; do not keep searching.".into());
-            }
-            self.reads += 1;
-        } else {
-            if self.writes >= 4 {
-                return Err("Action limit reached. Explain the current result or hand off; do not retry mutations in a loop.".into());
-            }
-            self.writes += 1;
-        }
+        self.execution
+            .prepare(graph_action(operation), &key, false)
+            .map_err(str::to_owned)?;
         self.node = match operation {
             "search_knowledge" => Node::Knowledge,
             "get_family" => Node::Family,
@@ -131,6 +145,14 @@ impl Dialogue {
 
     pub(super) fn observe(&mut self, request: &Value, response: &mut Value) {
         let operation = request["operation"].as_str().unwrap_or("");
+        self.execution.succeeded(graph_action(operation));
+        use airhop_core::agent_learning::FactSource;
+        match operation {
+            "get_family" => self.learning.read(FactSource::Family),
+            "search_knowledge" => self.learning.read(FactSource::Knowledge),
+            "list_booking_options" => self.learning.read(FactSource::Schedule),
+            _ => {}
+        }
         if operation == "get_turn_context" {
             let recovering = self.node == Node::Recovery;
             self.context = response.get("data").cloned();
@@ -157,6 +179,7 @@ impl Dialogue {
             // Branch routing and handoff targets must be refreshed after an
             // assignment, rather than using the old branch from our snapshot.
             self.context = None;
+            self.execution.invalidate_context();
             self.node = Node::Context;
         }
         // A write may change facts previously read. Re-read is then allowed;
@@ -174,6 +197,8 @@ impl Dialogue {
 
     pub(super) fn failed(&mut self) {
         self.node = Node::Recovery;
+        self.learning.failed();
+        self.execution.failed();
         // Keep successful mutation receipts but allow refreshing stale reads.
         self.results.retain(|key, _| {
             serde_json::from_str::<Value>(key)
@@ -182,7 +207,10 @@ impl Dialogue {
         });
     }
 
-    pub(super) fn validate_reply(&self, messages: &[String]) -> Result<(), String> {
+    pub(super) fn validate_reply(&mut self, messages: &[String]) -> Result<(), String> {
+        self.execution
+            .prepare(GraphAction::Reply, "reply", false)
+            .map_err(str::to_owned)?;
         if messages.is_empty() || messages.len() > 2 {
             return Err("Send one combined answer. A second message is allowed only for the exact booking preview.".into());
         }
@@ -257,6 +285,7 @@ impl Dialogue {
 
     pub(super) fn sent(&mut self, receipt: Value) {
         self.reply_receipt = Some(receipt);
+        self.execution.succeeded(GraphAction::Reply);
         self.node = Node::Done;
     }
 
@@ -309,6 +338,15 @@ impl Dialogue {
     }
 }
 
+fn graph_action(operation: &str) -> GraphAction {
+    match operation {
+        "get_turn_context" => GraphAction::Context,
+        "get_family" | "list_booking_options" | "search_knowledge" => GraphAction::Read,
+        "save_booking_draft" => GraphAction::Prepare,
+        _ => GraphAction::Commit,
+    }
+}
+
 fn is_read(operation: &str) -> bool {
     matches!(
         operation,
@@ -358,6 +396,33 @@ mod tests {
         graph.reset_for("lease-two".into());
         assert!(graph.reply_receipt.is_none());
         assert!(graph.prepare(&json!({"operation":"get_family"})).is_err());
+    }
+
+    #[test]
+    fn reply_cannot_skip_authorized_context_or_its_pacing() {
+        let mut graph = Dialogue::default();
+        graph.reset_for("new-grant".into());
+        assert!(graph.validate_reply(&["Hello".into()]).is_err());
+        assert!(graph.reply_receipt.is_none());
+    }
+
+    #[test]
+    fn branch_change_can_refresh_handoff_targets_after_regular_budget() {
+        let mut graph = start("Нужна помощь с занятиями", Value::Null);
+        for n in 0..5 {
+            let request = json!({"operation":"search_knowledge","query":format!("query-{n}")});
+            graph.prepare(&request).unwrap();
+            graph.observe(&request, &mut json!({"data":[]}));
+        }
+        let assign = json!({"operation":"assign_conversation_branch","branchId":"known"});
+        graph.prepare(&assign).unwrap();
+        graph.observe(&assign, &mut json!({"data":{"assigned":true}}));
+        let context = json!({"operation":"get_turn_context"});
+        graph.prepare(&context).unwrap();
+        graph.observe(&context, &mut json!({"data":{"handoffTargets":["staff"]}}));
+        assert!(graph
+            .validate_reply(&["Передаю администратору".into()])
+            .is_ok());
     }
 
     #[test]
@@ -419,7 +484,7 @@ mod tests {
 
     #[test]
     fn one_reply_or_answer_plus_exact_preview_without_duplicate_bubbles() {
-        let graph = start(
+        let mut graph = start(
             "ой, Путина",
             json!({"state":"ready","preview":"Новый итог"}),
         );

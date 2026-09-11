@@ -108,7 +108,9 @@ fn merge_personas_seeds_the_airhop_product_roles_with_stable_ids() {
     );
     assert!(airhop.iter().all(|record| record.is_builtin));
     assert!(airhop.iter().all(|record| record.is_active));
-    assert!(airhop.iter().all(|record| record.runtime.is_none()));
+    assert!(airhop
+        .iter()
+        .all(|record| record.runtime.as_deref() == Some("airhop-hermes")));
     assert!(airhop
         .iter()
         .all(|record| !record.system_prompt.contains("bee wordplay")));

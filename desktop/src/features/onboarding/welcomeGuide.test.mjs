@@ -204,6 +204,8 @@ test("all Welcome starters use the onboarding runtime preference", async () => {
     assert.equal(input.personaId, starter.personaId);
     assert.equal(input.teamId, WELCOME_TEAM_ID);
     assert.equal(input.relayUrl, RELAY_A);
+    assert.equal(input.respondTo, "anyone");
+    assert.deepEqual(input.respondToAllowlist, []);
     assert.equal(input.spawnAfterCreate, false);
     assert.equal(input.startOnAppLaunch, false);
   }
@@ -451,7 +453,7 @@ test("Welcome starters are isolated Airhop role runtimes in the flat Welcome fee
     RELAY_A,
   );
 
-  assert.equal(input.respondTo, "owner-only");
+  assert.equal(input.respondTo, "anyone");
   assert.deepEqual(input.respondToAllowlist, []);
   assert.equal(input.mcpCommand, "airhop-agent-mcp");
   assert.deepEqual(input.envVars, {
@@ -460,5 +462,24 @@ test("Welcome starters are isolated Airhop role runtimes in the flat Welcome fee
     BUZZ_AIRHOP_WELCOME_CHANNEL_ID: "welcome-channel",
     BUZZ_ACP_FLAT_CHANNELS: "welcome-channel",
     BUZZ_ACP_ROUTE_GATE: "airhop",
+    HERMES_ACP_BUILTIN_TOOLSETS: "",
+    HERMES_ACP_SKIP_CONFIGURED_MCP: "1",
   });
+});
+
+test("existing built-in team access is reconciled for admitted staff", () => {
+  const existing = makeAgent({
+    respondTo: "owner-only",
+    respondToAllowlist: [PUB_B],
+  });
+  const update = welcomeStarterRuntimeUpdate(existing, {
+    name: existing.name,
+    agentCommand: existing.agentCommand,
+    agentArgs: existing.agentArgs,
+    mcpCommand: existing.mcpCommand,
+    respondTo: "anyone",
+    respondToAllowlist: [],
+  });
+  assert.equal(update.respondTo, "anyone");
+  assert.deepEqual(update.respondToAllowlist, []);
 });

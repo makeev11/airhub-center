@@ -464,6 +464,10 @@ pub const KIND_AIRHOP_AGENT_TASK: u32 = 21021;
 pub const KIND_AIRHOP_KNOWLEDGE_COMMAND: u32 = 9050;
 /// Versioned client routing/status commands; not parent-facing messages.
 pub const KIND_AIRHOP_CLIENT_COMMAND: u32 = 9051;
+/// Private versioned organization agent settings; receipt only, never broadcast.
+pub const KIND_AIRHOP_AGENT_POLICY_COMMAND: u32 = 9052;
+/// Private, source-verified procedural experience and human-reviewed activation.
+pub const KIND_AIRHOP_AGENT_LEARNING_COMMAND: u32 = 9053;
 /// Ephemeral: owner-scoped encrypted agent observer telemetry and control frame.
 pub const KIND_AGENT_OBSERVER_FRAME: u32 = 24200;
 /// Ephemeral: huddle emoji reaction burst. Channel-scoped to the ephemeral
@@ -696,6 +700,8 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_HUDDLE_REACTION,
     KIND_AIRHOP_KNOWLEDGE_COMMAND,
     KIND_AIRHOP_CLIENT_COMMAND,
+    KIND_AIRHOP_AGENT_POLICY_COMMAND,
+    KIND_AIRHOP_AGENT_LEARNING_COMMAND,
     KIND_BLOSSOM_AUTH,
     KIND_PAIRING,
     KIND_AGENT_OBSERVER_FRAME,

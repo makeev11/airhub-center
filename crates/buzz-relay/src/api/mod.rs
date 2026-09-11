@@ -3,6 +3,7 @@
 pub mod admin;
 pub mod airhop_activation;
 pub mod airhop_agent_backend;
+pub(crate) mod airhop_agent_policy;
 pub mod airhop_agents;
 pub mod airhop_auth;
 pub mod airhop_channel_gateway;

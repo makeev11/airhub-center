@@ -571,7 +571,17 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 64);
+        assert_eq!(migrations.len(), 66);
+        assert_eq!(migrations[65].version, 66);
+        assert!(migrations[65]
+            .sql
+            .as_str()
+            .contains("CREATE TRIGGER airhop_agent_reply_publication"));
+        assert_eq!(migrations[64].version, 65);
+        assert!(migrations[64]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_agent_policies"));
         assert_eq!(migrations[63].version, 64);
         assert!(migrations[63]
             .sql

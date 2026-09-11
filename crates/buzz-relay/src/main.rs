@@ -706,7 +706,7 @@ async fn main() -> anyhow::Result<()> {
                     Ok(_) => {}
                     Err(error) => error!(%error, "AirHub overdue Buzz summary cycle failed"),
                 }
-                match buzz_relay::airhop_analytics::publish_pending_analytics_reports(&airhop_state)
+                match buzz_relay::airhop_agent_notices::publish_pending_agent_notices(&airhop_state)
                     .await
                 {
                     Ok(count) if count > 0 => {

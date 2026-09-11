@@ -540,6 +540,14 @@ pub(crate) async fn commit_reply(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let path = format!("{TURN_PATH_PREFIX}/{turn_id}/reply");
     let principal = authenticate_airhop_agent(&state, &headers, "POST", &path, Some(&body)).await?;
+    state
+        .db
+        .require_airhop_agent_enabled(
+            &principal.tenant,
+            airhop_core::agent_policy::AgentRole::ParentAdministrator,
+        )
+        .await
+        .map_err(map_db_error)?;
     let request: CommitReplyBody = serde_json::from_slice(&body)
         .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid Hermes reply JSON"))?;
     let intents = state
@@ -1090,6 +1098,7 @@ async fn get_turn_context(
         organization.version.to_string(),
         json!({
             "role": context.claims.role.as_str(),
+            "activeProcedure":state.db.active_airhop_agent_procedure(&context.principal.tenant,airhop_core::agent_policy::AgentRole::ParentAdministrator).await.map_err(map_db_error)?,
             "conversation": {
                 "id": context.claims.conversation_id,
                 "channelId": context.claims.channel_id,
@@ -1386,6 +1395,14 @@ async fn validate_live_context(
                 lease_token: claims.turn_lease_token,
                 agent_pubkey: principal.pubkey.to_bytes(),
             },
+        )
+        .await
+        .map_err(map_db_error)?;
+    state
+        .db
+        .require_airhop_agent_enabled(
+            &principal.tenant,
+            airhop_core::agent_policy::AgentRole::ParentAdministrator,
         )
         .await
         .map_err(map_db_error)?;
