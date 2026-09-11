@@ -70,3 +70,32 @@ test("a conflict is surfaced without retrying a stale client action", async () =
   );
   assert.equal(requests, 1);
 });
+
+test("routing configuration read does not request conversation rows", async () => {
+  let requestedUrl = "";
+  const service = new ClientInboxService({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (event) => event,
+    fetch: async (url) => {
+      requestedUrl = String(url);
+      return new Response(
+        JSON.stringify({
+          communityId: id,
+          viewerPubkey: "ab".repeat(32),
+          canManageRouting: true,
+          connections: [],
+          items: [],
+          nextCursor: null,
+          branches: [],
+          staff: [],
+        }),
+      );
+    },
+  });
+
+  await service.loadRoutingConfiguration();
+  assert.equal(
+    requestedUrl,
+    "https://center.example/api/airhop/staff/v1/client-conversations?configurationOnly=true",
+  );
+});

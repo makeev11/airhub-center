@@ -1078,6 +1078,13 @@ async fn get_turn_context(
         .is_some_and(|deployment| {
             deployment.auto_confirm_online_bookings && deployment.manage_bookings
         });
+    let conversation_routing = super::airhop_locations::enrich_conversation_routing(
+        state
+            .db
+            .client_turn_routing(&context.principal.tenant, context.claims.conversation_id)
+            .await
+            .map_err(map_db_error)?,
+    );
     Ok(read_envelope(
         &context.claims,
         organization.version.to_string(),
@@ -1107,7 +1114,7 @@ async fn get_turn_context(
             ).await.map_err(map_db_error)?,
             "bookingDraft": state.db.get_airhop_booking_draft(&context.principal.tenant, context.claims.conversation_id).await.map_err(map_db_error)?,
             "handoffTargets": handoff_targets,
-            "conversationRouting": state.db.client_turn_routing(&context.principal.tenant,context.claims.conversation_id).await.map_err(map_db_error)?,
+            "conversationRouting": conversation_routing,
             "policy": { "autoConfirmOnlineBookings": auto_confirm, "autoConfirmConversationBookings": auto_confirm },
             "capabilities": capability_names(&context.claims.capabilities),
         }),
@@ -1173,6 +1180,7 @@ async fn list_booking_options(
                 "id": branch.id,
                 "name": branch.name,
                 "address": branch.address,
+                "mapLinks": super::airhop_locations::branch_map_links(&branch.address),
             })).collect::<Vec<_>>(),
             "occurrences": occurrences.iter().map(parent_booking_option).collect::<Vec<_>>(),
         }),
@@ -1188,6 +1196,7 @@ fn parent_booking_option(occurrence: &PublicBookingOccurrence) -> Value {
         "branchId": occurrence.branch_id,
         "branchName": occurrence.branch_name,
         "branchAddress": occurrence.branch_address,
+        "mapLinks": super::airhop_locations::branch_map_links(&occurrence.branch_address),
         "roomName": occurrence.room_name,
         "teacherNames": occurrence.teacher_names,
         "date": occurrence.date,

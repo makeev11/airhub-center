@@ -103,7 +103,8 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
     "Enter a supported three-letter currency code, for example USD.",
   invalidPrice: "Enter a non-negative amount valid for the selected currency.",
   branchesTitle: "Branches",
-  branchesDescription: "Addresses, working hours, and work-channel routing.",
+  branchesDescription:
+    "Addresses, conversation responsibles, map links, and work channels.",
   addBranch: "Add branch",
   noBranchesTitle: "No branches yet",
   noBranchesDescription:

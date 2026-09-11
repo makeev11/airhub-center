@@ -577,6 +577,17 @@ test("active branches copy a branch-specific public booking URL", async ({
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(expectedUrl);
+
+  const branchCard = page.getByTestId("airhop-branch-kurskaya");
+  await branchCard.getByRole("button", { name: "Редактировать" }).click();
+  const mapLinks = page
+    .getByTestId("airhop-branch-map-links")
+    .getByRole("link");
+  await expect(mapLinks).toHaveCount(3);
+  await expect(mapLinks.nth(0)).toHaveAttribute(
+    "href",
+    /%D1%83%D0%BB\.%20%D0%97%D0%B5%D0%BC%D0%BB%D1%8F%D0%BD%D0%BE%D0%B9/,
+  );
 });
 
 test("AirHop manages branch rooms and preserves archived group links", async ({

@@ -30,6 +30,7 @@ export default defineConfig({
       name: "airhop-center",
       testMatch: [
         "**/airhop-schedule.spec.ts",
+        "**/airhop-branch-settings-screenshots.spec.ts",
         "**/airhop-center-analytics.spec.ts",
         "**/airhop-knowledge.spec.ts",
         "**/airhop-client-inbox.spec.ts",
@@ -60,6 +61,7 @@ export default defineConfig({
         "**/key-import-reveal.spec.ts",
         "**/navigation.spec.ts",
         "**/airhop-schedule.spec.ts",
+        "**/airhop-branch-settings-screenshots.spec.ts",
         "**/airhop-public-booking.spec.ts",
         "**/airhop-settings-localization.spec.ts",
         "**/airhop-clients.spec.ts",

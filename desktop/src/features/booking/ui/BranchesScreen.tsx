@@ -273,11 +273,12 @@ function BranchesContent({ createRequest }: { createRequest: number }) {
       <BranchFormDialog
         branch={selectedBranch}
         onOpenChange={setFormOpen}
-        onSaved={(kind) =>
+        onSaved={(kind, warning) =>
           setSuccessMessage(
-            kind === "created"
-              ? messages.branchCreated
-              : messages.branchUpdated,
+            warning ??
+              (kind === "created"
+                ? messages.branchCreated
+                : messages.branchUpdated),
           )
         }
         open={formOpen}

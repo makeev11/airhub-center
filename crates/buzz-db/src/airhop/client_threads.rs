@@ -23,6 +23,9 @@ mod tests;
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClientInboxFilter {
+    /// Return routing configuration without reading conversation rows.
+    #[serde(default)]
+    pub configuration_only: bool,
     /// Exact visible work channel for conversation presentation.
     pub channel_id: Option<Uuid>,
     /// Up to 100 visible thread roots, comma-separated hexadecimal event IDs.
@@ -141,10 +144,11 @@ impl Db {
                AND ($14::bytea IS NULL OR v.assignee_pubkey=$14)
                AND ($15::uuid IS NULL OR v.channel_id=$15)
                AND ($16::bytea[] IS NULL OR v.root_event_id=ANY($16))
+               AND NOT $17
              ORDER BY v.updated_at DESC,v.id DESC LIMIT 101")
             .bind(tenant.community().as_uuid()).bind(actor.as_slice()).bind(filter.branch_id).bind(filter.unassigned_branch)
             .bind(&filter.status).bind(filter.connection_id).bind(filter.mine).bind(&filter.search)
-            .bind(filter.family_id).bind(filter.conversation_id).bind(filter.before).bind(filter.after_id).bind(filter.representative_id).bind(assignee).bind(filter.channel_id).bind(roots).fetch_all(&self.pool).await?;
+            .bind(filter.family_id).bind(filter.conversation_id).bind(filter.before).bind(filter.after_id).bind(filter.representative_id).bind(assignee).bind(filter.channel_id).bind(roots).bind(filter.configuration_only).fetch_all(&self.pool).await?;
         let more = rows.len() > 100;
         let items: Vec<_> = rows.into_iter().take(100).collect();
         let cursor = if more {

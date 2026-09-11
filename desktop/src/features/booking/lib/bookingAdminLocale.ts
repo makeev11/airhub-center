@@ -99,7 +99,8 @@ const ru: BookingAdminMessages = {
   invalidPrice:
     "Укажите неотрицательную стоимость с точностью выбранной валюты.",
   branchesTitle: "Филиалы",
-  branchesDescription: "Адреса, рабочее время и маршрутизация рабочих каналов.",
+  branchesDescription:
+    "Адреса, ответственные за обращения, ссылки для карт и рабочие каналы.",
   addBranch: "Добавить филиал",
   noBranchesTitle: "Филиалов пока нет",
   noBranchesDescription:

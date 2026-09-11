@@ -3,6 +3,12 @@ import * as React from "react";
 
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
 import {
+  createHttpStaffSiteAnalyticsService,
+  type StaffSiteAnalyticsService,
+  type TrackingLinkList,
+} from "@/features/booking/data/staffSiteAnalyticsService";
+import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
+import {
   findBuzzWorkChannel,
   normalizeBuzzChannelName,
   suggestBuzzWorkChannels,
@@ -19,12 +25,17 @@ import {
   type WeeklyWorkingHours,
 } from "@/features/booking/model/bookingCore";
 import { BookingFeedbackBanners } from "@/features/booking/ui/BookingWorkspaceState";
+import { BranchOperationalSettings } from "@/features/booking/ui/BranchOperationalSettings";
 import { WorkingHoursEditor } from "@/features/booking/ui/WorkingHoursEditor";
 import { useBookingUnsavedChangesGuard } from "@/features/booking/ui/useBookingUnsavedChangesGuard";
 import {
   useChannelsQuery,
   useCreateChannelMutation,
 } from "@/features/channels/hooks";
+import {
+  ClientInboxService,
+  type ClientInbox,
+} from "@/features/client-inbox/data/clientInboxService";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
@@ -37,7 +48,6 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
-import { Textarea } from "@/shared/ui/textarea";
 
 type BranchForm = {
   id: string;
@@ -96,7 +106,7 @@ function FormField({
   label: string;
 }) {
   return (
-    <div className="grid gap-1.5 text-sm">
+    <div className="grid content-start gap-1.5 text-sm">
       <span className="font-medium">{label}</span>
       {children}
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
@@ -115,10 +125,15 @@ export function BranchFormDialog({
 }: {
   branch: BookingBranch | null;
   onOpenChange: (open: boolean) => void;
-  onSaved: (kind: "created" | "updated") => void;
+  onSaved: (kind: "created" | "updated", warning?: string) => void;
   open: boolean;
 }) {
   const booking = useBookingWorkspace();
+  const serverRuntime = currentAirhopStaffDataRuntime() === "server";
+  const [routingService] = React.useState(() => new ClientInboxService());
+  const [siteAnalyticsService] = React.useState<StaffSiteAnalyticsService>(() =>
+    createHttpStaffSiteAnalyticsService(),
+  );
   const channelsQuery = useChannelsQuery({ enabled: open });
   const createChannel = useCreateChannelMutation();
   const workspace = booking.workspace;
@@ -137,10 +152,24 @@ export function BranchFormDialog({
   }>({});
   const [overlapConfirmed, setOverlapConfirmed] = React.useState(false);
   const [channelTouched, setChannelTouched] = React.useState(false);
+  const [routing, setRouting] = React.useState<ClientInbox | null>(null);
+  const [tracking, setTracking] = React.useState<TrackingLinkList | null>(null);
+  const [operationsLoading, setOperationsLoading] = React.useState(false);
+  const [routingFailed, setRoutingFailed] = React.useState(false);
+  const [trackingFailed, setTrackingFailed] = React.useState(false);
+  const [generatingLinks, setGeneratingLinks] = React.useState(false);
+  const [selectedResponsibles, setSelectedResponsibles] = React.useState<
+    string[]
+  >([]);
+  const [responsiblesBaseline, setResponsiblesBaseline] = React.useState<
+    string[]
+  >([]);
+  const operationsRequest = React.useRef(0);
   const freshBranch = branch
     ? (workspace?.branches.find((candidate) => candidate.id === branch.id) ??
       null)
     : null;
+  const freshBranchId = freshBranch?.id;
 
   React.useEffect(() => {
     if (!open) return;
@@ -151,6 +180,58 @@ export function BranchFormDialog({
     setOverlapConfirmed(false);
     setChannelTouched(false);
   }, [freshBranch, open]);
+
+  React.useEffect(() => {
+    if (!open || !serverRuntime) {
+      setRouting(null);
+      setTracking(null);
+      setSelectedResponsibles([]);
+      setResponsiblesBaseline([]);
+      setRoutingFailed(false);
+      setTrackingFailed(false);
+      setOperationsLoading(false);
+      return;
+    }
+    const request = ++operationsRequest.current;
+    setOperationsLoading(true);
+    setRoutingFailed(false);
+    setTrackingFailed(false);
+    void Promise.allSettled([
+      routingService.loadRoutingConfiguration(),
+      siteAnalyticsService.listTrackingLinks(),
+    ]).then(([routingResult, trackingResult]) => {
+      if (request !== operationsRequest.current) return;
+      if (routingResult.status === "fulfilled") {
+        setRouting(routingResult.value);
+        const selected = freshBranchId
+          ? (routingResult.value.branches.find(
+              (candidate) => candidate.id === freshBranchId,
+            )?.responsiblePubkeys ?? [])
+          : [];
+        setSelectedResponsibles(selected);
+        setResponsiblesBaseline(selected);
+      } else {
+        setRouting(null);
+        setRoutingFailed(true);
+      }
+      if (trackingResult.status === "fulfilled") {
+        setTracking(trackingResult.value);
+      } else {
+        setTracking(null);
+        setTrackingFailed(true);
+      }
+      setOperationsLoading(false);
+    });
+    return () => {
+      operationsRequest.current += 1;
+    };
+  }, [
+    freshBranchId,
+    open,
+    routingService,
+    serverRuntime,
+    siteAnalyticsService,
+  ]);
 
   React.useEffect(() => {
     if (
@@ -190,16 +271,62 @@ export function BranchFormDialog({
     : suggestBuzzWorkChannels(channelsQuery.data ?? [], normalizedChannelName);
 
   const overlaps = findWorkingHoursOverlaps(form.workingHours);
+  const normalizedResponsibles = [...selectedResponsibles].sort();
+  const normalizedResponsiblesBaseline = [...responsiblesBaseline].sort();
+  const responsiblesDirty =
+    serverRuntime &&
+    routing?.canManageRouting === true &&
+    JSON.stringify(normalizedResponsibles) !==
+      JSON.stringify(normalizedResponsiblesBaseline);
   const dirty =
     open &&
     baseline !== null &&
-    JSON.stringify(form) !== JSON.stringify(baseline);
+    (JSON.stringify(form) !== JSON.stringify(baseline) || responsiblesDirty);
   useBookingUnsavedChangesGuard(dirty, messages.unsavedChangesConfirm);
   if (!workspace) return null;
 
   const requestOpenChange = (nextOpen: boolean) => {
     if (nextOpen || !dirty || window.confirm(messages.unsavedChangesConfirm)) {
       onOpenChange(nextOpen);
+    }
+  };
+
+  const ensureMapTrackingLinks = async (target: BookingBranch) => {
+    if (!serverRuntime || target.status !== "active") return;
+    setGeneratingLinks(true);
+    setTrackingFailed(false);
+    try {
+      let current = await siteAnalyticsService.listTrackingLinks();
+      const sources = ["yandex_maps", "google_maps", "two_gis"] as const;
+      for (const source of sources) {
+        const exists = current.items.some(
+          (link) =>
+            link.status === "active" &&
+            link.branchId === target.id &&
+            link.source === source,
+        );
+        if (exists) continue;
+        const provider =
+          source === "yandex_maps"
+            ? "Яндекс Карты"
+            : source === "google_maps"
+              ? "Google Maps"
+              : "2ГИС";
+        await siteAnalyticsService.createTrackingLink({
+          branchId: target.id,
+          destinationPath: "/booking/",
+          goal: "booking",
+          name: `${provider} — ${target.name}`,
+          source,
+        });
+        current = await siteAnalyticsService.listTrackingLinks();
+      }
+      setTracking(current);
+    } catch (error) {
+      setTrackingFailed(true);
+      throw error;
+    } finally {
+      setGeneratingLinks(false);
     }
   };
 
@@ -275,7 +402,10 @@ export function BranchFormDialog({
       return;
     }
     try {
-      await booking.save((current) => {
+      const previousBranchIds = new Set(
+        workspace.branches.map((candidate) => candidate.id),
+      );
+      const savedWorkspace = await booking.save((current) => {
         const { revision: _revision, ...draft } = current;
         const exists = current.branches.some(
           (candidate) => candidate.id === parsed.data.id,
@@ -289,7 +419,54 @@ export function BranchFormDialog({
             : [...current.branches, parsed.data],
         };
       });
-      onSaved(branch ? "updated" : "created");
+      const savedBranch = branch
+        ? savedWorkspace.branches.find(
+            (candidate) => candidate.id === branch.id,
+          )
+        : savedWorkspace.branches.find(
+            (candidate) => !previousBranchIds.has(candidate.id),
+          );
+      const warnings: string[] = [];
+      let responsibilitySaved = false;
+      if (responsiblesDirty && savedBranch && routing?.canManageRouting) {
+        try {
+          const freshRouting = await routingService.loadRoutingConfiguration();
+          const routingBranch = freshRouting.branches.find(
+            (candidate) => candidate.id === savedBranch.id,
+          );
+          if (!routingBranch) throw new Error("Branch routing is unavailable");
+          await routingService.setResponsibles(
+            freshRouting.communityId,
+            routingBranch,
+            normalizedResponsibles,
+          );
+          responsibilitySaved = true;
+        } catch {
+          warnings.push(
+            workspace.organization.locale.startsWith("ru")
+              ? "ответственные не сохранены"
+              : "responsibles were not saved",
+          );
+        }
+      }
+      if (savedBranch && serverRuntime && savedBranch.status === "active") {
+        try {
+          await ensureMapTrackingLinks(savedBranch);
+        } catch {
+          warnings.push(
+            workspace.organization.locale.startsWith("ru")
+              ? "ссылки для карт не созданы"
+              : "map listing links were not created",
+          );
+        }
+      }
+      if (responsibilitySaved) await booking.reload();
+      const warning = warnings.length
+        ? workspace.organization.locale.startsWith("ru")
+          ? `Филиал сохранён, но ${warnings.join(" и ")}. Повторите настройку.`
+          : `The branch was saved, but ${warnings.join(" and ")}. Try the setting again.`
+        : undefined;
+      onSaved(branch ? "updated" : "created", warning);
       onOpenChange(false);
     } catch {
       // Shared feedback keeps the form open for conflict review or retry.
@@ -321,7 +498,7 @@ export function BranchFormDialog({
             data-testid="airhop-branch-form-scroll"
           >
             <BookingFeedbackBanners />
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid items-start gap-4 md:grid-cols-2">
               <FormField error={errors.name} label={messages.branchName}>
                 <Input
                   aria-label={messages.branchName}
@@ -421,20 +598,28 @@ export function BranchFormDialog({
                 ) : null}
               </FormField>
             </div>
-            <FormField error={errors.address} label={messages.branchAddress}>
-              <Textarea
-                aria-label={messages.branchAddress}
-                data-testid="airhop-branch-address"
-                maxLength={500}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    address: event.target.value,
-                  }))
-                }
-                value={form.address}
-              />
-            </FormField>
+            <BranchOperationalSettings
+              address={form.address}
+              addressError={errors.address}
+              branchId={freshBranch?.id}
+              enableServerOperations={serverRuntime}
+              generatingLinks={generatingLinks}
+              loading={operationsLoading}
+              locale={workspace.organization.locale}
+              onAddressChange={(address) => {
+                setErrors((current) => ({ ...current, address: undefined }));
+                setForm((current) => ({ ...current, address }));
+              }}
+              onGenerateLinks={async () => {
+                if (freshBranch) await ensureMapTrackingLinks(freshBranch);
+              }}
+              onSelectedResponsiblesChange={setSelectedResponsibles}
+              routing={routing}
+              routingFailed={routingFailed}
+              selectedResponsibles={selectedResponsibles}
+              tracking={tracking}
+              trackingFailed={trackingFailed}
+            />
             <WorkingHoursEditor
               messages={messages}
               onChange={(workingHours) => {
@@ -483,7 +668,12 @@ export function BranchFormDialog({
               {messages.cancel}
             </Button>
             <Button
-              disabled={booking.isSaving || createChannel.isPending || !dirty}
+              disabled={
+                booking.isSaving ||
+                createChannel.isPending ||
+                generatingLinks ||
+                !dirty
+              }
               type="submit"
             >
               {booking.isSaving || createChannel.isPending

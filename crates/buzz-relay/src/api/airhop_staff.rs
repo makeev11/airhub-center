@@ -3399,6 +3399,7 @@ fn branch_json(branch: &AirhopBranch) -> Value {
         "organizationId": branch.organization_id,
         "name": branch.name,
         "address": branch.address,
+        "mapLinks": super::airhop_locations::branch_map_links(&branch.address),
         "workingHours": working_hours,
         "defaultBuzzChannelId": branch.default_buzz_channel_id,
         "status": branch.status,

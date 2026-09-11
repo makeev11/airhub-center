@@ -8,6 +8,7 @@ pub mod airhop_auth;
 pub mod airhop_channel_gateway;
 pub mod airhop_clients;
 pub mod airhop_knowledge;
+mod airhop_locations;
 pub mod airhop_public;
 pub mod airhop_staff;
 pub mod bridge;

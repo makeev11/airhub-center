@@ -1,5 +1,4 @@
 import * as React from "react";
-import { ClientRoutingSettings } from "./ClientRoutingSettings";
 import { ClientMigration } from "./ClientMigration";
 import { Link } from "@tanstack/react-router";
 import { MessageCircle, RefreshCw, Search } from "lucide-react";
@@ -150,14 +149,6 @@ export function ClientInboxScreen() {
               "Client, Hermes and staff messages stay in one thread. Branches determine responsibility; channel membership determines access.",
             )}
           </p>
-          {data?.canManageRouting && (
-            <ClientRoutingSettings
-              data={data}
-              service={service}
-              onSaved={load}
-              ru={ru}
-            />
-          )}
           <div className="flex flex-wrap items-center gap-3">
             <label
               htmlFor="client-inbox-search"

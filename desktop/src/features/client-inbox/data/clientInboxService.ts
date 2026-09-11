@@ -137,6 +137,9 @@ export class ClientInboxService {
       ),
     );
   }
+  async loadRoutingConfiguration() {
+    return this.load({ configurationOnly: "true" });
+  }
   async command(
     communityId: string,
     conversation: Pick<ClientConversation, "id" | "version">,
