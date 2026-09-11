@@ -1,7 +1,9 @@
 # AirHop Hermes Channel Gateway contract
 
-Статус: server foundation, Telegram self-service и hosted gateway supervisor реализованы  
-Дата: 2026-09-09 (кандидат shared-thread; ещё не выложен)
+Статус: server foundation, Telegram self-service, WhatsApp own-Meta
+provisioning и hosted WhatsApp text adapter реализованы; реальный Meta E2E и
+template lifecycle остаются release gates.
+Дата: 2026-09-11
 
 ## Граница ответственности
 
@@ -15,7 +17,8 @@ API напрямую.
 В первой версии допустимы только provider IDs:
 
 - `telegram` — upstream Telegram platform adapter Hermes Agent;
-- `whatsapp_cloud` — официальный WhatsApp Cloud adapter Hermes Agent.
+- `whatsapp_cloud` — официальный Meta WhatsApp Cloud API transport без
+  WhatsApp Web/QR-сессии.
 
 Обычные connection/runtime endpoints не принимают bot token, Meta access token,
 app secret или сырой webhook secret. Единственное исключение для Telegram:
@@ -60,6 +63,48 @@ Self-service включается только при совместной на�
 
 При отсутствии полного keyring GET остаётся доступным, но сообщает UI, что
 Telegram provisioning отключён; write endpoint fail-closed возвращает 503.
+
+### Подключить собственное Meta-приложение
+
+`POST /api/airhop/integrations/v1/channel-connections/whatsapp-cloud`
+
+```json
+{
+  "appId": "<numeric Meta App ID>",
+  "appSecret": "<write-only App Secret>",
+  "wabaId": "<numeric WABA ID>",
+  "phoneNumberId": "<numeric Phone Number ID>",
+  "accessToken": "<write-only System User Token>",
+  "hermesEnabled": true,
+  "routing": { "buzzChannelId": null, "branchId": null }
+}
+```
+
+Owner/admin endpoint проверяет токен чтением phone list выбранного WABA и
+требует точного совпадения Phone Number ID. Credential хранится как
+AES-256-GCM envelope с App ID, App Secret, WABA ID, Phone Number ID, access
+token и сгенерированным Verify Token. Keyed fingerprint строится по App ID, а
+отдельное DB-ограничение — по Phone Number ID. Поэтому одно приложение или один
+номер нельзя случайно подключить дважды в одной организации. В первой версии
+для каждого номера требуется отдельное Meta-приложение: callback у Meta
+app-scoped.
+
+Creation response с `Cache-Control: no-store` единственный раз возвращает
+connection-scoped Callback URL и Verify Token. После того как владелец сохранил
+их в Meta и включил field `messages`, Center вызывает:
+
+`POST /api/airhop/integrations/v1/channel-connections/{connectionId}/whatsapp-cloud/activate`
+
+Relay расшифровывает credential внутри owner/admin boundary и вызывает
+`/{wabaId}/subscribed_apps`. Успешный ответ означает только `connecting`;
+готовность появляется исключительно после heartbeat hosted WhatsApp adapter.
+
+Flow включается дополнительным HTTPS prefix:
+
+- `BUZZ_AIRHOP_WHATSAPP_WEBHOOK_BASE_URL=https://gateway.example/webhooks/whatsapp`.
+
+Полная инструкция владельца находится в
+[`docs/AIRHOP_WHATSAPP_OWN_META_APP_SETUP.md`](AIRHOP_WHATSAPP_OWN_META_APP_SETUP.md).
 
 ## Control plane
 
@@ -127,9 +172,11 @@ credential-free список активных/приостановленных c
 доступен тому же exact connector и только для bound, не disabled connection.
 Relay расшифровывает токен непосредственно перед ответом и ставит
 `Cache-Control: no-store`; Center UI этот endpoint не вызывает. Hosted
-supervisor периодически синхронизирует assignments, запускает отдельный Hermes
-Telegram runtime и отдельный SQLite spool на connection, останавливает runtime
-при pause/disable и подхватывает новое подключение без ручного redeploy.
+supervisor периодически синхронизирует assignments, запускает отдельный
+Telegram или WhatsApp runtime и отдельный SQLite spool на connection,
+останавливает runtime при pause/disable и подхватывает новое подключение без
+ручного redeploy. Один supervisor принадлежит одному развёртыванию Center;
+номер поддержки AirHub HQ является отдельным connection и не переиспользуется.
 
 ### Heartbeat
 

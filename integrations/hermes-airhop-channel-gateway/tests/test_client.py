@@ -8,11 +8,55 @@ from uuid import UUID
 
 import httpx
 
-from airhop_hermes_gateway.client import AirHopGatewayClient
+from airhop_hermes_gateway.client import AirHopGatewayClient, GatewayHttpError
 from airhop_hermes_gateway.nostr import NostrSigner
 
 
 class AirHopGatewayClientTest(unittest.IsolatedAsyncioTestCase):
+    async def test_whatsapp_credential_is_strict_scoped_and_redacted(self):
+        connection_id = UUID("50000000-0000-0000-0000-000000000005")
+        secret = "meta-app-secret-1234567890"
+        access_token = "system-user-token-1234567890"
+        envelope = {
+            "schemaVersion": "airhop.whatsapp-cloud-credential.v1",
+            "appId": "123456789012345",
+            "appSecret": secret,
+            "wabaId": "234567890123456",
+            "phoneNumberId": "345678901234567",
+            "accessToken": access_token,
+            "verifyToken": "ab" * 32,
+        }
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"cache-control": "no-store"},
+                json={
+                    "schemaVersion": "airhop.channel-gateway.credential.v1",
+                    "connectionId": str(connection_id),
+                    "provider": "whatsapp_cloud",
+                    "token": json.dumps(envelope, separators=(",", ":")),
+                },
+            )
+
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client = AirHopGatewayClient(
+            relay_url="https://center.example",
+            connection_id=None,
+            signer=NostrSigner("01" * 32),
+            timeout_seconds=5,
+            http_client=http,
+        )
+        credential = await client.get_whatsapp_credential(connection_id)
+        self.assertEqual(credential.phone_number_id, "345678901234567")
+        self.assertNotIn(secret, repr(credential))
+        self.assertNotIn(access_token, repr(credential))
+
+        envelope["unexpected"] = True
+        with self.assertRaisesRegex(GatewayHttpError, "invalid WhatsApp credential"):
+            await client.get_whatsapp_credential(connection_id)
+        await http.aclose()
+
     async def test_supervisor_fetches_assignments_and_write_only_credentials(self):
         requests = []
         connection_id = UUID("50000000-0000-0000-0000-000000000005")

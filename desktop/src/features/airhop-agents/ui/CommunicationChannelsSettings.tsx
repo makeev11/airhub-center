@@ -5,6 +5,7 @@ import {
   CircleAlert,
   KeyRound,
   LoaderCircle,
+  MessageCircle,
   Pause,
   Play,
   Plus,
@@ -38,6 +39,8 @@ import {
 import { Input } from "@/shared/ui/input";
 import { Switch } from "@/shared/ui/switch";
 
+import { WhatsAppOwnMetaSetupDialog } from "./WhatsAppOwnMetaSetupDialog";
+
 export const airhopConnectionsQueryKey = [
   "airhop",
   "channel-connections",
@@ -46,7 +49,8 @@ export const airhopConnectionsQueryKey = [
 type Copy = {
   title: string;
   description: string;
-  add: string;
+  addTelegram: string;
+  addWhatsApp: string;
   emptyTitle: string;
   emptyDescription: string;
   previewDescription: string;
@@ -81,10 +85,11 @@ const COPY: Record<AirHopLocale, Copy> = {
     title: "Каналы связи",
     description:
       "Подключения Telegram и WhatsApp, через которые центр общается с родителями.",
-    add: "Добавить канал",
+    addTelegram: "Добавить Telegram",
+    addWhatsApp: "Добавить WhatsApp",
     emptyTitle: "Каналы пока не подключены",
     emptyDescription:
-      "Начните с Telegram. После запуска адаптера здесь появится его фактическое состояние.",
+      "Добавьте Telegram-бота или официальный WhatsApp Cloud API. Здесь появится фактическое состояние адаптера.",
     previewDescription:
       "Подключения доступны в установленном Airhop Center. В режиме просмотра секреты и серверные настройки не открываются.",
     loading: "Проверяем подключения…",
@@ -124,10 +129,11 @@ const COPY: Record<AirHopLocale, Copy> = {
   "en-US": {
     title: "Communication channels",
     description: "Telegram and WhatsApp connections used to talk with parents.",
-    add: "Add channel",
+    addTelegram: "Add Telegram",
+    addWhatsApp: "Add WhatsApp",
     emptyTitle: "No channels connected yet",
     emptyDescription:
-      "Start with Telegram. Its live adapter status will appear here after launch.",
+      "Add a Telegram bot or official WhatsApp Cloud API. The adapter's live status will appear here.",
     previewDescription:
       "Connections are available in the installed Airhop Center. Secrets and server settings stay unavailable in preview mode.",
     loading: "Checking connections…",
@@ -168,10 +174,11 @@ const COPY: Record<AirHopLocale, Copy> = {
     title: "Canais de comunicação",
     description:
       "Conexões do Telegram e WhatsApp usadas para falar com responsáveis.",
-    add: "Adicionar canal",
+    addTelegram: "Adicionar Telegram",
+    addWhatsApp: "Adicionar WhatsApp",
     emptyTitle: "Nenhum canal conectado",
     emptyDescription:
-      "Comece pelo Telegram. O estado real do adaptador aparecerá aqui após a inicialização.",
+      "Adicione um bot do Telegram ou a API oficial do WhatsApp Cloud. O estado real do adaptador aparecerá aqui.",
     previewDescription:
       "As conexões estão disponíveis no Airhop Center instalado. Segredos e configurações do servidor não aparecem no modo de visualização.",
     loading: "Verificando conexões…",
@@ -212,10 +219,11 @@ const COPY: Record<AirHopLocale, Copy> = {
     title: "İletişim kanalları",
     description:
       "Velilerle iletişim için kullanılan Telegram ve WhatsApp bağlantıları.",
-    add: "Kanal ekle",
+    addTelegram: "Telegram ekle",
+    addWhatsApp: "WhatsApp ekle",
     emptyTitle: "Henüz kanal bağlı değil",
     emptyDescription:
-      "Telegram ile başlayın. Adaptör çalışınca canlı durumu burada görünür.",
+      "Bir Telegram botu veya resmi WhatsApp Cloud API ekleyin. Adaptörün canlı durumu burada görünür.",
     previewDescription:
       "Bağlantılar kurulu Airhop Center uygulamasında kullanılabilir. Önizleme modunda sırlar ve sunucu ayarları açılmaz.",
     loading: "Bağlantılar kontrol ediliyor…",
@@ -304,7 +312,11 @@ function ConnectionCard({
       <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 gap-3">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
-            <Send className="size-5" />
+            {connection.provider === "telegram" ? (
+              <Send className="size-5" />
+            ) : (
+              <MessageCircle className="size-5" />
+            )}
           </div>
           <div className="min-w-0">
             <CardTitle className="truncate text-lg">
@@ -533,7 +545,8 @@ export function CommunicationChannelsSettings({
   const locale = useAirHopLocale();
   const copy = COPY[locale];
   const [client] = React.useState(() => createAirhopControlPlaneClient());
-  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [telegramDialogOpen, setTelegramDialogOpen] = React.useState(false);
+  const [whatsAppDialogOpen, setWhatsAppDialogOpen] = React.useState(false);
   const [pendingIds, setPendingIds] = React.useState<Set<string>>(
     () => new Set(),
   );
@@ -612,7 +625,7 @@ export function CommunicationChannelsSettings({
     async (token: string, routing: ConnectionRouting) => {
       try {
         await connect({ token, routing });
-        setDialogOpen(false);
+        setTelegramDialogOpen(false);
         toast.success(copy.connected);
       } catch (error) {
         toast.error(
@@ -631,6 +644,28 @@ export function CommunicationChannelsSettings({
       copy.savingError,
       copy.unavailable,
     ],
+  );
+
+  const addWhatsAppConnection = React.useCallback(
+    async (input: Parameters<typeof client.connectWhatsAppCloud>[0]) => {
+      const result = await client.connectWhatsAppCloud(input);
+      await queryClient.invalidateQueries({ queryKey: ["channels"] });
+      await queryClient.invalidateQueries({
+        queryKey: airhopConnectionsQueryKey,
+      });
+      return result;
+    },
+    [client, queryClient],
+  );
+
+  const activateWhatsAppConnection = React.useCallback(
+    async (connectionId: string) => {
+      await client.activateWhatsAppCloud(connectionId);
+      await queryClient.invalidateQueries({
+        queryKey: airhopConnectionsQueryKey,
+      });
+    },
+    [client, queryClient],
   );
 
   if (!serverEnabled) {
@@ -654,14 +689,21 @@ export function CommunicationChannelsSettings({
           {copy.description}
         </p>
         {canManage ? (
-          <Button
-            disabled={!connections.data?.provisioning.telegram.available}
-            onClick={() => setDialogOpen(true)}
-            type="button"
-          >
-            <Plus />
-            {copy.add}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={!connections.data?.provisioning.telegram.available}
+              onClick={() => setTelegramDialogOpen(true)}
+              type="button"
+              variant="outline"
+            >
+              <Plus />
+              {copy.addTelegram}
+            </Button>
+            <Button onClick={() => setWhatsAppDialogOpen(true)} type="button">
+              <MessageCircle />
+              {copy.addWhatsApp}
+            </Button>
+          </div>
         ) : null}
       </div>
 
@@ -725,9 +767,18 @@ export function CommunicationChannelsSettings({
       <AddTelegramDialog
         copy={copy}
         onAdd={(token, routing) => void addConnection(token, routing)}
-        onOpenChange={setDialogOpen}
-        open={dialogOpen}
+        onOpenChange={setTelegramDialogOpen}
+        open={telegramDialogOpen}
         pending={isConnecting}
+      />
+      <WhatsAppOwnMetaSetupDialog
+        available={
+          connections.data?.provisioning.whatsappCloud.available ?? false
+        }
+        onActivate={activateWhatsAppConnection}
+        onConnect={addWhatsAppConnection}
+        onOpenChange={setWhatsAppDialogOpen}
+        open={whatsAppDialogOpen}
       />
     </section>
   );

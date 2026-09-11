@@ -155,6 +155,91 @@ test("Telegram token uses only the write-only provisioning request", async () =>
   assert.doesNotMatch(JSON.stringify(result), new RegExp(token));
 });
 
+test("WhatsApp secrets use one provisioning request and activation is credential-free", async () => {
+  const appSecret = "meta-app-secret-1234567890";
+  const accessToken = "system-user-token-1234567890";
+  const calls = [];
+  const signed = [];
+  const whatsappConnection = connection({
+    provider: "whatsapp_cloud",
+    displayName: "AirHop Test",
+    observedStatus: "connecting",
+  });
+  const responses = [
+    {
+      schemaVersion: "airhop.whatsapp-cloud-connection.v1",
+      connection: whatsappConnection,
+      meta: {
+        appId: "123456789012345",
+        wabaId: "234567890123456",
+        phoneNumberId: "345678901234567",
+        displayPhoneNumber: "+55 11 99999-0000",
+        verifiedName: "AirHop Test",
+        qualityRating: "GREEN",
+      },
+      webhook: {
+        callbackUrl: `https://gateway.example/webhooks/whatsapp/${CONNECTION_ID}`,
+        verifyToken: "ab".repeat(32),
+        field: "messages",
+      },
+    },
+    {
+      schemaVersion: "airhop.whatsapp-cloud-activation.v1",
+      connectionId: CONNECTION_ID,
+      subscribed: true,
+      status: "connecting",
+    },
+  ];
+  const client = createAirhopControlPlaneClient({
+    relayHttpUrl: async () => "https://center.example",
+    nonceFactory: () => "nonce-whatsapp",
+    signEvent: async (input) => {
+      signed.push(input);
+      return { id: "event", kind: input.kind };
+    },
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify(responses.shift()), { status: 200 });
+    },
+  });
+
+  const result = await client.connectWhatsAppCloud({
+    appId: "123456789012345",
+    appSecret,
+    wabaId: "234567890123456",
+    phoneNumberId: "345678901234567",
+    accessToken,
+  });
+  await client.activateWhatsAppCloud(CONNECTION_ID);
+
+  assert.equal(result.connection.provider, "whatsapp_cloud");
+  assert.equal(
+    calls[0].url,
+    "https://center.example/api/airhop/integrations/v1/channel-connections/whatsapp-cloud",
+  );
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    appId: "123456789012345",
+    appSecret,
+    wabaId: "234567890123456",
+    phoneNumberId: "345678901234567",
+    accessToken,
+    hermesEnabled: true,
+  });
+  assert.equal(
+    calls[1].url,
+    `https://center.example/api/airhop/integrations/v1/channel-connections/${CONNECTION_ID}/whatsapp-cloud/activate`,
+  );
+  assert.deepEqual(JSON.parse(calls[1].init.body), {});
+  assert.doesNotMatch(
+    JSON.stringify(signed),
+    /meta-app-secret|system-user-token/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /meta-app-secret|system-user-token/,
+  );
+});
+
 test("Hermes toggle preserves pinned deployment identity and revisions", async () => {
   const current = deployment();
   const bodies = [];

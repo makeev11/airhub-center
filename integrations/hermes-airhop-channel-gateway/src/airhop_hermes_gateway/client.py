@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
+import re
 from typing import Any, TYPE_CHECKING
 from uuid import UUID
 
@@ -45,6 +46,25 @@ class GatewayAssignment:
     connection_id: UUID
     provider: str
     status: str
+
+
+@dataclass(frozen=True)
+class GatewayCredential:
+    connection_id: UUID
+    provider: str
+    token: str = field(repr=False)
+
+
+@dataclass(frozen=True)
+class WhatsAppCredential:
+    """Validated center-owned Meta credential without secret repr output."""
+
+    app_id: str
+    waba_id: str
+    phone_number_id: str
+    app_secret: str = field(repr=False)
+    access_token: str = field(repr=False)
+    verify_token: str = field(repr=False)
 
 
 class AirHopGatewayClient:
@@ -89,7 +109,7 @@ class AirHopGatewayClient:
             raise GatewayHttpError(503, "AirHop gateway transport unavailable") from exc
         try:
             result = response.json()
-        except json.JSONDecodeError as exc:
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise GatewayHttpError(
                 response.status_code,
                 f"AirHop gateway returned non-JSON HTTP {response.status_code}",
@@ -158,7 +178,9 @@ class AirHopGatewayClient:
             )
         return parsed
 
-    async def get_credential(self, connection_id: UUID) -> str:
+    async def get_gateway_credential(
+        self, connection_id: UUID
+    ) -> GatewayCredential:
         result = await self._get(
             "/api/airhop/integrations/v1/channel-gateway/connections/"
             f"{connection_id}/credential"
@@ -166,9 +188,88 @@ class AirHopGatewayClient:
         if str(result.get("connectionId")) != str(connection_id):
             raise GatewayHttpError(502, "AirHop gateway credential scope mismatch")
         token = result.get("token")
-        if result.get("provider") != "telegram" or not isinstance(token, str) or not token:
+        provider = result.get("provider")
+        if (
+            provider not in {"telegram", "whatsapp_cloud"}
+            or not isinstance(token, str)
+            or not token
+        ):
             raise GatewayHttpError(502, "AirHop gateway returned invalid credential")
-        return token
+        return GatewayCredential(
+            connection_id=connection_id,
+            provider=provider,
+            token=token,
+        )
+
+    async def get_credential(self, connection_id: UUID) -> str:
+        """Returns a Telegram token for the legacy Telegram runtime seam."""
+        credential = await self.get_gateway_credential(connection_id)
+        if credential.provider != "telegram":
+            raise GatewayHttpError(502, "AirHop gateway returned invalid credential")
+        return credential.token
+
+    async def get_whatsapp_credential(
+        self, connection_id: UUID
+    ) -> WhatsAppCredential:
+        credential = await self.get_gateway_credential(connection_id)
+        if credential.provider != "whatsapp_cloud":
+            raise GatewayHttpError(502, "AirHop gateway returned invalid credential")
+        try:
+            value = json.loads(credential.token)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise GatewayHttpError(
+                502, "AirHop gateway returned invalid WhatsApp credential"
+            ) from exc
+        expected = {
+            "schemaVersion",
+            "appId",
+            "appSecret",
+            "wabaId",
+            "phoneNumberId",
+            "accessToken",
+            "verifyToken",
+        }
+        if not isinstance(value, dict) or set(value) != expected:
+            raise GatewayHttpError(
+                502, "AirHop gateway returned invalid WhatsApp credential"
+            )
+        app_id = value.get("appId")
+        app_secret = value.get("appSecret")
+        waba_id = value.get("wabaId")
+        phone_number_id = value.get("phoneNumberId")
+        access_token = value.get("accessToken")
+        verify_token = value.get("verifyToken")
+        valid_id = lambda item: isinstance(item, str) and bool(
+            re.fullmatch(r"\d{5,40}", item)
+        )
+        if (
+            value.get("schemaVersion") != "airhop.whatsapp-cloud-credential.v1"
+            or not valid_id(app_id)
+            or not valid_id(waba_id)
+            or not valid_id(phone_number_id)
+            or not isinstance(app_secret, str)
+            or not 16 <= len(app_secret) <= 512
+            or not re.fullmatch(r"[A-Za-z0-9_-]+", app_secret)
+            or not isinstance(access_token, str)
+            or not 16 <= len(access_token) <= 4096
+            or any(
+                character.isspace() or not character.isprintable()
+                for character in access_token
+            )
+            or not isinstance(verify_token, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", verify_token)
+        ):
+            raise GatewayHttpError(
+                502, "AirHop gateway returned invalid WhatsApp credential"
+            )
+        return WhatsAppCredential(
+            app_id=app_id,
+            app_secret=app_secret,
+            waba_id=waba_id,
+            phone_number_id=phone_number_id,
+            access_token=access_token,
+            verify_token=verify_token,
+        )
 
     async def resolve_route(self, provider_chat_id: str, handoff_token_digest: str | None = None) -> RouteResolution:
         connection_id = self._required_connection_id()

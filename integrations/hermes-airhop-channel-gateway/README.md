@@ -1,9 +1,10 @@
 # AirHop Hermes Channel Gateway
 
-This deployment role reuses the official Hermes Agent Telegram transport and
-keeps AirHop as the authority for conversations, Hermes turns, and outbound
-delivery state. It does not run the Hermes model loop and does not copy the
-Telegram Bot API implementation.
+This deployment role hosts provider transports while keeping AirHop as the
+authority for conversations, Hermes turns, and outbound delivery state. It
+reuses the official Hermes Agent Telegram transport and talks directly to the
+official Meta WhatsApp Cloud API for center-owned Meta applications. It never
+uses a WhatsApp Web/QR session and does not run the Hermes model loop.
 
 Pinned upstream:
 
@@ -33,18 +34,38 @@ workspace member and must match `BUZZ_AIRHOP_TELEGRAM_CONNECTOR_PUBKEY` on
 Relay. The private connector key exists only in this process.
 
 With no `AIRHOP_CONNECTION_ID`, the process runs as a supervisor. It polls the
-credential-free assignment endpoint and starts one isolated Hermes Telegram
-runtime and SQLite spool per active connection. Owners paste BotFather tokens
-inside Airhop Center. Relay validates and encrypts those tokens, and returns
-plaintext only to this exact authenticated connector with `Cache-Control:
-no-store`.
+credential-free assignment endpoint and starts one isolated runtime and SQLite
+spool per active Telegram or WhatsApp connection. Owners enter provider
+credentials inside AirHop Center. Relay validates and encrypts them, and
+returns plaintext only to this exact authenticated connector with
+`Cache-Control: no-store`.
+
+This gateway instance belongs to exactly one AirHop Center deployment. It can
+host several connections inside that Center, but credentials and routes never
+cross the Relay tenant boundary. The existing AirHub HQ support number is a
+different deployment/app/connection and is not reused for partner Centers.
 
 Optional tuning:
 
 ```dotenv
 AIRHOP_GATEWAY_STATE_ROOT=/var/lib/airhop-channel-gateway/connections
-AIRHOP_ASSIGNMENT_SYNC_SECONDS=15
+AIRHOP_ASSIGNMENT_SYNC_SECONDS=5
+AIRHOP_WHATSAPP_WEBHOOK_HOST=0.0.0.0
+AIRHOP_WHATSAPP_WEBHOOK_PORT=8443
+AIRHOP_WHATSAPP_WEBHOOK_MAX_BODY_BYTES=1048576
 ```
+
+WhatsApp self-service additionally requires Relay to advertise the public HTTPS
+route that a reverse proxy sends to this port:
+
+```dotenv
+BUZZ_AIRHOP_WHATSAPP_WEBHOOK_BASE_URL=https://center.example.com/webhooks/whatsapp
+```
+
+The connection UUID is appended automatically. The callback accepts Meta's GET
+verification and signed POST notifications only for the exact connection. In
+the first release, use a separate Meta application for every connected phone
+number because Meta configures the callback at application level.
 
 Legacy single-connection mode remains available for migration. When
 `TELEGRAM_BOT_TOKEN` is omitted, the process retrieves the encrypted credential
@@ -84,7 +105,8 @@ responsibility changes notifications, not permissions.
 
 ## Failure semantics
 
-- Inbound Telegram text is first written to a SQLite WAL with `synchronous=FULL`.
+- Inbound Telegram and WhatsApp text is first written to a SQLite WAL with
+  `synchronous=FULL`.
 - The state directory is mode `0700`, the database is `0600`, and the deployment
   volume must use encrypted storage. Delivered rows are deleted immediately;
   dead rows are retained for seven days by default for diagnosis, then reaped.
@@ -98,7 +120,16 @@ responsibility changes notifications, not permissions.
 - Hermes `SendResult` permanent failures finish immediately; retryable errors
   use provider delay and the server retry fence.
 
-Only private Telegram DMs and text/command/location content are readable in this
+WhatsApp POSTs are authenticated with `X-Hub-Signature-256` over the untouched
+request body before JSON parsing. Payloads are fenced to the stored WABA and
+Phone Number ID. Successful provider message IDs are persisted before Relay
+acknowledgement so an ambiguous completion does not resend the same text.
+Free-form outbound text is allowed only inside the durable 24-hour service
+window opened by an inbound message; outside it the job finishes with
+`whatsapp_template_required`. Template sends are intentionally not part of this
+first slice.
+
+Only private Telegram DMs and WhatsApp direct messages are readable in this
 slice. Other content produces a durable, visible unsupported-attachment notice
 instead of being discarded. It does not upload the original or transcribe voice;
 the parent runtime asks for text and can notify staff through an internal handoff.

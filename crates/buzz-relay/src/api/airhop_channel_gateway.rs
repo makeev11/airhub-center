@@ -12,11 +12,11 @@ use axum::response::Json;
 use hmac::digest::KeyInit as HmacKeyInit;
 use hmac::{Hmac, Mac};
 use nostr::{Event, PublicKey};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use buzz_db::airhop::channel_gateway::{
     ChannelConnection, ExternalDeliveryAckState, ExternalDeliveryCompletion,
@@ -33,8 +33,11 @@ use super::{api_error, internal_error};
 const CONNECTION_PREFIX: &str = "/api/airhop/integrations/v1/channel-connections";
 const GATEWAY_PREFIX: &str = "/api/airhop/integrations/v1/channel-gateway";
 const TELEGRAM_CONNECTION_PATH: &str = "/api/airhop/integrations/v1/channel-connections/telegram";
+const WHATSAPP_CONNECTION_PATH: &str =
+    "/api/airhop/integrations/v1/channel-connections/whatsapp-cloud";
 const GATEWAY_ASSIGNMENTS_PATH: &str = "/api/airhop/integrations/v1/channel-gateway/assignments";
 const TELEGRAM_API_ORIGIN: &str = "https://api.telegram.org";
+const META_GRAPH_ORIGIN: &str = "https://graph.facebook.com/v26.0";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -59,6 +62,81 @@ pub(crate) struct ConnectTelegramBody {
     token: String,
     #[serde(default = "default_true")]
     hermes_enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ConnectWhatsAppBody {
+    routing: Option<buzz_db::airhop::channel_gateway::ConnectionRouting>,
+    app_id: String,
+    app_secret: String,
+    waba_id: String,
+    phone_number_id: String,
+    access_token: String,
+    #[serde(default = "default_true")]
+    hermes_enabled: bool,
+}
+
+impl Drop for ConnectWhatsAppBody {
+    fn drop(&mut self) {
+        self.app_secret.zeroize();
+        self.access_token.zeroize();
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ActivateWhatsAppBody {}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WhatsAppCredentialEnvelope<'a> {
+    schema_version: &'static str,
+    app_id: &'a str,
+    app_secret: &'a str,
+    waba_id: &'a str,
+    phone_number_id: &'a str,
+    access_token: &'a str,
+    verify_token: &'a str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredWhatsAppCredential {
+    schema_version: String,
+    app_id: String,
+    app_secret: String,
+    waba_id: String,
+    phone_number_id: String,
+    access_token: String,
+    verify_token: String,
+}
+
+impl Drop for StoredWhatsAppCredential {
+    fn drop(&mut self) {
+        self.app_secret.zeroize();
+        self.access_token.zeroize();
+        self.verify_token.zeroize();
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct MetaPhoneList {
+    #[serde(default)]
+    data: Vec<MetaPhoneIdentity>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MetaPhoneIdentity {
+    id: String,
+    display_phone_number: Option<String>,
+    verified_name: Option<String>,
+    quality_rating: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MetaSuccess {
+    success: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -195,6 +273,11 @@ pub(crate) async fn list_connections(
             "telegram": {
                 "available": state.config.airhop_channel_gateway.is_some(),
             },
+            "whatsappCloud": {
+                "available": state.config.airhop_channel_gateway.as_ref()
+                    .and_then(|gateway| gateway.whatsapp_webhook_base_url())
+                    .is_some(),
+            },
         },
     })))
 }
@@ -300,6 +383,256 @@ pub(crate) async fn connect_telegram(
     })))
 }
 
+/// Verifies and encrypts credentials for a center-owned Meta application.
+pub(crate) async fn connect_whatsapp_cloud(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<(HeaderMap, Json<Value>), (StatusCode, Json<Value>)> {
+    let principal = authenticate_airhop(
+        &state,
+        &headers,
+        "POST",
+        WHATSAPP_CONNECTION_PATH,
+        Some(&body),
+    )
+    .await?;
+    require_owner_or_admin(&principal.member_role)?;
+    let mut request: ConnectWhatsAppBody =
+        parse_body(&body, "invalid WhatsApp Cloud connection JSON")?;
+    let routing = request.routing.take();
+    let app_id = std::mem::take(&mut request.app_id).trim().to_owned();
+    let app_secret = Zeroizing::new(std::mem::take(&mut request.app_secret).trim().to_owned());
+    let waba_id = std::mem::take(&mut request.waba_id).trim().to_owned();
+    let phone_number_id = std::mem::take(&mut request.phone_number_id)
+        .trim()
+        .to_owned();
+    let access_token = Zeroizing::new(std::mem::take(&mut request.access_token).trim().to_owned());
+    let hermes_enabled = request.hermes_enabled;
+    if !valid_meta_id(&app_id)
+        || !valid_meta_id(&waba_id)
+        || !valid_meta_id(&phone_number_id)
+        || !valid_meta_app_secret(&app_secret)
+        || !valid_meta_access_token(&access_token)
+    {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid WhatsApp Cloud credentials",
+        ));
+    }
+    let gateway = state
+        .config
+        .airhop_channel_gateway
+        .as_ref()
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "WhatsApp Cloud self-service is not configured",
+            )
+        })?;
+    let webhook_base_url = gateway.whatsapp_webhook_base_url().ok_or_else(|| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "WhatsApp Cloud self-service is not configured",
+        )
+    })?;
+    let phone =
+        verify_whatsapp_phone(META_GRAPH_ORIGIN, &waba_id, &phone_number_id, &access_token).await?;
+    let display_phone_number = phone
+        .display_phone_number
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::BAD_GATEWAY,
+                "Meta did not return the WhatsApp display phone number",
+            )
+        })?
+        .to_owned();
+    let verified_name = phone
+        .verified_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.chars().count() <= 160)
+        .map(str::to_owned);
+    let display_name = verified_name
+        .clone()
+        .unwrap_or_else(|| display_phone_number.clone());
+    let connection_id = Uuid::new_v4();
+    let callback_url = format!("{webhook_base_url}/{connection_id}");
+    let verify_token = Zeroizing::new(hex::encode(rand::random::<[u8; 32]>()));
+    let credential = Zeroizing::new(
+        serde_json::to_vec(&WhatsAppCredentialEnvelope {
+            schema_version: "airhop.whatsapp-cloud-credential.v1",
+            app_id: &app_id,
+            app_secret: &app_secret,
+            waba_id: &waba_id,
+            phone_number_id: &phone_number_id,
+            access_token: &access_token,
+            verify_token: &verify_token,
+        })
+        .map_err(|_| internal_error("WhatsApp credential serialization failed"))?,
+    );
+    let provider = "whatsapp_cloud";
+    let aad = credential_aad(
+        *principal.tenant.community().as_uuid(),
+        connection_id,
+        provider,
+    );
+    let key_version = gateway.current_credential_key_version();
+    let key = gateway
+        .credential_key(key_version)
+        .ok_or_else(|| internal_error("current AirHop channel credential key is unavailable"))?;
+    let nonce: [u8; 12] = rand::random();
+    let ciphertext = encrypt_credential(key, &nonce, aad.as_bytes(), &credential)?;
+    // Meta configures the callback at app level. Fence one connection per
+    // customer-owned app in this first release, while the DB's provider
+    // identity constraint separately prevents reconnecting the same phone.
+    let identity = format!("app:{app_id}");
+    let fingerprint = credential_fingerprint(gateway.credential_index_key(), provider, &identity)?;
+    let connection = state
+        .db
+        .provision_airhop_channel_connection(
+            &principal.tenant,
+            &ProvisionChannelConnectionInput {
+                connection: PutChannelConnectionInput {
+                    routing,
+                    connection_id,
+                    provider: provider.to_owned(),
+                    display_name,
+                    connector_pubkey: gateway.telegram_connector_pubkey(),
+                    status: "active".to_owned(),
+                    hermes_enabled,
+                    capabilities: json!({
+                        "setupMode": "customer_meta_app",
+                        "text": true,
+                        "templates": false,
+                        "appId": app_id,
+                        "wabaId": waba_id,
+                        "phoneNumberId": phone_number_id,
+                        "displayPhoneNumber": display_phone_number,
+                        "qualityRating": phone.quality_rating,
+                        "webhookCallbackUrl": callback_url,
+                    }),
+                    expected_version: 0,
+                    updated_by_pubkey: principal.pubkey.to_bytes(),
+                },
+                credential_ciphertext: ciphertext,
+                credential_nonce: nonce,
+                credential_key_version: key_version,
+                credential_fingerprint: fingerprint,
+                provider_bot_id: phone_number_id.clone(),
+                provider_bot_username: Some(display_phone_number.clone()),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    notify_connection_channel(
+        &state,
+        &principal.tenant,
+        &connection,
+        &principal.pubkey.to_bytes(),
+    )
+    .await;
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response_headers.insert(PRAGMA, HeaderValue::from_static("no-cache"));
+    Ok((
+        response_headers,
+        Json(json!({
+            "schemaVersion": "airhop.whatsapp-cloud-connection.v1",
+            "connection": connection_json(&connection),
+            "meta": {
+                "appId": app_id,
+                "wabaId": waba_id,
+                "phoneNumberId": phone_number_id,
+                "displayPhoneNumber": display_phone_number,
+                "verifiedName": verified_name,
+                "qualityRating": phone.quality_rating,
+            },
+            "webhook": {
+                "callbackUrl": callback_url,
+                "verifyToken": verify_token.as_str(),
+                "field": "messages",
+            },
+        })),
+    ))
+}
+
+/// Subscribes the center-owned Meta application after callback verification.
+pub(crate) async fn activate_whatsapp_cloud(
+    State(state): State<Arc<AppState>>,
+    Path(connection_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("{CONNECTION_PREFIX}/{connection_id}/whatsapp-cloud/activate");
+    let principal = authenticate_airhop(&state, &headers, "POST", &path, Some(&body)).await?;
+    require_owner_or_admin(&principal.member_role)?;
+    let _: ActivateWhatsAppBody = parse_body(&body, "invalid WhatsApp activation JSON")?;
+    let gateway = state
+        .config
+        .airhop_channel_gateway
+        .as_ref()
+        .filter(|gateway| gateway.whatsapp_webhook_base_url().is_some())
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "WhatsApp Cloud self-service is not configured",
+            )
+        })?;
+    let encrypted = state
+        .db
+        .get_airhop_channel_credential_for_connector(
+            &principal.tenant,
+            connection_id,
+            gateway.telegram_connector_pubkey(),
+        )
+        .await
+        .map_err(map_db_error)?;
+    if encrypted.provider != "whatsapp_cloud" {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "channel connection is not WhatsApp Cloud",
+        ));
+    }
+    let key = gateway
+        .credential_key(encrypted.key_version)
+        .ok_or_else(|| internal_error("AirHop channel credential key is unavailable"))?;
+    let aad = credential_aad(
+        *principal.tenant.community().as_uuid(),
+        encrypted.connection_id,
+        &encrypted.provider,
+    );
+    let plaintext =
+        decrypt_credential(key, &encrypted.nonce, aad.as_bytes(), &encrypted.ciphertext)?;
+    let credential: StoredWhatsAppCredential = serde_json::from_slice(&plaintext)
+        .map_err(|_| internal_error("stored WhatsApp credential is invalid"))?;
+    if credential.schema_version != "airhop.whatsapp-cloud-credential.v1"
+        || !valid_meta_id(&credential.app_id)
+        || !valid_meta_id(&credential.waba_id)
+        || !valid_meta_id(&credential.phone_number_id)
+        || !valid_meta_app_secret(&credential.app_secret)
+        || !valid_meta_access_token(&credential.access_token)
+        || credential.verify_token.len() != 64
+    {
+        return Err(internal_error("stored WhatsApp credential is invalid"));
+    }
+    subscribe_whatsapp_app(
+        META_GRAPH_ORIGIN,
+        &credential.waba_id,
+        &credential.access_token,
+    )
+    .await?;
+    Ok(Json(json!({
+        "schemaVersion": "airhop.whatsapp-cloud-activation.v1",
+        "connectionId": connection_id,
+        "subscribed": true,
+        "status": "connecting",
+    })))
+}
+
 /// Lists self-service assignments for the exact hosted gateway principal.
 pub(crate) async fn list_gateway_assignments(
     State(state): State<Arc<AppState>>,
@@ -307,13 +640,10 @@ pub(crate) async fn list_gateway_assignments(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let principal =
         authenticate_airhop(&state, &headers, "GET", GATEWAY_ASSIGNMENTS_PATH, None).await?;
-    let gateway = require_gateway_principal(&state, principal.pubkey.to_bytes())?;
+    require_gateway_principal(&state, principal.pubkey.to_bytes())?;
     let assignments = state
         .db
-        .list_airhop_channel_gateway_assignments(
-            &principal.tenant,
-            gateway.telegram_connector_pubkey(),
-        )
+        .list_airhop_channel_gateway_assignments(&principal.tenant, principal.pubkey.to_bytes())
         .await
         .map_err(map_db_error)?;
     Ok(Json(json!({
@@ -350,8 +680,10 @@ pub(crate) async fn get_gateway_credential(
     );
     let plaintext =
         decrypt_credential(key, &encrypted.nonce, aad.as_bytes(), &encrypted.ciphertext)?;
-    let token = String::from_utf8(plaintext.to_vec())
-        .map_err(|_| internal_error("stored AirHop channel credential is invalid"))?;
+    let token = Zeroizing::new(
+        String::from_utf8(plaintext.to_vec())
+            .map_err(|_| internal_error("stored AirHop channel credential is invalid"))?,
+    );
     let mut response_headers = HeaderMap::new();
     response_headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response_headers.insert(PRAGMA, HeaderValue::from_static("no-cache"));
@@ -361,7 +693,7 @@ pub(crate) async fn get_gateway_credential(
             "schemaVersion": "airhop.channel-gateway.credential.v1",
             "connectionId": encrypted.connection_id,
             "provider": encrypted.provider,
-            "token": token,
+            "token": token.as_str(),
         })),
     ))
 }
@@ -918,6 +1250,23 @@ fn valid_telegram_token_shape(token: &str) -> bool {
             .all(|value| value.is_ascii_alphanumeric() || matches!(value, b'_' | b'-'))
 }
 
+fn valid_meta_id(value: &str) -> bool {
+    (5..=40).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn valid_meta_app_secret(value: &str) -> bool {
+    (16..=512).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+fn valid_meta_access_token(value: &str) -> bool {
+    (16..=4096).contains(&value.len())
+        && !value.chars().any(char::is_whitespace)
+        && value.chars().all(|character| !character.is_control())
+}
+
 fn credential_aad(community_id: Uuid, connection_id: Uuid, provider: &str) -> String {
     format!(
         "airhop.channel-credential.v1:{community_id}:{connection_id}:{}",
@@ -1039,6 +1388,121 @@ async fn verify_telegram_bot(
     Ok(bot)
 }
 
+async fn verify_whatsapp_phone(
+    origin: &str,
+    waba_id: &str,
+    phone_number_id: &str,
+    access_token: &str,
+) -> Result<MetaPhoneIdentity, (StatusCode, Json<Value>)> {
+    let url = format!(
+        "{}/{waba_id}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating&limit=100",
+        origin.trim_end_matches('/')
+    );
+    let client = meta_client()?;
+    let response = client
+        .get(url)
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .map_err(|_| api_error(StatusCode::BAD_GATEWAY, "Meta is temporarily unavailable"))?;
+    if matches!(response.status().as_u16(), 400 | 401 | 403 | 404) {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Meta rejected the WhatsApp token, WABA, or permissions",
+        ));
+    }
+    if !response.status().is_success() {
+        return Err(api_error(
+            StatusCode::BAD_GATEWAY,
+            "Meta is temporarily unavailable",
+        ));
+    }
+    let envelope: MetaPhoneList = response.json().await.map_err(|_| {
+        api_error(
+            StatusCode::BAD_GATEWAY,
+            "Meta returned an invalid WhatsApp response",
+        )
+    })?;
+    let phone = envelope
+        .data
+        .into_iter()
+        .find(|candidate| candidate.id == phone_number_id)
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::BAD_REQUEST,
+                "Meta did not confirm that the phone number belongs to this WABA",
+            )
+        })?;
+    if phone.id.chars().count() > 40
+        || phone
+            .display_phone_number
+            .as_ref()
+            .is_some_and(|value| value.trim().is_empty() || value.chars().count() > 40)
+        || phone
+            .verified_name
+            .as_ref()
+            .is_some_and(|value| value.trim().is_empty() || value.chars().count() > 160)
+        || phone
+            .quality_rating
+            .as_ref()
+            .is_some_and(|value| value.trim().is_empty() || value.chars().count() > 40)
+    {
+        return Err(api_error(
+            StatusCode::BAD_GATEWAY,
+            "Meta returned invalid WhatsApp phone metadata",
+        ));
+    }
+    Ok(phone)
+}
+
+async fn subscribe_whatsapp_app(
+    origin: &str,
+    waba_id: &str,
+    access_token: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let url = format!("{}/{waba_id}/subscribed_apps", origin.trim_end_matches('/'));
+    let response = meta_client()?
+        .post(url)
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .map_err(|_| api_error(StatusCode::BAD_GATEWAY, "Meta is temporarily unavailable"))?;
+    if matches!(response.status().as_u16(), 400 | 401 | 403 | 404) {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Meta rejected the WhatsApp app subscription",
+        ));
+    }
+    if !response.status().is_success() {
+        return Err(api_error(
+            StatusCode::BAD_GATEWAY,
+            "Meta is temporarily unavailable",
+        ));
+    }
+    let envelope: MetaSuccess = response.json().await.map_err(|_| {
+        api_error(
+            StatusCode::BAD_GATEWAY,
+            "Meta returned an invalid WhatsApp response",
+        )
+    })?;
+    if envelope.success != Some(true) {
+        return Err(api_error(
+            StatusCode::BAD_GATEWAY,
+            "Meta did not confirm the WhatsApp app subscription",
+        ));
+    }
+    Ok(())
+}
+
+fn meta_client() -> Result<reqwest::Client, (StatusCode, Json<Value>)> {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| internal_error("Meta verification client setup failed"))
+}
+
 fn scoped_digest(
     state: &AppState,
     domain: &[u8],
@@ -1109,6 +1573,16 @@ mod tests {
             "connectorPubkey": "11".repeat(32),
         });
         assert!(serde_json::from_value::<ConnectTelegramBody>(telegram).is_err());
+
+        let whatsapp = json!({
+            "appId": "123456789012345",
+            "appSecret": "app-secret-1234567890",
+            "wabaId": "234567890123456",
+            "phoneNumberId": "345678901234567",
+            "accessToken": "system-user-token-1234567890",
+            "verifyToken": "must-be-generated-by-server",
+        });
+        assert!(serde_json::from_value::<ConnectWhatsAppBody>(whatsapp).is_err());
 
         let connection = json!({
             "provider": "telegram",
@@ -1181,6 +1655,19 @@ mod tests {
         .is_err());
     }
 
+    #[test]
+    fn whatsapp_identifiers_and_secrets_are_closed_and_bounded() {
+        assert!(valid_meta_id("123456789012345"));
+        assert!(!valid_meta_id("+5511999999999"));
+        assert!(valid_meta_app_secret("app-secret-1234567890"));
+        assert!(!valid_meta_app_secret("contains whitespace"));
+        assert!(valid_meta_access_token("system-user-token-1234567890"));
+        assert!(!valid_meta_access_token("short"));
+        assert!(!valid_meta_access_token(
+            "system-user-token with whitespace"
+        ));
+    }
+
     #[tokio::test]
     async fn telegram_verification_uses_get_me_and_returns_only_safe_identity() {
         async fn get_me(Path(path): Path<String>) -> Json<Value> {
@@ -1210,6 +1697,87 @@ mod tests {
         .unwrap();
         assert_eq!(bot.id, 123456789);
         assert_eq!(bot.username.as_deref(), Some("airhop_demo_bot"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn whatsapp_verification_requires_the_phone_in_the_selected_waba() {
+        async fn phones(headers: HeaderMap) -> Json<Value> {
+            assert_eq!(
+                headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok()),
+                Some("Bearer system-user-token-1234567890")
+            );
+            Json(json!({
+                "data": [{
+                    "id": "345678901234567",
+                    "display_phone_number": "+55 11 99999-0000",
+                    "verified_name": "AirHop Test",
+                    "quality_rating": "GREEN"
+                }]
+            }))
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app =
+            axum::Router::new().route("/234567890123456/phone_numbers", axum::routing::get(phones));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let phone = verify_whatsapp_phone(
+            &format!("http://{address}"),
+            "234567890123456",
+            "345678901234567",
+            "system-user-token-1234567890",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            phone.display_phone_number.as_deref(),
+            Some("+55 11 99999-0000")
+        );
+        let error = verify_whatsapp_phone(
+            &format!("http://{address}"),
+            "234567890123456",
+            "456789012345678",
+            "system-user-token-1234567890",
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.0, StatusCode::BAD_REQUEST);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn whatsapp_activation_uses_the_waba_subscription_endpoint() {
+        async fn subscribe(headers: HeaderMap) -> Json<Value> {
+            assert_eq!(
+                headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok()),
+                Some("Bearer system-user-token-1234567890")
+            );
+            Json(json!({"success": true}))
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = axum::Router::new().route(
+            "/234567890123456/subscribed_apps",
+            axum::routing::post(subscribe),
+        );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        subscribe_whatsapp_app(
+            &format!("http://{address}"),
+            "234567890123456",
+            "system-user-token-1234567890",
+        )
+        .await
+        .unwrap();
         server.abort();
     }
 

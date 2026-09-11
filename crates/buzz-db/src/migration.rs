@@ -571,7 +571,14 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 67);
+        assert_eq!(migrations.len(), 68);
+        assert_eq!(migrations[67].version, 68);
+        assert!(migrations[67]
+            .sql
+            .as_str()
+            .contains("provider IN ('telegram', 'whatsapp_cloud')"));
+        assert!(migrations[67].sql.as_str().contains("BETWEEN 17 AND 8192"));
+        assert!(migrations[67].sql.as_str().contains("provider_bot_id"));
         assert_eq!(migrations[66].version, 67);
         assert!(migrations[66]
             .sql

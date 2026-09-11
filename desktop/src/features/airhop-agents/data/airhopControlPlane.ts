@@ -38,8 +38,14 @@ const connectionsResponseSchema = z.object({
   provisioning: z
     .object({
       telegram: z.object({ available: z.boolean() }),
+      whatsappCloud: z
+        .object({ available: z.boolean() })
+        .default({ available: false }),
     })
-    .default({ telegram: { available: false } }),
+    .default({
+      telegram: { available: false },
+      whatsappCloud: { available: false },
+    }),
 });
 
 const connectionResponseSchema = z.object({
@@ -55,6 +61,31 @@ const telegramConnectionResponseSchema = z.object({
     firstName: z.string().min(1),
     username: z.string().min(1).nullable(),
   }),
+});
+
+const whatsappCloudConnectionResponseSchema = z.object({
+  schemaVersion: z.literal("airhop.whatsapp-cloud-connection.v1"),
+  connection: channelConnectionSchema,
+  meta: z.object({
+    appId: z.string().regex(/^\d{5,40}$/),
+    wabaId: z.string().regex(/^\d{5,40}$/),
+    phoneNumberId: z.string().regex(/^\d{5,40}$/),
+    displayPhoneNumber: z.string().min(5).max(40),
+    verifiedName: z.string().min(1).max(160).nullable(),
+    qualityRating: z.string().min(1).max(40).nullable(),
+  }),
+  webhook: z.object({
+    callbackUrl: z.string().url(),
+    verifyToken: z.string().regex(/^[0-9a-f]{64}$/),
+    field: z.literal("messages"),
+  }),
+});
+
+const whatsappCloudActivationResponseSchema = z.object({
+  schemaVersion: z.literal("airhop.whatsapp-cloud-activation.v1"),
+  connectionId: z.string().uuid(),
+  subscribed: z.literal(true),
+  status: z.literal("connecting"),
 });
 
 const hermesDeploymentSchema = z.object({
@@ -91,6 +122,9 @@ export type AirhopConnectionsOverview = z.infer<
 export type AirhopTelegramConnection = z.infer<
   typeof telegramConnectionResponseSchema
 >;
+export type AirhopWhatsAppCloudConnection = z.infer<
+  typeof whatsappCloudConnectionResponseSchema
+>;
 export type AirhopHermesDeployment = z.infer<typeof hermesDeploymentSchema>;
 
 export type PutAirhopChannelConnection = Readonly<{
@@ -109,6 +143,15 @@ export type ConnectionRouting = {
   buzzChannelId: string | null;
   branchId: string | null;
 };
+
+export type ConnectAirhopWhatsAppCloud = Readonly<{
+  routing?: ConnectionRouting;
+  appId: string;
+  appSecret: string;
+  wabaId: string;
+  phoneNumberId: string;
+  accessToken: string;
+}>;
 
 type EventSigner = (input: {
   kind: number;
@@ -314,6 +357,29 @@ export class AirhopControlPlaneClient {
     return telegramConnectionResponseSchema.parse(payload);
   }
 
+  async connectWhatsAppCloud(
+    input: ConnectAirhopWhatsAppCloud,
+  ): Promise<AirhopWhatsAppCloudConnection> {
+    const payload = await this.request(
+      "POST",
+      `${CONNECTIONS_PATH}/whatsapp-cloud`,
+      {
+        ...input,
+        hermesEnabled: true,
+      },
+    );
+    return whatsappCloudConnectionResponseSchema.parse(payload);
+  }
+
+  async activateWhatsAppCloud(connectionId: string): Promise<void> {
+    const payload = await this.request(
+      "POST",
+      `${CONNECTIONS_PATH}/${connectionId}/whatsapp-cloud/activate`,
+      {},
+    );
+    whatsappCloudActivationResponseSchema.parse(payload);
+  }
+
   async putConnection(
     input: PutAirhopChannelConnection,
   ): Promise<AirhopChannelConnection> {
@@ -387,6 +453,7 @@ export class AirhopControlPlaneClient {
       this.signEvent,
     );
     const response = await this.fetchImplementation(url, {
+      cache: "no-store",
       method,
       headers: {
         Accept: "application/json",

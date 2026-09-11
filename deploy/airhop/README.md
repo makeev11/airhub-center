@@ -84,12 +84,12 @@ it never appears in chat or shell history:
 ./deploy/airhop/set-deepseek-key.sh /opt/airhop-center-pilot/shared/.env
 ```
 
-Start the model runtime and Telegram gateway together:
+Start the model runtime and provider gateway together:
 
 ```bash
 AIRHOP_ENV_FILE=.env docker compose \
   --env-file deploy/airhop/.env -f deploy/airhop/compose.yml \
-  --profile hermes --profile telegram \
+  --profile hermes --profile channels \
   up -d --build --wait hermes-parent-runtime telegram-gateway
 ```
 
@@ -145,7 +145,7 @@ gateway, two dedicated state volumes, and the relay's channel-credential
 configuration.
 
 Build and pin three immutable images from the same source revision: the root
-Dockerfile's `runtime-airhop` target, the parent runtime, and the Telegram
+Dockerfile's `runtime-airhop` target, the parent runtime, and the provider
 gateway. Add the channel encryption keys, dedicated Hermes/connector keypairs,
 DeepSeek key, model id, public relay URLs, and those three image tags to the
 existing deployment environment. The add-on explicitly blanks model/provider
@@ -158,7 +158,7 @@ docker compose --env-file /absolute/path/to/.env \
   -f /absolute/path/to/base-compose.yml \
   -f /absolute/path/to/host-override.yml \
   -f /absolute/path/to/compose.existing.yml \
-  --profile hermes --profile telegram config --quiet
+  --profile hermes --profile channels config --quiet
 ```
 
 Update the relay first and wait for readiness/migrations. Then run the normal
@@ -179,28 +179,29 @@ AIRHOP_SKIP_IMAGE_BUILD=1 \
 ./scripts/bootstrap-airhop-hermes.sh
 ```
 
-The relay accepts a Telegram token only through the owner/admin write-only
-self-service endpoint, verifies it, and stores AES-256-GCM ciphertext. The
-encryption/index keys stay in deployment secrets outside Postgres. The
-optional `telegram` Compose profile runs a separate pinned Hermes messaging
-adapter and retrieves plaintext only as the exact configured connector through
+The relay accepts Telegram and WhatsApp credentials only through owner/admin
+write-only self-service endpoints, verifies them, and stores AES-256-GCM
+ciphertext. The encryption/index keys stay in deployment secrets outside
+Postgres. The optional `channels` Compose profile runs a separate provider
+gateway and retrieves plaintext only as the exact configured connector through
 the NIP-98 API documented in `docs/AIRHOP_HERMES_CHANNEL_GATEWAY_CONTRACT.md`.
 
 Before enabling it, generate the credential index/encryption keys and one
 gateway signing key, configure the derived public key on Relay, and register
 that public key as an active workspace member. Start the hosted supervisor;
-owners can then paste BotFather tokens in **Settings → Communication channels**
-without another deployment:
+owners can then connect Telegram bots and center-owned Meta applications in
+**Settings → Communication channels** without another deployment:
 
 ```bash
-AIRHOP_ENV_FILE=.env docker compose --profile telegram \
+AIRHOP_ENV_FILE=.env docker compose --profile channels \
   --env-file deploy/airhop/.env -f deploy/airhop/compose.yml \
   up -d --build --wait telegram-gateway
 ```
 
-Polling is the hosted multi-connection default. Webhook mode is reserved for
-the legacy single-connection deployment because every bot needs an independently
-routed webhook URL and secret.
+Telegram polling is the hosted default. WhatsApp uses the connection-scoped
+public `/webhooks/whatsapp/{connectionId}` route. Configure
+`AIRHOP_WHATSAPP_WEBHOOK_BASE_URL=https://<center-host>/webhooks/whatsapp` and
+enable the reverse-proxy labels before allowing WhatsApp credential intake.
 
 ## Local demo data
 

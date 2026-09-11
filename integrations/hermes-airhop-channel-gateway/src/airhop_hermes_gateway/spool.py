@@ -70,6 +70,33 @@ class InboundSpool:
             if "handoff_token_digest" not in columns:
                 connection.execute("ALTER TABLE inbound_spool ADD COLUMN handoff_token_digest TEXT")
             connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS runtime_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS provider_contact_activity (
+                    provider_chat_id TEXT PRIMARY KEY,
+                    last_inbound_at INTEGER NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS outbound_receipts (
+                    outbox_id TEXT PRIMARY KEY,
+                    provider_message_id TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )
+                """
+            )
+            connection.execute(
                 "UPDATE inbound_spool SET status = 'pending', next_attempt_at = 0 "
                 "WHERE status = 'processing'"
             )
@@ -82,6 +109,7 @@ class InboundSpool:
         content: str,
         received_at: int,
         handoff_token_digest: str | None = None,
+        touch_inbound_at: int | None = None,
     ) -> bool:
         return await asyncio.to_thread(
             self._put,
@@ -90,6 +118,7 @@ class InboundSpool:
             content,
             received_at,
             handoff_token_digest,
+            touch_inbound_at,
         )
 
     def put_sync(
@@ -100,6 +129,7 @@ class InboundSpool:
         content: str,
         received_at: int,
         handoff_token_digest: str | None = None,
+        touch_inbound_at: int | None = None,
     ) -> bool:
         """Commit provider inbound before its SDK handler may acknowledge it."""
         return self._put(
@@ -108,6 +138,7 @@ class InboundSpool:
             content,
             received_at,
             handoff_token_digest,
+            touch_inbound_at,
         )
 
     def _put(
@@ -117,6 +148,7 @@ class InboundSpool:
         content: str,
         received_at: int,
         handoff_token_digest: str | None = None,
+        touch_inbound_at: int | None = None,
     ) -> bool:
         now = time.time()
         with self._connect() as connection:
@@ -126,7 +158,91 @@ class InboundSpool:
                 ") VALUES (?, ?, ?, ?, ?, ?)",
                 (provider_event_id, provider_chat_id, content, received_at, now, handoff_token_digest),
             )
+            if touch_inbound_at is not None:
+                connection.execute(
+                    "INSERT INTO provider_contact_activity ("
+                    "provider_chat_id, last_inbound_at, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(provider_chat_id) DO UPDATE SET "
+                    "last_inbound_at = max(last_inbound_at, excluded.last_inbound_at), "
+                    "updated_at = excluded.updated_at",
+                    (provider_chat_id, touch_inbound_at, now),
+                )
             return result.rowcount == 1
+
+    async def set_runtime_state(self, key: str, value: str) -> None:
+        await asyncio.to_thread(self._set_runtime_state, key, value)
+
+    def _set_runtime_state(self, key: str, value: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO runtime_state (key, value, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "updated_at = excluded.updated_at",
+                (key, value, time.time()),
+            )
+
+    async def get_runtime_state(self, key: str) -> str | None:
+        return await asyncio.to_thread(self._get_runtime_state, key)
+
+    def _get_runtime_state(self, key: str) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM runtime_state WHERE key = ?", (key,)
+            ).fetchone()
+            return str(row["value"]) if row is not None else None
+
+    async def last_inbound_at(self, provider_chat_id: str) -> int | None:
+        return await asyncio.to_thread(self._last_inbound_at, provider_chat_id)
+
+    def _last_inbound_at(self, provider_chat_id: str) -> int | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT last_inbound_at FROM provider_contact_activity "
+                "WHERE provider_chat_id = ?",
+                (provider_chat_id,),
+            ).fetchone()
+            return int(row["last_inbound_at"]) if row is not None else None
+
+    async def record_outbound_receipt(
+        self, outbox_id: str, provider_message_id: str
+    ) -> None:
+        await asyncio.to_thread(
+            self._record_outbound_receipt, outbox_id, provider_message_id
+        )
+
+    def _record_outbound_receipt(
+        self, outbox_id: str, provider_message_id: str
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO outbound_receipts (outbox_id, provider_message_id, created_at) "
+                "VALUES (?, ?, ?) ON CONFLICT(outbox_id) DO NOTHING",
+                (outbox_id, provider_message_id, time.time()),
+            )
+
+    async def outbound_receipt(self, outbox_id: str) -> str | None:
+        return await asyncio.to_thread(self._outbound_receipt, outbox_id)
+
+    def _outbound_receipt(self, outbox_id: str) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT provider_message_id FROM outbound_receipts WHERE outbox_id = ?",
+                (outbox_id,),
+            ).fetchone()
+            return str(row["provider_message_id"]) if row is not None else None
+
+    async def prune_outbound_receipts(self, retention_seconds: int) -> int:
+        return await asyncio.to_thread(
+            self._prune_outbound_receipts, retention_seconds
+        )
+
+    def _prune_outbound_receipts(self, retention_seconds: int) -> int:
+        cutoff = time.time() - retention_seconds
+        with self._connect() as connection:
+            result = connection.execute(
+                "DELETE FROM outbound_receipts WHERE created_at < ?", (cutoff,)
+            )
+            return result.rowcount
 
     async def claim(self) -> InboundItem | None:
         return await asyncio.to_thread(self._claim)

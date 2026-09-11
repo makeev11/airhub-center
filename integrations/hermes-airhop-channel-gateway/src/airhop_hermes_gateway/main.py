@@ -1,4 +1,4 @@
-"""Process entry point for the pinned Hermes Telegram deployment role."""
+"""Process entry point for the AirHop provider gateway deployment role."""
 
 from __future__ import annotations
 
@@ -10,10 +10,12 @@ import signal
 from uuid import UUID
 
 from .client import AirHopGatewayClient
-from .config import Settings
+from .config import Settings, WhatsAppSettings
 from .nostr import NostrSigner
 from .runtime import TelegramGatewayRuntime
 from .supervisor import GatewaySupervisor, SupervisorSettings
+from .webhook_server import WhatsAppWebhookServer
+from .whatsapp import WhatsAppGatewayRuntime, WhatsAppWebhookRouter
 
 
 def _build_adapter(settings: Settings):
@@ -121,17 +123,48 @@ async def _run() -> None:
         signer=signer,
         timeout_seconds=supervisor_settings.http_timeout_seconds,
     )
+    whatsapp_router = WhatsAppWebhookRouter()
+    webhook_server = WhatsAppWebhookServer(
+        router=whatsapp_router,
+        host=supervisor_settings.whatsapp_webhook_host,
+        port=supervisor_settings.whatsapp_webhook_port,
+        max_body_bytes=supervisor_settings.whatsapp_webhook_max_body_bytes,
+        request_timeout_seconds=supervisor_settings.http_timeout_seconds + 5,
+    )
 
     async def runtime_factory(assignment):
-        token = await control_client.get_credential(assignment.connection_id)
-        settings = Settings.from_env(
+        state_path = (
+            supervisor_settings.state_root / f"{assignment.connection_id}.sqlite3"
+        )
+        if assignment.provider == "telegram":
+            token = await control_client.get_credential(assignment.connection_id)
+            settings = Settings.from_env(
+                env,
+                connection_id=assignment.connection_id,
+                telegram_bot_token=token,
+                state_path=state_path,
+            )
+            client = AirHopGatewayClient(
+                relay_url=settings.relay_url,
+                connection_id=settings.connection_id,
+                signer=signer,
+                timeout_seconds=settings.http_timeout_seconds,
+            )
+            return TelegramGatewayRuntime(
+                settings=settings,
+                adapter=_build_adapter(settings),
+                client=client,
+                signer=signer,
+            )
+        if assignment.provider != "whatsapp_cloud":
+            raise RuntimeError("Unsupported provider assignment")
+        credential = await control_client.get_whatsapp_credential(
+            assignment.connection_id
+        )
+        settings = WhatsAppSettings.from_env(
             env,
             connection_id=assignment.connection_id,
-            telegram_bot_token=token,
-            state_path=(
-                supervisor_settings.state_root
-                / f"{assignment.connection_id}.sqlite3"
-            ),
+            state_path=state_path,
         )
         client = AirHopGatewayClient(
             relay_url=settings.relay_url,
@@ -139,11 +172,12 @@ async def _run() -> None:
             signer=signer,
             timeout_seconds=settings.http_timeout_seconds,
         )
-        return TelegramGatewayRuntime(
+        return WhatsAppGatewayRuntime(
             settings=settings,
-            adapter=_build_adapter(settings),
+            credential=credential,
             client=client,
             signer=signer,
+            router=whatsapp_router,
         )
 
     supervisor = GatewaySupervisor(
@@ -151,7 +185,11 @@ async def _run() -> None:
         control_client=control_client,
         runtime_factory=runtime_factory,
     )
-    await supervisor.run(stop_event)
+    await webhook_server.start()
+    try:
+        await supervisor.run(stop_event)
+    finally:
+        await webhook_server.close()
 
 
 def main() -> None:

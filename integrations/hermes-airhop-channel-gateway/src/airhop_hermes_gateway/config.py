@@ -1,4 +1,4 @@
-"""Environment-only runtime configuration for the Telegram adapter deployment."""
+"""Environment-only runtime configuration for provider gateway deployments."""
 
 from __future__ import annotations
 
@@ -40,9 +40,10 @@ def _bounded_float(
 class Settings:
     """Validated adapter settings.
 
-    Provider credentials and the connector signing key are accepted only from
-    the deployment environment. They are never sent to AirHop control-plane
-    endpoints or serialized into logs/state.
+    The connector signing key comes only from the deployment environment.
+    Provider credentials either come from the legacy environment override or
+    from Relay's exact authenticated credential endpoint. Neither is sent to
+    ordinary AirHop control-plane endpoints or serialized into logs/state.
     """
 
     relay_url: str
@@ -156,4 +157,53 @@ class Settings:
                 30 * 24 * 60 * 60,
             ),
             webhook_mode=bool(env.get("TELEGRAM_WEBHOOK_URL", "").strip()),
+        )
+
+
+@dataclass(frozen=True)
+class WhatsAppSettings:
+    """Per-connection WhatsApp runtime settings without provider credentials."""
+
+    relay_url: str
+    connection_id: UUID
+    state_path: Path
+    heartbeat_seconds: float = 30.0
+    claim_interval_seconds: float = 1.0
+    inbound_interval_seconds: float = 0.2
+    http_timeout_seconds: float = 15.0
+    claim_limit: int = 25
+    lease_seconds: int = 90
+    inbound_max_attempts: int = 100
+    inbound_max_age_seconds: int = 7 * 24 * 60 * 60
+    dead_retention_seconds: int = 7 * 24 * 60 * 60
+    graph_origin: str = "https://graph.facebook.com/v26.0"
+
+    @classmethod
+    def from_env(
+        cls,
+        source: dict[str, str] | None,
+        *,
+        connection_id: UUID,
+        state_path: Path,
+    ) -> "WhatsAppSettings":
+        env = dict(os.environ if source is None else source)
+        probe = Settings.from_env(
+            env,
+            connection_id=connection_id,
+            telegram_bot_token="bootstrap-validation-only",
+            state_path=state_path,
+        )
+        return cls(
+            relay_url=probe.relay_url,
+            connection_id=connection_id,
+            state_path=state_path,
+            heartbeat_seconds=probe.heartbeat_seconds,
+            claim_interval_seconds=probe.claim_interval_seconds,
+            inbound_interval_seconds=probe.inbound_interval_seconds,
+            http_timeout_seconds=probe.http_timeout_seconds,
+            claim_limit=probe.claim_limit,
+            lease_seconds=probe.lease_seconds,
+            inbound_max_attempts=probe.inbound_max_attempts,
+            inbound_max_age_seconds=probe.inbound_max_age_seconds,
+            dead_retention_seconds=probe.dead_retention_seconds,
         )

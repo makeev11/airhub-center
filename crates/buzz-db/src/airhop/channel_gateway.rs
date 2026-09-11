@@ -440,18 +440,20 @@ impl Db {
             "SELECT EXISTS(
                 SELECT 1 FROM airhop_channel_credentials
                 WHERE community_id = $1 AND organization_id = $2
-                  AND provider = $3 AND credential_fingerprint = $4
+                  AND provider = $3
+                  AND (credential_fingerprint = $4 OR provider_bot_id = $5)
              )",
         )
         .bind(community_id)
         .bind(organization_id)
         .bind(input.connection.provider.trim())
         .bind(input.credential_fingerprint.as_slice())
+        .bind(input.provider_bot_id.trim())
         .fetch_one(&mut *tx)
         .await?;
         if duplicate {
             return Err(DbError::InvalidData(
-                "Telegram bot is already connected".to_owned(),
+                "Provider account is already connected".to_owned(),
             ));
         }
 
@@ -1514,8 +1516,10 @@ fn validate_connection(input: &PutChannelConnectionInput) -> Result<()> {
 }
 
 fn validate_provisioning(input: &ProvisionChannelConnectionInput) -> Result<()> {
-    if input.connection.provider.trim() != "telegram"
-        || !(17..=512).contains(&input.credential_ciphertext.len())
+    if !matches!(
+        input.connection.provider.trim(),
+        "telegram" | "whatsapp_cloud"
+    ) || !(17..=8192).contains(&input.credential_ciphertext.len())
         || input.credential_key_version <= 0
         || input.provider_bot_id.trim().is_empty()
         || input.provider_bot_id.chars().count() > 64
@@ -1713,7 +1717,7 @@ mod tests {
     }
 
     #[test]
-    fn encrypted_telegram_provisioning_is_bounded() {
+    fn encrypted_provider_provisioning_is_bounded() {
         let mut input = ProvisionChannelConnectionInput {
             connection: connection(),
             credential_ciphertext: vec![7; 64],
@@ -1724,6 +1728,11 @@ mod tests {
             provider_bot_username: Some("airhop_bot".to_owned()),
         };
         assert!(validate_provisioning(&input).is_ok());
+        input.connection.provider = "whatsapp_cloud".to_owned();
+        input.credential_ciphertext = vec![7; 4096];
+        assert!(validate_provisioning(&input).is_ok());
+        input.credential_ciphertext = vec![7; 8193];
+        assert!(validate_provisioning(&input).is_err());
         input.credential_ciphertext.clear();
         assert!(validate_provisioning(&input).is_err());
     }

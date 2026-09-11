@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1.7
+# Demo-only overlay for validating the owned-Meta-app WhatsApp integration.
+# It reuses the exact 0.5.14 build/runtime images already present on the host.
+
+ARG BUILD_BASE
+ARG RELAY_BASE
+ARG GATEWAY_BASE
+
+FROM ${BUILD_BASE} AS whatsapp-relay-binaries
+ENV CARGO_BUILD_JOBS=1
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+COPY migrations/ migrations/
+COPY examples/ examples/
+RUN cargo build --release --locked -p buzz-relay --bin buzz-relay \
+    -p buzz-admin --bin buzz-admin \
+    && strip target/release/buzz-relay target/release/buzz-admin
+
+FROM ${RELAY_BASE} AS whatsapp-relay
+ARG SOURCE_COMMIT
+COPY --from=whatsapp-relay-binaries /build/target/release/buzz-relay /usr/local/bin/buzz-relay
+COPY --from=whatsapp-relay-binaries /build/target/release/buzz-admin /usr/local/bin/buzz-admin
+LABEL org.opencontainers.image.revision="${SOURCE_COMMIT}" \
+      ru.airhop.release="airhop-whatsapp-e2e-${SOURCE_COMMIT}"
+
+FROM ${GATEWAY_BASE} AS whatsapp-gateway
+ARG SOURCE_COMMIT
+COPY --chown=root:root integrations/hermes-airhop-channel-gateway /opt/airhop-channel-gateway
+LABEL org.opencontainers.image.revision="${SOURCE_COMMIT}" \
+      ru.airhop.release="airhop-whatsapp-e2e-${SOURCE_COMMIT}"
