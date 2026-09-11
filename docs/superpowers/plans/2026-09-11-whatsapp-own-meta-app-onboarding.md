@@ -109,7 +109,11 @@ expected result is a DNS mismatch until the `hooks` record is created.
 1. Provision a Hostinger VPS in the Brazil/Sao Paulo location. The existing
    Hostinger VPS used by the bridge is in Lithuania, not Brazil. The Chrome
    Hostinger session was logged out at the latest audit, so no plan was bought
-   or changed.
+   or changed. For the edge-only deployment, select the smallest KVM 1 plan and
+   plain Ubuntu 24.04. The accepted demo gateway's low-traffic snapshot was
+   2.5% CPU, 77.27 MiB RAM, and 164 KiB state; Hostinger currently documents
+   KVM 1 as 1 vCPU, 4 GB RAM, and 50 GB disk. This recommendation does not cover
+   moving Relay, Postgres, Redis, or Hermes.
 2. Point `hooks.airhop.com.br` at the Brazilian VPS and issue normal public TLS.
    The authoritative nameservers are currently GoDaddy
    (`ns71.domaincontrol.com` / `ns72.domaincontrol.com`) and the `hooks` name has
