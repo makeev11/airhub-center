@@ -25,6 +25,25 @@ Do not put Meta App Secret, System User Token, Verify Token, or phone identifier
 in this environment. The gateway retrieves connection-scoped credentials from
 Relay after NIP-98 authentication.
 
+## Initial Hostinger VPS selection
+
+For this edge-only topology, start with the smallest **KVM 1** plan in the
+**Brazil** location and select plain **Ubuntu 24.04**, without a hosting control
+panel. As checked on 2026-09-11, Hostinger documents KVM 1 as 1 vCPU, 4 GB RAM,
+50 GB disk, and 4 TB bandwidth; Brazil is an offered Linux VPS location when
+capacity is available, and Ubuntu 24.04 is an offered plain OS template:
+
+- [Hostinger VPS plan limits](https://support.hostinger.com/pt/articles/6976044-parametros-e-limites-dos-planos-de-hospedagem)
+- [Hostinger server locations](https://support.hostinger.com/pt/articles/1583267-onde-estao-localizados-os-servidores-da-hostinger)
+- [Hostinger VPS operating systems](https://support.hostinger.com/pt/articles/1583571-quais-sao-os-sistemas-operacionais-disponiveis-para-vps)
+
+This size is based on the accepted demo gateway's low-traffic snapshot, not a
+synthetic load test: 2.5% CPU, 77.27 MiB resident memory, and 164 KiB of gateway
+state. KVM 1 therefore leaves substantial headroom for Caddy, Docker, OS
+updates, log rotation, and state growth. Monitor the new VPS after cutover and
+scale vertically if real traffic changes the profile. Do not use this sizing to
+justify moving Relay, Postgres, Redis, Hermes, or other workloads onto the edge.
+
 ## Prepare without changing traffic
 
 Copy this directory to the VPS, create `.env` from `.env.example`, and enter the
