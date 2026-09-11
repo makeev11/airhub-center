@@ -2291,7 +2291,13 @@ async fn ingest_event_inner(
     ) {
         state
             .db
-            .authorize_airhop_agent_publication(tenant, event.pubkey.as_bytes())
+            .authorize_airhop_agent_publication(
+                tenant,
+                event.pubkey.as_bytes(),
+                &event,
+                channel_id,
+                state.config.require_relay_membership,
+            )
             .await
             .map_err(|error| IngestError::Rejected(error.to_string()))?;
     }

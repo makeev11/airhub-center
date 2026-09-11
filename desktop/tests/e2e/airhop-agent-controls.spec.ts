@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { installMockBridge } from "../helpers/bridge";
+import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
 
 const team = [
@@ -197,6 +197,62 @@ async function openDuties(page: Page, role: string) {
   return settings;
 }
 
+test("conversation settings persist explicit audience and surfaces without changing legacy defaults", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    managedAgents: team,
+    principalDirectory: registeredDirectory,
+    agentPolicies: dutyPolicies(),
+    relayMembers: [
+      { pubkey: TEST_IDENTITIES.alice.pubkey, role: "member" },
+      { pubkey: team[2].pubkey, role: "member" },
+    ],
+    searchProfiles: [
+      { pubkey: TEST_IDENTITIES.alice.pubkey, displayName: "Анна Петрова" },
+    ],
+  });
+  await page.goto("/#/agents");
+  const settings = await openDuties(page, "analyst");
+  await expect(settings.getByLabel("Кто может обращаться")).toHaveValue("");
+  await expect(settings.getByLabel("Где отвечать")).toHaveValue("");
+  await settings.getByLabel("Кто может обращаться").selectOption("selected");
+  await settings.getByLabel("Где отвечать").selectOption("both");
+  await expect(
+    settings.getByText("Выберите хотя бы одного сотрудника."),
+  ).toBeVisible();
+  await settings.getByRole("checkbox", { name: "Анна Петрова" }).check();
+  await expect(
+    settings.getByRole("checkbox", { name: /33333333/ }),
+  ).toHaveCount(0);
+  await settings
+    .getByRole("button", { name: "Сохранить", exact: true })
+    .click();
+  await expect(settings.getByText("Сохранено", { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.location.hash = "/channels/general";
+  });
+  await expect(page.getByTestId("agent-duty-settings-analyst")).toHaveCount(0);
+  await page.evaluate(() => {
+    window.location.hash = "/agents";
+  });
+  const reopened = await openDuties(page, "analyst");
+  await expect(reopened.getByLabel("Кто может обращаться")).toHaveValue(
+    "selected",
+  );
+  await expect(reopened.getByLabel("Где отвечать")).toHaveValue("both");
+  await expect(
+    reopened.getByRole("checkbox", { name: "Анна Петрова" }),
+  ).toBeChecked();
+  await expect(page.getByTestId("airhop-agent-card-analyst")).toContainText(
+    "Выбранные сотрудники",
+  );
+  await waitForAnimations(page);
+  await reopened.getByRole("region", { name: "Общение с агентом" }).screenshot({
+    path: "test-results/agent-conversation-settings.png",
+  });
+});
+
 test("role duties save birthday lead time, report selection and website permission", async ({
   page,
 }) => {
@@ -277,7 +333,7 @@ test("team members see duties while server-owned management remains read only", 
         .getByRole("switch", { name: new RegExp(`^${agent.name}:`) }),
     ).toBeDisabled();
     await expect(
-      settings.getByText("Сотрудники могут обращаться к агенту.", {
+      settings.getByText("Здесь показаны действующие права и обязанности.", {
         exact: false,
       }),
     ).toBeVisible();

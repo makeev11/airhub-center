@@ -2272,9 +2272,22 @@ async fn tokio_main() -> Result<()> {
                                 // Not from owner — fall through to normal prompt handling.
                             }
 
+                            let matched = filter::match_event(&buzz_event.event, buzz_event.channel_id, &rules, &pubkey_hex).await;
+                            let prompt_tag = match matched {
+                                Some(m) => m.prompt_tag,
+                                None => continue,
+                            };
+                            // Only an affirmative relay decision for an explicitly
+                            // configured product policy may replace the local gate.
+                            // Generic agents and legacy settings keep their policy.
+                            let conversation_gate = welcome_route_gate.evaluate(&buzz_event).await;
+                            if matches!(conversation_gate, airhop::RouteGate::Drop | airhop::RouteGate::DropDuplicate) {
+                                continue;
+                            }
+
                             // Coarse security policy: drop events from disallowed
-                            // authors before they reach subscription rules or the
-                            // agent. Must be AFTER !shutdown (owner can always
+                            // authors before they reach the agent queue. Must be
+                            // AFTER !shutdown (owner can always
                             // shut down regardless of gate mode).
                             //
                             // Both OwnerOnly and Allowlist accept events from
@@ -2283,7 +2296,7 @@ async fn tokio_main() -> Result<()> {
                             // launched by the same human). Allowlist adds the
                             // explicit pubkey list on top, for external people;
                             // it never revokes same-owner team bots.
-                            {
+                            if conversation_gate != airhop::RouteGate::AcceptConfigured {
                                 let author = buzz_event.event.pubkey.to_hex();
                                 // DM hardening: resolve channel type (fail-closed
                                 // to DM) so allowlist/anyone modes cannot be
@@ -2307,22 +2320,6 @@ async fn tokio_main() -> Result<()> {
                                         is_dm,
                                         "inbound author gate — dropping event"
                                     );
-                                    continue;
-                                }
-                            }
-
-                            let matched = filter::match_event(&buzz_event.event, buzz_event.channel_id, &rules, &pubkey_hex).await;
-                            let prompt_tag = match matched {
-                                Some(m) => m.prompt_tag,
-                                None => {
-                                    tracing::debug!(channel_id = %buzz_event.channel_id, kind = buzz_event.event.kind.as_u16(), "event matched no rule — dropping");
-                                    continue;
-                                }
-                            };
-
-                            match welcome_route_gate.evaluate(&buzz_event).await {
-                                airhop::RouteGate::Accept | airhop::RouteGate::Bypass => {}
-                                airhop::RouteGate::Drop | airhop::RouteGate::DropDuplicate => {
                                     continue;
                                 }
                             }

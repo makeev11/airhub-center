@@ -20,9 +20,30 @@ export const analyticsSectionSchema = z.enum([
   "capacity",
   "acquisition",
 ]);
+export const agentCommunicationSchema = z
+  .object({
+    audience: z.discriminatedUnion("mode", [
+      z.object({ mode: z.literal("staff") }).strict(),
+      z.object({ mode: z.literal("owner") }).strict(),
+      z
+        .object({
+          mode: z.literal("selected"),
+          pubkeys: z
+            .array(z.string().regex(/^[0-9a-f]{64}$/))
+            .min(1)
+            .max(200)
+            .refine((keys) => new Set(keys).size === keys.length),
+        })
+        .strict(),
+    ]),
+    surfaces: z.enum(["both", "channels", "direct_messages"]),
+  })
+  .strict();
+export type AgentCommunication = z.infer<typeof agentCommunicationSchema>;
 export const agentPolicySchema = z
   .object({
     enabled: z.boolean(),
+    communication: agentCommunicationSchema.nullable().optional(),
     birthdays: z
       .object({
         enabled: z.boolean(),
@@ -101,6 +122,11 @@ export function validateAgentPolicy(
   draft: AgentPolicy,
 ): AgentPolicy {
   const policy = agentPolicySchema.parse(draft);
+  if (role === "parent_administrator" && policy.communication) {
+    throw new Error(
+      "External parent conversations use their own scoped access policy",
+    );
+  }
   if (
     (policy.birthdays !== null) !== (role === "administrator") ||
     (policy.analytics !== null) !== (role === "analyst") ||

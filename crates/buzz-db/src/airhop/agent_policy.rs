@@ -29,12 +29,34 @@ impl Db {
         &self,
         tenant: &TenantContext,
         actor: &[u8; 32],
+        event: &nostr::Event,
+        channel: Option<Uuid>,
+        staff_admission_required: bool,
     ) -> Result<()> {
         let roles=sqlx::query_scalar::<_,String>("SELECT role FROM airhop_registered_principals WHERE community_id=$1 AND pubkey=$2 AND principal_kind='agent'")
             .bind(tenant.community().as_uuid()).bind(actor.as_slice()).fetch_all(&self.pool).await?;
         for role in roles {
             if let Some(role) = AgentRole::parse(&role) {
                 self.require_airhop_agent_enabled(tenant, role).await?;
+                if role != AgentRole::ParentAdministrator
+                    && matches!(
+                        event.kind.as_u16() as u32,
+                        buzz_core::kind::KIND_STREAM_MESSAGE
+                            | buzz_core::kind::KIND_STREAM_MESSAGE_V2
+                    )
+                {
+                    let destination = channel.ok_or_else(|| {
+                        DbError::AccessDenied("agent message requires a destination".into())
+                    })?;
+                    self.require_airhop_internal_destination(
+                        tenant,
+                        destination,
+                        staff_admission_required,
+                    )
+                    .await?;
+                    self.authorize_airhop_conversation_reply(tenant, actor, event, channel)
+                        .await?;
+                }
             }
         }
         Ok(())
@@ -172,6 +194,42 @@ impl Db {
         if actual != command.expected_version || actual < 0 {
             return Err(DbError::AirhopVersionConflict);
         }
+        // Older clients do not know the communication field. Their duty or
+        // master-switch saves must not silently remove an explicit restriction.
+        let mut effective = command.policy.clone();
+        let previous: Option<Value> = sqlx::query_scalar("SELECT policy FROM airhop_agent_policies WHERE community_id=$1 AND organization_id=$2 AND role=$3")
+            .bind(community).bind(organization).bind(command.role.as_str()).fetch_optional(tx.as_mut()).await?;
+        let previous = previous
+            .map(serde_json::from_value::<AgentPolicy>)
+            .transpose()
+            .map_err(|e| DbError::InvalidData(e.to_string()))?;
+        if effective.communication.is_none() {
+            effective.communication = previous
+                .as_ref()
+                .and_then(|policy| policy.communication.clone());
+        }
+        effective
+            .validate(command.role)
+            .map_err(|e| DbError::InvalidData(e.into()))?;
+        if let Some(airhop_core::agent_access::AgentConversationAccess {
+            audience: airhop_core::agent_access::AgentAudience::Selected { pubkeys },
+            ..
+        }) = &effective.communication
+        {
+            for pubkey in pubkeys {
+                // Retaining an unavailable employee does not grant them access
+                // (every turn checks membership), and must not block a duty save
+                // or the master off switch. Only additions need roster validation.
+                if previous.as_ref().and_then(|policy| policy.communication.as_ref()).is_some_and(|access| matches!(&access.audience, airhop_core::agent_access::AgentAudience::Selected { pubkeys: old } if old.contains(pubkey))) { continue; }
+                let human: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM relay_members r WHERE r.community_id=$1 AND r.pubkey=$2 AND r.role IN ('owner','admin','member') AND NOT EXISTS(SELECT 1 FROM users u WHERE u.community_id=r.community_id AND encode(u.pubkey,'hex')=r.pubkey AND (u.deactivated_at IS NOT NULL OR u.agent_owner_pubkey IS NOT NULL)) AND NOT EXISTS(SELECT 1 FROM airhop_registered_principals p WHERE p.community_id=r.community_id AND encode(p.pubkey,'hex')=r.pubkey))")
+                    .bind(community).bind(pubkey).fetch_one(tx.as_mut()).await?;
+                if !human {
+                    return Err(DbError::InvalidData(
+                        "choose active employees of this center, not clients or agents".into(),
+                    ));
+                }
+            }
+        }
         let version = actual
             .checked_add(1)
             .ok_or_else(|| DbError::InvalidData("policy version overflow".into()))?;
@@ -194,8 +252,8 @@ impl Db {
         {
             validate_notice_channel(tx.as_mut(), community, channel).await?;
         }
-        let policy = serde_json::to_value(&command.policy)
-            .map_err(|e| DbError::InvalidData(e.to_string()))?;
+        let policy =
+            serde_json::to_value(&effective).map_err(|e| DbError::InvalidData(e.to_string()))?;
         sqlx::query("INSERT INTO airhop_agent_policies(community_id,organization_id,role,policy,version,updated_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(community_id,organization_id,role) DO UPDATE SET policy=EXCLUDED.policy,version=EXCLUDED.version,updated_by=EXCLUDED.updated_by,updated_at=now()")
             .bind(community).bind(organization).bind(command.role.as_str()).bind(&policy).bind(version).bind(actor.as_slice()).execute(tx.as_mut()).await?;
         // A queued message must never carry old content or use a revoked destination.

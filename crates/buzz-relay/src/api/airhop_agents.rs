@@ -90,6 +90,15 @@ pub(crate) async fn claim_welcome_route(
         .claim_airhop_welcome_route(&principal.tenant, event_id, principal.pubkey.to_bytes())
         .await
         .map_err(map_route_db_error)?;
+    state
+        .db
+        .require_airhop_internal_destination(
+            &principal.tenant,
+            decision.channel_id,
+            state.config.require_relay_membership,
+        )
+        .await
+        .map_err(map_route_db_error)?;
     Ok(Json(route_decision_json(&decision)))
 }
 
@@ -273,6 +282,7 @@ fn route_decision_json(decision: &WelcomeRouteDecision) -> Value {
         "reason": decision.reason.as_str(),
         "replayed": decision.replayed,
         "ephemeral": decision.ephemeral,
+        "communicationConfigured": decision.communication_configured,
     })
 }
 
@@ -357,6 +367,7 @@ mod tests {
             reason: buzz_db::airhop::welcome_agents::WelcomeRouteReason::NaturalRole,
             replayed: true,
             ephemeral: false,
+            communication_configured: true,
         };
         let body = route_decision_json(&decision);
         assert_eq!(body["eventId"], "ab".repeat(32));
@@ -364,5 +375,6 @@ mod tests {
         assert_eq!(body["targetPubkey"], "cd".repeat(32));
         assert_eq!(body["reason"], "natural_role");
         assert_eq!(body["replayed"], true);
+        assert_eq!(body["communicationConfigured"], true);
     }
 }

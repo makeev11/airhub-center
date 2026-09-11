@@ -189,6 +189,10 @@ pub enum LearningMode {
 pub struct AgentPolicy {
     /// Master switch for both interactive and proactive work.
     pub enabled: bool,
+    /// Explicit internal conversation access. Missing legacy fields do not
+    /// grant broader access and must be preserved by old-client saves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub communication: Option<crate::agent_access::AgentConversationAccess>,
     /// Role-specific administrative duties; never accepted for other roles.
     pub birthdays: Option<BirthdayPolicy>,
     /// Role-specific regular reports.
@@ -204,6 +208,7 @@ impl AgentPolicy {
     pub fn for_role(role: AgentRole) -> Self {
         Self {
             enabled: true,
+            communication: None,
             birthdays: (role == AgentRole::Administrator).then(BirthdayPolicy::default),
             analytics: (role == AgentRole::Analyst).then(AnalyticsPolicy::default),
             content: (role == AgentRole::ContentMarketer).then_some(ContentPolicy {
@@ -215,6 +220,12 @@ impl AgentPolicy {
 
     /// Rejects unsupported duties and invalid schedules before persistence.
     pub fn validate(&self, role: AgentRole) -> Result<(), &'static str> {
+        if let Some(access) = &self.communication {
+            if role == AgentRole::ParentAdministrator {
+                return Err("external administrator access is scoped by its client connection");
+            }
+            access.validate()?;
+        }
         if self.birthdays.is_some() != (role == AgentRole::Administrator)
             || self.analytics.is_some() != (role == AgentRole::Analyst)
             || self.content.is_some() != (role == AgentRole::ContentMarketer)
