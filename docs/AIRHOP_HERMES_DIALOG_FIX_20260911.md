@@ -1,6 +1,7 @@
 # Hermes dialogue and latency repair, 2026-09-11
 
-Status: local candidate; not deployed or accepted through the real model/Telegram.
+Status: deployed to test Hygge on 2026-09-11; technical postflight passed.
+Real model/Telegram dialogue acceptance remains unmeasured after deployment.
 Baseline: `daf769533b05`, demo runtime and relay `0.5.12`.
 
 ## Observed incident
@@ -80,8 +81,8 @@ outcome in one MCP call; pending/review outcomes never use that confirmation
 text. A delivery retry after commit reuses the booking receipt. The queue waits
 for 1.2 seconds of quiet, capped at three seconds, while exact confirmations
 bypass this delay. A dedicated 250ms timer avoids the 30-second maintenance
-wait. Unknown/shared threads remain isolated. These changes are still local
-and have not been deployed to Hygge.
+wait. Unknown/shared threads remain isolated. These checks preceded the
+test Hygge rollout recorded below.
 
 Graph verification passed: all 706 ACP library tests, all 122 MCP library tests,
 the full `just test` run, formatting, and Clippy for ACP/MCP with warnings denied.
@@ -96,7 +97,7 @@ confirmations, recovery and handoff bypass this pause. Only delivered external
 replies establish continuation. Timing survives context refreshes, resets per
 grant, and rechecks the grant before publishing. All 29 targeted MCP tests and
 Clippy passed, including a timed mock-HTTP send, elapsed-work accounting, fast
-exceptions and lease reset. This remains a local, undeployed change.
+exceptions and lease reset. These checks preceded the rollout recorded below.
 
 Regression coverage includes flat-chat batching, isolation of shared threads,
 an actual local ACP pipe ending without a tool send, at most one corrective
@@ -114,5 +115,37 @@ or Telegram gateway change is required. Existing accounts and conversation data
 are preserved. Before declaring the issue resolved in the live test account,
 repeat a parent-written burst of name/surname/date messages, a surname correction
 and confirmation; check reply count, queue delay, actual Telegram delivery and
-the single booking receipt. No external messages, bookings or deployment were
-performed by this local repair.
+the single booking receipt. No external test messages or bookings were created.
+
+## Test Hygge deployment
+
+The user authorized publication. Release `airhop-center-0.5.12-00489edf8334`
+was deployed to the existing `buzz-demo` project on 2026-09-11 at approximately
+01:48 UTC, from signed commit `00489edf8334ce7c78c07aeb633b89e3afc90a43`.
+Only the demo relay and Hermes runtime were replaced, relay first. The production
+relay, public website, Telegram gateway and other neighboring containers retained
+their container identities and start times. The existing public frontend files
+passed byte-for-byte checksum verification before and after deployment.
+
+The database backup was restored to an isolated preflight database, where the
+new administrative binary verified the existing migrations. The temporary
+database was removed afterward. Live migration version remains 64; no live
+migrations were run. A final database dump and runtime-volume backup were taken
+before switching. Organization configuration, knowledge data and agent business
+controls passed before/after comparisons. Backups and rollback configuration are
+retained on the deployment host:
+
+- Backup: `/opt/airhop/backups/demo-before-hermes-dialogue-00489edf8334`
+- Release and rollback: `/opt/airhop/hermes-dialogue-00489edf8334`
+- Source archive SHA-256: `bf5c4186bde6e310860138ac2ed2cf93299f179a3e0a41f8dc3e584f7a04f1a8`
+- Relay image: `sha256:871fe00007f5eccb4c597adef4ffbba4453bef8f311e83a20dbf4e1e8fe69a82`
+- Hermes image: `sha256:89c7f0537bc122b70da43644c4ce7753c4958a8318979d44513e11321284f2bb`
+
+Image and live MCP checks passed: ten directly visible tools, the optional
+`confirmedReply` parameter, disabled generic memory and the upstream tool-search
+negative control. Health and public catalog requests succeeded. Both containers
+were healthy with zero restarts and zero error-level startup lines. Hermes
+connected to the relay and subscribed to two channels; no active turns or pending
+external messages were present at postflight. No real parent/model test was
+triggered, so response latency, token savings and conversion uplift have not yet
+been measured on this deployed version.
