@@ -1133,8 +1133,9 @@ async fn enqueue_external_message(
     if event.tags.iter().any(|tag| {
         tag.as_slice()
             .first()
-            .is_some_and(|value| value == "airhop-internal" || value == "p")
-    }) {
+            .is_some_and(|value| value == "airhop-internal")
+    }) || !mentioned_pubkeys(event).is_empty()
+    {
         return Ok(());
     }
     let route = sqlx::query(
@@ -1457,12 +1458,17 @@ fn parse_hermes_control(content: &str, display_name: Option<&str>) -> Option<Her
 }
 
 fn mentioned_pubkeys(event: &Event) -> Vec<String> {
+    // Desktop thread replies carry a conventional `p` tag for their own
+    // author. It is routing metadata, not a user mention, so it must not turn
+    // every staff reply into an internal-only message.
+    let author = event.pubkey.to_hex();
     event
         .tags
         .iter()
         .filter_map(|tag| {
             let values = tag.as_slice();
-            (values.len() >= 2 && values[0] == "p").then(|| values[1].to_ascii_lowercase())
+            (values.len() >= 2 && values[0] == "p" && !values[1].eq_ignore_ascii_case(&author))
+                .then(|| values[1].to_ascii_lowercase())
         })
         .collect()
 }
@@ -1727,5 +1733,23 @@ mod tests {
             ..input
         };
         assert!(validate_signed_reply_events(&nested, channel_id, None).is_err());
+    }
+
+    #[test]
+    fn author_p_tag_is_not_a_staff_mention() {
+        let author = Keys::generate();
+        let mentioned = Keys::generate();
+        let event = EventBuilder::new(Kind::Custom(9), "Ответ сотрудника")
+            .tags([
+                Tag::parse(["p", &author.public_key().to_hex()]).unwrap(),
+                Tag::parse(["p", &mentioned.public_key().to_hex()]).unwrap(),
+            ])
+            .sign_with_keys(&author)
+            .unwrap();
+
+        assert_eq!(
+            mentioned_pubkeys(&event),
+            vec![mentioned.public_key().to_hex()]
+        );
     }
 }

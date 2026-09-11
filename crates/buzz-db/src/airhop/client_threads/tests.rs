@@ -520,10 +520,27 @@ async fn shared_threads_resolve_race_root_replay_assignment_and_reopen() {
     assert!(notices
         .iter()
         .any(|n| n.community_id == f.tenant.community()));
-    let staff_message = f.event(&canonical, Some(root), &f.staff, "Помогу выбрать занятие");
+    let staff_template = f.event(&canonical, Some(root), &f.staff, "Помогу выбрать занятие");
+    let mut staff_tags = staff_template.tags.to_vec();
+    // Match the desktop reply shape: every thread reply carries the author's
+    // own `p` tag in addition to its thread references.
+    staff_tags.push(Tag::parse(["p", &f.staff.public_key().to_hex()]).unwrap());
+    let staff_message = EventBuilder::new(Kind::Custom(9), staff_template.content)
+        .tags(staff_tags)
+        .sign_with_keys(&f.staff)
+        .unwrap();
     f.insert(central.id, &canonical, &staff_message, Some(root), None)
         .await
         .unwrap();
+    let queued: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM airhop_external_message_outbox WHERE community_id=$1 AND buzz_event_id=$2 AND actor_kind='staff' AND status='pending'",
+    )
+    .bind(f.cid())
+    .bind(staff_message.id.as_bytes().as_slice())
+    .fetch_one(&f.db.pool)
+    .await
+    .unwrap();
+    assert_eq!(queued, 1);
     let mut internal_tags = staff_message.tags.to_vec();
     internal_tags.push(Tag::parse(["p", &f.agent.public_key().to_hex()]).unwrap());
     let internal = EventBuilder::new(Kind::Custom(9), "Гермес, продолжай")
