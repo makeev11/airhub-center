@@ -118,32 +118,6 @@ fn is_role_introduction(event: &nostr::Event, role: AirhopWelcomeRole) -> bool {
         })
 }
 
-#[cfg(test)]
-mod introduction_tests {
-    use super::*;
-    use nostr::{EventBuilder, Keys, Kind, Tag};
-    #[test]
-    fn introduction_exception_cannot_be_forged_with_another_kind_stage_or_role() {
-        for (kind, stage, expected) in [
-            (9, "analyst_intro", true),
-            (9, "fizz_intro", false),
-            (9, "anything", false),
-            (9, "hermes_guest_intro", false),
-            (46010, "analyst_intro", false),
-            (46010, "anything", false),
-        ] {
-            let event = EventBuilder::new(Kind::Custom(kind), "intro")
-                .tags([Tag::parse(["airhop-kickoff-stage", stage]).unwrap()])
-                .sign_with_keys(&Keys::generate())
-                .unwrap();
-            assert_eq!(
-                is_role_introduction(&event, AirhopWelcomeRole::Analyst),
-                expected
-            );
-        }
-    }
-}
-
 /// Rechecks current policy, human identity and both parties' channel membership.
 /// An absent legacy policy does not authorize any additional conversation.
 pub(super) async fn authorize_conversation(
@@ -319,5 +293,32 @@ pub(super) async fn authorize_handoff(
         ))
     } else {
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod introduction_tests {
+    use super::*;
+    use nostr::{EventBuilder, Keys, Kind, Tag};
+
+    #[test]
+    fn introduction_exception_cannot_be_forged_with_another_kind_stage_or_role() {
+        for (kind, stage, expected) in [
+            (9, "analyst_intro", true),
+            (9, "fizz_intro", false),
+            (9, "anything", false),
+            (9, "hermes_guest_intro", false),
+            (46010, "analyst_intro", false),
+            (46010, "anything", false),
+        ] {
+            let event = EventBuilder::new(Kind::Custom(kind), "intro")
+                .tags([Tag::parse(["airhop-kickoff-stage", stage]).unwrap()])
+                .sign_with_keys(&Keys::generate())
+                .unwrap();
+            assert_eq!(
+                is_role_introduction(&event, AirhopWelcomeRole::Analyst),
+                expected
+            );
+        }
     }
 }
