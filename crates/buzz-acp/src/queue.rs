@@ -135,7 +135,10 @@ pub struct FlushBatch {
 ///     else: push_front with original received_at, set exponential backoff retry_after with jitter
 /// ```
 pub struct EventQueue {
+    parent_pacing: bool,
     isolate_threads: bool,
+    /// Flat conversations explicitly identified by the authenticated supervisor.
+    parent_flat_channels: HashSet<Uuid>,
     queues: HashMap<Uuid, VecDeque<QueuedEvent>>,
     in_flight_channels: HashSet<Uuid>,
     /// Per-channel deadline for auto-expiring stuck in-flight entries.
@@ -179,7 +182,9 @@ impl EventQueue {
     /// derive the deadline from the configured `max_turn_duration`.
     pub fn new(dedup_mode: DedupMode) -> Self {
         Self {
+            parent_pacing: false,
             isolate_threads: false,
+            parent_flat_channels: HashSet::new(),
             queues: HashMap::new(),
             in_flight_channels: HashSet::new(),
             in_flight_deadlines: HashMap::new(),
@@ -206,6 +211,50 @@ impl EventQueue {
     pub fn with_thread_isolation(mut self, enabled: bool) -> Self {
         self.isolate_threads = enabled;
         self
+    }
+
+    /// Briefly collect parent message fragments; explicit confirmations bypass
+    /// the pause. A continuous stream cannot postpone the oldest input forever.
+    pub fn with_parent_pacing(mut self, enabled: bool) -> Self {
+        self.parent_pacing = enabled;
+        self
+    }
+
+    fn parent_batch_ready(
+        &self,
+        channel: &Uuid,
+        queue: &VecDeque<QueuedEvent>,
+        now: Instant,
+    ) -> bool {
+        if !self.parent_pacing {
+            return true;
+        }
+        let Some(first) = queue.front() else {
+            return false;
+        };
+        let scope = conversation_thread_key(&first.event);
+        let last = queue
+            .iter()
+            .take(MAX_BATCH_EVENTS)
+            .take_while(|item| {
+                !self.isolate_threads
+                    || self.parent_flat_channels.contains(channel)
+                    || conversation_thread_key(&item.event) == scope
+            })
+            .last()
+            .unwrap_or(first);
+        airhop_core::conversation_booking::is_booking_confirmation(&last.event.content)
+            || now.saturating_duration_since(first.received_at) >= Duration::from_secs(3)
+            || now.saturating_duration_since(last.received_at) >= Duration::from_millis(1200)
+    }
+
+    /// Apply the server-authorized conversation layout; unknown channels remain isolated.
+    pub(crate) fn set_parent_channel_threaded(&mut self, channel: Uuid, threaded: bool) {
+        if threaded {
+            self.parent_flat_channels.remove(&channel);
+        } else {
+            self.parent_flat_channels.insert(channel);
+        }
     }
 
     /// Monotonically extend an existing in-flight deadline for `channel_id`.
@@ -318,6 +367,7 @@ impl EventQueue {
                 !q.is_empty()
                     && !self.in_flight_channels.contains(id)
                     && self.retry_after.get(id).is_none_or(|&t| t <= now)
+                    && self.parent_batch_ready(id, q, now)
             })
             .min_by_key(|(_, q)| q.front().unwrap().received_at)
             .map(|(id, _)| *id);
@@ -357,18 +407,19 @@ impl EventQueue {
 
         // Drain up to MAX_BATCH_EVENTS; leave any remainder in the queue.
         let queue = self.queues.entry(channel_id).or_default();
-        let drain_count = if self.isolate_threads {
-            let scope = queue
-                .front()
-                .map(|item| conversation_thread_key(&item.event));
-            queue
-                .iter()
-                .take(MAX_BATCH_EVENTS)
-                .take_while(|item| Some(conversation_thread_key(&item.event)) == scope)
-                .count()
-        } else {
-            MAX_BATCH_EVENTS.min(queue.len())
-        };
+        let drain_count =
+            if self.isolate_threads && !self.parent_flat_channels.contains(&channel_id) {
+                let scope = queue
+                    .front()
+                    .map(|item| conversation_thread_key(&item.event));
+                queue
+                    .iter()
+                    .take(MAX_BATCH_EVENTS)
+                    .take_while(|item| Some(conversation_thread_key(&item.event)) == scope)
+                    .count()
+            } else {
+                MAX_BATCH_EVENTS.min(queue.len())
+            };
         // A Welcome stage must retain its own task context and receipt. Keep
         // conversational messages on either side in separate batches too.
         let before_kickoff = queue
@@ -637,6 +688,7 @@ impl EventQueue {
             !q.is_empty()
                 && !self.in_flight_channels.contains(id)
                 && self.retry_after.get(id).is_none_or(|&t| t <= now)
+                && self.parent_batch_ready(id, q, now)
         }) || self
             .cancelled_batches
             .keys()
@@ -1873,6 +1925,60 @@ mod tests {
         q.queues.values().map(|q| q.len()).sum()
     }
 
+    #[test]
+    fn parent_fragments_wait_briefly_but_confirmation_and_aged_work_do_not() {
+        let channel = Uuid::new_v4();
+        let mut queue = EventQueue::new(DedupMode::Queue)
+            .with_thread_isolation(true)
+            .with_parent_pacing(true);
+        queue.set_parent_channel_threaded(channel, false);
+        queue.push(make_queued(channel, "Лида"));
+        assert!(!queue.has_flushable_work());
+        assert!(queue.flush_next().is_none());
+        queue.push(make_queued(channel, "Путина"));
+        for item in queue.queues.get_mut(&channel).unwrap() {
+            item.received_at -= Duration::from_millis(1250);
+        }
+        assert!(queue.has_flushable_work());
+        assert_eq!(queue.flush_next().unwrap().events.len(), 2);
+        queue.mark_complete(channel);
+        queue.push(make_queued(channel, "Подтверждаю"));
+        assert!(queue.has_flushable_work());
+        assert!(queue.flush_next().is_some());
+        queue.mark_complete(channel);
+        let mut old = make_queued(channel, "Хочу записаться");
+        old.received_at -= Duration::from_secs(4);
+        queue.push(old);
+        queue.push(make_queued(channel, "и ещё вопрос"));
+        assert_eq!(queue.flush_next().unwrap().events.len(), 2);
+    }
+
+    #[test]
+    fn another_clients_confirmation_does_not_release_or_merge_a_waiting_thread() {
+        let channel = Uuid::new_v4();
+        let mut queue = EventQueue::new(DedupMode::Queue)
+            .with_thread_isolation(true)
+            .with_parent_pacing(true);
+        queue.push(make_queued(channel, "Имя первого клиента"));
+        queue.push(make_queued(channel, "Подтверждаю"));
+        assert!(queue.flush_next().is_none());
+        queue
+            .queues
+            .get_mut(&channel)
+            .unwrap()
+            .front_mut()
+            .unwrap()
+            .received_at -= Duration::from_secs(2);
+        let first = queue.flush_next().unwrap();
+        assert_eq!(first.events.len(), 1);
+        assert_eq!(first.events[0].event.content, "Имя первого клиента");
+        queue.mark_complete(channel);
+        assert_eq!(
+            queue.flush_next().unwrap().events[0].event.content,
+            "Подтверждаю"
+        );
+    }
+
     fn any_in_flight(q: &EventQueue) -> bool {
         !q.in_flight_channels.is_empty()
     }
@@ -2000,6 +2106,30 @@ mod tests {
         // All drained.
         assert_eq!(pending_count(&q), 0);
         assert_eq!(q.queues.len(), 0);
+    }
+
+    #[test]
+    fn parent_flat_chat_coalesces_name_date_and_correction_after_busy_turn() {
+        let mut q = EventQueue::new(DedupMode::Queue).with_thread_isolation(true);
+        let ch = Uuid::new_v4();
+        q.push(make_queued(ch, "Здравствуйте"));
+        assert_eq!(q.flush_next().unwrap().events.len(), 1);
+        q.set_parent_channel_threaded(ch, false);
+        for message in ["Лида", "Пукина", "1 мая 2020", "ой, Путина"] {
+            q.push(make_queued(ch, message));
+        }
+        assert!(q.flush_next().is_none());
+        q.mark_complete(ch);
+        let batch = q.flush_next().unwrap();
+        assert_eq!(batch.events.len(), 4);
+        assert_eq!(batch.events.last().unwrap().event.content, "ой, Путина");
+        q.mark_complete(ch);
+        assert!(q.flush_next().is_none());
+        // A later authenticated layout change restores isolation.
+        q.set_parent_channel_threaded(ch, true);
+        q.push(make_queued(ch, "client A"));
+        q.push(make_queued(ch, "client B"));
+        assert_eq!(q.flush_next().unwrap().events.len(), 1);
     }
 
     #[test]

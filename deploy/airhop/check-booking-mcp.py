@@ -9,6 +9,7 @@ expected = {
     "airhop_get_turn_context", "airhop_get_family", "airhop_list_booking_options",
     "airhop_search_knowledge", "airhop_manage_booking", "airhop_send_parent_reply",
     "airhop_save_booking_draft", "airhop_commit_booking_draft", "airhop_cancel_booking_draft",
+    "airhop_assign_conversation_branch",
 }
 if sys.argv[1:] == ["--live"]:
     command = ["docker", "exec", "-i", "buzz-demo-hermes-parent-runtime-1", "airhop-agent-mcp"]
@@ -54,7 +55,8 @@ try:
     actual = {tool["name"] for tool in result["tools"]}
     assert actual == expected, {"missing": sorted(expected - actual), "unexpected": sorted(actual - expected)}
     commit = next(tool for tool in result["tools"] if tool["name"] == "airhop_commit_booking_draft")
-    assert set(commit["inputSchema"]["properties"]) == {"version"}
+    assert set(commit["inputSchema"]["properties"]) == {"version", "confirmedReply"}
+    assert commit["inputSchema"]["required"] == ["version"]
     # Discovery alone missed a production regression: Hermes replaced all nine
     # tools with search/describe/call bridges. Exercise its real assembler too.
     surface_check = r'''

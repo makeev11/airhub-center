@@ -46,6 +46,104 @@ fn contains(history: &Value, event: &Event) -> bool {
 
 #[tokio::test]
 #[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
+async fn coalesced_inputs_cannot_replay_under_a_new_batch_id() {
+    let f = Fixture::new().await;
+    let first = f.event(&f.parent, "Лида", vec![]);
+    f.insert(&first).await;
+    let last = f.event(&f.parent, "ой, Путина", vec![]);
+    f.insert(&last).await;
+    let route =
+        f.db.get_airhop_hermes_parent_batch_route(
+            &f.tenant,
+            &[*last.id.as_bytes(), *first.id.as_bytes()],
+            f.hermes.public_key().to_bytes(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(route.source_message_id, *last.id.as_bytes());
+    let turn = f.lease(&last).await;
+    let before = history(&f, &turn).await;
+    assert!(contains(&before, &first));
+    assert!(contains(&before, &last));
+    commit_reply(&f, &turn, "Фамилию исправил. Как зовут ребёнка?").await;
+    for event in [&first, &last] {
+        let replay = LeaseParentAgentTurnInput {
+            deployment_id: turn.deployment.id,
+            channel_id: f.channel,
+            conversation_id: f.conversation,
+            cycle_id: turn.turn.cycle_id,
+            input_batch_id: Uuid::new_v4(),
+            source_message_id: *event.id.as_bytes(),
+            family_id: None,
+            representative_id: None,
+            lease_seconds: 600,
+        };
+        assert!(matches!(
+            f.db.lease_airhop_parent_agent_turn(&f.tenant, &replay)
+                .await,
+            Err(DbError::AirhopVersionConflict)
+        ));
+    }
+    let next = f.event(&f.parent, "Мурил", vec![]);
+    f.insert(&next).await;
+    f.lease(&next).await;
+}
+
+#[tokio::test]
+#[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
+async fn reply_check_is_nonmutating_scoped_and_does_not_repair_committed_output() {
+    let f = Fixture::new().await;
+    let input = f.event(&f.parent, "Вопрос", vec![]);
+    f.insert(&input).await;
+    let turn = f.lease(&input).await;
+    let check = || {
+        f.db.airhop_parent_turn_needs_reply(
+            &f.tenant,
+            turn.turn.id,
+            turn.turn.lease_token,
+            f.hermes.public_key().to_bytes(),
+        )
+    };
+    assert!(check().await.unwrap());
+    assert!(check().await.unwrap());
+    assert!(f
+        .db
+        .airhop_parent_turn_needs_reply(
+            &f.tenant,
+            turn.turn.id,
+            Uuid::new_v4(),
+            f.hermes.public_key().to_bytes()
+        )
+        .await
+        .is_err());
+    assert!(f
+        .db
+        .airhop_parent_turn_needs_reply(
+            &f.tenant,
+            turn.turn.id,
+            turn.turn.lease_token,
+            f.parent.public_key().to_bytes()
+        )
+        .await
+        .is_err());
+    let other = Fixture::new().await;
+    assert!(f
+        .db
+        .airhop_parent_turn_needs_reply(
+            &other.tenant,
+            turn.turn.id,
+            turn.turn.lease_token,
+            f.hermes.public_key().to_bytes()
+        )
+        .await
+        .is_err());
+    commit_reply(&f, &turn, "Ответ").await;
+    assert!(!check().await.unwrap());
+}
+
+#[tokio::test]
+#[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
 async fn queued_followup_sees_previous_reply_without_consuming_later_parent_input() {
     let f = Fixture::new().await;
     let first = f.event(&f.parent, "давайте на самое ближайшее", vec![]);

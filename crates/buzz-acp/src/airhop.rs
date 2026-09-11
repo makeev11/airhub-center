@@ -110,8 +110,11 @@ struct ParentClaimResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ParentClaimContext {
     scope: ParentClaimScope,
+    // Absence means an older server: retain conservative thread isolation.
+    threaded: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,9 +132,15 @@ struct ParentTurnLease {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ParentClaimDecision {
-    Run(Option<Uuid>),
+    Run(Option<ParentConversationScope>),
     Retry,
     Drop,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ParentConversationScope {
+    pub conversation_id: Uuid,
+    pub threaded: Option<bool>,
 }
 
 /// Dispatch-time hosted supervisor gate for the parent-facing Hermes role.
@@ -230,7 +239,10 @@ impl ParentSupervisorGate {
                 };
                 leases.insert(batch.channel_id, turn);
                 match write_context_grant(context_path, &token) {
-                    Ok(()) => ParentClaimDecision::Run(Some(context.scope.conversation_id)),
+                    Ok(()) => ParentClaimDecision::Run(Some(ParentConversationScope {
+                        conversation_id: context.scope.conversation_id,
+                        threaded: context.threaded,
+                    })),
                     Err(error) => {
                         tracing::error!(
                             event_id,
@@ -265,6 +277,32 @@ impl ParentSupervisorGate {
         )
         .await
         .unwrap_or(Err(RelayError::Timeout))
+    }
+
+    /// Ask the server whether the exact lease still needs a reply. Never infer
+    /// delivery from model text, and never repair a completed or silent-resume turn.
+    pub(crate) async fn needs_reply(&self, channel: Uuid) -> bool {
+        let lease = self
+            .leases
+            .lock()
+            .ok()
+            .and_then(|leases| leases.get(&channel).cloned());
+        let Some(lease) = lease else {
+            return false;
+        };
+        let response = self
+            .post_claim(
+                &format!("/api/airhop/agents/v1/turns/{}/finish", lease.id),
+                &serde_json::json!({"status": "check", "leaseToken": lease.lease_token}),
+            )
+            .await;
+        match response {
+            Ok(value) => value.get("needsReply").and_then(serde_json::Value::as_bool) == Some(true),
+            Err(error) => {
+                tracing::warn!(%channel, error = %bounded_error(&error), "AirHop reply check unavailable; deferring to finalization");
+                false
+            }
+        }
     }
 
     /// Release the runtime lease even when the model forgot to send a reply.
@@ -658,7 +696,7 @@ fn bounded_error(error: &RelayError) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -704,7 +742,7 @@ mod tests {
         );
     }
 
-    async fn supervisor_server(
+    pub(crate) async fn supervisor_server(
         responses: Vec<(u16, serde_json::Value)>,
     ) -> (RestClient, tokio::task::JoinHandle<Vec<serde_json::Value>>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -773,6 +811,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn parent_reply_check_preserves_lease_and_requires_explicit_server_approval() {
+        for (status, response, expected) in [
+            (200, serde_json::json!({"needsReply": true}), true),
+            (200, serde_json::json!({"needsReply": false}), false),
+            (200, serde_json::json!({"status": "completed"}), false),
+            (403, serde_json::json!({"error": "cancelled"}), false),
+            (500, serde_json::json!({"error": "temporary"}), false),
+        ] {
+            let (client, server) = supervisor_server(vec![(status, response)]).await;
+            let gate =
+                ParentSupervisorGate::new(Some(AirhopRole::ParentAdministrator), None, client);
+            let channel = Uuid::new_v4();
+            let lease = ParentTurnLease {
+                id: Uuid::new_v4(),
+                lease_token: Uuid::new_v4(),
+            };
+            gate.leases.lock().unwrap().insert(channel, lease.clone());
+            assert_eq!(gate.needs_reply(channel).await, expected);
+            assert_eq!(gate.leases.lock().unwrap().len(), 1);
+            assert_eq!(
+                server.await.unwrap(),
+                vec![serde_json::json!({"status":"check", "leaseToken":lease.lease_token})]
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn parent_supervisor_rejects_classifier_candidate_outside_batch() {
         let (client, server) = supervisor_server(vec![(200, serde_json::json!({
             "controlCandidate": {"eventId": "ff".repeat(32), "controlVersion": 1, "content": "take over"}
@@ -831,9 +896,10 @@ mod tests {
         let batch = parent_test_batch(Uuid::new_v4());
         assert_eq!(
             gate.claim_batch(&batch).await,
-            ParentClaimDecision::Run(Some(
-                Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap()
-            ))
+            ParentClaimDecision::Run(Some(ParentConversationScope {
+                conversation_id: Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap(),
+                threaded: None,
+            }))
         );
         assert!(gate.finish_channel(batch.channel_id).await);
         assert!(gate.leases.lock().unwrap().is_empty());
@@ -863,9 +929,10 @@ mod tests {
         let batch = parent_test_batch(Uuid::new_v4());
         assert_eq!(
             gate.claim_batch(&batch).await,
-            ParentClaimDecision::Run(Some(
-                Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap()
-            ))
+            ParentClaimDecision::Run(Some(ParentConversationScope {
+                conversation_id: Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap(),
+                threaded: None,
+            }))
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "test-context");
         gate.finish_idle_channels(&HashSet::from([batch.channel_id]))
@@ -897,9 +964,10 @@ mod tests {
         let batch = parent_test_batch(Uuid::new_v4());
         assert_eq!(
             gate.claim_batch(&batch).await,
-            ParentClaimDecision::Run(Some(
-                Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap()
-            ))
+            ParentClaimDecision::Run(Some(ParentConversationScope {
+                conversation_id: Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap(),
+                threaded: None,
+            }))
         );
         assert!(!gate.finish_channel(batch.channel_id).await);
         assert!(gate.leases.lock().unwrap().is_empty());

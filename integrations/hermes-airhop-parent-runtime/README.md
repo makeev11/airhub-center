@@ -1,5 +1,100 @@
 # Airhop Hermes Parent Runtime
 
+## Conversation processing
+
+The authenticated supervisor identifies whether a conversation is a legacy flat
+private channel or a shared-channel thread. The queue coalesces pending messages
+in a known flat conversation; unknown and threaded channels retain thread
+isolation. Relay rechecks the conversation scope for every batch.
+
+Every parent turn starts a fresh ACP session populated through
+`airhop_get_turn_context`. Generic Buzz history, raw queued events, slash-command
+passthrough, core memory and channel canvas are excluded from the parent prompt.
+The server snapshot and persisted booking draft provide continuity. The source
+message ID identifies the current input even when newer delivered replies are
+present in the snapshot. A completed input cannot be replayed under a different
+batch ID; retries of an explicitly recoverable lease preserve their original scope.
+
+Customer recognition is server-owned: `customer.status` is `unlinked_contact`
+or `verified_family`. Unlinked contacts trigger no family-card/history reads.
+An active binding is checked by the exact tenant, family and representative IDs,
+without loading the staff projection. Verified families receive the contact name,
+active child names and at most three bookings (the conversation's booking first,
+then upcoming live lessons, then recently updated history). This initial read
+does not fetch enrollments, duplicate candidates, staff notes or phone details.
+`airhop_get_family` expands the card only when the current question requires
+missing details. A greeting needs no catalog, knowledge or family expansion.
+No binding means no verified identity, not proof that the person is absent from
+the center's customer database.
+
+## Executable dialogue graph
+
+`buzz-dev-mcp/src/airhop/parent_dialogue.rs` controls the tool path in addition
+to the persona. Its state is scoped to the current grant/lease and reconstructed
+from authoritative context and the saved draft on each new turn. Existing Core
+checks remain the authority for every booking mutation.
+
+| Situation or event | Graph behavior |
+| --- | --- |
+| First read | Load scoped context before other backend operations |
+| Standalone greeting, no draft | Direct reply; no catalog/family/knowledge walk |
+| Information question | Route necessary reads to knowledge, family or options |
+| Draft collecting/ready | Preserve state; permit corrections and topic changes |
+| Exact parent confirmation of ready draft | Commit directly; reject redundant reads and draft rewrites |
+| Successful mutation | Keep receipt; invalidate reads that may now be stale |
+| Backend failure | Recovery permits bounded refreshed reads or handoff |
+| Successful reply | Done; subsequent sends return the existing receipt |
+
+Each turn permits six backend reads (including context) and four write attempts.
+Repeated successful reads return a small `alreadyLoaded` reference; repeated
+successful writes reuse their receipt. Errors consume the budget too. Sending
+a clarification remains available; handoff reuses authorized recipients from
+context. Logs record operation, elapsed backend time and graph node/budgets,
+without message text.
+
+Ordinary replies contain one message. A second message is allowed only for the
+exact current booking preview; duplicate preview bubbles are rejected.
+`airhop_commit_booking_draft` accepts `confirmedReply`: the same tool call sends
+it only after Core returns `status=confirmed` and `requiresStaff=false`.
+Pending/rejected/review outcomes never send that text. Failed delivery retains
+the booking receipt and returns `deliveryError`; recovery can send without
+another booking command.
+
+The parent queue waits for 1.2 seconds of quiet, capped at three seconds from
+the oldest pending input. A 250ms wake timer prevents waiting for maintenance.
+Exact affirmatives use the shared Core recognizer and bypass this window
+(scheduling priority is not consent authority). Already-aged queued work goes
+immediately. Unknown/shared threads remain isolated; only server-identified
+flat conversations combine separate roots.
+
+Subsequent ordinary replies have a minimum total interval from the current
+parent input: two seconds for up to 160 reply characters, three for up to 450,
+and four for longer replies. The server transcript's `receivedAt` is converted
+to a monotonic timer, so queue and model work count toward the minimum; already
+slow responses get no extra delay. Only delivered external replies establish
+continuation (internal notes do not). First replies, exact confirmations,
+recovery and handoff bypass this additional pacing. Timing survives context
+refreshes, resets per grant, and the grant is rechecked before publication.
+
+Live acceptance should compare booking completion among booking enquiries,
+duplicate answers, missing-reply recoveries, reads/tokens and answer time by
+route, especially confirmations. Existing consultation/booking analytics supply
+conversion events; graph logs supply the tool path. Local tests do not establish
+conversion uplift or real model latency.
+
+If ACP ends normally without a committed reply, the harness checks the exact
+lease using `status: check` on the existing turn-finish endpoint. One corrective
+prompt may finish the send in the same session and lease, within the original
+turn deadline. Completed replies and authorized silent staff resumes do not
+trigger a corrective prompt. If no reply is committed after that attempt, the
+existing bounded retry path applies without treating this as a broken ACP pipe.
+
+Deploy the matching relay and parent runtime together (relay first). Older
+relays do not advertise flat-channel batching or the nonmutating reply check;
+the runtime retains conservative isolation and ordinary finalization with them.
+No schema migration is required for these changes. Local regression tests do
+not replace live model/Telegram acceptance.
+
 This image runs the hosted, always-on Hermes parent administrator behind the
 Buzz ACP supervisor. It combines:
 

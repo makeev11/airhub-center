@@ -548,6 +548,22 @@ impl Db {
             });
         }
 
+        // A reconnect may package the same inputs under a different batch ID.
+        // A completed newer source already covers the older messages in its
+        // snapshot. Check under the conversation lock for new batches; an explicitly
+        // recoverable existing lease keeps its original retry contract.
+        let answered: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM airhop_hermes_turn_receipts done
+             JOIN events handled ON handled.community_id=done.community_id AND handled.id=done.source_message_id
+             JOIN events source ON source.community_id=done.community_id AND source.id=$4
+             WHERE done.community_id=$1 AND done.conversation_id=$2 AND done.cycle_id=$3
+               AND done.status='completed' AND handled.received_at>=source.received_at)",
+        ).bind(community_id).bind(input.conversation_id).bind(input.cycle_id)
+            .bind(input.source_message_id.as_slice()).fetch_one(&mut *tx).await?;
+        if answered {
+            return Err(DbError::AirhopVersionConflict);
+        }
+
         sqlx::query(
             "UPDATE airhop_hermes_turn_receipts
              SET status = 'failed', error_code = 'lease_expired', finished_at = now(),
@@ -699,6 +715,42 @@ impl Db {
                 "AirHop Hermes read set cannot be updated for this lease".to_owned(),
             ))
         }
+    }
+
+    /// Checks whether the exact runtime lease needs a parent reply without
+    /// completing it. Staff resumes with no unanswered input may remain silent.
+    pub async fn airhop_parent_turn_needs_reply(
+        &self,
+        tenant: &TenantContext,
+        turn_id: Uuid,
+        lease_token: Uuid,
+        agent_pubkey: [u8; 32],
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT * FROM airhop_hermes_turn_receipts WHERE community_id=$1 AND id=$2 FOR UPDATE",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(turn_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| DbError::NotFound("AirHop Hermes turn".into()))?;
+        let turn = turn_from_row(&row, true)?;
+        if turn.agent_pubkey != agent_pubkey || turn.lease_token != lease_token {
+            return Err(DbError::AccessDenied(
+                "AirHop Hermes turn lease belongs to another runtime".into(),
+            ));
+        }
+        let needs_reply = turn.status == HermesTurnStatus::Leased
+            && turn.lease_expires_at > Utc::now()
+            && !history::resume_has_no_pending_parent(
+                &mut tx,
+                *tenant.community().as_uuid(),
+                &turn,
+            )
+            .await?;
+        tx.commit().await?;
+        Ok(needs_reply)
     }
 
     /// Completes the exact active lease once. Repeated acknowledgement of the

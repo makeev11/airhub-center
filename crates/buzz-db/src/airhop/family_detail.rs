@@ -321,6 +321,9 @@ impl Db {
             tenant.community().as_uuid(),
             organization_id,
             family_id,
+            BOOKING_HISTORY_LIMIT,
+            None,
+            None,
         )
         .await?;
         let has_pending_duplicate = load_duplicate_signal(
@@ -557,11 +560,14 @@ async fn load_enrollments(
         .collect()
 }
 
-async fn load_bookings(
+pub(super) async fn load_bookings(
     connection: &mut sqlx::PgConnection,
     community_id: &Uuid,
     organization_id: Uuid,
     family_id: Uuid,
+    limit: i64,
+    focus_booking_id: Option<Uuid>,
+    current_date: Option<NaiveDate>,
 ) -> Result<(Vec<StaffFamilyBooking>, bool)> {
     let rows = sqlx::query(
         "SELECT booking.id, booking.representative_id, booking.child_id, booking.status, \
@@ -587,19 +593,26 @@ async fn load_bookings(
           AND branch.id = occurrence.branch_id \
          WHERE booking.community_id = $1 AND booking.organization_id = $2 \
            AND booking.family_id = $3 \
-         ORDER BY booking.created_at DESC, booking.id DESC \
+         ORDER BY (booking.id = $5::UUID) DESC NULLS LAST, \
+           CASE WHEN occurrence.effective_date >= $6::DATE \
+             AND booking.status IN ('confirmed', 'pending_confirmation') \
+             AND occurrence.status <> 'cancelled' THEN occurrence.effective_date END ASC NULLS LAST, \
+           CASE WHEN $6::DATE IS NOT NULL THEN booking.updated_at END DESC, \
+           booking.created_at DESC, booking.id DESC \
          LIMIT $4",
     )
     .bind(community_id)
     .bind(organization_id)
     .bind(family_id)
-    .bind(BOOKING_HISTORY_LIMIT + 1)
+    .bind(limit + 1)
+    .bind(focus_booking_id)
+    .bind(current_date)
     .fetch_all(&mut *connection)
     .await?;
-    let truncated = rows.len() > BOOKING_HISTORY_LIMIT as usize;
+    let truncated = rows.len() > limit as usize;
     let bookings = rows
         .into_iter()
-        .take(BOOKING_HISTORY_LIMIT as usize)
+        .take(limit as usize)
         .map(|row| {
             let status = parse_booking_status(row.try_get("status")?)?;
             let visit_kind: String = row.try_get("visit_kind")?;

@@ -17,6 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Internal
+airhop-core = { path = "../airhop-core" }
 buzz-core = { workspace = true }
 buzz-sdk = { workspace = true }
 buzz-persona = { path = "../buzz-persona" }

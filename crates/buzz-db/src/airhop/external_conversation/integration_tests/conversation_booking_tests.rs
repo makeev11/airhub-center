@@ -301,6 +301,9 @@ async fn conversational_booking_requires_delivered_summary_and_parent_confirmati
         (false, "Подтверждаю запись"),
         (true, "да, но в другое время"),
         (true, "не подтверждаю"),
+        (true, "ой, Путина"),
+        (true, "Лида Путина"),
+        (true, "2020"),
     ] {
         let f = Fixture::new().await;
         let reference = lesson(&f).await;
@@ -411,7 +414,7 @@ async fn conversational_booking_partial_edits_and_cancel_survive_turns() {
 
 #[tokio::test]
 #[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
-async fn conversational_booking_rechecks_price_age_and_last_seat() {
+async fn conversational_booking_rechecks_price_and_last_seat_with_advisory_age() {
     for mode in ["price", "age", "full"] {
         let f = Fixture::new().await;
         let reference = lesson(&f).await;
@@ -426,7 +429,7 @@ async fn conversational_booking_rechecks_price_age_and_last_seat() {
         }
         let sql=match mode {
             "price"=>"UPDATE airhop_lesson_occurrences SET trial_policy='{\"mode\":\"paid\",\"price\":{\"amountMinor\":100000,\"currency\":\"RUB\"}}' WHERE community_id=$1",
-            "age"=>"UPDATE airhop_groups SET min_age_months=80 WHERE community_id=$1",
+            "age"=>"UPDATE airhop_groups SET min_age_months=0, max_age_months=0 WHERE community_id=$1",
             _=>"UPDATE airhop_lesson_occurrences SET capacity=1 WHERE community_id=$1",
         };
         sqlx::query(sql)
@@ -434,12 +437,18 @@ async fn conversational_booking_rechecks_price_age_and_last_seat() {
             .execute(&f.db.pool)
             .await
             .unwrap();
-        assert!(
+        let result =
             f.db.commit_airhop_booking_draft(&f.tenant, &commit_input(&f, &confirm, draft.version))
-                .await
-                .is_err(),
-            "{mode}"
-        );
+                .await;
+        if mode == "age" {
+            // Core treats age ranges as recommendations, also for public bookings.
+            // A changed range must not silently become a hard chat-only restriction.
+            assert_eq!(result.unwrap().status, BookingStatus::Confirmed);
+            assert_eq!(count(&f, "airhop_bookings").await, 1);
+            assert_eq!(count(&f, "airhop_families").await, 1);
+            continue;
+        }
+        assert!(result.is_err(), "{mode}");
         let initial = i64::from(mode == "full");
         assert_eq!(count(&f, "airhop_bookings").await, initial);
         assert_eq!(count(&f, "airhop_families").await, initial);

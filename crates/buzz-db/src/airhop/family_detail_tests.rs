@@ -120,6 +120,139 @@ struct FamilyFixture {
     representative_id: Uuid,
 }
 
+#[tokio::test]
+#[ignore = "requires a dedicated migrated Postgres database"]
+async fn parent_context_checks_exact_binding_and_limits_relevant_bookings() {
+    let db = Db::new(&DbConfig {
+        database_url: std::env::var("BUZZ_TEST_DATABASE_URL").unwrap(),
+        max_connections: 5,
+        min_connections: 0,
+        ..DbConfig::default()
+    })
+    .await
+    .unwrap();
+    db.migrate().await.unwrap();
+    let community = Uuid::new_v4();
+    let organization = Uuid::new_v4();
+    let fixture = insert_family_fixture(&db, community, organization, "parent-context", true).await;
+    let tenant = tenant(community, "parent-context.test");
+    let family = fixture.family_id;
+    let representative = fixture.representative_id;
+    assert!(db
+        .airhop_parent_family_binding_is_active(&tenant, family, representative)
+        .await
+        .unwrap());
+    for (scope, family_id, representative_id) in [
+        (tenant.clone(), family, Uuid::new_v4()),
+        (tenant.clone(), Uuid::new_v4(), representative),
+        (
+            super::tests::tenant(Uuid::new_v4(), "other.test"),
+            family,
+            representative,
+        ),
+    ] {
+        assert!(!db
+            .airhop_parent_family_binding_is_active(&scope, family_id, representative_id)
+            .await
+            .unwrap());
+        assert!(db
+            .get_airhop_parent_family_context(&scope, family_id, representative_id, None)
+            .await
+            .is_err());
+    }
+    let detail = db
+        .get_airhop_staff_family_detail(&tenant, family)
+        .await
+        .unwrap();
+    let original = detail.bookings[0].id;
+    // Many recent cancelled bookings must not bury the booking attached to the
+    // conversation, and the model must not receive the entire staff history.
+    sqlx::query(
+        "INSERT INTO airhop_bookings (community_id, organization_id, id, family_id,
+          representative_id, child_id, consent_id, recurrence_rule_id, original_date,
+          command_id, applicant_snapshot, visit_kind, status, management_token_digest,
+          management_key_version, source, actor_kind, created_by, created_at, updated_at)
+         SELECT community_id, organization_id, gen_random_uuid(), family_id,
+          representative_id, child_id, consent_id, recurrence_rule_id, original_date,
+          command_id, applicant_snapshot, visit_kind, 'cancelled_by_parent',
+          decode(lpad(to_hex(n), 64, '0'), 'hex'), management_key_version, source,
+          actor_kind, created_by, now() + n * interval '1 second', now() + n * interval '1 second'
+         FROM airhop_bookings CROSS JOIN generate_series(1, 8) n
+         WHERE community_id = $1 AND id = $2",
+    )
+    .bind(community)
+    .bind(original)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    let context = db
+        .get_airhop_parent_family_context(&tenant, family, representative, Some(original))
+        .await
+        .unwrap();
+    assert_eq!(context["recentBookings"].as_array().unwrap().len(), 3);
+    assert_eq!(context["recentBookings"][0]["id"], original.to_string());
+    assert_eq!(context["bookingHistoryTruncated"], true);
+    assert_eq!(context["children"].as_array().unwrap().len(), 1);
+    assert_eq!(context["representative"]["id"], representative.to_string());
+    let serialized = context.to_string();
+    for private in [
+        "Любит футбол",
+        "phoneNormalized",
+        "managementToken",
+        "applicantSnapshot",
+        "enrollments",
+        "duplicate",
+    ] {
+        assert!(
+            !serialized.contains(private),
+            "unexpected staff-only data: {private}"
+        );
+    }
+    let no_focus = db
+        .get_airhop_parent_family_context(&tenant, family, representative, None)
+        .await
+        .unwrap();
+    assert!(!no_focus["recentBookings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|booking| booking["id"] == original.to_string()));
+    // A newly upcoming live lesson takes priority over more recently changed
+    // cancellations, even without a booking link in this conversation.
+    sqlx::query("UPDATE airhop_lesson_occurrences SET effective_date = (now() AT TIME ZONE time_zone)::date + 1 WHERE community_id = $1")
+        .bind(community).execute(&db.pool).await.unwrap();
+    let upcoming = db
+        .get_airhop_parent_family_context(&tenant, family, representative, None)
+        .await
+        .unwrap();
+    assert_eq!(upcoming["recentBookings"][0]["id"], original.to_string());
+    // The staff card still has its complete bounded history.
+    assert_eq!(
+        db.get_airhop_staff_family_detail(&tenant, family)
+            .await
+            .unwrap()
+            .bookings
+            .len(),
+        9
+    );
+    sqlx::query(
+        "UPDATE airhop_representatives SET status = 'archived' WHERE community_id = $1 AND id = $2",
+    )
+    .bind(community)
+    .bind(representative)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert!(!db
+        .airhop_parent_family_binding_is_active(&tenant, family, representative)
+        .await
+        .unwrap());
+    assert!(db
+        .get_airhop_parent_family_context(&tenant, family, representative, None)
+        .await
+        .is_err());
+}
+
 fn tenant(community_id: Uuid, host: &str) -> TenantContext {
     TenantContext::resolved(CommunityId::from_uuid(community_id), host.to_owned())
 }

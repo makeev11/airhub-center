@@ -75,6 +75,7 @@ pub mod lesson_exception;
 pub mod lesson_participants;
 /// Idempotent organization bootstrap and settings updates.
 pub mod organization_settings;
+mod parent_family_context;
 /// Currency-safe server analytics over authoritative payment expectations.
 pub mod payment_analytics;
 /// Rolling future payments and durable Buzz overdue-summary delivery state.

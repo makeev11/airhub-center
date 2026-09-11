@@ -231,6 +231,10 @@ pub(crate) async fn register_conversation(
 #[derive(Debug, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum FinishTurnBody {
+    Check {
+        #[serde(rename = "leaseToken")]
+        lease_token: Uuid,
+    },
     Completed {
         #[serde(rename = "leaseToken")]
         lease_token: Uuid,
@@ -480,6 +484,19 @@ pub(crate) async fn finish_turn(
         )
     })?;
     let (lease_token, completion) = match request {
+        FinishTurnBody::Check { lease_token } => {
+            let needs_reply = state
+                .db
+                .airhop_parent_turn_needs_reply(
+                    &principal.tenant,
+                    turn_id,
+                    lease_token,
+                    principal.pubkey.to_bytes(),
+                )
+                .await
+                .map_err(map_db_error)?;
+            return Ok(Json(json!({"needsReply": needs_reply})));
+        }
         FinishTurnBody::Completed {
             lease_token,
             outcome,
@@ -1025,21 +1042,6 @@ async fn get_turn_context(
         .await
         .map_err(map_db_error)?
         .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "AirHop organization not found"))?;
-    let family = match context.claims.family_id {
-        Some(family_id) => {
-            let detail = load_scoped_family(state, context, family_id).await?;
-            Some(json!({
-                "id": detail.family.id,
-                "displayName": detail.family.display_name,
-                "version": detail.family.version,
-                "children": detail.children.iter().filter(|child| child.status == "active").map(|child| json!({
-                    "id": child.id,
-                    "displayName": child.display_name,
-                })).collect::<Vec<_>>(),
-            }))
-        }
-        None => None,
-    };
     let booking_id = match context.claims.family_id {
         Some(id) => state
             .db
@@ -1051,6 +1053,22 @@ async fn get_turn_context(
             .await
             .map_err(map_db_error)?,
         None => None,
+    };
+    let family = match (context.claims.family_id, context.claims.representative_id) {
+        (Some(family_id), Some(representative_id)) => Some(
+            state
+                .db
+                .get_airhop_parent_family_context(
+                    &context.principal.tenant,
+                    family_id,
+                    representative_id,
+                    booking_id,
+                )
+                .await
+                .map_err(map_db_error)?,
+        ),
+        (None, None) => None,
+        _ => return Err(invalid_context()),
     };
     let auto_confirm = state
         .db
@@ -1081,6 +1099,7 @@ async fn get_turn_context(
                 "locale": organization.locale,
                 "timeZone": organization.time_zone,
             },
+            "customer": { "status": if family.is_some() { "verified_family" } else { "unlinked_contact" } },
             "family": family,
             "history": state.db.get_airhop_parent_turn_history(
                 &context.principal.tenant, context.claims.turn_id,
@@ -1422,16 +1441,16 @@ async fn validate_family_binding(
     match (family_id, representative_id) {
         (None, None) => Ok(()),
         (Some(family_id), Some(representative_id)) => {
-            let detail = state
+            let active = state
                 .db
-                .get_airhop_staff_family_detail(&principal.tenant, family_id)
+                .airhop_parent_family_binding_is_active(
+                    &principal.tenant,
+                    family_id,
+                    representative_id,
+                )
                 .await
                 .map_err(map_db_error)?;
-            if detail.family.status != "active"
-                || !detail.representatives.iter().any(|representative| {
-                    representative.id == representative_id && representative.status == "active"
-                })
-            {
+            if !active {
                 return Err(api_error(
                     StatusCode::FORBIDDEN,
                     "AirHop Family binding is not active",
@@ -1665,6 +1684,7 @@ fn scope_json(claims: &AgentContextClaims) -> Value {
 
 fn context_summary(claims: &AgentContextClaims) -> Value {
     json!({
+        "threaded": claims.root_event_id.is_some(),
         "deploymentId": claims.deployment_id,
         "deploymentVersion": claims.deployment_version,
         "role": claims.role.as_str(),

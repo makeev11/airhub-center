@@ -523,6 +523,8 @@ impl ChannelInfoResolver {
 }
 
 pub struct PromptContext {
+    /// Hosted parent runtime uses only lease-scoped history and checked delivery.
+    pub(crate) parent_supervisor: Option<Arc<crate::airhop::ParentSupervisorGate>>,
     pub mcp_servers: Vec<McpServer>,
     pub initial_message: Option<String>,
     pub idle_timeout: Duration,
@@ -1477,7 +1479,7 @@ pub async fn run_prompt_task(
     // `SessionState::invalidate_channel`).
     //
     // Operator opt-out: `--no-memory` / `BUZZ_ACP_NO_MEMORY` skips the fetch.
-    if ctx.memory_enabled {
+    if ctx.memory_enabled && ctx.parent_supervisor.is_none() {
         if let (PromptSource::Channel(cid), Some(owner_pk)) =
             (&source, ctx.agent_owner_pubkey.as_ref())
         {
@@ -1534,7 +1536,9 @@ pub async fn run_prompt_task(
     let mut title_channel: Option<String> = None;
     if let PromptSource::Channel(cid) = &source {
         let is_new_channel_session = !agent.state.sessions.contains_key(cid);
-        let needs_canvas = is_new_channel_session && !agent.state.canvas_sections.contains_key(cid);
+        let needs_canvas = ctx.parent_supervisor.is_none()
+            && is_new_channel_session
+            && !agent.state.canvas_sections.contains_key(cid);
         let needs_title = is_new_channel_session && ctx.session_title.is_some();
         if needs_canvas || needs_title {
             let (is_dm, resolved_channel) =
@@ -1846,6 +1850,8 @@ pub async fn run_prompt_task(
             &text,
         );
         vec![text]
+    } else if ctx.parent_supervisor.is_some() && batch.is_some() {
+        parent_turn_prompt(agent.has_system_prompt_support(), &ctx)
     } else if let Some(ref b) = batch {
         // Build prompt from batch with context enrichment.
         // Try startup cache first; lazy-fetch via REST for dynamic channels.
@@ -1956,22 +1962,16 @@ pub async fn run_prompt_task(
             // Heartbeat / non-cancellable path.
             tokio::select! {
                 biased;
-                result = agent.acp.session_prompt_blocks_with_idle_timeout(
-                    &session_id,
-                    &prompt_blocks,
-                    ctx.idle_timeout,
-                    ctx.max_turn_duration,
+                result = prompt_with_parent_reply_repair(
+                    &mut agent.acp, &session_id, &prompt_blocks, &source, &ctx,
                 ) => result,
             }
         }
         Some(rx) => {
             tokio::select! {
                 biased;
-                result = agent.acp.session_prompt_blocks_with_idle_timeout(
-                    &session_id,
-                    &prompt_blocks,
-                    ctx.idle_timeout,
-                    ctx.max_turn_duration,
+                result = prompt_with_parent_reply_repair(
+                    &mut agent.acp, &session_id, &prompt_blocks, &source, &ctx,
                 ) => result,
                 mode = rx => {
                     let control_signal = mode.unwrap_or(ControlSignal::Cancel);
@@ -2610,6 +2610,58 @@ pub(crate) fn render_canvas_section(event_id: &str, timestamp: &str, channel_uui
          Last modified: {timestamp}\n\
          Fetch current content with: buzz canvas get --channel {channel_uuid}"
     )
+}
+
+/// Parent prompts carry no raw queue, channel history or slash commands. The
+/// authenticated MCP snapshot is the single source of conversational input.
+fn parent_turn_prompt(has_system_prompt_support: bool, ctx: &PromptContext) -> Vec<String> {
+    let mut sections = Vec::new();
+    if !has_system_prompt_support {
+        if let Some(system) =
+            framed_system_prompt(&ctx.cwd, ctx.base_prompt, ctx.system_prompt.as_deref())
+        {
+            sections.push(system);
+        }
+    }
+    sections.push("A new server-authorized parent turn is ready. Call airhop_get_turn_context first. Respond to conversation.sourceMessageId using only that snapshot's history and current Core data. Earlier messages may be parts of the same request; answer them together. Do not infer the current input from the last history entry: it may be a delivered reply. For consent or corrections, use the current source message, never a later message or old agreement. Send the answer through airhop_send_parent_reply and wait for its successful receipt before ending. Plain final text is not delivered to the parent.".into());
+    sections
+}
+
+/// Repair one missing tool send in the same session and lease, within the
+/// original deadline. A completed send or authorized silent resume is never replayed.
+async fn prompt_with_parent_reply_repair(
+    acp: &mut AcpClient,
+    session_id: &str,
+    blocks: &[&str],
+    source: &PromptSource,
+    ctx: &PromptContext,
+) -> Result<StopReason, AcpError> {
+    let (Some(supervisor), PromptSource::Channel(channel)) = (&ctx.parent_supervisor, source)
+    else {
+        return acp
+            .session_prompt_blocks_with_idle_timeout(
+                session_id,
+                blocks,
+                ctx.idle_timeout,
+                ctx.max_turn_duration,
+            )
+            .await;
+    };
+    let started = tokio::time::Instant::now();
+    tokio::time::timeout(ctx.max_turn_duration, async {
+        let result = acp.session_prompt_blocks_with_idle_timeout(session_id, blocks, ctx.idle_timeout, ctx.max_turn_duration).await?;
+        if result != StopReason::EndTurn || !supervisor.needs_reply(*channel).await {
+            return Ok(result);
+        }
+        tracing::warn!(%channel, "Hermes ended without a reply receipt; repairing once in the same session");
+        let remaining = ctx.max_turn_duration.saturating_sub(started.elapsed());
+        acp.session_prompt_with_idle_timeout(
+            session_id,
+            "The server confirms this turn still has NO committed parent reply. Your final text was not delivered. Finish the current turn by calling airhop_send_parent_reply with the answer you prepared, then stop after its successful receipt. Do not repeat successful booking or draft mutations. If sending fails, use the tool error to correct the request; never claim delivery without a receipt.",
+            ctx.idle_timeout.min(remaining),
+            remaining,
+        ).await
+    }).await.unwrap_or(Err(AcpError::HardTimeout { silence: Duration::ZERO }))
 }
 
 /// Fetch conversation context (thread or DM) for a batch before prompting.
@@ -4148,7 +4200,128 @@ async fn clear_reactions(rest: crate::relay::RestClient, event_ids: Vec<String>)
 mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
-    use serde_json::json;
+    use serde_json::{json, Value};
+
+    #[tokio::test]
+    async fn parent_prompt_uses_only_authorized_context_and_repairs_missing_send_once() {
+        for needs_reply in [false, true] {
+            let channel = Uuid::new_v4();
+            let (client, server) = crate::airhop::tests::supervisor_server(vec![
+                (200, json!({"token":"test", "context":{"threaded":false,"scope":{"conversationId":Uuid::new_v4()}}, "turn":{"id":Uuid::new_v4(), "leaseToken":Uuid::new_v4()}})),
+                (200, json!({"needsReply":needs_reply})),
+            ]).await;
+            let dir = std::env::temp_dir().join(format!("airhop-parent-repair-{}", Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let gate = Arc::new(crate::airhop::ParentSupervisorGate::new(
+                Some(crate::airhop::AirhopRole::ParentAdministrator),
+                Some(dir.join("grant")),
+                client,
+            ));
+            let batch = FlushBatch {
+                channel_id: channel,
+                events: vec![crate::queue::BatchEvent {
+                    event: EventBuilder::new(
+                        Kind::Custom(9),
+                        "/reset private queue text must not be injected",
+                    )
+                    .sign_with_keys(&Keys::generate())
+                    .unwrap(),
+                    received_at: std::time::Instant::now(),
+                    prompt_tag: "parent".into(),
+                }],
+                cancelled_events: vec![],
+                cancel_reason: None,
+            };
+            assert!(matches!(
+                gate.claim_batch(&batch).await,
+                crate::airhop::ParentClaimDecision::Run(Some(_))
+            ));
+            let mut ctx = make_prompt_context_no_owner();
+            ctx.system_prompt = Some("Parent persona".into());
+            ctx.parent_supervisor = Some(gate);
+            let sections = parent_turn_prompt(false, &ctx);
+            assert!(sections.join("\n").contains("Parent persona"));
+            assert!(!sections.join("\n").contains("private queue text"));
+            assert!(!parent_turn_prompt(true, &ctx)
+                .join("\n")
+                .contains("Parent persona"));
+            let log = dir.join("requests.jsonl");
+            // A real ACP pipe that ends normally WITHOUT a tool send, reproducing
+            // Hermes's failure. The server's receipt decides whether to repair.
+            let script = r#"import sys,json
+for line in sys.stdin:
+    r=json.loads(line)
+    if 'id' not in r: continue
+    with open(sys.argv[1],'a') as f: f.write(json.dumps(r)+'\n')
+    result={'protocolVersion':1,'agentCapabilities':{}} if r['method']=='initialize' else {'stopReason':'end_turn'}
+    print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':result}),flush=True)
+"#;
+            let mut acp = AcpClient::spawn(
+                "python3",
+                &[
+                    "-u".into(),
+                    "-c".into(),
+                    script.into(),
+                    log.display().to_string(),
+                ],
+                &[],
+                false,
+            )
+            .await
+            .unwrap();
+            acp.initialize().await.unwrap();
+            let mut state = SessionState::default();
+            state.sessions.insert(channel, "same-session".into());
+            let agent = OwnedAgent {
+                index: 0,
+                acp,
+                state,
+                model_capabilities: None,
+                desired_model: None,
+                model_overridden: false,
+                agent_name: "hermes-agent".into(),
+                goose_system_prompt_supported: None,
+                protocol_version: 1,
+            };
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            run_prompt_task(
+                agent,
+                Some(batch),
+                None,
+                Arc::new(ctx),
+                tx,
+                None,
+                Uuid::new_v4().to_string(),
+            )
+            .await;
+            let mut result = rx.recv().await.unwrap();
+            assert!(matches!(
+                result.outcome,
+                PromptOutcome::Ok(StopReason::EndTurn)
+            ));
+            result.agent.acp.shutdown().await;
+            let requests: Vec<Value> = std::fs::read_to_string(&log)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            let prompts: Vec<_> = requests
+                .iter()
+                .filter(|r| r["method"] == "session/prompt")
+                .collect();
+            assert_eq!(prompts.len(), if needs_reply { 2 } else { 1 });
+            assert!(!prompts[0].to_string().contains("private queue text"));
+            assert!(prompts[0].to_string().contains("Parent persona"));
+            assert!(prompts
+                .iter()
+                .all(|r| r["params"]["sessionId"] == "same-session"));
+            if needs_reply {
+                assert!(prompts[1].to_string().contains("NO committed parent reply"));
+            }
+            assert_eq!(server.await.unwrap().len(), 2);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
 
     // These pin the initial_message dispatch path (run_prompt_task, ~line 855):
     // a legacy agent WITH a base_prompt must get [Base] prepended to the user
@@ -6680,6 +6853,7 @@ mod tests {
     ) -> PromptContext {
         use crate::relay::RestClient;
         PromptContext {
+            parent_supervisor: None,
             mcp_servers: vec![],
             initial_message: None,
             idle_timeout: Duration::from_secs(60),

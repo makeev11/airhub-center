@@ -258,6 +258,16 @@ async fn staff_resume_without_parent_input_waits_silently_without_retry() {
     );
     f.insert(&resume).await;
     let turn = f.lease(&resume).await;
+    assert!(!f
+        .db
+        .airhop_parent_turn_needs_reply(
+            &f.tenant,
+            turn.turn.id,
+            turn.turn.lease_token,
+            f.hermes.public_key().to_bytes()
+        )
+        .await
+        .unwrap());
     assert_eq!(finalize(&f, &turn).await, HermesTurnStatus::Completed);
     assert!(matches!(
         f.db.lease_airhop_parent_agent_turn(&f.tenant, &retry_input(&turn))

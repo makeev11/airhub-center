@@ -31,6 +31,11 @@ const SITE_CONTENT_CONTEXT_PATH: &str = "/api/airhop/agents/v1/site-content/cont
 const AGENT_BACKEND_PATH: &str = "/api/airhop/agents/v1/backend";
 const AGENT_CONTEXT_HEADER: &str = "x-airhop-agent-context";
 
+mod parent_dialogue;
+#[cfg(test)]
+#[path = "airhop/parent_dialogue_tests.rs"]
+mod parent_dialogue_tests;
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
@@ -641,6 +646,19 @@ pub struct SaveBookingDraftParams {
 pub struct BookingDraftVersionParams {
     /// Revision from the server's latest booking draft.
     pub version: i64,
+}
+
+/// Commit the ready draft and optionally deliver its confirmed outcome in the
+/// same tool call. Pending/rejected outcomes are never sent as confirmed.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CommitBookingDraftParams {
+    /// Exact revision of the summary explicitly confirmed by the parent.
+    pub version: i64,
+    /// One concise reply, sent only after Core returns confirmed with no staff
+    /// review required. Use known facts and the parent's language.
+    #[serde(default)]
+    pub confirmed_reply: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1260,6 +1278,7 @@ struct WelcomeManifest {
 #[derive(Clone)]
 struct AirhopService {
     config: Arc<AirhopConfig>,
+    dialogue: Arc<tokio::sync::Mutex<parent_dialogue::Dialogue>>,
 }
 
 // The relay's stable history order is (created_at, id), not arrival order.
@@ -1311,6 +1330,7 @@ impl AirhopService {
     fn new(config: AirhopConfig) -> Self {
         Self {
             config: Arc::new(config),
+            dialogue: Arc::new(tokio::sync::Mutex::new(parent_dialogue::Dialogue::default())),
         }
     }
 
@@ -1404,6 +1424,25 @@ impl AirhopService {
             ));
         }
         let claims = decode_parent_context(&self.config)?;
+        let grant = self.config.current_context_grant()?.unwrap_or_default();
+        let message_chars = params
+            .messages
+            .iter()
+            .map(|message| message.chars().count())
+            .sum();
+        let is_handoff = params.handoff_reason.is_some();
+        {
+            let mut dialogue = self.dialogue.lock().await;
+            dialogue.reset_for(grant.clone());
+            if let Some(receipt) = &dialogue.reply_receipt {
+                return Ok(
+                    json!({"alreadySent": true, "receipt": receipt, "dialogue": dialogue.guidance()}),
+                );
+            }
+            dialogue
+                .validate_reply(&params.messages)
+                .map_err(AirhopError)?;
+        }
         let mut events = build_parent_reply_events(
             &self.config,
             &claims,
@@ -1416,7 +1455,11 @@ impl AirhopService {
                     "handoffReason must contain 1–2000 bytes".to_owned(),
                 ));
             }
-            let context = self.get_turn_context().await?;
+            let cached = self.dialogue.lock().await.context_data();
+            let context = match cached {
+                Some(data) => json!({"data": data}),
+                None => self.get_turn_context().await?,
+            };
             let targets: Vec<ParentHandoffTarget> = serde_json::from_value(
                 context
                     .pointer("/data/handoffTargets")
@@ -1432,7 +1475,31 @@ impl AirhopService {
             )?);
         }
         let path = format!("/api/airhop/agents/v1/turns/{}/reply", claims.turn_id);
-        self.config
+        let mut dialogue = self.dialogue.lock().await;
+        // Serialize publication as well as reads/mutations: two concurrent tool
+        // sends in one lease must never become two logical parent replies.
+        if let Some(receipt) = &dialogue.reply_receipt {
+            return Ok(json!({"alreadySent": true, "receipt": receipt}));
+        }
+        let delay = if is_handoff {
+            std::time::Duration::ZERO
+        } else {
+            dialogue.reply_delay(message_chars, tokio::time::Instant::now())
+        };
+        if !delay.is_zero() {
+            tracing::info!(
+                delay_ms = delay.as_millis(),
+                "parent reply minimum interval"
+            );
+            tokio::time::sleep(delay).await;
+        }
+        if self.config.current_context_grant()?.as_deref() != Some(grant.as_str()) {
+            return Err(AirhopError(
+                "Parent turn changed before delivery; do not send the old reply.".into(),
+            ));
+        }
+        let result = self
+            .config
             .post_json(
                 &path,
                 &json!({
@@ -1440,7 +1507,18 @@ impl AirhopService {
                     "events": events,
                 }),
             )
-            .await
+            .await;
+        match result {
+            Ok(mut receipt) => {
+                dialogue.sent(receipt.clone());
+                receipt["dialogue"] = dialogue.guidance();
+                Ok(receipt)
+            }
+            Err(error) => {
+                dialogue.failed();
+                Err(error)
+            }
+        }
     }
 
     async fn delegate(&self, params: DelegateParams) -> Result<Value, AirhopError> {
@@ -1720,7 +1798,26 @@ impl AirhopService {
                 "only the Parent Administrator may use the parent Agent Backend".to_owned(),
             ));
         }
-        self.config.post_json(AGENT_BACKEND_PATH, &request).await
+        let grant = self.config.current_context_grant()?.unwrap_or_default();
+        let mut dialogue = self.dialogue.lock().await;
+        dialogue.reset_for(grant);
+        if let Some(cached) = dialogue.prepare(&request).map_err(AirhopError)? {
+            return Ok(cached);
+        }
+        let started = std::time::Instant::now();
+        match self.config.post_json(AGENT_BACKEND_PATH, &request).await {
+            Ok(mut response) => {
+                dialogue.observe(&request, &mut response);
+                tracing::info!(operation = request["operation"].as_str().unwrap_or(""),
+                    elapsed_ms = started.elapsed().as_millis(), graph = %dialogue.guidance(),
+                    "parent dialogue transition");
+                Ok(response)
+            }
+            Err(error) => {
+                dialogue.failed();
+                Err(error)
+            }
+        }
     }
 
     async fn get_turn_context(&self) -> Result<Value, AirhopError> {
@@ -1777,12 +1874,46 @@ impl AirhopService {
 
     async fn commit_booking_draft(
         &self,
-        params: BookingDraftVersionParams,
+        params: CommitBookingDraftParams,
     ) -> Result<Value, AirhopError> {
-        self.call_parent_backend(
-            json!({"operation":"commit_booking_draft", "version":params.version}),
-        )
-        .await
+        if let Some(message) = &params.confirmed_reply {
+            validate_messages(std::slice::from_ref(message))?;
+        }
+        let mut result = self
+            .call_parent_backend(
+                json!({"operation":"commit_booking_draft", "version":params.version}),
+            )
+            .await?;
+        if result
+            .pointer("/authoritativeResult/status")
+            .and_then(Value::as_str)
+            == Some("confirmed")
+            && result.pointer("/authoritativeResult/requiresStaff") == Some(&Value::Bool(false))
+        {
+            if let Some(message) = params.confirmed_reply {
+                // On delivery failure the successful mutation receipt remains
+                // in the graph; recovery can send without committing again.
+                match self
+                    .send_parent_reply(SendParentReplyParams {
+                        messages: vec![message],
+                        consultation: Some(airhop_core::consultation::ConsultationProgress {
+                            purpose: airhop_core::consultation::ConsultationPurpose::Booking,
+                            waiting_for: None,
+                            declined_quote: None,
+                        }),
+                        handoff_reason: None,
+                    })
+                    .await
+                {
+                    Ok(receipt) => result["parentReply"] = receipt,
+                    Err(error) => {
+                        result["deliveryError"] = json!({"message": error.to_string(),
+                        "next": "Booking committed; send the parent reply without repeating the booking operation."})
+                    }
+                }
+            }
+        }
+        Ok(result)
     }
 
     async fn cancel_booking_draft(
@@ -2033,7 +2164,7 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_get_turn_context",
-        description = "Parent Administrator only: load the immutable server-authorized scope for this turn, including organization, verified Family summary, and granted capabilities. Call this before acting."
+        description = "Parent Administrator only: first read for each turn. Returns server-authorized scope, customer binding status, recent conversation, draft, and a compact verified Family with up to three relevant bookings. Use this data directly; fetch other tools only for facts required by the current question."
     )]
     async fn get_turn_context(
         &self,
@@ -2055,7 +2186,7 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_get_family",
-        description = "Parent Administrator only: load the parent-safe Family, children, enrollments, and bookings bound to this turn. The model cannot choose another Family."
+        description = "Parent Administrator only: expand a verified Family with enrollments and bounded booking history ONLY when the current question needs details missing from turn context. Do not call for greetings, unlinked contacts, or data already present. The model cannot choose another Family."
     )]
     async fn get_family(
         &self,
@@ -2103,11 +2234,11 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_commit_booking_draft",
-        description = "Parent Administrator only: create the booking from the exact ready draft revision after the CURRENT parent message explicitly confirms its delivered summary. The server verifies source, delivery, consent, current permission, capacity, age, identity and policy. New contacts CAN book; Family verification is not required for creation. Replays return the same booking. Say confirmed only for status confirmed; requiresStaff means send an internal handoff. Never call from a staff resume or before the parent confirms."
+        description = "Parent Administrator only: create the booking from the exact ready draft revision after the CURRENT parent message explicitly confirms its delivered summary. The server verifies source, delivery, consent, current permission, capacity, age, identity and policy. New contacts CAN book; Family verification is not required for creation. Replays return the same booking. For immediate delivery, supply confirmedReply with one short message: it is sent in this call ONLY for confirmed with requiresStaff=false. If parentReply is returned, stop without another send. deliveryError means booking succeeded but the reply needs retry; never book again. Other outcomes require an appropriate reply or staff handoff. Never call from a staff resume or before the parent confirms."
     )]
     async fn commit_booking_draft(
         &self,
-        Parameters(params): Parameters<BookingDraftVersionParams>,
+        Parameters(params): Parameters<CommitBookingDraftParams>,
     ) -> Result<CallToolResult, ErrorData> {
         Ok(as_tool_result(
             self.service.commit_booking_draft(params).await,
@@ -2140,7 +2271,7 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_send_parent_reply",
-        description = "Parent Administrator only: atomically commit the final one-to-three-message parent reply. Include consultation with purpose booking/information/support, waitingFor naming the question in the LAST message (or null), and declinedQuote null unless quoting an explicit refusal from the current parent message. Use confirmation only for the exact ready-draft preview. Set handoffReason to notify the server-selected staff in a separate INTERNAL mention and pause Hermes until an explicit staff resume. This is the only way to actually hand off a parent request. Never promise a handoff without a successful receipt."
+        description = "Parent Administrator only: commit one combined parent reply; a second message is allowed only for the exact booking preview. Never repeat the same text or send another reply after a successful receipt. Include consultation with purpose booking/information/support, waitingFor naming the question in the LAST message (or null), and declinedQuote null unless quoting an explicit refusal from the current parent message. Use confirmation only for the exact ready-draft preview. Set handoffReason to notify the server-selected staff in a separate INTERNAL mention and pause Hermes until an explicit staff resume. This is the only way to actually hand off a parent request. Never promise a handoff without a successful receipt."
     )]
     async fn send_parent_reply(
         &self,
@@ -2154,7 +2285,7 @@ impl AirhopMcp {
 impl ServerHandler for AirhopMcp {
     fn get_info(&self) -> ServerInfo {
         let instructions = if self.service.config.role == AirhopRole::ParentAdministrator {
-            "Use only the visible server-scoped Airhop tools. Load turn context first. Never infer or request identifiers outside the granted conversation and Family scope. Send parent-facing output only through airhop_send_parent_reply; never use a generic Buzz send tool."
+            "Use only the visible server-scoped Airhop tools. Load turn context first and follow dialogue.node/next. Never infer identifiers outside the granted scope. Send one answer through airhop_send_parent_reply, or confirmedReply in airhop_commit_booking_draft. Stop after a successful parent reply receipt. Repeated lookups and actions are bounded by the dialogue graph."
         } else {
             "Use only the visible role-scoped Airhop tools. Keep Welcome flat and concise."
         };
@@ -3006,7 +3137,10 @@ mod tests {
             .await
             .unwrap();
         service
-            .commit_booking_draft(BookingDraftVersionParams { version: 1 })
+            .commit_booking_draft(CommitBookingDraftParams {
+                version: 1,
+                confirmed_reply: None,
+            })
             .await
             .unwrap();
         service
