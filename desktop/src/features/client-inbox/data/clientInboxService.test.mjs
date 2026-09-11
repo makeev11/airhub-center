@@ -99,3 +99,147 @@ test("routing configuration read does not request conversation rows", async () =
     "https://center.example/api/airhop/staff/v1/client-conversations?configurationOnly=true",
   );
 });
+
+function routingConfiguration() {
+  return {
+    communityId: id,
+    viewerPubkey: "ab".repeat(32),
+    canManageRouting: true,
+    branches: [
+      {
+        id,
+        name: "Курская",
+        channelId: id,
+        version: 7,
+        responsiblePubkeys: ["cd".repeat(32)],
+      },
+    ],
+    staff: [{ pubkey: "cd".repeat(32), name: "Анна", channelId: id }],
+  };
+}
+
+test("legacy routing read uses a signed empty-history filter and preserves branch versions for saving", async () => {
+  const requests = [];
+  const config = routingConfiguration();
+  const service = new ClientInboxService({
+    relayHttpUrl: async () => "https://center.example/",
+    signEvent: async (event) => event,
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      if (url.endsWith("/events"))
+        return Response.json({ accepted: true, message: "{}" });
+      if (new URL(url).searchParams.has("configurationOnly"))
+        return Response.json(
+          { error: "Invalid Inbox filters" },
+          { status: 400 },
+        );
+      return Response.json({
+        ...config,
+        items: [],
+        connections: [],
+        nextCursor: null,
+      });
+    },
+  });
+
+  const routing = await service.loadRoutingConfiguration();
+  assert.deepEqual(routing, config);
+  assert.equal(requests.length, 2);
+  assert.equal(
+    requests[1].url,
+    "https://center.example/api/airhop/staff/v1/client-conversations?conversationId=00000000-0000-0000-0000-000000000000",
+  );
+  for (const { url, options } of requests) {
+    assert.equal(options.method, "GET");
+    const auth = JSON.parse(atob(options.headers.Authorization.slice(6)));
+    assert.ok(auth.tags.some((tag) => tag[0] === "u" && tag[1] === url));
+    assert.ok(auth.tags.some((tag) => tag[0] === "method" && tag[1] === "GET"));
+  }
+
+  await service.setResponsibles(routing.communityId, routing.branches[0], []);
+  const event = JSON.parse(requests[2].options.body);
+  assert.equal(event.kind, 9051);
+  assert.ok(
+    event.tags.some((tag) => tag[0] === "airhop-community" && tag[1] === id),
+  );
+  const command = JSON.parse(event.content);
+  assert.equal(command.branchId, id);
+  assert.equal(command.expectedVersion, 7);
+  assert.deepEqual(command.responsiblePubkeys, []);
+});
+
+test("routing configuration does not depend on conversation schemas", async () => {
+  const config = routingConfiguration();
+  const service = new ClientInboxService({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (event) => event,
+    fetch: async () => Response.json({ ...config, items: [{ old: "schema" }] }),
+  });
+  assert.deepEqual(await service.loadRoutingConfiguration(), config);
+  await assert.rejects(service.load());
+});
+
+for (const [status, error] of [
+  [403, "Invalid Inbox filters"],
+  [500, "Invalid Inbox filters"],
+  [400, "Invalid authentication"],
+]) {
+  test(`routing does not hide HTTP ${status}: ${error}`, async () => {
+    let requests = 0;
+    const service = new ClientInboxService({
+      relayHttpUrl: async () => "https://center.example",
+      signEvent: async (event) => event,
+      fetch: async () => {
+        requests++;
+        return Response.json({ error }, { status });
+      },
+    });
+    await assert.rejects(service.loadRoutingConfiguration(), {
+      message: error,
+    });
+    assert.equal(requests, 1);
+  });
+}
+
+test("routing does not retry a network failure or invalid configuration", async () => {
+  for (const response of [new TypeError("network lost"), { staff: [] }]) {
+    let requests = 0;
+    const service = new ClientInboxService({
+      relayHttpUrl: async () => "https://center.example",
+      signEvent: async (event) => event,
+      fetch: async () => {
+        requests++;
+        if (response instanceof Error) throw response;
+        return Response.json(response);
+      },
+    });
+    await assert.rejects(service.loadRoutingConfiguration());
+    assert.equal(requests, 1);
+  }
+});
+
+test("legacy fallback failure is surfaced once and the next load probes modern support again", async () => {
+  const urls = [];
+  const service = new ClientInboxService({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (event) => event,
+    fetch: async (url) => {
+      urls.push(url);
+      if (urls.length === 1)
+        return Response.json(
+          { error: "Invalid Inbox filters" },
+          { status: 400 },
+        );
+      if (urls.length === 2)
+        return Response.json({ error: "Unavailable" }, { status: 503 });
+      return Response.json(routingConfiguration());
+    },
+  });
+  await assert.rejects(service.loadRoutingConfiguration(), /Unavailable/);
+  assert.equal(urls.length, 2);
+  assert.deepEqual(
+    await service.loadRoutingConfiguration(),
+    routingConfiguration(),
+  );
+  assert.equal(urls[2], urls[0]);
+});

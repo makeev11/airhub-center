@@ -59,6 +59,17 @@ export const inboxSchema = z.object({
 });
 export type ClientConversation = z.infer<typeof clientSchema>;
 export type ClientInbox = z.infer<typeof inboxSchema>;
+const routingConfigurationSchema = inboxSchema.pick({
+  communityId: true,
+  viewerPubkey: true,
+  canManageRouting: true,
+  branches: true,
+  staff: true,
+});
+/** Branch routing settings, independent of conversation history. */
+export type ClientRoutingConfiguration = z.infer<
+  typeof routingConfigurationSchema
+>;
 export type ClientAction =
   | { type: "assign_branch"; branchId: string }
   | { type: "assign"; pubkey: string }
@@ -69,6 +80,16 @@ type Options = {
   signEvent?: typeof signRelayEvent;
   fetch?: typeof fetch;
 };
+
+class ClientInboxHttpError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ClientInboxHttpError";
+    this.status = status;
+  }
+}
 
 /** Mounted-workspace client: pins origin, signs commands, never fabricates client data. */
 export class ClientInboxService {
@@ -121,9 +142,10 @@ export class ClientInboxService {
     });
     const result: unknown = await response.json();
     if (!response.ok)
-      throw new Error(
+      throw new ClientInboxHttpError(
         z.object({ error: z.string().optional() }).parse(result).error ??
           `HTTP ${response.status}`,
+        response.status,
       );
     return result;
   }
@@ -137,8 +159,28 @@ export class ClientInboxService {
       ),
     );
   }
-  async loadRoutingConfiguration() {
-    return this.load({ configurationOnly: "true" });
+  /** Loads staff and branch versions, including from pre-configurationOnly relays. */
+  async loadRoutingConfiguration(): Promise<ClientRoutingConfiguration> {
+    const path = "/api/airhop/staff/v1/client-conversations";
+    let result: unknown;
+    try {
+      result = await this.request(`${path}?configurationOnly=true`);
+    } catch (error) {
+      if (
+        !(error instanceof ClientInboxHttpError) ||
+        error.status !== 400 ||
+        error.message !== "Invalid Inbox filters"
+      ) {
+        throw error;
+      }
+      // Older relays reject unknown filters but include routing in every inbox
+      // response. A nil conversation ID selects no history while retaining the
+      // same authenticated, community-scoped staff and branch configuration.
+      result = await this.request(
+        `${path}?conversationId=00000000-0000-0000-0000-000000000000`,
+      );
+    }
+    return routingConfigurationSchema.parse(result);
   }
   async command(
     communityId: string,

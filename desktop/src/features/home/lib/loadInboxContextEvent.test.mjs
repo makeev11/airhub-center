@@ -67,3 +67,72 @@ test("events from another channel are never used as context", async () => {
     /does not match/,
   );
 });
+
+for (const notFound of ["event not found", new Error("event not found")]) {
+  test(`confirmed absence returns null (${typeof notFound})`, async () => {
+    assert.equal(
+      await loadInboxContextEvent({
+        ...options,
+        fetchEvent: async () => {
+          throw notFound;
+        },
+      }),
+      null,
+    );
+  });
+}
+
+test("remote validation does not trust a saved copy of a missing message", async () => {
+  assert.equal(
+    await loadInboxContextEvent({
+      ...options,
+      requireRemote: true,
+      getCachedEvents: () => [event],
+      fetchEvent: async () => {
+        throw "event not found";
+      },
+    }),
+    null,
+  );
+});
+
+test("remote validation preserves transport errors despite cached text", async () => {
+  await assert.rejects(
+    loadInboxContextEvent({
+      ...options,
+      requireRemote: true,
+      getCachedEvents: () => [event],
+    }),
+    /HTTP unavailable/,
+  );
+});
+
+for (const failure of ["timeout", "relay returned 403", "relay returned 429"]) {
+  test(`${failure} is not classified as unavailable`, async () => {
+    await assert.rejects(
+      loadInboxContextEvent({
+        ...options,
+        fetchEvent: async () => {
+          throw "event not found";
+        },
+        fetchChannelEvents: async () => {
+          throw new Error(failure);
+        },
+      }),
+      new RegExp(failure),
+    );
+  });
+}
+
+test("a message arriving via WebSocket overrides HTTP not-found", async () => {
+  assert.equal(
+    await loadInboxContextEvent({
+      ...options,
+      fetchEvent: async () => {
+        throw "event not found";
+      },
+      fetchChannelEvents: async () => [event],
+    }),
+    event,
+  );
+});

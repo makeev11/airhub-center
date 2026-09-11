@@ -34,7 +34,7 @@ import {
 } from "@/features/channels/hooks";
 import {
   ClientInboxService,
-  type ClientInbox,
+  type ClientRoutingConfiguration,
 } from "@/features/client-inbox/data/clientInboxService";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
@@ -152,7 +152,9 @@ export function BranchFormDialog({
   }>({});
   const [overlapConfirmed, setOverlapConfirmed] = React.useState(false);
   const [channelTouched, setChannelTouched] = React.useState(false);
-  const [routing, setRouting] = React.useState<ClientInbox | null>(null);
+  const [routing, setRouting] =
+    React.useState<ClientRoutingConfiguration | null>(null);
+  const [operationsAttempt, setOperationsAttempt] = React.useState(0);
   const [tracking, setTracking] = React.useState<TrackingLinkList | null>(null);
   const [operationsLoading, setOperationsLoading] = React.useState(false);
   const [routingFailed, setRoutingFailed] = React.useState(false);
@@ -181,6 +183,7 @@ export function BranchFormDialog({
     setChannelTouched(false);
   }, [freshBranch, open]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: operationsAttempt explicitly retries a failed load without resetting the branch form.
   React.useEffect(() => {
     if (!open || !serverRuntime) {
       setRouting(null);
@@ -193,6 +196,10 @@ export function BranchFormDialog({
       return;
     }
     const request = ++operationsRequest.current;
+    setRouting(null);
+    setTracking(null);
+    setSelectedResponsibles([]);
+    setResponsiblesBaseline([]);
     setOperationsLoading(true);
     setRoutingFailed(false);
     setTrackingFailed(false);
@@ -228,6 +235,7 @@ export function BranchFormDialog({
   }, [
     freshBranchId,
     open,
+    operationsAttempt,
     routingService,
     serverRuntime,
     siteAnalyticsService,
@@ -614,6 +622,9 @@ export function BranchFormDialog({
                 if (freshBranch) await ensureMapTrackingLinks(freshBranch);
               }}
               onSelectedResponsiblesChange={setSelectedResponsibles}
+              onRetryRouting={() =>
+                setOperationsAttempt((attempt) => attempt + 1)
+              }
               routing={routing}
               routingFailed={routingFailed}
               selectedResponsibles={selectedResponsibles}

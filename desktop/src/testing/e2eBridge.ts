@@ -666,6 +666,8 @@ type E2eConfig = {
     // Event IDs that `get_event` should report as definitively not found.
     // Causes `useDraftRootStatus` to classify as `deleted`.
     deletedEventIds?: string[];
+    /** Per-event transport failures for Inbox availability/retry regressions. */
+    eventLookupErrors?: Record<string, string>;
     // Pending community deep links (buzz://join / buzz://connect / buzz://add-community) seeded into
     // the mocked Rust-side queue. Mirrors the real queue's semantics:
     // `take_pending_community_deep_link` peeks the head and
@@ -4361,6 +4363,16 @@ function emitMockHistory(
 ) {
   const events = getMockMessageStore(channelId)
     .filter((event) => {
+      // Inbox single-event and descendant lookups must see the same filtered
+      // result as the relay, not unrelated cached messages from this channel.
+      if (filter.ids && !filter.ids.includes(event.id)) return false;
+      if (
+        filter["#e"] &&
+        !event.tags.some(
+          (tag) => tag[0] === "e" && filter["#e"]?.includes(tag[1]),
+        )
+      )
+        return false;
       if (filter.kinds && !filter.kinds.includes(event.kind)) {
         return false;
       }
@@ -9516,6 +9528,8 @@ async function resolveGetEvent(
   const identity = getIdentity(config);
   if (!identity) {
     // Allow test specs to mark specific event IDs as definitively deleted.
+    const lookupError = config?.mock?.eventLookupErrors?.[args.eventId];
+    if (lookupError) throw new Error(lookupError);
     if (config?.mock?.deletedEventIds?.includes(args.eventId)) {
       throw new Error("event not found");
     }
