@@ -365,6 +365,7 @@ pub(crate) async fn connect_telegram(
         )
         .await
         .map_err(map_db_error)?;
+    state.invalidate_all_accessible_channels(&principal.tenant);
     notify_connection_channel(
         &state,
         &principal.tenant,
@@ -528,6 +529,7 @@ pub(crate) async fn connect_whatsapp_cloud(
         )
         .await
         .map_err(map_db_error)?;
+    state.invalidate_all_accessible_channels(&principal.tenant);
     notify_connection_channel(
         &state,
         &principal.tenant,
@@ -731,6 +733,7 @@ pub(crate) async fn put_connection(
         )
         .await
         .map_err(map_db_error)?;
+    state.invalidate_all_accessible_channels(&principal.tenant);
     if routing_changed {
         notify_connection_channel(
             &state,
@@ -873,6 +876,7 @@ pub(crate) async fn put_conversation_route(
         )
         .await
         .map_err(map_db_error)?;
+    state.invalidate_all_accessible_channels(&principal.tenant);
     Ok(Json(json!({
         "schemaVersion": "airhop.external-conversation-route.v1",
         "route": route,
@@ -930,6 +934,9 @@ pub(crate) async fn resolve_conversation_route(
                 )
                 .await
                 .map_err(map_db_error)?;
+            if provisioned.created {
+                state.invalidate_all_accessible_channels(&principal.tenant);
+            }
             (provisioned.route, provisioned.created)
         }
         Err(error) => return Err(map_db_error(error)),

@@ -741,8 +741,10 @@ pub async fn get_members_bulk(
 
 /// Get all channel IDs accessible to a pubkey.
 ///
-/// Includes channels where the pubkey is an active member AND all open channels.
-/// Open channels must be included in REQ filter resolution.
+/// Ordinary principals receive channels where they are active members plus all
+/// open channels. AirHop's parent runtime and channel connectors instead receive
+/// only active, explicitly assigned client channels. The database function is
+/// shared with single-channel checks and the internal-agent exposure guard.
 pub async fn get_accessible_channel_ids(
     pool: &PgPool,
     community_id: CommunityId,
@@ -750,14 +752,11 @@ pub async fn get_accessible_channel_ids(
 ) -> Result<Vec<Uuid>> {
     let rows = sqlx::query(
         r#"
-        SELECT cm.channel_id
-        FROM channel_members cm
-        JOIN channels c ON cm.community_id = c.community_id AND cm.channel_id = c.id AND c.deleted_at IS NULL
-        WHERE cm.community_id = $1 AND cm.pubkey = $2 AND cm.removed_at IS NULL
-        UNION
         SELECT id AS channel_id
         FROM channels
-        WHERE community_id = $1 AND visibility = 'open' AND deleted_at IS NULL
+        WHERE community_id = $1
+          AND deleted_at IS NULL
+          AND airhop_can_read_channel($1, id, $2)
         "#,
     )
     .bind(community_id.as_uuid())
@@ -771,6 +770,23 @@ pub async fn get_accessible_channel_ids(
             Ok(id)
         })
         .collect()
+}
+
+/// Check the same effective channel-read policy used by historical queries.
+/// This uncached form is used to repair request-local cache misses safely.
+pub async fn can_read_channel(
+    pool: &PgPool,
+    community_id: CommunityId,
+    channel_id: Uuid,
+    pubkey: &[u8],
+) -> Result<bool> {
+    sqlx::query_scalar("SELECT airhop_can_read_channel($1,$2,$3)")
+        .bind(community_id.as_uuid())
+        .bind(channel_id)
+        .bind(pubkey)
+        .fetch_one(pool)
+        .await
+        .map_err(Into::into)
 }
 
 /// Lists channels in a community, optionally filtered by visibility string.
@@ -944,10 +960,10 @@ pub async fn get_accessible_channels(
     // has an active membership (cm.channel_id IS NOT NULL). This is a strict
     // subset of the default result set and is pushed into SQL so the LIMIT 1000
     // applies to the filtered set, not the pre-filter set.
-    let membership_clause = if member_only == Some(true) {
-        "AND cm.channel_id IS NOT NULL"
+    let access_clause = if member_only == Some(true) {
+        "AND cm.channel_id IS NOT NULL AND airhop_can_read_channel($1,c.id,$2)"
     } else {
-        "AND (c.visibility = 'open' OR cm.channel_id IS NOT NULL)"
+        "AND airhop_can_read_channel($1,c.id,$2)"
     };
 
     let base = format!(
@@ -964,7 +980,7 @@ pub async fn get_accessible_channels(
         LEFT JOIN channel_members cm
             ON c.community_id = cm.community_id AND c.id = cm.channel_id AND cm.pubkey = $2 AND cm.removed_at IS NULL
         WHERE c.community_id = $1 AND c.deleted_at IS NULL
-          {membership_clause}
+          {access_clause}
           AND (c.channel_type != 'dm' OR cm.hidden_at IS NULL)
     "#
     );

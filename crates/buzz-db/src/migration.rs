@@ -571,7 +571,16 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 68);
+        assert_eq!(migrations.len(), 69);
+        assert_eq!(migrations[68].version, 69);
+        assert!(migrations[68]
+            .sql
+            .as_str()
+            .contains("CREATE FUNCTION airhop_can_read_channel"));
+        assert!(migrations[68]
+            .sql
+            .as_str()
+            .contains("airhop_channel_service_grants"));
         assert_eq!(migrations[67].version, 68);
         assert!(migrations[67]
             .sql

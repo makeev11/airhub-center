@@ -85,11 +85,37 @@ pub(crate) async fn claim_welcome_route(
             "invalid Airhop Welcome source event id",
         )
     })?;
-    let decision = state
+    let decision = match state
         .db
         .claim_airhop_welcome_route(&principal.tenant, event_id, principal.pubkey.to_bytes())
         .await
-        .map_err(map_route_db_error)?;
+    {
+        Ok(decision) => decision,
+        Err(buzz_db::DbError::AirhopAgentRequestDenied(denial)) => {
+            // Every registered role may race to inspect this event. Only the
+            // exact addressed claimant is allowed to notify the author.
+            if should_notify_agent_request_denial(&denial, principal.pubkey.to_bytes()) {
+                if let Err(error) = crate::airhop_agent_request_status::send_agent_request_denial(
+                    &state,
+                    &principal.tenant,
+                    &denial,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        source_event_id = %hex::encode(denial.source_event_id),
+                        reason = denial.reason.as_str(),
+                        %error,
+                        "private agent request status delivery failed"
+                    );
+                }
+            }
+            return Err(map_route_db_error(
+                buzz_db::DbError::AirhopAgentRequestDenied(denial),
+            ));
+        }
+        Err(error) => return Err(map_route_db_error(error)),
+    };
     state
         .db
         .require_airhop_internal_destination(
@@ -100,6 +126,13 @@ pub(crate) async fn claim_welcome_route(
         .await
         .map_err(map_route_db_error)?;
     Ok(Json(route_decision_json(&decision)))
+}
+
+fn should_notify_agent_request_denial(
+    denial: &buzz_db::AirhopAgentRequestDenial,
+    claimant_pubkey: [u8; 32],
+) -> bool {
+    denial.target_pubkey == claimant_pubkey
 }
 
 fn welcome_route_claim_path(event_id: &str) -> String {
@@ -295,6 +328,9 @@ fn map_route_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
         buzz_db::DbError::AccessDenied(_) => {
             api_error(StatusCode::FORBIDDEN, "Airhop Welcome route claim denied")
         }
+        buzz_db::DbError::AirhopAgentRequestDenied(_) => {
+            api_error(StatusCode::FORBIDDEN, "Airhop Welcome route claim denied")
+        }
         buzz_db::DbError::InvalidData(message) => {
             api_error(StatusCode::UNPROCESSABLE_ENTITY, &message)
         }
@@ -320,12 +356,32 @@ fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{TimeZone, Utc};
 
     #[test]
     fn registration_is_owner_only() {
         assert!(require_owner("owner").is_ok());
         assert!(require_owner("admin").is_err());
         assert!(require_owner("member").is_err());
+    }
+
+    #[test]
+    fn only_the_exact_addressed_claimant_may_send_a_denial_status() {
+        let target = [7; 32];
+        let denial = buzz_db::AirhopAgentRequestDenial {
+            source_event_id: [1; 32],
+            source_created_at: Utc.timestamp_opt(1_750_000_000, 0).unwrap(),
+            source_author_pubkey: [2; 32],
+            channel_id: Uuid::new_v4(),
+            target_pubkey: target,
+            target_role: "analyst".into(),
+            locale: "ru-RU".into(),
+            reason: buzz_db::AirhopAgentRequestDenialReason::ExternalReaders,
+        };
+        assert!(should_notify_agent_request_denial(&denial, target));
+        for claimant in [[3; 32], [4; 32], [5; 32]] {
+            assert!(!should_notify_agent_request_denial(&denial, claimant));
+        }
     }
 
     #[test]

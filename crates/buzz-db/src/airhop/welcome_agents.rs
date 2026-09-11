@@ -664,7 +664,7 @@ impl Db {
             return Ok(WelcomeRouteDecision {event_id,channel_id:team.channel_id,target_role:role,target_pubkey:target,reason:WelcomeRouteReason::Handoff,replayed:true,ephemeral:true,communication_configured});
         }
         let event_row = sqlx::query(
-            "SELECT pubkey, kind, tags, content, channel_id
+            "SELECT pubkey, kind, tags, content, channel_id, created_at
              FROM events
              WHERE community_id = $1 AND id = $2 AND deleted_at IS NULL
              ORDER BY created_at DESC LIMIT 1",
@@ -687,6 +687,7 @@ impl Db {
             ));
         }
         let source_author = vec_to_pubkey(event_row.try_get("pubkey")?, "source author")?;
+        let source_created_at = event_row.try_get("created_at")?;
         if team.members.values().any(|pubkey| *pubkey == source_author) {
             return Err(DbError::AccessDenied(
                 "agent-authored events do not use the human route claim".to_owned(),
@@ -698,7 +699,7 @@ impl Db {
                 tx.as_mut(),
                 tenant,
                 &team,
-                event_id,
+                (event_id, source_created_at),
                 channel_id,
                 source_author,
                 &tags,

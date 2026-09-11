@@ -96,22 +96,20 @@ where
     drop_count
 }
 
-/// Drop recipients without access before fan-out on a private channel.
+/// Drop recipients without effective access before channel fan-out.
 ///
-/// Open and channel-less events skip membership filtering (open channel-scoped
-/// events pay one visibility lookup; see `channel_visibility_cached`). For a
-/// private channel, each recipient is kept only if its connection's
-/// authenticated pubkey is a current member; unknown/unauthenticated recipients
-/// fail closed. This is the cluster-wide backstop: even if a stale subscription
-/// survives on another node after an open->private flip, its events are not
-/// delivered here.
+/// Channel-less events skip channel filtering. For every channel-scoped event,
+/// each recipient is kept only if its authenticated pubkey passes the same
+/// effective-access policy used by history, query, search, and COUNT. This also
+/// applies to open channels: ordinary employees may read them, while AirHop's
+/// parent runtime and connectors may read only assigned client channels.
 ///
 /// `threaded` is an optional visibility read resolved earlier in the same
 /// request (E1 phase-2, §4.8 phase-2 addendum). It is consulted only when its
 /// `(community_id, channel_id)` exactly match this fan-out's — a mismatched or
 /// absent bundle falls back to the fresh fail-closed lookup below, never to
-/// "assume open". Membership checks stay fresh either way; the threaded value
-/// only replaces the visibility SELECT.
+/// "assume open". The effective-access check below is authoritative for both
+/// visibility classes; the threaded value only replaces the visibility SELECT.
 pub async fn filter_fanout_by_access(
     state: &AppState,
     community_id: CommunityId,
@@ -192,7 +190,6 @@ pub async fn filter_fanout_by_access(
         }
     };
     match visibility {
-        Ok(v) if v != "private" => return matches,
         Ok(_) => {}
         Err(e) => {
             // Fail closed: if we cannot determine visibility, do not leak a
@@ -208,13 +205,13 @@ pub async fn filter_fanout_by_access(
             continue;
         };
         match state
-            .is_member_cached(community_id, channel_id, &pubkey)
+            .get_accessible_channel_ids_cached(community_id, &pubkey)
             .await
         {
-            Ok(true) => allowed.push((conn_id, sub_id)),
-            Ok(false) => {}
+            Ok(channels) if channels.contains(&channel_id) => allowed.push((conn_id, sub_id)),
+            Ok(_) => {}
             Err(e) => {
-                warn!(%channel_id, "fan-out access filter: membership lookup failed: {e}");
+                warn!(%channel_id, "fan-out access filter: effective access lookup failed: {e}");
             }
         }
     }
@@ -2192,26 +2189,38 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn open_channel_event_passes_through_unfiltered() {
+        async fn open_channel_broad_fanout_keeps_only_effective_readers() {
             let state = test_state().await;
             let channel_id = Uuid::new_v4();
             let community_id = buzz_core::tenant::CommunityId::from_uuid(Uuid::nil());
             state
                 .channel_visibility_cache
                 .insert((community_id, channel_id), "open".to_string());
-            // A connection with no authenticated pubkey would be dropped on a
-            // private channel; on open it must pass untouched.
-            let conn = register_conn(&state, None);
-            let matches = vec![(conn, "s".to_string())];
+            let staff_pk = vec![1u8; 32];
+            let scoped_service_pk = vec![2u8; 32];
+            state
+                .accessible_channels_cache
+                .insert((community_id, staff_pk.clone()), vec![channel_id]);
+            state
+                .accessible_channels_cache
+                .insert((community_id, scoped_service_pk.clone()), Vec::new());
+            let staff = register_conn(&state, Some(staff_pk));
+            let scoped_service = register_conn(&state, Some(scoped_service_pk));
+            let unauthed = register_conn(&state, None);
+            let matches = vec![
+                (staff, "staff".to_string()),
+                (scoped_service, "service".to_string()),
+                (unauthed, "unknown".to_string()),
+            ];
             let out = filter_fanout_by_access(
                 &state,
                 community_id,
                 &channel_event(Some(channel_id)),
-                matches.clone(),
+                matches,
                 None,
             )
             .await;
-            assert_eq!(out, matches);
+            assert_eq!(out, vec![(staff, "staff".to_string())]);
         }
 
         #[tokio::test]
@@ -2226,11 +2235,11 @@ mod tests {
             let member_pk = vec![1u8; 32];
             let non_member_pk = vec![2u8; 32];
             state
-                .membership_cache
-                .insert((community_id, channel_id, member_pk.clone()), true);
+                .accessible_channels_cache
+                .insert((community_id, member_pk.clone()), vec![channel_id]);
             state
-                .membership_cache
-                .insert((community_id, channel_id, non_member_pk.clone()), false);
+                .accessible_channels_cache
+                .insert((community_id, non_member_pk.clone()), Vec::new());
 
             let member = register_conn(&state, Some(member_pk));
             let non_member = register_conn(&state, Some(non_member_pk));
@@ -2345,11 +2354,11 @@ mod tests {
             let member_pk = vec![1u8; 32];
             let non_member_pk = vec![2u8; 32];
             state
-                .membership_cache
-                .insert((community_id, channel_id, member_pk.clone()), true);
+                .accessible_channels_cache
+                .insert((community_id, member_pk.clone()), vec![channel_id]);
             state
-                .membership_cache
-                .insert((community_id, channel_id, non_member_pk.clone()), false);
+                .accessible_channels_cache
+                .insert((community_id, non_member_pk.clone()), Vec::new());
 
             let threaded = crate::state::ThreadedChannelVisibility {
                 community_id,
@@ -2371,12 +2380,10 @@ mod tests {
             assert_eq!(out, vec![(member, "m".to_string())]);
         }
 
-        /// Matching threaded `open` passes recipients through with no
-        /// visibility SELECT (no visibility cache entry exists and the lazy
-        /// PG pool in `test_state` would error a fresh lookup → fail closed;
-        /// passing through proves the threaded value was used).
+        /// Matching threaded `open` avoids the visibility SELECT but still
+        /// applies effective channel access.
         #[tokio::test]
-        async fn threaded_visibility_open_passes_through() {
+        async fn threaded_visibility_open_still_checks_effective_access() {
             let state = test_state().await;
             let channel_id = Uuid::new_v4();
             let community_id = buzz_core::tenant::CommunityId::from_uuid(Uuid::nil());
@@ -2387,7 +2394,11 @@ mod tests {
                 visibility: "open".to_string(),
             };
 
-            let conn = register_conn(&state, None);
+            let pubkey = vec![1u8; 32];
+            state
+                .accessible_channels_cache
+                .insert((community_id, pubkey.clone()), vec![channel_id]);
+            let conn = register_conn(&state, Some(pubkey));
             let matches = vec![(conn, "s".to_string())];
             let out = filter_fanout_by_access(
                 &state,

@@ -80,6 +80,7 @@ pub(crate) async fn apply_command(
     }
     let command: ClientWorkspaceCommand = serde_json::from_str(&event.content)
         .map_err(|_| IngestError::Rejected("invalid: client command shape".into()))?;
+    let access_may_change = matches!(&command, ClientWorkspaceCommand::Conversation(_));
     let result = match command {
         ClientWorkspaceCommand::Conversation(command) => {
             state
@@ -99,6 +100,9 @@ pub(crate) async fn apply_command(
                 .await
         }
     };
+    if result.is_ok() && access_may_change {
+        state.invalidate_all_accessible_channels(tenant);
+    }
     result.map_err(|e| match e {
         DbError::AirhopVersionConflict => IngestError::Rejected(
             "conflict: client conversation changed; refresh before retrying".into(),

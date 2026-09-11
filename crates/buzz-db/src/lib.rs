@@ -56,7 +56,7 @@ pub mod user;
 /// Workflow, run, and approval persistence.
 pub mod workflow;
 
-pub use error::{DbError, Result};
+pub use error::{AirhopAgentRequestDenial, AirhopAgentRequestDenialReason, DbError, Result};
 pub use event::{EventQuery, ReactionEventInsertOutcome, DEFAULT_MAX_PAGE_LIMIT};
 
 use chrono::{DateTime, Utc};
@@ -2289,6 +2289,16 @@ impl Db {
         pubkey: &[u8],
     ) -> Result<Vec<Uuid>> {
         channel::get_accessible_channel_ids(&self.pool, community_id, pubkey).await
+    }
+
+    /// Check effective read access for one channel without using relay caches.
+    pub async fn can_read_channel(
+        &self,
+        community_id: CommunityId,
+        channel_id: Uuid,
+        pubkey: &[u8],
+    ) -> Result<bool> {
+        channel::can_read_channel(&self.pool, community_id, channel_id, pubkey).await
     }
 
     /// Lists channels, optionally filtered by visibility.

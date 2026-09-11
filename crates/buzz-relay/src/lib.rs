@@ -5,6 +5,8 @@
 mod admission;
 
 pub mod airhop_agent_notices;
+/// Private corrective statuses for rejected internal-agent requests.
+pub mod airhop_agent_request_status;
 /// AirHub monthly analytics publication.
 pub mod airhop_analytics;
 

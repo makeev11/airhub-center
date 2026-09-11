@@ -430,6 +430,7 @@ pub(crate) async fn put_deployment(
         )
         .await
         .map_err(map_db_error)?;
+    state.invalidate_all_accessible_channels(&principal.tenant);
     Ok(Json(deployment_json(&deployment)))
 }
 

@@ -31,13 +31,9 @@ import {
 import { useResolvedLinkPreviews } from "@/shared/lib/useResolvedLinkPreviews";
 import { rewriteRelayUrl } from "@/shared/lib/mediaUrl";
 import { AttachmentGroup } from "@/shared/ui/attachment";
-import { ConfigNudgeCard } from "@/shared/ui/config-nudge-attachment";
 import { LinkPreviewAttachment } from "@/shared/ui/link-preview-attachment";
+import { useAgentRequestStatusAttachment } from "@/shared/ui/use-agent-request-status-attachment";
 import { useSmoothCorners } from "@/shared/ui/smoothCorners";
-import {
-  computeConfigNudge,
-  selectProseOrNudge,
-} from "@/shared/lib/computeConfigNudge";
 import {
   INLINE_CODE_CHIP_CLASS,
   MENTION_CHIP_BASE_CLASSES,
@@ -1828,6 +1824,8 @@ function getMarkdownComponents(
 }
 
 function MarkdownInner({
+  agentRequestStatusRelaySelfPubkey,
+  agentRequestStatusSignerPubkey,
   channelNames,
   className,
   configNudgeAuthorPubkey,
@@ -1872,10 +1870,13 @@ function MarkdownInner({
     () => (interactive ? extractSupportedLinkPreviews(content) : []),
     [content, interactive],
   );
-  const configNudge = React.useMemo(
-    () => computeConfigNudge(content, interactive, configNudgeAuthorPubkey),
-    [content, interactive, configNudgeAuthorPubkey],
-  );
+  const attachmentOverride = useAgentRequestStatusAttachment({
+    configNudgeAuthorPubkey,
+    content,
+    interactive,
+    relaySelfPubkey: agentRequestStatusRelaySelfPubkey,
+    signerPubkey: agentRequestStatusSignerPubkey,
+  });
   const runtime = React.useMemo<MarkdownRuntime>(
     () => ({
       agentMentionPubkeysByName,
@@ -1908,10 +1909,8 @@ function MarkdownInner({
 
   let processedContent = content;
 
-  // Note: stripping the sentinel here is intentionally omitted. When
-  // configNudge !== null, selectProseOrNudge() returns null — suppressing
-  // the prose node entirely — so processedContent is never rendered and
-  // stripConfigNudgeSentinel would be dead work on that path.
+  // Trusted attachment sentinels replace the prose node entirely, so stripping
+  // either sentinel here would be dead work on that path.
 
   if (/^(?:\s{2}\n)+/.test(processedContent)) {
     processedContent = `\u200B${processedContent}`;
@@ -1923,11 +1922,10 @@ function MarkdownInner({
 
   const resolvedLinkPreviews = useResolvedLinkPreviews(linkPreviews);
 
-  // When a config-nudge suppresses the prose (selectProseOrNudge returns
-  // null), skip the parse entirely — it would be thrown away unrendered.
+  // Skip parsing prose that a trusted structured attachment will replace.
   const componentSet = getMarkdownComponents(interactive, mediaInset);
   const markdownNode =
-    configNudge === null
+    attachmentOverride === null
       ? renderCachedMarkdown({
           channelNames,
           components: componentSet.components,
@@ -1962,15 +1960,7 @@ function MarkdownInner({
     >
       <MarkdownRuntimeContext.Provider value={runtime}>
         <VideoReviewMarkdownContext.Provider value={videoReviewContext}>
-          {selectProseOrNudge(configNudge, markdownNode)}
-          {configNudge !== null ? (
-            <AttachmentGroup
-              className="max-w-full flex-wrap overflow-visible pb-0"
-              data-config-nudge=""
-            >
-              <ConfigNudgeCard nudge={configNudge} />
-            </AttachmentGroup>
-          ) : null}
+          {attachmentOverride ?? markdownNode}
           {resolvedLinkPreviews.length > 0 ? (
             <AttachmentGroup
               className="max-w-full flex-wrap overflow-visible pb-0"
@@ -2003,6 +1993,10 @@ export const Markdown = React.memo(
     shallowArrayEqual(prev.mentionNames, next.mentionNames) &&
     shallowArrayEqual(prev.channelNames, next.channelNames) &&
     prev.imetaByUrl === next.imetaByUrl &&
+    prev.agentRequestStatusRelaySelfPubkey ===
+      next.agentRequestStatusRelaySelfPubkey &&
+    prev.agentRequestStatusSignerPubkey ===
+      next.agentRequestStatusSignerPubkey &&
     prev.configNudgeAuthorPubkey === next.configNudgeAuthorPubkey &&
     prev.searchQuery === next.searchQuery &&
     prev.snapshotSharedBy === next.snapshotSharedBy &&

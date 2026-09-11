@@ -123,17 +123,17 @@ pub async fn handle_count(
             // pod, so confirm uncached and repair the Vec request-locally via
             // `super::req::resolve_request_local_access` (so a just-added channel
             // is counted, and any later filter on the same channel sees it too).
-            let db_is_member = if accessible_channels.contains(&ch_id) {
+            let db_can_read = if accessible_channels.contains(&ch_id) {
                 None
             } else {
                 match state
                     .db
-                    .is_member(conn.tenant.community(), ch_id, &pubkey_bytes)
+                    .can_read_channel(conn.tenant.community(), ch_id, &pubkey_bytes)
                     .await
                 {
-                    Ok(member) => Some(member),
+                    Ok(can_read) => Some(can_read),
                     Err(e) => {
-                        warn!(sub_id = %sub_id, "Channel membership confirmation failed: {e}");
+                        warn!(sub_id = %sub_id, "Channel access confirmation failed: {e}");
                         conn.send(RelayMessage::closed(&sub_id, "error: database error"));
                         return;
                     }
@@ -145,7 +145,7 @@ pub async fn handle_count(
                 token_channel_ids
                     .as_deref()
                     .is_none_or(|allowed| allowed.contains(&ch_id)),
-                db_is_member,
+                db_can_read,
             ) {
                 continue; // Skip filters targeting inaccessible channels.
             }

@@ -198,6 +198,8 @@ export function InboxMessageRow({
 
           <div className={isContinuation ? "mt-0" : "mt-0.5"}>
             <Markdown
+              agentRequestStatusRelaySelfPubkey={message.relaySelfPubkey}
+              agentRequestStatusSignerPubkey={message.signerPubkey}
               className={cn(
                 "max-w-full text-left text-sm text-foreground",
                 emojiOnly &&

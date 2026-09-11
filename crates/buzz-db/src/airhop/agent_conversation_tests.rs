@@ -40,14 +40,35 @@ async fn save(
     audience: AgentAudience,
     surfaces: AgentConversationSurfaces,
 ) {
-    let mut policy = AgentPolicy::for_role(AgentRole::Analyst);
+    save_role(
+        db,
+        tenant,
+        owner,
+        AgentRole::Analyst,
+        version,
+        audience,
+        surfaces,
+    )
+    .await;
+}
+
+async fn save_role(
+    db: &Db,
+    tenant: &TenantContext,
+    owner: &[u8; 32],
+    role: AgentRole,
+    version: i64,
+    audience: AgentAudience,
+    surfaces: AgentConversationSurfaces,
+) {
+    let mut policy = AgentPolicy::for_role(role);
     policy.communication = Some(AgentConversationAccess { audience, surfaces });
     db.apply_airhop_agent_policy(
         tenant,
         owner,
         &Keys::generate().public_key().to_bytes(),
         &SetAgentPolicy {
-            role: AgentRole::Analyst,
+            role,
             expected_version: version,
             policy,
         },
@@ -102,7 +123,7 @@ async fn explicit_conversation_access_scopes_rechecks_and_deduplicates() {
     let mut channels = Vec::new();
     for (name, channel_type) in [
         ("Welcome", "stream"),
-        ("Work", "stream"),
+        ("аналитика", "stream"),
         ("Owner DM", "dm"),
         ("Staff DM", "dm"),
     ] {
@@ -251,6 +272,31 @@ async fn explicit_conversation_access_scopes_rechecks_and_deduplicates() {
         .claim_airhop_welcome_route(&tenant, *staff_stream.id.as_bytes(), analyst)
         .await
         .is_ok());
+
+    // Reproduce the production topology: the relay admits both the parent
+    // runtime and a provider connector, but each service is assigned only to a
+    // private client channel. Neither service becomes a reader of every open
+    // employee channel merely by appearing in relay_members.
+    let client_channel = Uuid::new_v4();
+    sqlx::query("INSERT INTO channels(community_id,id,name,channel_type,visibility,created_by) VALUES($1,$2,'Client inbox','stream','private',$3)")
+        .bind(community).bind(client_channel).bind(owner.as_slice()).execute(&db.pool).await.unwrap();
+    let parent = Keys::generate().public_key().to_bytes();
+    let connector = Keys::generate().public_key().to_bytes();
+    for service in [parent, connector] {
+        sqlx::query("INSERT INTO relay_members(community_id,pubkey,role) VALUES($1,$2,'member')")
+            .bind(community)
+            .bind(hex::encode(service))
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO channel_members(community_id,channel_id,pubkey,role) VALUES($1,$2,$3,'bot')")
+            .bind(community).bind(client_channel).bind(service.as_slice()).execute(&db.pool).await.unwrap();
+    }
+    sqlx::query("INSERT INTO airhop_agent_deployments(community_id,organization_id,id,blueprint_key,blueprint_version,role,agent_pubkey,profile_ref,runtime_revision,persona_revision,skills_revision,model_revision,registered_by_pubkey) VALUES($1,$2,$3,'airhop.hermes.parent_administrator',1,'parent_administrator',$4,'test','test','test','test','test',$5)")
+        .bind(community).bind(organization).bind(Uuid::new_v4()).bind(parent.as_slice()).bind(owner.as_slice()).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO airhop_channel_connections(community_id,organization_id,id,provider,display_name,connector_pubkey,status,hermes_enabled,updated_by_pubkey,buzz_channel_id) VALUES($1,$2,$3,'telegram','Test connector',$4,'active',true,$5,$6)")
+        .bind(community).bind(organization).bind(Uuid::new_v4()).bind(connector.as_slice()).bind(owner.as_slice()).bind(client_channel).execute(&db.pool).await.unwrap();
+
     sqlx::query("UPDATE channels SET visibility='open' WHERE community_id=$1 AND id=$2")
         .bind(community)
         .bind(channels[1])
@@ -264,6 +310,78 @@ async fn explicit_conversation_access_scopes_rechecks_and_deduplicates() {
     db.require_airhop_internal_destination(&tenant, channels[1], true)
         .await
         .unwrap();
+    for service in [parent, connector] {
+        let accessible = db
+            .get_accessible_channel_ids(tenant.community(), service.as_slice())
+            .await
+            .unwrap();
+        assert!(accessible.contains(&client_channel));
+        assert!(!accessible.contains(&channels[1]));
+        assert!(db
+            .can_read_channel(tenant.community(), client_channel, service.as_slice())
+            .await
+            .unwrap());
+        assert!(!db
+            .can_read_channel(tenant.community(), channels[1], service.as_slice())
+            .await
+            .unwrap());
+    }
+
+    // All four product roles use the same guard and may answer an exact mention
+    // in the open staff channel despite those unrelated service principals.
+    for role in AirhopWelcomeRole::ALL {
+        let agent = members[&role];
+        if role != AirhopWelcomeRole::Analyst {
+            sqlx::query("INSERT INTO channel_members(community_id,channel_id,pubkey,role) VALUES($1,$2,$3,'bot')")
+                .bind(community).bind(channels[1]).bind(agent.as_slice()).execute(&db.pool).await.unwrap();
+            save_role(
+                &db,
+                &tenant,
+                &owner,
+                AgentRole::parse(role.as_str()).unwrap(),
+                0,
+                AgentAudience::Staff {},
+                AgentConversationSurfaces::Channels,
+            )
+            .await;
+        }
+        let exact = message(&db, &tenant, channels[1], &staff_keys, Some(agent)).await;
+        let route = db
+            .claim_airhop_welcome_route(&tenant, *exact.id.as_bytes(), agent)
+            .await
+            .unwrap();
+        assert_eq!(route.target_role, role);
+    }
+
+    // A genuine effective outsider still blocks, with a safe reason that can
+    // be shown privately only by the exact addressed claimant.
+    let external_reader = Keys::generate().public_key().to_bytes();
+    sqlx::query("INSERT INTO channel_members(community_id,channel_id,pubkey,role) VALUES($1,$2,$3,'member')")
+        .bind(community).bind(channels[1]).bind(external_reader.as_slice()).execute(&db.pool).await.unwrap();
+    let rejected = message(&db, &tenant, channels[1], &staff_keys, Some(analyst)).await;
+    let error = db
+        .claim_airhop_welcome_route(&tenant, *rejected.id.as_bytes(), analyst)
+        .await
+        .unwrap_err();
+    match error {
+        crate::DbError::AirhopAgentRequestDenied(denial) => {
+            assert_eq!(
+                denial.reason,
+                crate::AirhopAgentRequestDenialReason::ExternalReaders
+            );
+            assert_eq!(denial.source_author_pubkey, staff);
+            assert_eq!(denial.target_pubkey, analyst);
+            assert_eq!(denial.channel_id, channels[1]);
+        }
+        other => panic!("expected author-visible external-reader denial, got {other}"),
+    }
+    sqlx::query("UPDATE channel_members SET removed_at=now() WHERE community_id=$1 AND channel_id=$2 AND pubkey=$3")
+        .bind(community).bind(channels[1]).bind(external_reader.as_slice()).execute(&db.pool).await.unwrap();
+    assert!(db
+        .claim_airhop_welcome_route(&tenant, *rejected.id.as_bytes(), analyst)
+        .await
+        .is_ok());
+
     sqlx::query("UPDATE channels SET visibility='private' WHERE community_id=$1 AND id=$2")
         .bind(community)
         .bind(channels[1])

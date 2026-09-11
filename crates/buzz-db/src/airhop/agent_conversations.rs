@@ -2,6 +2,7 @@
 
 use airhop_core::agent_policy::{AgentPolicy, AgentRole};
 use buzz_core::TenantContext;
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
@@ -9,7 +10,7 @@ use uuid::Uuid;
 use super::welcome_agents::{
     AirhopWelcomeRole, AirhopWelcomeTeam, WelcomeRouteDecision, WelcomeRouteReason,
 };
-use crate::{DbError, Result};
+use crate::{AirhopAgentRequestDenial, AirhopAgentRequestDenialReason, DbError, Result};
 
 impl crate::Db {
     /// Open channels are suitable for internal answers only when relay
@@ -167,24 +168,58 @@ pub(super) async fn authorize_conversation(
         }
     }
     // A permitted speaker must not turn a mixed client conversation into a
-    // destination for internal center data. Open channels are also visible to
-    // admitted non-members, so check the workspace audience in that case.
-    let exposed: bool = sqlx::query_scalar("SELECT EXISTS(
-        SELECT 1 FROM channel_members m
-        LEFT JOIN relay_members r ON r.community_id=m.community_id AND r.pubkey=encode(m.pubkey,'hex')
-        LEFT JOIN users u ON u.community_id=m.community_id AND u.pubkey=m.pubkey
+    // destination for internal center data. Build the possible audience first,
+    // then apply the same effective read policy used by every read surface.
+    // In particular, an unassigned parent runtime or connector is not a reader
+    // merely because this is an open channel. A service identity explicitly
+    // assigned to this channel remains external and therefore still blocks.
+    let exposed: bool = sqlx::query_scalar(
+        "WITH candidate_readers AS (
+        SELECT m.pubkey
+        FROM channel_members m
         WHERE m.community_id=$1 AND m.channel_id=$2 AND m.removed_at IS NULL
-        AND NOT EXISTS(SELECT 1 FROM airhop_registered_principals p WHERE p.community_id=m.community_id AND p.pubkey=m.pubkey AND p.enabled AND p.role IN ('fizz','administrator','analyst','content_marketer'))
-        AND (r.role IS NULL OR r.role NOT IN ('owner','admin','member') OR m.role='bot' OR u.agent_owner_pubkey IS NOT NULL OR u.deactivated_at IS NOT NULL
-            OR EXISTS(SELECT 1 FROM airhop_registered_principals p WHERE p.community_id=m.community_id AND p.pubkey=m.pubkey))
-    ) OR (EXISTS(SELECT 1 FROM channels WHERE community_id=$1 AND id=$2 AND visibility='open') AND EXISTS(
-        SELECT 1 FROM relay_members r LEFT JOIN users u ON u.community_id=r.community_id AND encode(u.pubkey,'hex')=r.pubkey
-        WHERE r.community_id=$1
-        AND NOT EXISTS(SELECT 1 FROM airhop_registered_principals p WHERE p.community_id=r.community_id AND encode(p.pubkey,'hex')=r.pubkey AND p.enabled AND p.role IN ('fizz','administrator','analyst','content_marketer'))
-        AND (r.role NOT IN ('owner','admin','member') OR u.agent_owner_pubkey IS NOT NULL OR u.deactivated_at IS NOT NULL
-            OR EXISTS(SELECT 1 FROM airhop_registered_principals p WHERE p.community_id=r.community_id AND encode(p.pubkey,'hex')=r.pubkey))
-    ))")
-        .bind(community).bind(channel).fetch_one(&mut *connection).await?;
+        UNION
+        SELECT decode(r.pubkey,'hex')
+        FROM relay_members r
+        JOIN channels c ON c.community_id=r.community_id
+        WHERE r.community_id=$1 AND c.id=$2 AND c.visibility='open'
+          AND c.deleted_at IS NULL AND c.archived_at IS NULL
+    )
+    SELECT EXISTS(
+        SELECT 1
+        FROM candidate_readers reader
+        LEFT JOIN relay_members r
+          ON r.community_id=$1 AND r.pubkey=encode(reader.pubkey,'hex')
+        LEFT JOIN users u
+          ON u.community_id=$1 AND u.pubkey=reader.pubkey
+        LEFT JOIN channel_members m
+          ON m.community_id=$1 AND m.channel_id=$2
+         AND m.pubkey=reader.pubkey AND m.removed_at IS NULL
+        WHERE airhop_can_read_channel($1,$2,reader.pubkey)
+          AND NOT EXISTS(
+              SELECT 1 FROM airhop_registered_principals p
+              WHERE p.community_id=$1 AND p.pubkey=reader.pubkey AND p.enabled
+                AND p.role IN ('fizz','administrator','analyst','content_marketer')
+          )
+          AND (
+              r.role IS NULL OR r.role NOT IN ('owner','admin','member')
+              OR m.role='bot' OR u.agent_owner_pubkey IS NOT NULL
+              OR u.deactivated_at IS NOT NULL
+              OR EXISTS(
+                  SELECT 1 FROM airhop_registered_principals p
+                  WHERE p.community_id=$1 AND p.pubkey=reader.pubkey
+              )
+              OR EXISTS(
+                  SELECT 1 FROM airhop_channel_scoped_service_principals service
+                  WHERE service.community_id=$1 AND service.pubkey=reader.pubkey
+              )
+          )
+    )",
+    )
+    .bind(community)
+    .bind(channel)
+    .fetch_one(&mut *connection)
+    .await?;
     if exposed {
         return Err(DbError::AccessDenied(
             "internal agent replies require a conversation without external readers".into(),
@@ -199,11 +234,12 @@ pub(super) async fn claim_conversation(
     connection: &mut PgConnection,
     tenant: &TenantContext,
     team: &AirhopWelcomeTeam,
-    event_id: [u8; 32],
+    source_event: ([u8; 32], DateTime<Utc>),
     channel: Uuid,
     source: [u8; 32],
     tags: &Value,
 ) -> Result<WelcomeRouteDecision> {
+    let (event_id, source_created_at) = source_event;
     let community = *tenant.community().as_uuid();
     let channel_type: Option<String> = sqlx::query_scalar("SELECT channel_type::text FROM channels WHERE community_id=$1 AND id=$2 AND deleted_at IS NULL AND archived_at IS NULL")
         .bind(community).bind(channel).fetch_optional(&mut *connection).await?;
@@ -228,7 +264,25 @@ pub(super) async fn claim_conversation(
         ));
     }
     let (&role, &agent) = candidates[0];
-    authorize_conversation(connection, community, team, channel, role, &source).await?;
+    if let Err(error) =
+        authorize_conversation(connection, community, team, channel, role, &source).await
+    {
+        if let Some(reason) = author_visible_denial_reason(&error) {
+            return Err(DbError::AirhopAgentRequestDenied(Box::new(
+                AirhopAgentRequestDenial {
+                    source_event_id: event_id,
+                    source_created_at,
+                    source_author_pubkey: source,
+                    channel_id: channel,
+                    target_pubkey: agent,
+                    target_role: role.as_str().to_owned(),
+                    locale: team.locale.clone(),
+                    reason,
+                },
+            )));
+        }
+        return Err(error);
+    }
     let inserted = sqlx::query("INSERT INTO airhop_welcome_routes(community_id,organization_id,channel_id,event_id,source_author_pubkey,target_role,target_pubkey,reason) VALUES($1,$2,$3,$4,$5,$6,$7,'explicit_mention') ON CONFLICT(community_id,event_id) DO NOTHING")
         .bind(community).bind(team.organization_id).bind(channel).bind(event_id.as_slice()).bind(source.as_slice()).bind(role.as_str()).bind(agent.as_slice()).execute(&mut *connection).await?.rows_affected()==1;
     let previous = sqlx::query("SELECT channel_id,target_role,target_pubkey FROM airhop_welcome_routes WHERE community_id=$1 AND event_id=$2")
@@ -251,6 +305,25 @@ pub(super) async fn claim_conversation(
         ephemeral: false,
         communication_configured: true,
     })
+}
+
+fn author_visible_denial_reason(error: &DbError) -> Option<AirhopAgentRequestDenialReason> {
+    let DbError::AccessDenied(message) = error else {
+        return None;
+    };
+    match message.as_str() {
+        "agent is disabled" => Some(AirhopAgentRequestDenialReason::AgentDisabled),
+        "agent must be a member of this active conversation" => {
+            Some(AirhopAgentRequestDenialReason::AgentNotInChannel)
+        }
+        "agent conversation access is denied by organization policy" => {
+            Some(AirhopAgentRequestDenialReason::PolicyDenied)
+        }
+        "internal agent replies require a conversation without external readers" => {
+            Some(AirhopAgentRequestDenialReason::ExternalReaders)
+        }
+        _ => None,
+    }
 }
 
 /// Delegation carries the original human evidence, not just an agent-authored
