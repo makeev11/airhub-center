@@ -211,6 +211,11 @@ def main() -> None:
         level=getattr(logging, level, logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    # httpx includes the complete request URL in INFO records. Telegram embeds
+    # the bot token in that URL, so provider HTTP traffic must never inherit the
+    # process-wide INFO level.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     asyncio.run(_run())
 
 
