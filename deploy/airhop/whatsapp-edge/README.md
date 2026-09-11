@@ -15,8 +15,8 @@ gateways at the same time can duplicate Telegram polling and race outbox work.
 - a Hostinger VPS created in the Brazil/Sao Paulo location;
 - TCP 80 and 443 open to the internet, with SSH restricted separately;
 - `hooks.airhop.com.br` A/AAAA records pointing only to the Brazilian VPS;
-- an immutable Channel Gateway image built from the same accepted source
-  revision as Relay;
+- an immutable, accepted Channel Gateway image with recorded source provenance
+  and compatibility with the deployed Relay;
 - the existing connector secret whose public key is configured on Relay and is
   an active workspace member;
 - an encrypted backup of the old gateway state volume.
@@ -46,21 +46,107 @@ justify moving Relay, Postgres, Redis, Hermes, or other workloads onto the edge.
 
 ## Prepare without changing traffic
 
-Copy this directory to the VPS, create `.env` from `.env.example`, and enter the
-connector key in an interactive server session. Never print the rendered
-Compose configuration because it contains the connector key.
+On a new plain Ubuntu 24.04 VPS, copy this directory first and run
+`bootstrap-host.sh` as root. It verifies the OS, validates the official Docker
+repository signing-key fingerprint, installs Docker Engine plus Compose, and
+creates the `/opt/airhop` directories. It deliberately does not change the
+firewall, SSH configuration, or user accounts.
+
+In Hostinger's firewall, allow public TCP 80 and 443, keep TCP 8443 closed, and
+restrict the SSH port to trusted operator addresses where practical. Outbound
+HTTPS, DNS, and time synchronization must remain available. Then copy this
+directory to `/opt/airhop/whatsapp-edge`, create `.env` from `.env.example`, and
+enter the connector key in an interactive server session. Never print the
+rendered Compose configuration because it contains the connector key.
+
+The currently accepted live gateway checkpoint is:
+
+```text
+image_ref=airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970
+image_id=sha256:9b433fe2e7cc85b88d7147b2aeb8280aef6c0cbf98fd971a8a60394edd395032
+source_revision=ba9434e6b970a505dec2ef2bc8c045b6807a7a36
+source_volume=buzz-demo_airhop-telegram-gateway-data
+transfer_archive_sha256=879343f9b9eafaec5d70c357b47ac4a5524d5cce21cd14fee3c61fbb1263869f
+```
+
+The accepted 150,239,003-byte archive, checksum, and manifest are staged on the
+current gateway host under
+`/opt/airhop/backups/whatsapp-edge-ba9434e6b970/`. The archive checksum and a
+same-host load test both passed; loading it reproduced the accepted image ID.
+
+If that image is not published to an authenticated registry, move the exact
+accepted local image without rebuilding it. On the old host:
+
+```bash
+./image-transfer.sh export \
+  airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970 \
+  /opt/airhop/backups/channel-gateway-image.tar.gz
+```
+
+Copy the archive, adjacent `.sha256`, and `.manifest` files to the Brazilian
+VPS over the approved SSH path. Then load it there:
+
+```bash
+./image-transfer.sh load \
+  /opt/airhop/backups/channel-gateway-image.tar.gz \
+  airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970
+```
+
+Use the imported tag in `AIRHOP_CHANNEL_GATEWAY_IMAGE`. Do not rebuild during
+cutover: the image ID checked on the new host must equal the recorded accepted
+image ID.
 
 Validate the files without rendering secrets:
 
 ```bash
+set -a
+. ./.env
+set +a
 docker compose --env-file .env -f compose.yml config --quiet
-docker compose --env-file .env -f compose.yml pull
+docker image inspect "$AIRHOP_CHANNEL_GATEWAY_IMAGE" >/dev/null
+docker compose --env-file .env -f compose.yml pull caddy
 ```
 
-Do not start the service yet. First back up the named gateway volume on the old
-host. Its SQLite files preserve deduplication, inbound spooling, and WhatsApp's
-observed 24-hour service windows. Restore that data into the new
-`airhop-channel-gateway-state` volume with ownership `10001:10001`.
+For the accepted offline-image path, do not run an unscoped `compose pull`: the
+gateway tag is intentionally satisfied by the checksum-verified local import.
+
+Do not start the service yet. Its SQLite files preserve deduplication, inbound
+spooling, and WhatsApp's observed 24-hour service windows. During the cutover,
+stop the old gateway and make the final consistent backup:
+
+```bash
+./state-transfer.sh backup \
+  buzz-demo_airhop-telegram-gateway-data \
+  /opt/airhop/backups/channel-gateway-state.tar.gz \
+  airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970
+```
+
+Copy the state archive, adjacent `.sha256`, and `.manifest` files to Brazil.
+After loading the gateway image and creating the new Compose resources without
+starting them, restore only into the existing empty Compose volume:
+
+```bash
+docker compose --env-file .env -f compose.yml create
+./state-transfer.sh restore \
+  airhop-channel-edge-br_airhop-channel-gateway-state \
+  /opt/airhop/backups/channel-gateway-state.tar.gz \
+  airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970
+```
+
+The helper verifies the checksum, refuses a live source volume or a non-empty
+target, and restores ownership as `10001:10001`.
+
+Before the production window, validate the transfer helper against disposable
+volumes on a host that already has the accepted gateway image:
+
+```bash
+./test-state-transfer.sh \
+  airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970
+```
+
+The self-test creates uniquely named temporary volumes, proves file content and
+UID/GID restoration, verifies refusal of a non-empty target, and cleans up only
+its own disposable resources.
 
 ## Cut over the single active gateway
 
@@ -68,6 +154,8 @@ observed 24-hour service windows. Restore that data into the new
 2. Stop the old Channel Gateway gracefully. Leave Relay, Postgres, Redis,
    Hermes, and the temporary Hostinger callback bridge running.
 3. Take the final gateway-volume backup and restore it on the Brazilian VPS.
+   Do not reuse an earlier live copy: the final backup must be created after the
+   old gateway stops so its SQLite and spool files form one consistent snapshot.
 4. Start the Brazilian services:
 
    ```bash
