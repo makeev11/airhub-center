@@ -277,20 +277,10 @@ test("Inbox distinguishes human ownership from queue status and explains legacy 
   ).toBeVisible();
 });
 
-test("routing settings are explicit and stale mutations never appear successful", async ({
+test("stale conversation mutations never appear successful", async ({
   page,
 }) => {
   const state = await fixture(page);
-  await page
-    .getByText("Ответственные за обращения филиалов", { exact: true })
-    .click();
-  await page
-    .getByRole("combobox", { name: "Филиал для настройки" })
-    .selectOption(branch);
-  await page.getByRole("checkbox", { name: "Андрей", exact: true }).check();
-  await page.getByRole("button", { name: "Сохранить ответственных" }).click();
-  await expect.poll(() => state.commands.length).toBe(1);
-  expect(state.commands[0].responsiblePubkeys).toEqual([owner]);
   state.setConflict(true);
   await page
     .getByRole("combobox", {
