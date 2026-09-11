@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 
 import { requestOpenCreateAgent } from "@/features/agents/openCreateAgentEvent";
@@ -54,7 +55,9 @@ export function useWelcomeAgentCreate({
   const createInChat = React.useCallback(async () => {
     if (!activeChannel || !welcomeGuideAgent) {
       setError(
-        "The welcome guide is unavailable. Create the agent manually instead.",
+        messageText(
+          "The welcome guide is unavailable. Create the agent manually instead.",
+        ),
       );
       return;
     }
@@ -71,7 +74,7 @@ export function useWelcomeAgentCreate({
       setError(
         cause instanceof Error
           ? cause.message
-          : "Could not start the conversation.",
+          : messageText("Could not start the conversation."),
       );
     }
   }, [activeChannel, sendMessageMutation, welcomeGuideAgent]);

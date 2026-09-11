@@ -115,6 +115,14 @@ export const organizationSchema = z.object({
     .max(80)
     .refine(isValidTimeZone, "Invalid IANA time zone"),
   staffWorkingHours: weeklyWorkingHoursSchema.default({}),
+  currency: z
+    .string()
+    .regex(/^[A-Z]{3}$/)
+    .refine(
+      (value) => currencyMinorUnitExponent(value) !== null,
+      "Unknown currency",
+    )
+    .default("RUB"),
   defaultTrialPolicy: trialPolicySchema,
   trackAttendanceByDefault: z.boolean(),
   allowSingleVisitsByDefault: z.boolean(),
@@ -453,7 +461,7 @@ export const tariffSchema = z.object({
     .refine((currency) => currencyMinorUnitExponent(currency) !== null, {
       message: "Unknown currency",
     }),
-  weeklyScheduleLimit: z.number().int().min(1).max(7),
+  weeklyScheduleLimit: z.number().int().min(1).max(21),
   paymentDayOfMonth: z.number().int().min(1).max(28).optional(),
   activeEnrollmentCount: z.number().int().nonnegative().optional(),
   status: z.enum(["active", "archived"]),

@@ -10,8 +10,10 @@ description = "Server-authoritative domain rules for AirHub operations"
 [dependencies]
 chrono.workspace = true
 serde.workspace = true
+schemars = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 uuid.workspace = true
+pulldown-cmark = { version = "0.13.4", default-features = false }
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -1,3 +1,6 @@
+import { resolveAirHopLocale } from "@/shared/locale/airhopLocale";
+import { messageText } from "@/shared/locale/messengerCopy";
+
 /**
  * Shared date/time formatters for the message timeline.
  *
@@ -37,9 +40,37 @@ const SHORT_MONTH_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "short",
 });
 
+// Formatting objects contain no community data and are cached by locale/options.
+const localizedDateFormats = new Map<string, Intl.DateTimeFormat>();
+const relativeFormats = new Map<string, Intl.RelativeTimeFormat>();
+function dateFormatter(options: Intl.DateTimeFormatOptions) {
+  const locale = resolveAirHopLocale();
+  const key = locale + JSON.stringify(options);
+  let formatter = localizedDateFormats.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, options);
+    localizedDateFormats.set(key, formatter);
+  }
+  return formatter;
+}
+function relativeFormatter() {
+  const locale = resolveAirHopLocale();
+  let formatter = relativeFormats.get(locale);
+  if (!formatter) {
+    formatter = new Intl.RelativeTimeFormat(locale, { numeric: "always" });
+    relativeFormats.set(locale, formatter);
+  }
+  return formatter;
+}
+
 /** Short clock time, e.g. "2:34 PM". */
 export function formatTime(unixSeconds: number): string {
-  return TIME_FORMATTER.format(new Date(unixSeconds * 1_000));
+  return resolveAirHopLocale() === "en-US"
+    ? TIME_FORMATTER.format(new Date(unixSeconds * 1_000))
+    : dateFormatter({
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(unixSeconds * 1_000));
 }
 
 /** Short clock time with the AM/PM marker removed, e.g. "2:34". */
@@ -49,7 +80,12 @@ export function formatTimeWithoutDayPeriod(time: string): string {
 
 /** Full date + time for tooltips, e.g. "Wednesday, April 2, 2026 at 2:34 PM". */
 export function formatFullDateTime(unixSeconds: number): string {
-  return FULL_DATE_TIME_FORMATTER.format(new Date(unixSeconds * 1_000));
+  return resolveAirHopLocale() === "en-US"
+    ? FULL_DATE_TIME_FORMATTER.format(new Date(unixSeconds * 1_000))
+    : dateFormatter({
+        dateStyle: "full",
+        timeStyle: "short",
+      }).format(new Date(unixSeconds * 1_000));
 }
 
 /**
@@ -62,15 +98,24 @@ export function formatDayHeading(unixSeconds: number): string {
   const now = new Date();
 
   if (isSameDayDate(date, now)) {
-    return "Today";
+    return messageText("Today");
   }
 
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
   if (isSameDayDate(date, yesterday)) {
-    return "Yesterday";
+    return messageText("Yesterday");
   }
 
+  if (resolveAirHopLocale() !== "en-US")
+    return dateFormatter({
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      ...(date.getFullYear() !== now.getFullYear()
+        ? { year: "numeric" as const }
+        : {}),
+    }).format(date);
   const dateLabel = `${WEEKDAY_FORMATTER.format(date)}, ${formatMonthDayOrdinal(
     date,
     LONG_MONTH_FORMATTER,
@@ -99,6 +144,11 @@ export function startOfLocalDaySeconds(unixSeconds: number): number {
 
 /** Short month + ordinal day, e.g. "May 19th". */
 export function formatShortMonthDayOrdinal(unixSeconds: number): string {
+  if (resolveAirHopLocale() !== "en-US")
+    return dateFormatter({
+      month: "short",
+      day: "numeric",
+    }).format(new Date(unixSeconds * 1000));
   return formatMonthDayOrdinal(
     new Date(unixSeconds * 1_000),
     SHORT_MONTH_FORMATTER,
@@ -115,7 +165,17 @@ export function formatThreadSummaryLastReplyTime(
 ): string {
   const diff = Math.max(0, nowSeconds - unixSeconds);
 
-  if (diff < 60) return "just now";
+  if (diff < 60) return messageText("just now");
+  if (resolveAirHopLocale() !== "en-US") {
+    if (diff >= 604_800) return formatShortMonthDayOrdinal(unixSeconds);
+    const unit = diff < 3600 ? "minute" : diff < 86400 ? "hour" : "day";
+    return relativeFormatter().format(
+      -Math.floor(
+        diff / (unit === "minute" ? 60 : unit === "hour" ? 3600 : 86400),
+      ),
+      unit,
+    );
+  }
   if (diff < 3_600) return formatAgo(Math.floor(diff / 60), "minute");
   if (diff < 86_400) return formatAgo(Math.floor(diff / 3_600), "hour");
   if (diff < 604_800) return formatAgo(Math.floor(diff / 86_400), "day");

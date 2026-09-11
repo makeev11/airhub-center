@@ -49,6 +49,43 @@ pub struct ParentKnowledgeScope {
 }
 
 impl Db {
+    /// Resolve a prospect's explicit public selection without granting Family access.
+    /// Only active branch/group IDs in this tenant are accepted; a group includes
+    /// its parent branch so shared arrival instructions remain available.
+    pub async fn resolve_parent_knowledge_selection(
+        &self,
+        tenant: &TenantContext,
+        branch_id: Option<Uuid>,
+        group_id: Option<Uuid>,
+    ) -> Result<(Vec<Uuid>, Vec<Uuid>)> {
+        let mut branches = Vec::new();
+        if let Some(group) = group_id {
+            let branch: Option<Uuid> = sqlx::query_scalar(
+                "SELECT g.branch_id FROM airhop_groups g JOIN airhop_branches b
+                 ON b.community_id=g.community_id AND b.organization_id=g.organization_id AND b.id=g.branch_id
+                 WHERE g.community_id=$1 AND g.id=$2 AND g.status='active' AND b.status='active'",
+            ).bind(tenant.community().as_uuid()).bind(group).fetch_optional(&self.pool).await?;
+            let branch = branch
+                .ok_or_else(|| DbError::InvalidData("public knowledge group not found".into()))?;
+            if branch_id.is_some_and(|id| id != branch) {
+                return Err(DbError::InvalidData(
+                    "knowledge group does not belong to selected branch".into(),
+                ));
+            }
+            branches.push(branch);
+        } else if let Some(branch) = branch_id {
+            let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM airhop_branches WHERE community_id=$1 AND id=$2 AND status='active')")
+                .bind(tenant.community().as_uuid()).bind(branch).fetch_one(&self.pool).await?;
+            if !exists {
+                return Err(DbError::InvalidData(
+                    "public knowledge branch not found".into(),
+                ));
+            }
+            branches.push(branch);
+        }
+        Ok((branches, group_id.into_iter().collect()))
+    }
+
     /// Searches only published parent-safe documents inside server-derived scope.
     pub async fn search_airhop_parent_knowledge(
         &self,
@@ -80,13 +117,16 @@ impl Db {
              FROM airhop_knowledge_documents \
              WHERE community_id = $1 AND organization_id = $2 \
                AND status = 'published' AND audience IN ('public', 'parent') \
-               AND locale = $3 \
+               AND locale IN ($3, $8) \
                AND (scope_type = 'organization' \
-                    OR (scope_type = 'branch' AND scope_id = ANY($4::UUID[])) \
+                    OR (scope_type = 'branch' AND (scope_id = ANY($4::UUID[]) \
+                        OR scope_id IN (SELECT branch_id FROM airhop_groups WHERE community_id=$1 AND organization_id=$2 AND id=ANY($5::UUID[])))) \
                     OR (scope_type = 'group' AND scope_id = ANY($5::UUID[]))) \
                AND (POSITION(lower($6) IN lower(title)) > 0 \
-                    OR POSITION(lower($6) IN lower(markdown)) > 0) \
-             ORDER BY CASE scope_type WHEN 'group' THEN 0 WHEN 'branch' THEN 1 ELSE 2 END, \
+                    OR POSITION(lower($6) IN lower(markdown)) > 0 \
+                    OR to_tsvector('simple', title || ' ' || markdown) @@ websearch_to_tsquery('simple', $6) \
+                    OR (locale LIKE 'ru%' AND to_tsvector('russian', title || ' ' || markdown) @@ websearch_to_tsquery('russian', $6))) \
+             ORDER BY (locale = $3) DESC, CASE scope_type WHEN 'group' THEN 0 WHEN 'branch' THEN 1 ELSE 2 END, \
                       CASE audience WHEN 'parent' THEN 0 ELSE 1 END, updated_at DESC, id \
              LIMIT $7",
         )
@@ -97,6 +137,7 @@ impl Db {
         .bind(&scope.group_ids)
         .bind(query)
         .bind(limit)
+        .bind(&organization.locale)
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter().map(parse_document).collect()

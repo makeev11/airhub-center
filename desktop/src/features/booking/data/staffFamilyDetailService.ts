@@ -71,6 +71,12 @@ export const staffFamilyDetailSchema = z.object({
     .array(
       z.object({
         channelId: uuidSchema,
+        conversationId: uuidSchema.optional(),
+        rootEventId: z
+          .string()
+          .regex(/^[0-9a-f]{64}$/)
+          .nullable()
+          .optional(),
         representativeId: uuidSchema,
         provider: z.string(),
       }),

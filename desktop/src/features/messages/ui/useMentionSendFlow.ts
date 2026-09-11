@@ -1,3 +1,4 @@
+import { messageError } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -496,7 +497,7 @@ export function useMentionSendFlow({
                   "; ",
                 )}`;
           setNonMemberPromptError(message);
-          toast.error(message);
+          toast.error(messageError(message));
           return;
         }
 
@@ -512,7 +513,7 @@ export function useMentionSendFlow({
               "Huddle enrollment failed.",
             )}`;
             setNonMemberPromptError(message);
-            toast.error(message);
+            toast.error(messageError(message));
             return;
           }
         }
@@ -679,7 +680,7 @@ export function useMentionSendFlow({
         );
         if (dmThreadAgentMentionError) {
           setNonMemberPromptError(dmThreadAgentMentionError);
-          toast.error(dmThreadAgentMentionError);
+          toast.error(messageError(dmThreadAgentMentionError));
           return;
         }
 
@@ -703,7 +704,7 @@ export function useMentionSendFlow({
                   "; ",
                 )}`;
           setNonMemberPromptError(message);
-          toast.error(message);
+          toast.error(messageError(message));
           return;
         }
 

@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { motion, useReducedMotion } from "motion/react";
 import * as React from "react";
 
@@ -139,6 +140,7 @@ export function FocusThreadDrawer({
   children,
   onClose,
 }: FocusThreadDrawerProps) {
+  useMessengerCopy();
   const prefersReducedMotion = useReducedMotion();
   const travelPx = prefersReducedMotion ? 0 : THREAD_FOCUS_DRAWER_TRAVEL_PX;
   const drawerRef = React.useRef<HTMLDivElement>(null);
@@ -184,7 +186,7 @@ export function FocusThreadDrawer({
     >
       <motion.button
         animate={{ opacity: 1 }}
-        aria-label={`Back to #${channelName}`}
+        aria-label={messageText("Back to #{channel}", { channel: channelName })}
         className={cn(
           "absolute inset-0 cursor-pointer transition-colors duration-150",
           FOCUS_SCRIM_CLASS,
@@ -218,7 +220,7 @@ export function FocusThreadDrawer({
           // see the token for why a `border-l` cannot.
           "absolute inset-y-0 right-0 flex flex-col overflow-hidden rounded-l-2xl bg-background shadow-panel-left",
         )}
-        aria-label="Thread"
+        aria-label={messageText("Thread")}
         data-testid="focus-thread-drawer"
         ref={drawerRef}
         role="complementary"

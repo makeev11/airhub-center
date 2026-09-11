@@ -1,3 +1,4 @@
+import { useMessengerCopy } from "@/shared/locale/messengerCopy";
 import {
   Activity,
   Bot,
@@ -98,6 +99,7 @@ export function ChatHeader({
   statusBadge,
   transparentChrome = false,
 }: ChatHeaderProps) {
+  const m = useMessengerCopy();
   const trimmedDescription = description?.trim() ?? "";
 
   async function handleCopyTitle() {
@@ -106,9 +108,9 @@ export function ChatHeader({
 
     try {
       await writeTextToClipboard(value);
-      toast.success("Channel name copied");
+      toast.success(m("Channel name copied"));
     } catch {
-      toast.error("Failed to copy channel name");
+      toast.error(m("Failed to copy channel name"));
     }
   }
 
@@ -144,11 +146,11 @@ export function ChatHeader({
               {title}
             </h1>
             <Button
-              aria-label={`Copy channel name: ${title}`}
+              aria-label={m("Copy channel name: {name}", { name: title })}
               className="h-6 w-6 shrink-0 opacity-0 text-muted-foreground transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/title:opacity-100"
               onClick={() => void handleCopyTitle()}
               size="icon-xs"
-              title="Copy channel name"
+              title={m("Copy channel name")}
               type="button"
               variant="ghost"
             >

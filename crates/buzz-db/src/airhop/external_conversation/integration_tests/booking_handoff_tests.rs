@@ -64,6 +64,7 @@ async fn booking_with_phone(
                 },
                 surface: PublicBookingSurface::Standalone,
                 attribution_branch_id: None,
+                analytics_attribution: None,
                 idempotency_digest: [seed; 32],
                 phone_match_digest: [phone_seed; 32],
                 request_hash: [seed; 32],
@@ -127,8 +128,36 @@ fn command(
 #[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
 async fn online_booking_start_binds_confirms_and_replies_in_one_existing_conversation() {
     let f = Fixture::new().await;
-    let connection = connection(&f).await;
     let (booking_id, family, credential) = booking(&f, 41).await;
+    assert!(f
+        .db
+        .airhop_booking_confirmation_channels(&f.tenant, credential)
+        .await
+        .unwrap()
+        .is_empty());
+    let connection = connection(&f).await;
+    assert_eq!(
+        f.db.airhop_booking_confirmation_channels(&f.tenant, credential)
+            .await
+            .unwrap(),
+        vec!["telegram"]
+    );
+    sqlx::query("UPDATE airhop_channel_credentials SET provider_bot_username = '@invalid' WHERE community_id = $1 AND connection_id = $2")
+        .bind(f.tenant.community().as_uuid()).bind(connection).execute(&f.db.pool).await.unwrap();
+    assert!(f
+        .db
+        .airhop_booking_confirmation_channels(&f.tenant, credential)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(f
+        .db
+        .issue_airhop_booking_handoff(&f.tenant, credential, [70; 32])
+        .await
+        .unwrap()
+        .is_none());
+    sqlx::query("UPDATE airhop_channel_credentials SET provider_bot_username = 'airhop_test_bot' WHERE community_id = $1 AND connection_id = $2")
+        .bind(f.tenant.community().as_uuid()).bind(connection).execute(&f.db.pool).await.unwrap();
     let launch =
         f.db.issue_airhop_booking_handoff(&f.tenant, credential, [71; 32])
             .await

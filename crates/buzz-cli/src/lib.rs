@@ -173,6 +173,9 @@ pub enum OutputFormat {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Read authoritative Airhop Center analytics
+    #[command(subcommand)]
+    Airhop(AirhopCmd),
     /// Draft owner-reviewed agent creation and updates
     #[command(subcommand)]
     Agents(AgentsCmd),
@@ -239,6 +242,82 @@ enum Cmd {
     /// Community moderation — reports queue, bans, timeouts, audit trail
     #[command(subcommand)]
     Moderation(ModerationCmd),
+}
+
+/// Read-only Airhop Center reporting commands.
+#[derive(Subcommand)]
+pub enum AirhopCmd {
+    /// Membership-scoped client conversation Inbox
+    Clients {
+        /// Optional active branch filter
+        #[arg(long)]
+        branch_id: Option<uuid::Uuid>,
+        /// Only conversations without a selected branch
+        #[arg(long)]
+        unassigned: bool,
+        /// waiting_staff, waiting_parent, resolved
+        #[arg(long)]
+        status: Option<String>,
+        /// Current client/family title search
+        #[arg(long)]
+        search: Option<String>,
+    },
+    /// Submit a versioned client command through the ordinary signed Nostr bridge
+    ClientCommand {
+        /// Exact tenant community UUID
+        #[arg(long)]
+        community_id: uuid::Uuid,
+        /// Typed JSON with conversationId, expectedVersion, idempotencyKey and action
+        #[arg(long)]
+        request: String,
+    },
+    /// Preview a legacy migration without mutating history or routes
+    ClientMigrationPreview {
+        /// Exact conversation UUID from Clients
+        #[arg(long)]
+        conversation_id: uuid::Uuid,
+    },
+    /// Export published, role-permitted knowledge artifacts (never drafts or originals)
+    Knowledge {
+        /// Keywords; omitted to list the published catalog without full text
+        #[arg(long)]
+        query: Option<String>,
+        /// Exact published document to read
+        #[arg(long)]
+        document_id: Option<uuid::Uuid>,
+        /// nextCursor from a previous page
+        #[arg(long)]
+        after: Option<uuid::Uuid>,
+    },
+    /// Call the parent backend with the current supervisor-issued context grant
+    Parent {
+        /// Typed backend request JSON (for example save_booking_draft or commit_booking_draft)
+        #[arg(long)]
+        request: String,
+    },
+    /// Operational overview with consultation outcomes and configuration-version feedback.
+    /// Compare learning.booked / learning.eligible over the fixed seven-day window;
+    /// pending, mixed and unattributed cohorts must not be mistaken for a winning version.
+    /// Registered Analyst/Fizz receive organization aggregates without conversation identities.
+    CenterAnalytics {
+        /// Organization-local calendar days in the selected period
+        #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u16).range(1..=366))]
+        days: u16,
+        /// End on yesterday; combine with --days 1 for yesterday alone
+        #[arg(long)]
+        yesterday: bool,
+    },
+    /// Site traffic, journey conversion, sources, pages, and contact clicks
+    SiteAnalytics {
+        /// Organization-local calendar days in the selected period
+        #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u16).range(1..=366))]
+        days: u16,
+        /// End on yesterday; combine with --days 1 for yesterday alone
+        #[arg(long)]
+        yesterday: bool,
+    },
+    /// Tracked acquisition links and their retained outcome counts
+    TrackingLinks,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -1971,6 +2050,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
     let client = BuzzClient::new(relay_url, keys, auth_tag, auth_tag_json)?;
 
     match cli.command {
+        Cmd::Airhop(sub) => commands::airhop::dispatch(sub, &client).await,
         Cmd::Agents(sub) => commands::agents::dispatch(sub, &client).await,
         Cmd::Messages(sub) => commands::messages::dispatch(sub, &client, &cli.format).await,
         Cmd::Channels(sub) => commands::channels::dispatch(sub, &client, &cli.format).await,
@@ -2080,6 +2160,7 @@ mod tests {
     fn command_inventory_is_stable() {
         let expected_groups: Vec<&str> = vec![
             "agents",
+            "airhop",
             "canvas",
             "channels",
             "dms",

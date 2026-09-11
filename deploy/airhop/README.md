@@ -123,6 +123,13 @@ reporting confirmation. This is not live acceptance, nor an implementation of
 returning-parent verification, voice/media review or WhatsApp. Follow
 `docs/AIRHOP_HERMES_READINESS.md` for the exact checks and remaining boundaries.
 
+The conversational-creation implementation additionally requires migration 0055
+and rebuilt relay plus parent runtime. Deploy the relay first; do not enable the
+new runtime against an older backend. The existing booking-management switch
+grants creation for new contacts, and the existing auto-confirm setting applies
+to eligible conversational trial bookings too. Updating source files alone does
+not update a running container or prove live Telegram acceptance.
+
 Do not reuse the old `buzz-prod` database or volumes. A demo tenant and AirHop
 organization must be provisioned deliberately; the real owner activation code
 is then issued through the signed operator API described in

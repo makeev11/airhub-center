@@ -1251,6 +1251,20 @@ mod tests {
         .await
         .expect("register Welcome team");
 
+        assert!(db
+            .list_airhop_channel_connections(&tenant, members[&AirhopWelcomeRole::Fizz])
+            .await
+            .expect("registered Fizz can read credential-free connections")
+            .is_empty());
+        assert!(db
+            .list_airhop_channel_connections(&tenant, members[&AirhopWelcomeRole::Analyst])
+            .await
+            .is_err());
+        assert!(db
+            .list_airhop_channel_connections(&other_tenant, members[&AirhopWelcomeRole::Fizz])
+            .await
+            .is_err());
+
         let h_tag = Tag::parse(["h", &channel.id.to_string()]).unwrap();
         let p_tag = Tag::parse([
             "p",

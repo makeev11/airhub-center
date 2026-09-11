@@ -183,6 +183,46 @@ test("AirHop schedule is embedded beside the existing collaboration navigation",
   await expect(page.getByTestId("airhop-lesson-details")).toBeVisible();
 });
 
+test("AirHop section collapses independently and preserves current navigation", async ({
+  page,
+}) => {
+  await page.goto("/#/booking/schedule");
+  const toggle = page.getByTestId("airhop-section-label");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByTestId("open-airhop-schedule")).toBeHidden();
+  await expect(page.getByTestId("open-airhop-analytics")).toBeHidden();
+  await expect(page.getByTestId("open-agents-view")).toBeVisible();
+  await expect(page.getByTestId("channel-general")).toBeVisible();
+  await expect(page.getByTestId("airhop-schedule-grid")).toBeVisible();
+  await expect(page).toHaveURL(/#\/booking\/schedule$/);
+
+  await toggle.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  for (const testId of [
+    "open-airhop-schedule",
+    "open-airhop-requests",
+    "open-airhop-clients",
+    "open-airhop-payments",
+    "open-airhop-analytics",
+    "open-airhop-settings",
+  ])
+    await expect(page.getByTestId(testId)).toBeVisible();
+  await toggle.press("Space");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await page.getByTestId("open-agents-view").click();
+  await expect(page).toHaveURL(/#\/agents$/);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await page.getByTestId("open-airhop-analytics").click();
+  await expect(page).toHaveURL(/#\/booking\/analytics$/);
+  await expect(page.getByTestId("open-airhop-analytics")).toHaveAttribute(
+    "data-active",
+    "true",
+  );
+});
+
 test("AirHop keeps daily work in the sidebar and catalogs inside settings", async ({
   page,
 }) => {
@@ -260,13 +300,28 @@ test("AirHop exposes the payment analytics route", async ({ page }) => {
     "true",
   );
   await expect(
-    page.getByRole("heading", { name: "Аналитика оплат" }),
+    page.getByRole("heading", { name: "Аналитика", exact: true }),
   ).toBeVisible();
+  await expect(page.getByTestId("airhop-center-overview")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Вчера", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Деньги", exact: true }).click();
+  await page
+    .getByText("Начисления по расчётным месяцам · последние 6 месяцев", {
+      exact: true,
+    })
+    .click();
   await expect(page.getByTestId("airhop-payment-analytics")).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Для аналитики пока нет данных" }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Воронка" }).click();
+  await page.getByRole("button", { name: "Ученики", exact: true }).click();
+  await page
+    .getByText("Пробные заявки по месяцам · последние 6 месяцев", {
+      exact: true,
+    })
+    .click();
   await expect(
     page.getByTestId("airhop-booking-funnel-analytics"),
   ).toBeVisible();
@@ -277,6 +332,53 @@ test("AirHop exposes the payment analytics route", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("Center analytics supports yesterday, all operational sections and narrow layouts", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/#/booking/analytics");
+  await expect(page.getByTestId("airhop-center-overview")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Вчера", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByText("Завершённые календарные дни", { exact: false }),
+  ).toBeVisible();
+  await waitForAnimations(page);
+  await page.screenshot({ path: "test-results/center-analytics-overview.png" });
+  await page.getByRole("button", { name: "Сегодня", exact: true }).click();
+  await expect(
+    page.getByText("Сегодняшний день ещё не завершён", { exact: false }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "7 дн.", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "7 дн.", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  for (const [label, section] of [
+    ["Привлечение", "sources"],
+    ["Ученики", "students"],
+    ["Загрузка", "capacity"],
+    ["Деньги", "money"],
+  ]) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await expect(page.getByTestId(`airhop-center-${section}`)).toBeVisible();
+    await waitForAnimations(page);
+    await page.screenshot({
+      path: `test-results/center-analytics-${section}.png`,
+    });
+  }
+  await page.setViewportSize({ width: 760, height: 900 });
+  await page.getByRole("button", { name: "Обзор", exact: true }).click();
+  await expect(page.getByTestId("airhop-center-overview")).toBeVisible();
+  await waitForAnimations(page);
+  await page.screenshot({ path: "test-results/center-analytics-narrow.png" });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+});
+
 test("AirHop settings and archived branches survive a browser preview reload", async ({
   page,
 }) => {
@@ -284,6 +386,21 @@ test("AirHop settings and archived branches survive a browser preview reload", a
 
   const organizationName = page.getByTestId("airhop-settings-name");
   await organizationName.fill("AirHop Север");
+  await page.getByTestId("airhop-settings-currency").click();
+  const currencySearch = page.getByRole("combobox", { name: "Поиск валюты" });
+  await currencySearch.fill("российский");
+  await expect(
+    page.getByRole("option", { name: /Российский рубль/ }),
+  ).toBeVisible();
+  await waitForAnimations(page);
+  await page.screenshot({ path: "test-results/settings-currency-search.png" });
+  await currencySearch.fill("no-such-currency");
+  await expect(page.getByText("Валюта не найдена")).toBeVisible();
+  await currencySearch.fill("BRL");
+  await currencySearch.press("Enter");
+  await expect(page.getByTestId("airhop-settings-currency")).toContainText(
+    "BRL",
+  );
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByTestId("airhop-settings-saved")).toContainText(
     "Настройки сохранены",
@@ -338,6 +455,19 @@ test("AirHop settings and archived branches survive a browser preview reload", a
   await expect(page.getByTestId("airhop-settings-name")).toHaveValue(
     "AirHop Север",
   );
+  await expect(page.getByTestId("airhop-settings-currency")).toContainText(
+    "BRL",
+  );
+  await page.getByTestId("open-airhop-tariffs").click();
+  await page.getByTestId("airhop-add-tariff").click();
+  await expect(
+    page.getByRole("dialog").getByText("Стоимость, BRL", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("textbox", { name: "Валюта", exact: true }),
+  ).toHaveCount(0);
 });
 
 test("AirHop settings use a time zone select and persist its value", async ({
@@ -447,6 +577,17 @@ test("active branches copy a branch-specific public booking URL", async ({
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(expectedUrl);
+
+  const branchCard = page.getByTestId("airhop-branch-kurskaya");
+  await branchCard.getByRole("button", { name: "Редактировать" }).click();
+  const mapLinks = page
+    .getByTestId("airhop-branch-map-links")
+    .getByRole("link");
+  await expect(mapLinks).toHaveCount(3);
+  await expect(mapLinks.nth(0)).toHaveAttribute(
+    "href",
+    /%D1%83%D0%BB\.%20%D0%97%D0%B5%D0%BC%D0%BB%D1%8F%D0%BD%D0%BE%D0%B9/,
+  );
 });
 
 test("AirHop manages branch rooms and preserves archived group links", async ({
@@ -697,7 +838,12 @@ test("AirHop manages teachers and groups without losing archived history", async
     label: "Лаборатория 1",
   });
   await groupForm.getByLabel("Анна Орлова", { exact: true }).click();
-  await groupForm.getByTestId("airhop-group-min-age").fill("71");
+  await groupForm.getByTestId("airhop-group-min-age").fill("5");
+  await groupForm.getByTestId("airhop-group-max-age").fill("6");
+  await expect(groupForm.getByTestId("airhop-group-max-age")).toHaveAttribute(
+    "aria-label",
+    "Максимальный возраст, лет включительно",
+  );
   await groupForm.getByTestId("airhop-group-trial-policy").selectOption("paid");
   await groupForm.getByLabel("Валюта").fill("RUB");
   await groupForm.getByLabel("Стоимость").fill("750");
@@ -743,6 +889,8 @@ test("AirHop manages teachers and groups without losing archived history", async
   await groupCard.getByRole("button", { name: "Редактировать" }).click();
   groupForm = page.getByTestId("airhop-group-form");
   await groupForm.getByTestId("airhop-group-name").fill("Клуб тестировщиков 2");
+  await expect(groupForm.getByTestId("airhop-group-min-age")).toHaveValue("5");
+  await expect(groupForm.getByTestId("airhop-group-max-age")).toHaveValue("6");
   await groupForm
     .getByTestId("airhop-group-schedule-1")
     .getByRole("button", { name: "Удалить занятие" })

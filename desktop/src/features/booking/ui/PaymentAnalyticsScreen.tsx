@@ -1,4 +1,12 @@
 import * as React from "react";
+import type {
+  AnalyticsUntil,
+  CenterAnalyticsReport,
+  StaffCenterAnalytics,
+} from "../data/centerAnalyticsSchema";
+import { buildCenterAnalyticsPreview } from "../lib/centerAnalytics";
+import { CenterAnalyticsView } from "./CenterAnalyticsView";
+import { ConsultationAnalyticsView } from "./ConsultationAnalyticsView";
 
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
 import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
@@ -9,6 +17,13 @@ import {
   type StaffPaymentAnalyticsCurrency,
   type StaffPaymentService,
 } from "@/features/booking/data/staffPaymentService";
+import {
+  createHttpStaffSiteAnalyticsService,
+  type CreateTrackingLink,
+  type StaffSiteAnalytics,
+  type StaffSiteAnalyticsService,
+  type TrackingLinkList,
+} from "@/features/booking/data/staffSiteAnalyticsService";
 import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLocale";
 import { organizationLocalDateTime } from "@/features/booking/lib/bookingDateTime";
 import {
@@ -26,6 +41,8 @@ import {
   BookingWorkspaceGate,
 } from "@/features/booking/ui/BookingWorkspaceState";
 import { BookingFunnelAnalyticsView } from "@/features/booking/ui/BookingFunnelAnalyticsView";
+import { SiteAnalyticsView } from "@/features/booking/ui/SiteAnalyticsView";
+import { TrackingLinksView } from "@/features/booking/ui/TrackingLinksView";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -229,49 +246,140 @@ function PaymentAnalyticsContent({
 }
 
 function AnalyticsDashboard({
+  centerReport,
   funnelReport,
   organization,
   paymentReport,
+  siteAnalytics,
+  trackingLinks,
+  onCreateTrackingLink,
 }: {
-  funnelReport: BookingFunnelReport;
+  centerReport: CenterAnalyticsReport;
+  funnelReport?: BookingFunnelReport;
   organization: BookingOrganization;
-  paymentReport: PaymentAnalyticsReport;
+  paymentReport?: PaymentAnalyticsReport;
+  siteAnalytics?: StaffSiteAnalytics["analytics"];
+  trackingLinks?: TrackingLinkList;
+  onCreateTrackingLink?: (input: CreateTrackingLink) => Promise<void>;
 }) {
   const messages = getBookingAdminMessages(organization.locale);
-  const [tab, setTab] = React.useState<"payments" | "funnel">("payments");
+  const [selectedTab, setTab] = React.useState<
+    | "overview"
+    | "sources"
+    | "students"
+    | "capacity"
+    | "money"
+    | "links"
+    | "consultations"
+  >("overview");
+  const tab =
+    selectedTab === "links" && !trackingLinks ? "overview" : selectedTab;
+  const russian = organization.locale.toLowerCase().startsWith("ru");
   return (
     <div className="space-y-4">
-      <div className="flex gap-2" role="tablist">
-        <Button
-          aria-selected={tab === "payments"}
-          onClick={() => setTab("payments")}
-          role="tab"
-          size="sm"
-          variant={tab === "payments" ? "default" : "outline"}
-        >
-          {messages.analyticsPaymentsTab}
-        </Button>
-        <Button
-          aria-selected={tab === "funnel"}
-          onClick={() => setTab("funnel")}
-          role="tab"
-          size="sm"
-          variant={tab === "funnel" ? "default" : "outline"}
-        >
-          {messages.analyticsFunnelTab}
-        </Button>
-      </div>
-      {tab === "payments" ? (
-        <PaymentAnalyticsContent
-          organization={organization}
-          report={paymentReport}
+      <fieldset
+        className="flex flex-wrap gap-2"
+        aria-label={messages.analyticsTitle}
+      >
+        {(
+          [
+            ["overview", russian ? "Обзор" : "Overview"],
+            ["sources", russian ? "Привлечение" : "Acquisition"],
+            ["consultations", russian ? "Консультации" : "Consultations"],
+            ["students", russian ? "Ученики" : "Students"],
+            ["capacity", russian ? "Загрузка" : "Capacity"],
+            ["money", russian ? "Деньги" : "Money"],
+            ["links", russian ? "Ссылки" : "Links"],
+          ] as const
+        )
+          .filter(([key]) => key !== "links" || trackingLinks)
+          .map(([key, label]) => (
+            <Button
+              key={key}
+              size="sm"
+              aria-pressed={tab === key}
+              variant={tab === key ? "default" : "outline"}
+              onClick={() => setTab(key)}
+            >
+              {label}
+            </Button>
+          ))}
+      </fieldset>
+      {tab === "links" && trackingLinks && onCreateTrackingLink ? (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {russian
+              ? "Счётчики ссылок — за всю доступную историю. Фильтр периода не применяется."
+              : "Link counts cover all retained history. The period filter does not apply."}
+          </p>
+          <TrackingLinksView
+            links={trackingLinks.items}
+            locale={organization.locale}
+            onCreate={onCreateTrackingLink}
+            redirectBaseUrl={trackingLinks.redirectBaseUrl}
+          />
+        </div>
+      ) : tab === "consultations" ? (
+        <ConsultationAnalyticsView
+          key={centerReport.generatedAt}
+          report={centerReport.consultations}
+          locale={organization.locale}
+          periodStart={centerReport.periodStart}
+          periodEnd={centerReport.asOfDate}
         />
-      ) : (
-        <BookingFunnelAnalyticsView
-          organization={organization}
-          report={funnelReport}
+      ) : tab !== "links" ? (
+        <CenterAnalyticsView
+          key={centerReport.generatedAt}
+          locale={organization.locale}
+          report={centerReport}
+          section={tab}
         />
-      )}
+      ) : null}
+      {tab === "sources" && siteAnalytics ? (
+        <details className="rounded-xl border border-border p-4">
+          <summary className="cursor-pointer font-medium">
+            {russian
+              ? "Подробно: сайт и форма записи"
+              : "Details: website and booking form"}
+          </summary>
+          <div className="mt-4">
+            <SiteAnalyticsView
+              locale={organization.locale}
+              report={siteAnalytics}
+            />
+          </div>
+        </details>
+      ) : null}
+      {tab === "money" && paymentReport ? (
+        <details className="rounded-xl border border-border p-4">
+          <summary className="cursor-pointer font-medium">
+            {russian
+              ? "Начисления по расчётным месяцам · последние 6 месяцев"
+              : "Billing periods · last 6 months"}
+          </summary>
+          <div className="mt-4">
+            <PaymentAnalyticsContent
+              organization={organization}
+              report={paymentReport}
+            />
+          </div>
+        </details>
+      ) : null}
+      {tab === "students" && funnelReport ? (
+        <details className="rounded-xl border border-border p-4">
+          <summary className="cursor-pointer font-medium">
+            {russian
+              ? "Пробные заявки по месяцам · последние 6 месяцев"
+              : "Monthly trial cohorts · last 6 months"}
+          </summary>
+          <div className="mt-4">
+            <BookingFunnelAnalyticsView
+              organization={organization}
+              report={funnelReport}
+            />
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -304,10 +412,29 @@ function WorkspaceAnalyticsContent() {
     workspace.organization.timeZone,
     new Date(),
   ).date;
+  const [period, setPeriod] = React.useState<AnalyticsPeriod>({
+    days: 1,
+    until: "yesterday",
+  });
   return (
     <>
       <BookingFeedbackBanners />
+      <p className="mb-3 text-xs text-muted-foreground">
+        {workspace.organization.locale.startsWith("ru")
+          ? "Демонстрационные данные браузера. Точная связь пробного с зачислением здесь не хранится; в приложении отчёт читается с сервера."
+          : "Isolated browser preview. Exact trial-to-enrollment links are not retained here; the installed app reads server data."}
+      </p>
+      <AnalyticsPeriodPicker
+        period={period}
+        onChange={setPeriod}
+        locale={workspace.organization.locale}
+      />
       <AnalyticsDashboard
+        centerReport={buildCenterAnalyticsPreview(
+          workspace,
+          period.days,
+          period.until,
+        )}
         funnelReport={buildBookingFunnelAnalytics(workspace, asOfDate)}
         organization={workspace.organization}
         paymentReport={buildPaymentAnalytics(
@@ -316,6 +443,52 @@ function WorkspaceAnalyticsContent() {
         )}
       />
     </>
+  );
+}
+
+type AnalyticsPeriod = { days: number; until: AnalyticsUntil };
+
+function AnalyticsPeriodPicker({
+  period,
+  onChange,
+  locale,
+}: {
+  period: AnalyticsPeriod;
+  onChange: (period: AnalyticsPeriod) => void;
+  locale: string;
+}) {
+  const ru = locale.startsWith("ru");
+  return (
+    <fieldset
+      className="mb-4 flex flex-wrap gap-2"
+      aria-label={ru ? "Период аналитики" : "Analytics period"}
+    >
+      {(
+        [
+          { days: 1, until: "yesterday", label: ru ? "Вчера" : "Yesterday" },
+          { days: 1, until: "today", label: ru ? "Сегодня" : "Today" },
+          ...[7, 30, 90, 366].map((days) => ({
+            days,
+            until: "today" as const,
+            label: `${days} ${ru ? "дн." : "days"}`,
+          })),
+        ] as const
+      ).map((p) => (
+        <Button
+          key={p.label}
+          size="sm"
+          aria-pressed={period.days === p.days && period.until === p.until}
+          variant={
+            period.days === p.days && period.until === p.until
+              ? "default"
+              : "outline"
+          }
+          onClick={() => onChange({ days: p.days, until: p.until })}
+        >
+          {p.label}
+        </Button>
+      ))}
+    </fieldset>
   );
 }
 
@@ -336,39 +509,141 @@ function ServerPaymentAnalyticsScreen() {
   const [service] = React.useState<StaffPaymentService>(() =>
     createHttpStaffPaymentService(),
   );
+  const [siteService] = React.useState<StaffSiteAnalyticsService>(() =>
+    createHttpStaffSiteAnalyticsService(),
+  );
   const [payload, setPayload] = React.useState<{
-    funnel: StaffBookingFunnelAnalytics;
-    payments: StaffPaymentAnalytics;
+    center: StaffCenterAnalytics;
+    funnel?: StaffBookingFunnelAnalytics;
+    payments?: StaffPaymentAnalytics;
+    site?: StaffSiteAnalytics;
+    trackingLinks?: TrackingLinkList;
   } | null>(null);
   const [error, setError] = React.useState<Error | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [period, setPeriod] = React.useState<AnalyticsPeriod>({
+    days: 1,
+    until: "yesterday",
+  });
+  const [partialError, setPartialError] = React.useState(false);
+  const [extrasLoading, setExtrasLoading] = React.useState(false);
+  const loadSequence = React.useRef(0);
   const locale =
-    payload?.payments.organization.locale ??
+    payload?.center.organization.locale ??
     booking.workspace?.organization.locale ??
     "ru-RU";
   const messages = getBookingAdminMessages(locale);
   const load = React.useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true);
     setError(null);
+    setPartialError(false);
+    setExtrasLoading(false);
     try {
-      const [payments, funnel] = await Promise.all([
+      const extraReports = Promise.allSettled([
         service.getPaymentAnalytics(),
         service.getBookingFunnelAnalytics(),
+        siteService.getSiteAnalytics(period.days, period.until),
+        siteService.listTrackingLinks(),
       ]);
-      setPayload({ funnel, payments });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause : new Error(String(cause)));
-    } finally {
+      const center = await siteService.getCenterAnalytics(
+        period.days,
+        period.until,
+      );
+      if (sequence !== loadSequence.current) return;
+      // The useful primary snapshot must not wait for optional read timeouts.
+      setPayload({ center });
       setLoading(false);
+      setExtrasLoading(true);
+      const [payments, funnel, site, trackingLinks] = await extraReports;
+      if (sequence === loadSequence.current) {
+        setPayload({
+          center,
+          funnel: funnel.status === "fulfilled" ? funnel.value : undefined,
+          payments:
+            payments.status === "fulfilled" ? payments.value : undefined,
+          site: site.status === "fulfilled" ? site.value : undefined,
+          trackingLinks:
+            trackingLinks.status === "fulfilled"
+              ? trackingLinks.value
+              : undefined,
+        });
+        setPartialError(
+          [payments, funnel, site, trackingLinks].some(
+            (result) => result.status === "rejected",
+          ),
+        );
+      }
+    } catch (cause) {
+      if (sequence === loadSequence.current)
+        setError(cause instanceof Error ? cause : new Error(String(cause)));
+    } finally {
+      if (sequence === loadSequence.current) {
+        setLoading(false);
+        setExtrasLoading(false);
+      }
     }
-  }, [service]);
+  }, [period, service, siteService]);
+
+  const createTrackingLink = React.useCallback(
+    async (input: CreateTrackingLink) => {
+      await siteService.createTrackingLink(input);
+      const trackingLinks = await siteService.listTrackingLinks();
+      setPayload((current) =>
+        current ? { ...current, trackingLinks } : current,
+      );
+    },
+    [siteService],
+  );
 
   React.useEffect(() => {
     void load();
+    return () => {
+      loadSequence.current += 1;
+    };
   }, [load]);
 
   return (
     <AnalyticsFrame locale={locale}>
+      <div
+        className="mb-4 flex flex-wrap items-center gap-2"
+        aria-busy={loading}
+      >
+        <AnalyticsPeriodPicker
+          period={period}
+          onChange={setPeriod}
+          locale={locale}
+        />
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={loading}
+          onClick={() => void load()}
+        >
+          {locale.startsWith("ru") ? "Обновить" : "Refresh"}
+        </Button>
+      </div>
+      {loading && payload ? (
+        <p role="status" className="mb-3 text-sm text-muted-foreground">
+          {locale.startsWith("ru")
+            ? "Обновляю данные. Ниже пока предыдущий снимок."
+            : "Refreshing. The previous snapshot remains below."}
+        </p>
+      ) : null}
+      {partialError && !loading ? (
+        <p role="status" className="mb-3 text-sm text-destructive">
+          {locale.startsWith("ru")
+            ? "Обзор центра загружен, но часть дополнительных отчётов недоступна. Нажмите «Обновить», чтобы повторить."
+            : "Center report loaded; some additional reports are unavailable. Refresh to retry."}
+        </p>
+      ) : null}
+      {extrasLoading ? (
+        <p role="status" className="mb-3 text-sm text-muted-foreground">
+          {locale.startsWith("ru")
+            ? "Обзор готов. Дополнительные отчёты ещё загружаются."
+            : "Overview ready. Additional reports are still loading."}
+        </p>
+      ) : null}
       {loading && !payload ? (
         <Card className="space-y-2 p-8 text-center">
           <h2 className="text-lg font-semibold">{messages.loadingTitle}</h2>
@@ -387,9 +662,13 @@ function ServerPaymentAnalyticsScreen() {
         </Alert>
       ) : (
         <AnalyticsDashboard
-          funnelReport={payload.funnel.analytics}
-          organization={payload.payments.organization}
-          paymentReport={payload.payments.analytics}
+          centerReport={payload.center.analytics}
+          funnelReport={payload.funnel?.analytics}
+          organization={payload.center.organization}
+          onCreateTrackingLink={createTrackingLink}
+          paymentReport={payload.payments?.analytics}
+          siteAnalytics={payload.site?.analytics}
+          trackingLinks={payload.trackingLinks}
         />
       )}
     </AnalyticsFrame>

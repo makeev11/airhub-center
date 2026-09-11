@@ -39,6 +39,7 @@ const TELEGRAM_API_ORIGIN: &str = "https://api.telegram.org";
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PutConnectionBody {
+    routing: Option<buzz_db::airhop::channel_gateway::ConnectionRouting>,
     provider: String,
     display_name: String,
     connector_pubkey: String,
@@ -54,6 +55,7 @@ pub(crate) struct PutConnectionBody {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ConnectTelegramBody {
+    routing: Option<buzz_db::airhop::channel_gateway::ConnectionRouting>,
     token: String,
     #[serde(default = "default_true")]
     hermes_enabled: bool,
@@ -164,7 +166,23 @@ pub(crate) async fn list_connections(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let principal = authenticate_airhop(&state, &headers, "GET", CONNECTION_PREFIX, None).await?;
+    let principal = super::airhop_auth::authenticate_airhop_agent(
+        &state,
+        &headers,
+        "GET",
+        CONNECTION_PREFIX,
+        None,
+    )
+    .await?;
+    if principal.member_role == "agent" {
+        super::airhop_staff::authorize_registered_agent_read(
+            &state,
+            &principal.tenant,
+            &principal.pubkey,
+            CONNECTION_PREFIX,
+        )
+        .await?;
+    }
     let connections = state
         .db
         .list_airhop_channel_connections(&principal.tenant, principal.pubkey.to_bytes())
@@ -243,6 +261,7 @@ pub(crate) async fn connect_telegram(
             &principal.tenant,
             &ProvisionChannelConnectionInput {
                 connection: PutChannelConnectionInput {
+                    routing: request.routing,
                     connection_id,
                     provider: provider.to_owned(),
                     display_name,
@@ -263,6 +282,13 @@ pub(crate) async fn connect_telegram(
         )
         .await
         .map_err(map_db_error)?;
+    notify_connection_channel(
+        &state,
+        &principal.tenant,
+        &connection,
+        &principal.pubkey.to_bytes(),
+    )
+    .await;
     Ok(Json(json!({
         "schemaVersion": "airhop.telegram-connection.v1",
         "connection": connection_json(&connection),
@@ -351,6 +377,7 @@ pub(crate) async fn put_connection(
     let principal = authenticate_airhop(&state, &headers, "PUT", &path, Some(&body)).await?;
     require_owner_or_admin(&principal.member_role)?;
     let request: PutConnectionBody = parse_body(&body, "invalid channel connection JSON")?;
+    let routing_changed = request.routing.is_some() || request.expected_version == 0;
     let connector_pubkey = PublicKey::from_hex(request.connector_pubkey.trim())
         .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid connector public key"))?;
     let connection = state
@@ -358,6 +385,7 @@ pub(crate) async fn put_connection(
         .put_airhop_channel_connection(
             &principal.tenant,
             &PutChannelConnectionInput {
+                routing: request.routing,
                 connection_id,
                 provider: request.provider,
                 display_name: request.display_name,
@@ -371,10 +399,80 @@ pub(crate) async fn put_connection(
         )
         .await
         .map_err(map_db_error)?;
+    if routing_changed {
+        notify_connection_channel(
+            &state,
+            &principal.tenant,
+            &connection,
+            &principal.pubkey.to_bytes(),
+        )
+        .await;
+    }
     Ok(Json(json!({
         "schemaVersion": "airhop.channel-connection.v1",
         "connection": connection_json(&connection),
     })))
+}
+
+// NIP-29 discovery alone does not wake an already running ACP subscriber.
+// Announce only actual service memberships after explicit routing setup. The
+// persisted global notification is also replayable after a reconnect.
+async fn notify_connection_channel(
+    state: &Arc<AppState>,
+    tenant: &buzz_core::TenantContext,
+    connection: &ChannelConnection,
+    actor: &[u8; 32],
+) {
+    let Some(channel_id) = connection.buzz_channel_id else {
+        return;
+    };
+    if let Err(error) =
+        crate::handlers::side_effects::emit_group_discovery_events(tenant, state, channel_id).await
+    {
+        tracing::warn!(%error, %channel_id, "Connection channel discovery will recover on refresh");
+    }
+    let mut targets = vec![connection.connector_pubkey];
+    match state
+        .db
+        .get_current_airhop_parent_agent_deployment(tenant)
+        .await
+    {
+        Ok(Some(deployment)) if deployment.organization_id == connection.organization_id => {
+            targets.push(deployment.agent_pubkey)
+        }
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!(%error, %channel_id, "Cannot resolve connection agent membership notification")
+        }
+    }
+    targets.sort_unstable();
+    targets.dedup();
+    for target in targets {
+        match state
+            .db
+            .is_member(tenant.community(), channel_id, &target)
+            .await
+        {
+            Ok(true) => {
+                if let Err(error) = crate::handlers::side_effects::emit_membership_notification(
+                    tenant,
+                    state,
+                    channel_id,
+                    &target,
+                    actor,
+                    buzz_core::kind::KIND_MEMBER_ADDED_NOTIFICATION,
+                )
+                .await
+                {
+                    tracing::warn!(%error, %channel_id, "Connection service membership notification failed; retry routing setup");
+                }
+            }
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(%error, %channel_id, "Cannot verify connection service membership")
+            }
+        }
+    }
 }
 
 /// Accepts a health/capability heartbeat from the exact configured connector.
@@ -526,63 +624,12 @@ pub(crate) async fn resolve_conversation_route(
         }
         None => None,
     };
-    if created
-        || handoff_status == Some(buzz_db::airhop::booking_handoff::BookingHandoffStatus::Connected)
-    {
-        if let Err(error) = crate::handlers::side_effects::emit_group_discovery_events(
-            &principal.tenant,
-            &state,
-            route.channel_id,
-        )
-        .await
-        {
-            tracing::warn!(
-                channel_id = %route.channel_id,
-                error = %error,
-                "first-contact channel discovery emission failed"
-            );
-        }
-    }
-    // A handoff can rename an existing channel, but does not add its members
-    // again. Retried Start deliveries must not generate new join notifications.
-    if created {
-        match state
-            .db
-            .get_members(principal.tenant.community(), route.channel_id)
-            .await
-        {
-            Ok(members) => {
-                for member in members {
-                    if let Err(error) = crate::handlers::side_effects::emit_membership_notification(
-                        &principal.tenant,
-                        &state,
-                        route.channel_id,
-                        &member.pubkey,
-                        &connector_pubkey,
-                        buzz_core::kind::KIND_MEMBER_ADDED_NOTIFICATION,
-                    )
-                    .await
-                    {
-                        tracing::warn!(
-                            channel_id = %route.channel_id,
-                            member = %hex::encode(&member.pubkey),
-                            error = %error,
-                            "first-contact membership notification failed"
-                        );
-                    }
-                }
-            }
-            Err(error) => tracing::warn!(
-                channel_id = %route.channel_id,
-                error = %error,
-                "first-contact member reload failed"
-            ),
-        }
-    }
     Ok(Json(json!({
         "schemaVersion": "airhop.external-conversation-route-resolution.v1",
         "conversationId": route.conversation_id,
         "channelId": route.channel_id,
+        "rootEventId": route.root_event_id,
+        "threaded": route.threaded,
         "routeStatus": route.route_status,
         "connectionStatus": route.connection_status,
         "created": created,
@@ -613,6 +660,31 @@ pub(crate) async fn ingest_inbound(
         request.connection_id,
         provider_event_id.as_bytes(),
     )?;
+    let retry = state
+        .db
+        .check_client_gateway_retry(
+            &principal.tenant,
+            &request.event,
+            &buzz_db::airhop::channel_gateway::GatewayInboundContext {
+                connection_id: request.connection_id,
+                provider_event_digest,
+                connector_pubkey: principal.pubkey.to_bytes(),
+            },
+        )
+        .await;
+    match retry {
+        Ok(true) => {
+            return Ok(Json(
+                json!({"schemaVersion":"airhop.channel-gateway.inbound.v1","eventId":request.event.id.to_hex(),"accepted":true,"duplicate":true}),
+            ))
+        }
+        Err(buzz_db::DbError::AccessDenied(ref reason)) if reason == "airhop_thread_changed" => {
+            return Err(api_error(StatusCode::CONFLICT, "airhop_thread_changed"))
+        }
+        Err(error) => return Err(map_db_error(error)),
+        Ok(false) => {}
+    }
+    let retry_event = request.event.clone();
     let result = crate::handlers::ingest::ingest_event(
         &state,
         &principal.tenant,
@@ -624,8 +696,47 @@ pub(crate) async fn ingest_inbound(
             scopes: vec![buzz_auth::Scope::MessagesWrite],
         },
     )
-    .await
-    .map_err(map_ingest_error)?;
+    .await;
+    let result = match result {
+        Ok(result) => result,
+        Err(error) => {
+            // Cutover can commit between preflight and ingestion's archive gate.
+            // Recheck the durable receipt/location before classifying a failure.
+            match state
+                .db
+                .check_client_gateway_retry(
+                    &principal.tenant,
+                    &retry_event,
+                    &buzz_db::airhop::channel_gateway::GatewayInboundContext {
+                        connection_id: request.connection_id,
+                        provider_event_digest,
+                        connector_pubkey: principal.pubkey.to_bytes(),
+                    },
+                )
+                .await
+            {
+                Ok(true) => {
+                    return Ok(Json(
+                        json!({"schemaVersion":"airhop.channel-gateway.inbound.v1","eventId":retry_event.id.to_hex(),"accepted":true,"duplicate":true}),
+                    ))
+                }
+                Err(buzz_db::DbError::AccessDenied(ref reason))
+                    if reason == "airhop_thread_changed" =>
+                {
+                    return Err(api_error(StatusCode::CONFLICT, "airhop_thread_changed"))
+                }
+                _ => {}
+            }
+            return Err(match error {
+                IngestError::Rejected(ref reason)
+                    if reason == "restricted: airhop_thread_changed" =>
+                {
+                    api_error(StatusCode::CONFLICT, "airhop_thread_changed")
+                }
+                other => map_ingest_error(other),
+            });
+        }
+    };
     Ok(Json(json!({
         "schemaVersion": "airhop.channel-gateway.inbound.v1",
         "eventId": result.event_id,
@@ -740,6 +851,9 @@ fn parse_body<T: serde::de::DeserializeOwned>(
 fn connection_json(connection: &ChannelConnection) -> Value {
     json!({
         "id": connection.id,
+        "buzzChannelId": connection.buzz_channel_id,
+        "branchId": connection.branch_id,
+        "routingMode": connection.routing_mode,
         "organizationId": connection.organization_id,
         "provider": connection.provider,
         "displayName": connection.display_name,

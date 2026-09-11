@@ -66,12 +66,14 @@ test.describe("community rail", () => {
     await expect(buttonA).toBeVisible();
     await expect(buttonB).toBeVisible();
     const fallback = page
-      .getByTestId("community-rail-default-airhop-mark")
+      .getByTestId("community-rail-default-sunflower")
       .first();
     await expect(fallback).toBeVisible();
-    await expect(fallback.locator("img")).toHaveAttribute(
-      "src",
-      "/airhop/mark.png",
+    await expect(fallback).toHaveText("🌻");
+    await expect(fallback.locator("img")).toHaveCount(0);
+    await expect(fallback.locator("..")).toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)",
     );
 
     // The active community is marked via aria-current.

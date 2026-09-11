@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,29 +28,27 @@ export function DeleteMessageConfirmDialog({
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useAirHopLocale();
   return (
     <AlertDialog onOpenChange={onOpenChange} open={open}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>
-            {isRussian ? "Удалить сообщение?" : "Delete message?"}
-          </AlertDialogTitle>
+          <AlertDialogTitle>{messageText("Delete message?")}</AlertDialogTitle>
           <AlertDialogDescription>
-            {isRussian
-              ? "Сообщение будет удалено без возможности восстановления."
-              : "This will permanently delete this message and cannot be undone."}
+            {messageText(
+              "This will permanently delete this message and cannot be undone.",
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel asChild>
             <Button type="button" variant="outline">
-              {isRussian ? "Отмена" : "Cancel"}
+              {messageText("Cancel")}
             </Button>
           </AlertDialogCancel>
           <AlertDialogAction asChild>
             <Button onClick={onConfirm} type="button" variant="destructive">
-              {isRussian ? "Удалить" : "Delete"}
+              {messageText("Delete")}
             </Button>
           </AlertDialogAction>
         </AlertDialogFooter>

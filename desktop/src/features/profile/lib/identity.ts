@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import type { Profile, UserProfileSummary } from "@/shared/api/types";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 
@@ -108,7 +109,7 @@ export function resolveUserLabel(input: {
     normalizePubkey(currentPubkey) === normalizePubkey(pubkey)
   ) {
     if (!preferResolvedSelfLabel) {
-      return "You";
+      return messageText("You");
     }
   }
 
@@ -181,7 +182,7 @@ export function formatOwnerLabel(
     currentPubkey &&
     normalizedOwnerPubkey === normalizePubkey(currentPubkey)
   ) {
-    return "you";
+    return messageText("you");
   }
 
   const owner = ownerProfiles?.[normalizedOwnerPubkey];

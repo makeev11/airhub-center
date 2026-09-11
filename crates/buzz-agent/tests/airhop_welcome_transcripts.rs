@@ -138,12 +138,25 @@ impl Harness {
 }
 
 fn persona_prompt(const_name: &str) -> String {
-    let marker = format!("const {const_name}: &str = \"");
+    let marker = format!("const {const_name}: &str = ");
     let rest = PERSONAS_SOURCE
         .split_once(&marker)
         .unwrap_or_else(|| panic!("missing persona prompt {const_name}"))
         .1;
-    rest.split_once("\";")
+    if let Some(included) = rest.strip_prefix("include_str!(\"") {
+        let relative_path = included
+            .split_once("\")")
+            .unwrap_or_else(|| panic!("invalid persona include {const_name}"))
+            .0;
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../desktop/src-tauri/src/managed_agents")
+            .join(relative_path);
+        return std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+    }
+    rest.strip_prefix('"')
+        .unwrap_or_else(|| panic!("unsupported persona prompt {const_name}"))
+        .split_once("\";")
         .unwrap_or_else(|| panic!("unterminated persona prompt {const_name}"))
         .0
         .to_owned()
@@ -220,7 +233,9 @@ fn fake_model_response(request: &Value) -> Value {
     let system = message_text(messages, "system");
     let user = message_text(messages, "user");
     let used_tool = messages.iter().any(|message| message["role"] == "tool");
-    let mirrors_locale = system.contains("Reply in the user's language");
+    let mirrors_locale = system.contains("Reply in the user's language")
+        || system.contains("Reply in the owner's language")
+        || system.contains("Use the owner's language");
     let final_text = if mirrors_locale {
         localized_text(
             user,
@@ -232,9 +247,9 @@ fn fake_model_response(request: &Value) -> Value {
         "The answer is prepared in English.".to_owned()
     };
 
-    if system.contains("Airhop team lead")
+    if system.contains("AirHop team lead")
         && system.contains("delegate")
-        && system.contains("do not prepare or commit business mutations")
+        && system.contains("Do not prepare or commit mutations yourself")
     {
         return if used_tool {
             openai_text(&final_text)
@@ -242,9 +257,9 @@ fn fake_model_response(request: &Value) -> Value {
             openai_tool("airhop_delegate")
         };
     }
-    if system.contains("Airhop Administrator")
-        && system.contains("prepare a typed action preview")
-        && system.contains("explicit human confirmation")
+    if system.contains("AirHop internal Administrator")
+        && system.contains("airhop_prepare_action with its typed command")
+        && system.contains("the owner confirms the specific preview with a ✅ reaction")
     {
         return if used_tool {
             openai_text(&final_text)
@@ -254,7 +269,7 @@ fn fake_model_response(request: &Value) -> Value {
     }
     if system.contains("Airhop Analyst")
         && system.contains("Read authoritative")
-        && system.contains("never mutate business data")
+        && system.contains("Never invent facts or mutate business data")
     {
         return if used_tool {
             openai_text(&final_text)
@@ -391,7 +406,14 @@ async fn airhop_welcome_transcripts() {
     for (prompt_name, expected_tool) in personas {
         let prompt = persona_prompt(prompt_name);
         let normalized = prompt.to_lowercase();
-        assert!(!normalized.contains("hermes"));
+        if prompt_name == "AIRHOP_FIZZ_SYSTEM_PROMPT" {
+            assert!(normalized.contains("separate restricted invitation"));
+            assert!(normalized.contains("never impersonate him"));
+            assert!(normalized.contains("delegate internal data to him"));
+            assert!(normalized.contains("or add him to this private channel"));
+        } else {
+            assert!(!normalized.contains("hermes"));
+        }
         assert!(!normalized.contains("persistent organization memory"));
 
         for (user, locale_marker, unavailable_marker) in locales {

@@ -11,6 +11,7 @@ import {
   shouldDispatchKickoff,
   welcomeKickoffTargetRole,
   welcomeRuntimeIsReady,
+  hasWelcomeGuestIntroduction,
 } from "./welcomeKickoff.ts";
 
 const OWNER = "0".repeat(64);
@@ -19,6 +20,36 @@ const ADMIN = "2".repeat(64);
 const ANALYST = "3".repeat(64);
 const CONTENT = "4".repeat(64);
 const CHANNEL = "11111111-1111-4111-8111-111111111111";
+
+test("Hermes introduction requires the registered guest, never the internal Administrator", () => {
+  const guest = "5".repeat(64);
+  const introduction = {
+    ...event(guest, "hermes_guest_intro"),
+    tags: [
+      ["h", CHANNEL],
+      ["airhop-kickoff-stage", "hermes_guest_intro"],
+      ["airhop-guest-invitation", "a".repeat(64)],
+    ],
+  };
+  assert.equal(hasWelcomeGuestIntroduction([introduction], guest), true);
+  assert.equal(hasWelcomeGuestIntroduction([introduction], undefined), false);
+  assert.equal(
+    hasWelcomeGuestIntroduction([{ ...introduction, pubkey: ADMIN }], guest),
+    false,
+  );
+  assert.equal(
+    hasWelcomeGuestIntroduction(
+      [
+        {
+          ...introduction,
+          tags: [...introduction.tags, ["e", "b".repeat(64)]],
+        },
+      ],
+      guest,
+    ),
+    false,
+  );
+});
 
 const agents = {
   fizz: { pubkey: FIZZ },
@@ -44,14 +75,39 @@ function event(pubkey, stage) {
 
 test("semantic kickoff advances exactly one durable stage at a time", () => {
   assert.deepEqual(nextKickoffStages([]), ["fizz_intro"]);
-  assert.deepEqual(nextKickoffStages(["fizz_intro"]), [
-    "fizz_invite_administrator",
-  ]);
+  assert.deepEqual(nextKickoffStages(["fizz_intro"]), ["administrator_intro"]);
   assert.deepEqual(
     nextKickoffStages(["fizz_intro", "fizz_invite_administrator"]),
     ["administrator_intro"],
   );
   assert.deepEqual(nextKickoffStages(ALL_WELCOME_KICKOFF_STAGES), []);
+  assert.deepEqual(
+    nextKickoffStages([
+      "fizz_intro",
+      "administrator_intro",
+      "analyst_intro",
+      "content_marketer_intro",
+    ]),
+    ["fizz_first_question"],
+  );
+});
+
+test("cold Welcome waits for history before treating an empty view as new", () => {
+  const empty = buildWelcomeKickoffSnapshot([], OWNER, agents, null);
+  assert.equal(shouldDispatchKickoff({ ...empty, historyReady: false }), false);
+  assert.equal(shouldDispatchKickoff({ ...empty, historyReady: true }), true);
+  const complete = buildWelcomeKickoffSnapshot(
+    ALL_WELCOME_KICKOFF_STAGES.map((stage) =>
+      event(agents[welcomeKickoffTargetRole(stage)].pubkey, stage),
+    ),
+    OWNER,
+    agents,
+    null,
+  );
+  assert.equal(
+    shouldDispatchKickoff({ ...complete, historyReady: true }),
+    false,
+  );
 });
 
 test("stage target roles cover Fizz and all three specialists", () => {
@@ -90,7 +146,7 @@ test("durable receipts count only when authored by the stage role", () => {
   assert.equal(snapshot.inFlightStage, null);
 });
 
-test("a top-level owner message stops all not-yet-dispatched stages", () => {
+test("an owner message does not permanently stop unfinished introductions", () => {
   const snapshot = buildWelcomeKickoffSnapshot(
     [
       event(FIZZ, "fizz_intro"),
@@ -107,6 +163,30 @@ test("a top-level owner message stops all not-yet-dispatched stages", () => {
 
   assert.equal(snapshot.ownerHasSpoken, true);
   assert.equal(shouldDispatchKickoff(snapshot), false);
+  const ownerMessage = {
+    ...event(OWNER, "question"),
+    tags: [["h", CHANNEL]],
+  };
+  const answer = {
+    ...event(FIZZ, "answer"),
+    tags: [
+      ["h", CHANNEL],
+      ["airhop-responds-to", ownerMessage.id],
+    ],
+  };
+  for (const responder of [OWNER, ANALYST, FIZZ]) {
+    const resumed = buildWelcomeKickoffSnapshot(
+      [
+        event(FIZZ, "fizz_intro"),
+        ownerMessage,
+        { ...answer, pubkey: responder },
+      ],
+      OWNER,
+      agents,
+      null,
+    );
+    assert.equal(shouldDispatchKickoff(resumed), responder !== OWNER);
+  }
 });
 
 test("in-flight work and an unready target block duplicate dispatch", () => {
@@ -146,7 +226,8 @@ test("kickoff tasks are deterministic, localized, model-driven, and flat", () =>
   assert.match(task.instruction, /Андрей/);
   assert.match(task.instruction, /Airhop Kids/);
   assert.match(task.instruction, /top-level/i);
-  assert.match(task.instruction, /three short messages/i);
+  assert.match(task.instruction, /exactly one short message/i);
+  assert.match(task.instruction, /expects_reply=false/);
   assert.match(task.instruction, /airhop-kickoff-stage/);
 });
 
@@ -157,6 +238,26 @@ test("provider fallback is localized Fizz output but no semantic receipt", () =>
   assert.equal(fallback.parentEventId, null);
   assert.equal(fallback.kickoffStage, null);
   assert.match(fallback.message, /provedor de IA/i);
+});
+
+test("first setup question requires fresh facts and confirmed changes", () => {
+  const task = buildKickoffTask("fizz_first_question", "ru", {
+    channelId: CHANNEL,
+  });
+  assert.match(task.instruction, /airhop_read/);
+  assert.match(task.instruction, /unknown, not empty/);
+  assert.match(task.instruction, /channel_connections/);
+  assert.match(
+    task.instruction,
+    /Hermes agent or a tracking link is not evidence/,
+  );
+  assert.match(
+    task.instruction,
+    /branches, teachers, groups\/schedule, tariffs, knowledge, Telegram/,
+  );
+  assert.match(task.instruction, /explicit confirmation/);
+  assert.match(task.instruction, /offering to skip/);
+  assert.match(task.instruction, /Добавим преподавателей/);
 });
 
 test("runtime readiness is scoped to the exact agent and relay", () => {

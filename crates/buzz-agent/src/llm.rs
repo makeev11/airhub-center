@@ -109,6 +109,7 @@ impl Llm {
         let http = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .read_timeout(cfg.llm_timeout)
+            .timeout(cfg.llm_timeout)
             .build()
             .map_err(|e| AgentError::Llm(format!("http: {e}")))?;
         let auth = build_token_source(cfg)?;
@@ -2333,6 +2334,38 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::Mutex;
     use tracing_subscriber::layer::SubscriberExt;
+
+    #[tokio::test]
+    async fn configured_timeout_bounds_a_continuously_dripping_response() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 4096];
+            assert!(socket.read(&mut request).await.unwrap() > 0);
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\n")
+                .await
+                .unwrap();
+            for _ in 0..100 {
+                if socket.write_all(b" ").await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        });
+        let mut config = cfg(Provider::OpenAi);
+        config.llm_timeout = Duration::from_millis(150);
+        let llm = Llm::new(&config).unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(2), async {
+            llm.http.get(url).send().await?.bytes().await
+        })
+        .await
+        .unwrap();
+        server.abort();
+        assert!(result.unwrap_err().is_timeout());
+    }
 
     fn cfg(provider: Provider) -> Config {
         Config {

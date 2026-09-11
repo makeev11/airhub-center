@@ -1,3 +1,8 @@
+import {
+  messageError,
+  messageText,
+  useMessengerCopy,
+} from "@/shared/locale/messengerCopy";
 import { Pencil, Save, X } from "lucide-react";
 import * as React from "react";
 
@@ -25,6 +30,7 @@ export function ChannelCanvas({
   canEdit,
   isArchived,
 }: ChannelCanvasProps) {
+  useMessengerCopy();
   const canvasQuery = useCanvasQuery(channelId, channelId !== null);
   const setCanvasMutation = useSetCanvasMutation(channelId);
   const { channels } = useChannelNavigation();
@@ -56,15 +62,21 @@ export function ChannelCanvas({
   }
 
   if (canvasQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading canvas...</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        {messageText("Loading canvas...")}
+      </p>
+    );
   }
 
   if (canvasQuery.error instanceof Error) {
     return (
       <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-        {isRelayUnreachableError(canvasQuery.error)
-          ? RELAY_UNREACHABLE_SHORT
-          : canvasQuery.error.message}
+        {messageError(
+          isRelayUnreachableError(canvasQuery.error)
+            ? RELAY_UNREACHABLE_SHORT
+            : canvasQuery.error.message,
+        )}
       </p>
     );
   }
@@ -73,12 +85,12 @@ export function ChannelCanvas({
     return (
       <div className="space-y-3">
         <Textarea
-          aria-label="Canvas content"
+          aria-label={messageText("Canvas content")}
           className="min-h-48 font-mono text-sm"
           data-testid="channel-canvas-editor"
           disabled={setCanvasMutation.isPending}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Write your canvas content in Markdown..."
+          placeholder={messageText("Write your canvas content in Markdown...")}
           value={draft}
         />
         <div className="flex gap-2">
@@ -94,7 +106,9 @@ export function ChannelCanvas({
             type="button"
           >
             <Save className="h-4 w-4" />
-            {setCanvasMutation.isPending ? "Saving..." : "Save canvas"}
+            {setCanvasMutation.isPending
+              ? messageText("Saving...")
+              : messageText("Save canvas")}
           </Button>
           <Button
             data-testid="channel-canvas-cancel"
@@ -105,12 +119,12 @@ export function ChannelCanvas({
             variant="outline"
           >
             <X className="h-4 w-4" />
-            Cancel
+            {messageText("Cancel")}{" "}
           </Button>
         </div>
         {setCanvasMutation.error instanceof Error ? (
           <p className="text-sm text-destructive">
-            {setCanvasMutation.error.message}
+            {messageError(setCanvasMutation.error.message)}
           </p>
         ) : null}
       </div>
@@ -131,7 +145,7 @@ export function ChannelCanvas({
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          No canvas set for this channel.
+          {messageText("No canvas set for this channel.")}{" "}
         </p>
       )}
       {canEdit && !isArchived ? (
@@ -143,7 +157,9 @@ export function ChannelCanvas({
           variant="outline"
         >
           <Pencil className="h-4 w-4" />
-          {canvasContent ? "Edit canvas" : "Create canvas"}
+          {canvasContent
+            ? messageText("Edit canvas")
+            : messageText("Create canvas")}
         </Button>
       ) : null}
     </div>

@@ -1,3 +1,8 @@
+import {
+  messageError,
+  messageText,
+  useMessengerCopy,
+} from "@/shared/locale/messengerCopy";
 import { MessageCircle, SlidersHorizontal } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
@@ -28,13 +33,16 @@ export function WelcomeAgentCreateDialog({
   onCreateManually,
   onOpenChange,
 }: WelcomeAgentCreateDialogProps) {
+  useMessengerCopy();
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Create an agent</DialogTitle>
+          <DialogTitle>{messageText("Create an agent")}</DialogTitle>
           <DialogDescription>
-            Start with a conversation, or set everything up yourself.
+            {messageText(
+              "Start with a conversation, or set everything up yourself.",
+            )}{" "}
           </DialogDescription>
         </DialogHeader>
 
@@ -51,11 +59,13 @@ export function WelcomeAgentCreateDialog({
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-medium text-foreground">
-                Create with {guideName}
+                {messageText("Create with")} {guideName}
               </span>
               <span className="mt-0.5 block text-sm text-muted-foreground">
-                Talk through what you need. {guideName} will prepare a draft you
-                can review and edit.
+                {messageText("Talk through what you need.")} {guideName}{" "}
+                {messageText(
+                  "will prepare a draft you can review and edit.",
+                )}{" "}
               </span>
             </span>
           </button>
@@ -71,10 +81,12 @@ export function WelcomeAgentCreateDialog({
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-medium text-foreground">
-                Create manually
+                {messageText("Create manually")}{" "}
               </span>
               <span className="mt-0.5 block text-sm text-muted-foreground">
-                Fill in the agent’s name, instructions, and settings yourself.
+                {messageText(
+                  "Fill in the agent’s name, instructions, and settings yourself.",
+                )}{" "}
               </span>
             </span>
           </button>
@@ -82,7 +94,7 @@ export function WelcomeAgentCreateDialog({
 
         {sendError ? (
           <p className="text-sm text-destructive" role="alert">
-            {sendError}
+            {messageError(sendError)}
           </p>
         ) : null}
 
@@ -93,7 +105,7 @@ export function WelcomeAgentCreateDialog({
             type="button"
             variant="ghost"
           >
-            Cancel
+            {messageText("Cancel")}{" "}
           </Button>
         </div>
       </DialogContent>

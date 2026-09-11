@@ -1,3 +1,5 @@
+import { ConnectionRoutingFields } from "./ConnectionRoutingFields";
+import type { ConnectionRouting } from "../data/airhopControlPlane";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CircleAlert,
@@ -272,10 +274,22 @@ function ConnectionCard({
   locale: AirHopLocale;
   onUpdate: (
     connection: AirhopChannelConnection,
-    patch: Partial<Pick<AirhopChannelConnection, "hermesEnabled" | "status">>,
+    patch: Partial<
+      Pick<AirhopChannelConnection, "hermesEnabled" | "status">
+    > & { routing?: ConnectionRouting },
   ) => void;
   pending: boolean;
 }) {
+  const [routing, setRouting] = React.useState<ConnectionRouting>({
+    buzzChannelId: connection.buzzChannelId,
+    branchId: connection.branchId,
+  });
+  React.useEffect(() => {
+    setRouting({
+      buzzChannelId: connection.buzzChannelId,
+      branchId: connection.branchId,
+    });
+  }, [connection.buzzChannelId, connection.branchId]);
   const StatusIcon = connection.observedStatus === "ready" ? Wifi : WifiOff;
   const isPaused = connection.status === "paused";
   const lastHeartbeat = connection.lastHeartbeatAt
@@ -344,6 +358,30 @@ function ConnectionCard({
             }
           />
         </div>
+        <ConnectionRoutingFields
+          value={routing}
+          onChange={setRouting}
+          disabled={!canManage || pending}
+          ru={locale.startsWith("ru")}
+        />
+        {canManage && (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              {locale.startsWith("ru")
+                ? "Изменение канала действует для новых клиентов. Существующие треды остаются на месте; перенос старой истории выполняется отдельно."
+                : "A new channel applies to new clients. Existing threads stay in place; legacy migration is a separate operation."}
+            </p>
+            <Button
+              variant="outline"
+              disabled={pending}
+              onClick={() => onUpdate(connection, { routing })}
+            >
+              {locale.startsWith("ru")
+                ? "Сохранить маршрутизацию"
+                : "Save routing"}
+            </Button>
+          </div>
+        )}
         {canManage ? (
           <div className="flex justify-end">
             <Button
@@ -381,17 +419,23 @@ function AddTelegramDialog({
   pending,
 }: {
   copy: Copy;
-  onAdd: (token: string) => void;
+  onAdd: (token: string, routing: ConnectionRouting) => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
   pending: boolean;
 }) {
   const [token, setToken] = React.useState("");
+  const locale = useAirHopLocale();
+  const [routing, setRouting] = React.useState<ConnectionRouting>({
+    buzzChannelId: null,
+    branchId: null,
+  });
   const [error, setError] = React.useState<string>();
 
   React.useEffect(() => {
     if (!open) {
       setToken("");
+      setRouting({ buzzChannelId: null, branchId: null });
       setError(undefined);
     }
   }, [open]);
@@ -404,7 +448,7 @@ function AddTelegramDialog({
       return;
     }
     setError(undefined);
-    onAdd(normalizedToken);
+    onAdd(normalizedToken, routing);
   };
 
   return (
@@ -415,6 +459,12 @@ function AddTelegramDialog({
           <DialogDescription>{copy.addDescription}</DialogDescription>
         </DialogHeader>
         <form className="space-y-5" onSubmit={submit}>
+          <ConnectionRoutingFields
+            value={routing}
+            onChange={setRouting}
+            disabled={pending}
+            ru={locale.startsWith("ru")}
+          />
           <a
             className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
             href="https://t.me/BotFather"
@@ -501,6 +551,7 @@ export function CommunicationChannelsSettings({
   const saveConnection = useMutation({
     mutationFn: client.putConnection.bind(client),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["channels"] });
       await queryClient.invalidateQueries({
         queryKey: airhopConnectionsQueryKey,
       });
@@ -508,8 +559,15 @@ export function CommunicationChannelsSettings({
   });
   const { mutateAsync: save } = saveConnection;
   const connectTelegram = useMutation({
-    mutationFn: (token: string) => client.connectTelegram(token),
+    mutationFn: ({
+      token,
+      routing,
+    }: {
+      token: string;
+      routing: ConnectionRouting;
+    }) => client.connectTelegram(token, routing),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["channels"] });
       await queryClient.invalidateQueries({
         queryKey: airhopConnectionsQueryKey,
       });
@@ -520,7 +578,9 @@ export function CommunicationChannelsSettings({
   const updateConnection = React.useCallback(
     async (
       connection: AirhopChannelConnection,
-      patch: Partial<Pick<AirhopChannelConnection, "hermesEnabled" | "status">>,
+      patch: Partial<
+        Pick<AirhopChannelConnection, "hermesEnabled" | "status">
+      > & { routing?: ConnectionRouting },
     ) => {
       setPendingIds((current) => new Set(current).add(connection.id));
       try {
@@ -533,6 +593,7 @@ export function CommunicationChannelsSettings({
           hermesEnabled: patch.hermesEnabled ?? connection.hermesEnabled,
           capabilities: connection.capabilities,
           expectedVersion: connection.version,
+          routing: patch.routing,
         });
       } catch {
         toast.error(copy.savingError);
@@ -548,9 +609,9 @@ export function CommunicationChannelsSettings({
   );
 
   const addConnection = React.useCallback(
-    async (token: string) => {
+    async (token: string, routing: ConnectionRouting) => {
       try {
-        await connect(token);
+        await connect({ token, routing });
         setDialogOpen(false);
         toast.success(copy.connected);
       } catch (error) {
@@ -663,7 +724,7 @@ export function CommunicationChannelsSettings({
 
       <AddTelegramDialog
         copy={copy}
-        onAdd={(token) => void addConnection(token)}
+        onAdd={(token, routing) => void addConnection(token, routing)}
         onOpenChange={setDialogOpen}
         open={dialogOpen}
         pending={isConnecting}

@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { Check, Users } from "lucide-react";
 import type * as React from "react";
 
@@ -27,6 +28,7 @@ function SelectionChipButton({
   selected,
   children,
 }: SelectionChipButtonProps) {
+  useMessengerCopy();
   return (
     <button
       aria-pressed={selected}
@@ -65,6 +67,7 @@ export function AddChannelBotTeamsSection({
   selectedPersonaIds,
   teams,
 }: AddChannelBotTeamsSectionProps) {
+  useMessengerCopy();
   if (isLoading || teams.length === 0) {
     return null;
   }
@@ -72,9 +75,9 @@ export function AddChannelBotTeamsSection({
   return (
     <div className="space-y-3">
       <div>
-        <div className="text-sm font-medium">Teams</div>
+        <div className="text-sm font-medium">{messageText("Teams")}</div>
         <p className="text-xs text-muted-foreground">
-          Select a team to toggle all its agents at once.
+          {messageText("Select a team to toggle all its agents at once.")}{" "}
         </p>
       </div>
 
@@ -132,7 +135,7 @@ export function AddChannelBotTeamsSection({
                         >
                           <Check className="h-4 w-4" />
                           {allInChannel
-                            ? "All in channel"
+                            ? messageText("All in channel")
                             : `${inChannelCount} in channel`}
                         </span>
                       ) : null}

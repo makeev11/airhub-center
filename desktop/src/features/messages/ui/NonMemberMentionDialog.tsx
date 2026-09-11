@@ -1,4 +1,9 @@
 import {
+  messageError,
+  messageText,
+  useMessengerCopy,
+} from "@/shared/locale/messengerCopy";
+import {
   AlertDialog,
   AlertDialogContent,
   AlertDialogDescription,
@@ -27,6 +32,7 @@ export function NonMemberMentionDialog({
   onInvite,
   open,
 }: NonMemberMentionDialogProps) {
+  useMessengerCopy();
   return (
     <AlertDialog
       onOpenChange={(nextOpen) => {
@@ -39,16 +45,20 @@ export function NonMemberMentionDialog({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            Mention people outside this channel?
+            {messageText("Mention people outside this channel?")}{" "}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {names.join(", ")} {names.length === 1 ? "is" : "are"} not in this
-            channel. Invite them to the channel, or send without inviting them.
+            {messageText(
+              names.length === 1
+                ? "{names} is not in this channel. Invite them, or send without inviting them."
+                : "{names} are not in this channel. Invite them, or send without inviting them.",
+              { names: names.join(", ") },
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error ? (
           <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
+            {messageError(error)}
           </p>
         ) : null}
         <AlertDialogFooter>
@@ -59,7 +69,7 @@ export function NonMemberMentionDialog({
             type="button"
             variant="outline"
           >
-            Do nothing
+            {messageText("Do nothing")}{" "}
           </Button>
           <Button
             disabled={isInvitePending}
@@ -67,7 +77,9 @@ export function NonMemberMentionDialog({
             size="sm"
             type="button"
           >
-            {isInvitePending ? "Inviting..." : "Invite"}
+            {isInvitePending
+              ? messageText("Inviting...")
+              : messageText("Invite")}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

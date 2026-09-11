@@ -60,6 +60,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(api::airhop_public::get_public_occurrences),
         )
         .route(
+            "/api/airhop/public/v1/analytics/events",
+            post(api::airhop_public::record_public_site_analytics),
+        )
+        .route(
+            "/go/{slug}",
+            get(api::airhop_public::open_public_tracking_link),
+        )
+        .route(
             "/api/airhop/public/bookings",
             post(api::airhop_public::create_public_booking),
         )
@@ -155,6 +163,34 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .with_state(state.clone());
 
+    let airhop_knowledge_router = Router::new()
+        .route(
+            "/api/airhop/staff/v1/client-conversations",
+            get(api::airhop_clients::inbox),
+        )
+        .route(
+            "/api/airhop/staff/v1/client-conversations/{id}/migration-preview",
+            get(api::airhop_clients::migration_preview),
+        )
+        .route(
+            "/api/airhop/knowledge/v1/artifacts",
+            get(api::airhop_knowledge::artifacts),
+        )
+        .route(
+            "/api/airhop/knowledge/v1/sources",
+            post(api::airhop_knowledge::upload_source),
+        )
+        .route(
+            "/api/airhop/knowledge/v1/sources/{id}",
+            get(api::airhop_knowledge::download_source),
+        )
+        .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024))
+        .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024))
+        .layer(axum::middleware::map_response(
+            api::airhop_knowledge::private_response,
+        ))
+        .with_state(state.clone());
+
     let airhop_staff_router = Router::new()
         .route(
             "/api/airhop/staff/v1/settings",
@@ -192,6 +228,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/airhop/staff/v1/booking-funnel-analytics",
             get(api::airhop_staff::get_booking_funnel_analytics),
+        )
+        .route(
+            "/api/airhop/staff/v1/site-analytics",
+            get(api::airhop_staff::get_site_analytics),
+        )
+        .route(
+            "/api/airhop/staff/v1/tracking-links",
+            get(api::airhop_staff::list_tracking_links)
+                .post(api::airhop_staff::create_tracking_link),
         )
         .route(
             "/api/airhop/staff/v1/branches",
@@ -456,6 +501,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .merge(airhop_agents_router)
         .merge(airhop_public_router)
         .merge(airhop_staff_router);
+    merged = merged.merge(airhop_knowledge_router);
     if let Some(admin_router) = admin_router {
         merged = merged.merge(admin_router);
     }
@@ -550,7 +596,9 @@ fn is_airhop_public_booking_path(path: &str) -> bool {
 fn should_serve_web_asset(path: &str, serve_airhop_public_web: bool) -> bool {
     path.starts_with("/assets/")
         || (serve_airhop_public_web
-            && (path.starts_with("/airhop/") || path == "/agents/hermes.png"))
+            && (path.starts_with("/booking-assets/")
+                || path.starts_with("/airhop/")
+                || path == "/agents/hermes.png"))
 }
 
 fn should_serve_spa(path: &str, serve_git_web_gui: bool, serve_airhop_public_web: bool) -> bool {
@@ -824,6 +872,8 @@ mod tests {
     fn airhop_public_assets_require_the_public_web_bundle() {
         assert!(should_serve_web_asset("/assets/app.js", false));
         assert!(should_serve_web_asset("/assets/app.js", true));
+        assert!(!should_serve_web_asset("/booking-assets/app.js", false));
+        assert!(should_serve_web_asset("/booking-assets/app.js", true));
         assert!(!should_serve_web_asset("/airhop/mark.png", false));
         assert!(should_serve_web_asset("/airhop/mark.png", true));
         assert!(!should_serve_web_asset("/agents/hermes.png", false));

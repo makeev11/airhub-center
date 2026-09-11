@@ -305,7 +305,7 @@ test("ensureStarterChannels reuses existing open starter channels", async () => 
   assert.equal(ensureCalls, 0);
 });
 
-test("ensureStarterChannels resumes when one starter channel is missing", async () => {
+test("ensureStarterChannels does not recreate the retired public Welcome", async () => {
   const general = makeChannel({
     id: "general-channel",
     name: "general",
@@ -327,24 +327,24 @@ test("ensureStarterChannels resumes when one starter channel is missing", async 
   });
 
   assert.equal(result.generalChannel, general);
-  assert.equal(result.welcomeChannel, welcomeEveryone);
-  assert.deepEqual(result.channels, [general, welcomeEveryone]);
-  assert.equal(ensureCalls, 1);
+  assert.equal(result.welcomeChannel, null);
+  assert.deepEqual(result.channels, [general]);
+  assert.equal(ensureCalls, 0);
 });
 
-test("isWelcomeExperienceChannel matches legacy Welcome and starter welcome-everyone", () => {
+test("only the private Welcome has onboarding controls", () => {
   assert.equal(isWelcomeExperienceChannel(makeChannel()), true);
   assert.equal(
     isWelcomeExperienceChannel(
       makeChannel({ name: "welcome-everyone", visibility: "open" }),
     ),
-    true,
+    false,
   );
   assert.equal(
     isWelcomeExperienceChannel(
       makeChannel({ name: "Welcome-Everyone", visibility: "open" }),
     ),
-    true,
+    false,
   );
   assert.equal(
     isWelcomeExperienceChannel(

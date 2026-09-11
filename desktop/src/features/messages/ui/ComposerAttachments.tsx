@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -38,6 +39,7 @@ import { ComposerImageEditor } from "./ComposerImageEditor";
 
 /** Dashed-border overlay shown when a file is dragged over the composer form. */
 export function DropZoneOverlay({ className }: { className?: string }) {
+  useMessengerCopy();
   return (
     <div
       data-testid="drop-zone-overlay"
@@ -51,7 +53,7 @@ export function DropZoneOverlay({ className }: { className?: string }) {
         data-testid="drop-zone-label"
       >
         <UploadCloud aria-hidden="true" className="size-4" />
-        <span>Drop files to upload</span>
+        <span>{messageText("Drop files to upload")}</span>
       </span>
     </div>
   );
@@ -103,13 +105,14 @@ function ComposerSnapshotCard({
   onRemove: (url: string) => void;
   snapshotKind: SnapshotKind;
 }) {
+  useMessengerCopy();
   const [thumbError, setThumbError] = React.useState(false);
   const isAgentPng =
     snapshotKind === "agent" &&
     attachment.filename?.toLowerCase().endsWith(".agent.png");
   const showThumb = isAgentPng && !thumbError;
   const SnapshotIcon = snapshotKind === "team" ? Users : Bot;
-  const fallbackLabel = snapshotKind === "team" ? "Team" : "Agent";
+  const fallbackLabel = messageText(snapshotKind === "team" ? "Team" : "Agent");
   const displayName =
     attachment.displayLabel?.trim() ||
     attachment.filename?.replace(/\.(?:agent|team)\.(?:png|json)$/i, "") ||
@@ -166,11 +169,11 @@ function ComposerSnapshotCard({
         </AttachmentContent>
         <AttachmentActions className="ml-4">
           <AttachmentAction
-            aria-label={`Remove ${displayName}`}
+            aria-label={messageText("Remove {name}", { name: displayName })}
             className="border-0 bg-transparent text-muted-foreground/70 shadow-none hover:text-foreground hover:shadow-none focus-visible:bg-muted focus-visible:ring-0"
             data-testid={`composer-${snapshotKind}-snapshot-remove`}
             onClick={() => onRemove(attachment.url)}
-            title="Remove"
+            title={messageText("Remove")}
             type="button"
           >
             <X />
@@ -230,6 +233,7 @@ const MediaAttachmentItem = React.forwardRef<
   },
   ref,
 ) {
+  useMessengerCopy();
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<"view" | "edit">("view");
 
@@ -310,7 +314,9 @@ const MediaAttachmentItem = React.forwardRef<
                   {videoPosterUrl ? (
                     <img
                       src={videoPosterUrl}
-                      alt={`Video attachment ${hash}`}
+                      alt={messageText("Video attachment {hash}", {
+                        hash: hash,
+                      })}
                       className="h-full w-full object-cover"
                     />
                   ) : (
@@ -324,7 +330,7 @@ const MediaAttachmentItem = React.forwardRef<
               ) : (
                 <img
                   src={thumbUrl}
-                  alt={`Attachment ${hash}`}
+                  alt={messageText("Attachment {hash}", { hash: hash })}
                   className="h-full w-full object-cover"
                 />
               )}
@@ -352,21 +358,22 @@ const MediaAttachmentItem = React.forwardRef<
               onEscapeKeyDown={handleEscapeKeyDown}
             >
               <DialogPrimitive.Title className="sr-only">
-                Attachment {hash} preview
+                {messageText("Attachment")} {hash} {messageText("preview")}{" "}
               </DialogPrimitive.Title>
               <DialogPrimitive.Description className="sr-only">
-                Full-size attachment preview. Press Escape or click outside to
-                close.
+                {messageText(
+                  "Full-size attachment preview. Press Escape or click outside to close.",
+                )}{" "}
               </DialogPrimitive.Description>
               {mode === "view" ? (
                 <DialogPrimitive.Close
                   className="absolute inset-0 cursor-default"
-                  aria-label="Close lightbox"
+                  aria-label={messageText("Close lightbox")}
                 />
               ) : null}
               {mode === "edit" && !isVideo ? (
                 <ComposerImageEditor
-                  alt={`Attachment ${hash}`}
+                  alt={messageText("Attachment {hash}", { hash: hash })}
                   src={rewriteRelayUrl(attachment.url)}
                   sourceUrl={attachment.url}
                   sourceType={attachment.type}
@@ -386,7 +393,7 @@ const MediaAttachmentItem = React.forwardRef<
                 />
               ) : (
                 <img
-                  alt={`Attachment ${hash}`}
+                  alt={messageText("Attachment {hash}", { hash: hash })}
                   className={cn(
                     "relative max-h-[90vh] max-w-[90vw] rounded-lg object-contain",
                     isSpoilered && "blur-2xl brightness-75",
@@ -419,10 +426,12 @@ const MediaAttachmentItem = React.forwardRef<
                           size="sm"
                           type="button"
                         >
-                          Revert
+                          {messageText("Revert")}{" "}
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Revert to original</TooltipContent>
+                      <TooltipContent>
+                        {messageText("Revert to original")}
+                      </TooltipContent>
                     </Tooltip>
                   ) : null}
                   {onToggleSpoiler ? (
@@ -430,7 +439,9 @@ const MediaAttachmentItem = React.forwardRef<
                       <TooltipTrigger asChild>
                         <Toggle
                           aria-label={
-                            isSpoilered ? "Remove spoiler" : "Mark as spoiler"
+                            isSpoilered
+                              ? messageText("Remove spoiler")
+                              : messageText("Mark as spoiler")
                           }
                           className={cn(
                             LIGHTBOX_BUTTON_CLASS,
@@ -454,7 +465,9 @@ const MediaAttachmentItem = React.forwardRef<
                         </Toggle>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {isSpoilered ? "Remove spoiler" : "Mark as spoiler"}
+                        {isSpoilered
+                          ? messageText("Remove spoiler")
+                          : messageText("Mark as spoiler")}
                       </TooltipContent>
                     </Tooltip>
                   ) : null}
@@ -468,15 +481,19 @@ const MediaAttachmentItem = React.forwardRef<
                           onClick={() => setMode("edit")}
                         >
                           <Pencil className="h-4 w-4" />
-                          <span className="sr-only">Draw on image</span>
+                          <span className="sr-only">
+                            {messageText("Draw on image")}
+                          </span>
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent>Draw on image</TooltipContent>
+                      <TooltipContent>
+                        {messageText("Draw on image")}
+                      </TooltipContent>
                     </Tooltip>
                   ) : null}
                   <DialogPrimitive.Close className={LIGHTBOX_BUTTON_CLASS}>
                     <X className="h-4 w-4" />
-                    <span className="sr-only">Close</span>
+                    <span className="sr-only">{messageText("Close")}</span>
                   </DialogPrimitive.Close>
                 </div>
               ) : null}
@@ -493,7 +510,7 @@ const MediaAttachmentItem = React.forwardRef<
               <X className="h-2.5 w-2.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Remove attachment</TooltipContent>
+          <TooltipContent>{messageText("Remove attachment")}</TooltipContent>
         </Tooltip>
       </div>
     </motion.div>
@@ -518,6 +535,7 @@ export const ComposerAttachments = React.memo(function ComposerAttachments({
   onToggleSpoiler,
   spoileredUrls,
 }: ComposerAttachmentsProps) {
+  useMessengerCopy();
   if (attachments.length === 0 && !isUploading) return null;
 
   const uploadPlaceholders: UploadingAttachmentPreview[] =
@@ -586,7 +604,9 @@ export const ComposerAttachments = React.memo(function ComposerAttachments({
                         <X className="h-2.5 w-2.5" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Remove attachment</TooltipContent>
+                    <TooltipContent>
+                      {messageText("Remove attachment")}
+                    </TooltipContent>
                   </Tooltip>
                 </motion.div>
               );
@@ -628,7 +648,9 @@ export const ComposerAttachments = React.memo(function ComposerAttachments({
                     {preview.posterUrl ? (
                       <img
                         src={preview.posterUrl}
-                        alt={`Uploading ${preview.filename ?? "video"}`}
+                        alt={messageText("Uploading {filename}", {
+                          filename: preview.filename ?? "video",
+                        })}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -636,7 +658,9 @@ export const ComposerAttachments = React.memo(function ComposerAttachments({
                     )}
                     <div className="absolute inset-0 flex items-end rounded-2xl bg-background/25 px-2 pb-1.5">
                       <Progress
-                        aria-label={`Uploading ${preview.filename ?? "attachment"}`}
+                        aria-label={messageText("Uploading {filename}", {
+                          filename: preview.filename ?? "attachment",
+                        })}
                         className={cn(
                           "h-1",
                           preview.posterUrl
@@ -653,14 +677,16 @@ export const ComposerAttachments = React.memo(function ComposerAttachments({
                       <TooltipTrigger asChild>
                         <button
                           type="button"
-                          aria-label="Cancel upload"
+                          aria-label={messageText("Cancel upload")}
                           onClick={() => onCancelUpload(preview.id)}
                           className="absolute -right-1 -top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background"
                         >
                           <X className="h-2.5 w-2.5" />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent>Cancel upload</TooltipContent>
+                      <TooltipContent>
+                        {messageText("Cancel upload")}
+                      </TooltipContent>
                     </Tooltip>
                   ) : null}
                 </div>

@@ -1,9 +1,14 @@
+import {
+  publicBookingDraftKey,
+  readPublicBookingDraft,
+  writePublicBookingDraft,
+} from "../lib/publicBookingDraft";
+import { publicBookingAgeNotice } from "../lib/publicBookingAgeNotice";
+import { PublicBookingContactFields } from "./PublicBookingContactFields";
 import { ArrowLeft, MapPin, UsersRound } from "lucide-react";
 import * as React from "react";
-
 import { usePublicBookingService } from "@/features/booking/data/PublicBookingProvider";
 import {
-  PublicBookingAgeMismatchError,
   PublicBookingUnavailableError,
   PublicBookingValidationError,
   type PublicBookingCatalog,
@@ -28,7 +33,6 @@ import {
   type PublicApplicantValidationIssue,
 } from "@/features/booking/model/publicBooking";
 import {
-  FieldError,
   PublicBookingBranchContext,
   PublicBookingFooter,
   PublicBookingHeader,
@@ -42,8 +46,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
-import { Checkbox } from "@/shared/ui/checkbox";
-import { Input } from "@/shared/ui/input";
 import { cn } from "@/shared/lib/cn";
 import {
   PublicBookingAgeSelector,
@@ -51,15 +53,9 @@ import {
 } from "@/features/booking/ui/PublicBookingBasics";
 import { PublicBookingSuccess } from "@/features/booking/ui/PublicBookingSuccess";
 import { useBookingHandoffStatus } from "@/features/booking/ui/useBookingHandoffStatus";
-
+import { usePublicBookingAnalytics } from "@/features/booking/ui/usePublicBookingAnalytics";
 type FlowStep = "basics" | "groups" | "occurrences" | "contact" | "preview";
-type FlowError =
-  | "slot_unavailable"
-  | "age_mismatch"
-  | "load_failed"
-  | "generic"
-  | null;
-
+type FlowError = "slot_unavailable" | "load_failed" | "generic" | null;
 export type PublicBookingInitialContext = {
   branchId?: string;
   groupId?: string;
@@ -67,12 +63,10 @@ export type PublicBookingInitialContext = {
   birthMonth?: number;
   ageYears?: number;
 };
-
 export type PublicBookingWidgetConfiguration = {
   purpose?: PublicBookingPurpose;
   appearance?: PublicBookingAppearance;
 };
-
 const STEP_NUMBER: Record<FlowStep, number> = {
   basics: 1,
   groups: 2,
@@ -80,15 +74,14 @@ const STEP_NUMBER: Record<FlowStep, number> = {
   contact: 4,
   preview: 5,
 };
-
 const INITIAL_APPLICANT: PublicApplicantDraft = {
   parentName: "",
+  parentLastName: "",
   phone: "",
   childName: "",
   childBirthDate: "",
   consentAccepted: false,
 };
-
 export function PublicBookingFlow({
   configuration,
   initialContext = {},
@@ -141,15 +134,23 @@ export function PublicBookingFlow({
   } | null>(null);
   const [isSavingChannel, setIsSavingChannel] = React.useState(false);
   const [channelError, setChannelError] = React.useState(false);
+  const {
+    context: analytics,
+    startNewJourney,
+    trackStepCompleted,
+    trackSubmit,
+  } = usePublicBookingAnalytics({ branchId, mode, step });
   useBookingHandoffStatus(service, success, setSuccess);
-  const idempotencyKeyRef = React.useRef(crypto.randomUUID());
+  const draftKeyRef = React.useRef<string | null>(null);
+  const draftReadyRef = React.useRef(false);
+  const idempotencyKeyRef = React.useRef<string>(crypto.randomUUID());
   const flowRef = React.useRef<HTMLElement>(null);
   const catalogRequestRef = React.useRef<{
     service: typeof service;
     promise: Promise<PublicBookingCatalog>;
   } | null>(null);
-
-  const locale = catalog?.organization.locale ?? "ru-RU";
+  // Public copy currently supports Russian; dates and ages use the same fallback.
+  const locale = "ru-RU";
   const messages = getPublicBookingMessages(locale);
   const purpose =
     configuration?.purpose ??
@@ -174,7 +175,6 @@ export function PublicBookingFlow({
       if (parsedAge === null || !nextBranchId) return [];
       return service.findOccurrences({
         branchId: nextBranchId,
-        ageYears: parsedAge,
         purpose: nextPurpose,
       });
     },
@@ -200,8 +200,36 @@ export function PublicBookingFlow({
           configuration?.purpose ??
           nextCatalog.organization.publicBooking?.purpose ??
           "trial";
-        const resolvedContext = resolvePublicInitialContext(
+        const draftKey = publicBookingDraftKey(
+          nextCatalog.organization.id,
+          nextPurpose,
           initialValues.context,
+        );
+        draftKeyRef.current = draftKey;
+        const draft = readPublicBookingDraft(draftKey);
+        if (draft) {
+          setApplicant(draft.applicant);
+          idempotencyKeyRef.current = draft.idempotencyKey;
+          if (draft.managementToken) {
+            const card = await service.getManagementCard(draft.managementToken);
+            if (cancelled) return;
+            if (card) {
+              setSuccess({ token: draft.managementToken, card });
+              draftReadyRef.current = true;
+              return;
+            }
+          }
+        }
+        const resolvedContext = resolvePublicInitialContext(
+          draft
+            ? {
+                branchId: draft.branchId,
+                groupId: draft.groupId,
+                ...(draft.ageYears !== ""
+                  ? { ageYears: Number(draft.ageYears) }
+                  : {}),
+              }
+            : initialValues.context,
           nextCatalog.branches.map((branch) => branch.id),
           nextCatalog.organization.currentDate,
         );
@@ -210,7 +238,8 @@ export function PublicBookingFlow({
         setBranchPickerOpen(!resolvedContext.branchId);
         setGroupId(resolvedContext.groupId);
         setContextFallback(resolvedContext.contextFallback);
-        if (!resolvedContext.canLoadOccurrences) {
+        if (!resolvedContext.canLoadOccurrences || draft?.step === "basics") {
+          draftReadyRef.current = true;
           setStep("basics");
           return;
         }
@@ -225,11 +254,38 @@ export function PublicBookingFlow({
           (occurrence) => occurrence.groupId === resolvedContext.groupId,
         );
         if (resolvedContext.groupId && !validGroup) setContextFallback(true);
-        if (validGroup) setStep("occurrences");
+        const restoredOccurrence =
+          draft &&
+          nextOccurrences.find(
+            (occurrence) =>
+              stableLessonReferenceKey(occurrence.lessonRef) ===
+                draft.lessonKey &&
+              occurrence.groupId === resolvedContext.groupId &&
+              occurrence.available,
+          );
+        if (restoredOccurrence) setLessonKey(draft.lessonKey);
+        if (
+          validGroup &&
+          restoredOccurrence &&
+          (draft.step === "contact" || draft.step === "preview")
+        ) {
+          setLessonKey(draft.lessonKey);
+          setStep(
+            draft.step === "preview" &&
+              validatePublicApplicantDraft(
+                draft.applicant,
+                nextCatalog.organization.currentDate,
+              ).length === 0
+              ? "preview"
+              : "contact",
+          );
+        } else if (validGroup)
+          setStep(draft?.step === "groups" ? "groups" : "occurrences");
         else {
           setGroupId("");
           setStep("groups");
         }
+        draftReadyRef.current = true;
       } catch {
         if (!cancelled) setFlowError("load_failed");
       } finally {
@@ -246,11 +302,9 @@ export function PublicBookingFlow({
     if (!catalog) return;
     let cancelled = false;
     setIsLoadingBranches(true);
-    const parsedAge = parsePublicAge(ageYears);
     void service
       .findOccurrences({
         purpose,
-        ...(parsedAge === null ? {} : { ageYears: parsedAge }),
       })
       .then((nextOccurrences) => {
         if (!cancelled) setBranchOccurrences(nextOccurrences);
@@ -264,7 +318,30 @@ export function PublicBookingFlow({
     return () => {
       cancelled = true;
     };
-  }, [ageYears, catalog, purpose, service]);
+  }, [catalog, purpose, service]);
+
+  React.useEffect(() => {
+    if (!draftReadyRef.current || !draftKeyRef.current || isLoading) return;
+    writePublicBookingDraft(draftKeyRef.current, {
+      step,
+      branchId,
+      groupId,
+      ageYears,
+      lessonKey,
+      applicant,
+      idempotencyKey: idempotencyKeyRef.current,
+      managementToken: success?.token ?? null,
+    });
+  }, [
+    step,
+    branchId,
+    groupId,
+    ageYears,
+    lessonKey,
+    applicant,
+    success,
+    isLoading,
+  ]);
 
   const groups = React.useMemo(() => {
     const byId = new Map<string, PublicBookingOccurrence>();
@@ -281,6 +358,15 @@ export function PublicBookingFlow({
     (occurrence) =>
       stableLessonReferenceKey(occurrence.lessonRef) === lessonKey,
   );
+  const ageNotice = selectedOccurrence
+    ? publicBookingAgeNotice(
+        selectedOccurrence,
+        applicant.childBirthDate,
+        Number(ageYears),
+        catalog?.organization.currentDate ?? "",
+        locale,
+      )
+    : null;
   const selectedBranch = catalog?.branches.find(
     (branch) => branch.id === branchId,
   );
@@ -308,6 +394,7 @@ export function PublicBookingFlow({
       setGroupId("");
       setLessonKey("");
       setContextFallback(false);
+      trackStepCompleted("basics");
       setStep("groups");
     } catch {
       setFlowError("generic");
@@ -323,8 +410,21 @@ export function PublicBookingFlow({
       catalog?.organization.currentDate,
     );
     setApplicantIssues(issues);
-    if (issues.length) return;
+    if (issues.length) {
+      const fieldByIssue: Record<PublicApplicantValidationIssue, string> = {
+        parent_name_required: "public-parent-name",
+        parent_last_name_required: "public-parent-last-name",
+        phone_invalid: "public-phone",
+        child_name_required: "public-child-name",
+        birth_date_invalid: "public-child-birth-date",
+        birth_date_in_future: "public-child-birth-date",
+        consent_required: "public-consent",
+      };
+      document.getElementById(fieldByIssue[issues[0]])?.focus();
+      return;
+    }
     setFlowError(null);
+    trackStepCompleted("contact");
     setStep("preview");
   };
 
@@ -332,6 +432,7 @@ export function PublicBookingFlow({
     if (!selectedOccurrence || isSubmitting) return;
     setIsSubmitting(true);
     setFlowError(null);
+    trackSubmit();
     try {
       const result = await service.createBooking({
         lessonRef: selectedOccurrence.lessonRef,
@@ -341,14 +442,12 @@ export function PublicBookingFlow({
         source: {
           surface: mode,
           ...(attributionBranchId ? { attributionBranchId } : {}),
+          analytics,
         },
       });
       setSuccess({ token: result.managementToken, card: result.card });
     } catch (error) {
-      if (error instanceof PublicBookingAgeMismatchError) {
-        setFlowError("age_mismatch");
-        setStep("occurrences");
-      } else if (error instanceof PublicBookingUnavailableError) {
+      if (error instanceof PublicBookingUnavailableError) {
         setFlowError("slot_unavailable");
         const nextOccurrences = await loadOccurrences(branchId, ageYears);
         setOccurrences(nextOccurrences);
@@ -374,8 +473,11 @@ export function PublicBookingFlow({
         success.token,
         channel,
       );
-      if (card) setSuccess({ ...success, card });
-      else setChannelError(true);
+      if (card) {
+        setSuccess({ ...success, card });
+        if (!card.messengerHandoff && !card.telegramConnected)
+          setChannelError(true);
+      } else setChannelError(true);
     } catch {
       setChannelError(true);
     } finally {
@@ -414,6 +516,7 @@ export function PublicBookingFlow({
     }
     setContextFallback(false);
     setSuccess(null);
+    startNewJourney();
     setStep(
       nextGroupId
         ? "occurrences"
@@ -424,7 +527,7 @@ export function PublicBookingFlow({
     idempotencyKeyRef.current = crypto.randomUUID();
   };
 
-  if (isLoading && !catalog) {
+  if (isLoading && !draftReadyRef.current) {
     return (
       <PublicBookingShell appearance={appearance} mode={mode}>
         <div
@@ -446,6 +549,7 @@ export function PublicBookingFlow({
         >
           <PublicBookingSuccess
             card={success.card}
+            confirmationPreview={service.confirmationPreview}
             channelError={channelError}
             locale={locale}
             isSavingChannel={isSavingChannel}
@@ -506,20 +610,16 @@ export function PublicBookingFlow({
             <AlertTitle>
               {flowError === "slot_unavailable"
                 ? messages.slotUnavailableTitle
-                : flowError === "age_mismatch"
-                  ? messages.ageMismatchTitle
-                  : flowError === "load_failed"
-                    ? messages.loadErrorTitle
-                    : messages.genericErrorTitle}
+                : flowError === "load_failed"
+                  ? messages.loadErrorTitle
+                  : messages.genericErrorTitle}
             </AlertTitle>
             <AlertDescription>
               {flowError === "slot_unavailable"
                 ? messages.slotUnavailableDescription
-                : flowError === "age_mismatch"
-                  ? messages.ageMismatchDescription
-                  : flowError === "load_failed"
-                    ? messages.loadErrorDescription
-                    : messages.genericErrorDescription}
+                : flowError === "load_failed"
+                  ? messages.loadErrorDescription
+                  : messages.genericErrorDescription}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -533,6 +633,7 @@ export function PublicBookingFlow({
               </p>
             ) : null}
             <form
+              id="public-booking-basics"
               className="mt-6 space-y-5"
               onSubmit={(event) => void handleBasics(event)}
             >
@@ -560,17 +661,6 @@ export function PublicBookingFlow({
                   setLessonKey("");
                 }}
               />
-              <Button
-                className="min-h-11 w-full sm:min-h-9 sm:w-auto"
-                disabled={
-                  isLoading ||
-                  !selectedBranch ||
-                  parsePublicAge(ageYears) === null
-                }
-                type="submit"
-              >
-                {messages.continue}
-              </Button>
             </form>
           </Card>
         ) : null}
@@ -639,30 +729,6 @@ export function PublicBookingFlow({
                 </p>
               </div>
             )}
-            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-              <Button
-                className="min-h-11 sm:min-h-9"
-                onClick={() => setStep("basics")}
-                type="button"
-                variant="outline"
-              >
-                <ArrowLeft />
-                {groups.length ? messages.back : messages.changeCriteria}
-              </Button>
-              {groups.length ? (
-                <Button
-                  className="min-h-11 sm:min-h-9"
-                  disabled={!groupId}
-                  onClick={() => {
-                    setLessonKey("");
-                    setStep("occurrences");
-                  }}
-                  type="button"
-                >
-                  {messages.continue}
-                </Button>
-              ) : null}
-            </div>
           </Card>
         ) : null}
 
@@ -732,25 +798,6 @@ export function PublicBookingFlow({
                 );
               })}
             </div>
-            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-              <Button
-                className="min-h-11 sm:min-h-9"
-                onClick={() => setStep("groups")}
-                type="button"
-                variant="outline"
-              >
-                <ArrowLeft />
-                {messages.back}
-              </Button>
-              <Button
-                className="min-h-11 sm:min-h-9"
-                disabled={!selectedOccurrence?.available}
-                onClick={() => setStep("contact")}
-                type="button"
-              >
-                {messages.continue}
-              </Button>
-            </div>
           </Card>
         ) : null}
 
@@ -762,140 +809,18 @@ export function PublicBookingFlow({
                 {messages.contactDescription}
               </p>
             ) : null}
-            <form className="mt-6 space-y-4" onSubmit={handleContact}>
-              <label className="block space-y-2" htmlFor="public-parent-name">
-                <span className="text-sm font-medium">
-                  {messages.parentName}
-                </span>
-                <Input
-                  className="h-11 sm:h-9"
-                  id="public-parent-name"
-                  onChange={(event) =>
-                    setApplicant((current) => ({
-                      ...current,
-                      parentName: event.target.value,
-                    }))
-                  }
-                  placeholder={messages.parentNamePlaceholder}
-                  value={applicant.parentName}
-                />
-                <FieldError
-                  issue="parent_name_required"
-                  issues={applicantIssues}
-                  messages={messages}
-                />
-              </label>
-              <label className="block space-y-2" htmlFor="public-phone">
-                <span className="text-sm font-medium">{messages.phone}</span>
-                <Input
-                  className="h-11 sm:h-9"
-                  id="public-phone"
-                  onChange={(event) =>
-                    setApplicant((current) => ({
-                      ...current,
-                      phone: event.target.value,
-                    }))
-                  }
-                  placeholder={messages.phonePlaceholder}
-                  type="tel"
-                  value={applicant.phone}
-                />
-                <FieldError
-                  issue="phone_invalid"
-                  issues={applicantIssues}
-                  messages={messages}
-                />
-              </label>
-              <label className="block space-y-2" htmlFor="public-child-name">
-                <span className="text-sm font-medium">
-                  {messages.childName}
-                </span>
-                <Input
-                  className="h-11 sm:h-9"
-                  id="public-child-name"
-                  onChange={(event) =>
-                    setApplicant((current) => ({
-                      ...current,
-                      childName: event.target.value,
-                    }))
-                  }
-                  placeholder={messages.childNamePlaceholder}
-                  value={applicant.childName}
-                />
-                <FieldError
-                  issue="child_name_required"
-                  issues={applicantIssues}
-                  messages={messages}
-                />
-              </label>
-              <label
-                className="block space-y-2"
-                htmlFor="public-child-birth-date"
-              >
-                <span className="text-sm font-medium">
-                  {messages.exactBirthDate}
-                </span>
-                <Input
-                  className="h-11 sm:h-9"
-                  id="public-child-birth-date"
-                  max={catalog?.organization.currentDate}
-                  onChange={(event) =>
-                    setApplicant((current) => ({
-                      ...current,
-                      childBirthDate: event.target.value,
-                    }))
-                  }
-                  type="date"
-                  value={applicant.childBirthDate}
-                />
-                <FieldError
-                  issue="birth_date_invalid"
-                  issues={applicantIssues}
-                  messages={messages}
-                />
-                <FieldError
-                  issue="birth_date_in_future"
-                  issues={applicantIssues}
-                  messages={messages}
-                />
-              </label>
-              <div className="space-y-2">
-                <label
-                  className="flex min-h-11 items-start gap-3 py-1 text-sm leading-5"
-                  htmlFor="public-consent"
-                >
-                  <Checkbox
-                    checked={applicant.consentAccepted}
-                    id="public-consent"
-                    onCheckedChange={(checked) =>
-                      setApplicant((current) => ({
-                        ...current,
-                        consentAccepted: checked === true,
-                      }))
-                    }
-                  />
-                  <span>{messages.consent}</span>
-                </label>
-                <FieldError
-                  issue="consent_required"
-                  issues={applicantIssues}
-                  messages={messages}
-                />
-              </div>
-              <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-between">
-                <Button
-                  className="min-h-11 sm:min-h-9"
-                  onClick={() => setStep("occurrences")}
-                  type="button"
-                  variant="outline"
-                >
-                  <ArrowLeft />
-                  {messages.back}
-                </Button>
-                <Button className="min-h-11 sm:min-h-9" type="submit">
-                  {messages.continue}
-                </Button>
-              </div>
+            <form
+              id="public-booking-contact"
+              className="mt-6 space-y-4"
+              onSubmit={handleContact}
+            >
+              <PublicBookingContactFields
+                applicant={applicant}
+                setApplicant={setApplicant}
+                applicantIssues={applicantIssues}
+                messages={messages}
+                maximumBirthDate={catalog?.organization.currentDate}
+              />
             </form>
           </Card>
         ) : null}
@@ -913,6 +838,17 @@ export function PublicBookingFlow({
             ) : null}
             <dl className="mt-5 rounded-2xl bg-muted/45 px-4">
               <SummaryRow
+                label={messages.parentName}
+                value={[applicant.parentName, applicant.parentLastName]
+                  .filter(Boolean)
+                  .join(" ")}
+              />
+              <SummaryRow label={messages.phone} value={applicant.phone} />
+              <SummaryRow
+                label={messages.childName}
+                value={applicant.childName}
+              />
+              <SummaryRow
                 label={messages.center}
                 value={catalog.organization.name}
               />
@@ -924,6 +860,14 @@ export function PublicBookingFlow({
                 label={messages.group}
                 value={selectedOccurrence.groupName}
               />
+              {ageNotice ? (
+                <div
+                  className="pb-3 text-xs leading-5 text-muted-foreground"
+                  data-testid="airhop-public-age-notice"
+                >
+                  {ageNotice} Записаться всё равно можно.
+                </div>
+              ) : null}
               <SummaryRow
                 label={messages.dateAndTime}
                 value={formatPublicOccurrenceDateTime(
@@ -958,30 +902,82 @@ export function PublicBookingFlow({
                 />
               ) : null}
             </dl>
-            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-              <Button
-                className="min-h-11 sm:min-h-9"
-                onClick={() => setStep("contact")}
-                type="button"
-                variant="outline"
-              >
-                <ArrowLeft />
-                {messages.back}
-              </Button>
-              <Button
-                className="min-h-11 sm:min-h-9"
-                data-testid="airhop-public-submit"
-                disabled={isSubmitting}
-                onClick={() => void submitBooking()}
-                type="button"
-              >
-                {isSubmitting ? messages.submitting : messages.submit}
-              </Button>
-            </div>
           </Card>
         ) : null}
         <PublicBookingFooter messages={messages} />
       </main>
+      <div
+        className="mx-auto flex w-full max-w-3xl shrink-0 gap-2 border-t border-border bg-background pt-3 pb-[env(safe-area-inset-bottom)]"
+        data-testid={
+          step === "occurrences"
+            ? "airhop-public-occurrence-actions"
+            : "airhop-public-flow-actions"
+        }
+      >
+        {step !== "basics" ? (
+          <Button
+            className="min-h-11"
+            variant="outline"
+            type="button"
+            onClick={() =>
+              setStep(
+                step === "groups"
+                  ? "basics"
+                  : step === "occurrences"
+                    ? "groups"
+                    : step === "contact"
+                      ? "occurrences"
+                      : "contact",
+              )
+            }
+          >
+            <ArrowLeft />
+            {messages.back}
+          </Button>
+        ) : null}
+        <Button
+          key={step}
+          className="min-h-11 flex-1"
+          type={step === "basics" || step === "contact" ? "submit" : "button"}
+          form={
+            step === "basics"
+              ? "public-booking-basics"
+              : step === "contact"
+                ? "public-booking-contact"
+                : undefined
+          }
+          disabled={
+            step === "basics"
+              ? isLoading ||
+                !selectedBranch ||
+                parsePublicAge(ageYears) === null
+              : step === "groups"
+                ? !groupId
+                : step === "occurrences"
+                  ? !selectedOccurrence?.available
+                  : step === "preview" && isSubmitting
+          }
+          data-testid={step === "preview" ? "airhop-public-submit" : undefined}
+          onClick={(event) => {
+            if (step !== "basics" && step !== "contact") event.preventDefault();
+            if (step === "groups") {
+              setLessonKey("");
+              trackStepCompleted("groups");
+              setStep("occurrences");
+            } else if (step === "occurrences") {
+              setApplicantIssues([]);
+              trackStepCompleted("occurrences");
+              setStep("contact");
+            } else if (step === "preview") void submitBooking();
+          }}
+        >
+          {step === "preview"
+            ? isSubmitting
+              ? messages.submitting
+              : messages.submit
+            : messages.continue}
+        </Button>
+      </div>
     </PublicBookingShell>
   );
 }

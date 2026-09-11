@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1.7
+# Demo-only server/runtime overlay. The rollout must verify every local base
+# tag against its recorded image config ID before AND after building.
+ARG BUILD_BASE
+ARG RELAY_BASE
+ARG HERMES_BASE
+
+FROM ${BUILD_BASE} AS booking-binaries
+ENV CARGO_BUILD_JOBS=1
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+COPY migrations/ migrations/
+COPY examples/ examples/
+RUN cargo build --release --locked -p buzz-relay --bin buzz-relay \
+    -p buzz-admin --bin buzz-admin -p sprig --bin sprig \
+    && strip target/release/buzz-relay target/release/buzz-admin target/release/sprig
+
+FROM ${RELAY_BASE} AS booking-relay
+ARG SOURCE_COMMIT
+ARG SOURCE_ARCHIVE_SHA256
+ARG RELEASE_ID
+ARG RELAY_BASE_ID
+COPY --from=booking-binaries /build/target/release/buzz-relay /usr/local/bin/buzz-relay
+COPY --from=booking-binaries /build/target/release/buzz-admin /usr/local/bin/buzz-admin
+COPY release.json /srv/airhop/hermes-booking-release.json
+LABEL org.opencontainers.image.revision="${SOURCE_COMMIT}" \
+      ru.airhop.release="${RELEASE_ID}" \
+      ru.airhop.source-archive-sha256="${SOURCE_ARCHIVE_SHA256}" \
+      ru.airhop.base-image-id="${RELAY_BASE_ID}" \
+      ru.airhop.frontend-revision="4322563f72a7921ae38b846131310f5d53f3a895"
+
+FROM ${HERMES_BASE} AS booking-hermes
+ARG SOURCE_COMMIT
+ARG SOURCE_ARCHIVE_SHA256
+ARG RELEASE_ID
+ARG HERMES_BASE_ID
+# All existing personality symlinks continue to resolve to the same multicall
+# binary. Upstream Hermes/Python, its patch, state volume and entrypoint stay put.
+COPY --from=booking-binaries --chmod=0755 /build/target/release/sprig /usr/local/bin/sprig
+COPY --chmod=0644 integrations/hermes-airhop-parent-runtime/persona.md /opt/airhop-hermes/persona.md
+COPY --chmod=0644 integrations/hermes-airhop-parent-runtime/config.yaml /opt/airhop-hermes/config.yaml
+COPY release.json /opt/airhop-hermes/booking-release.json
+LABEL org.opencontainers.image.revision="${SOURCE_COMMIT}" \
+      ru.airhop.release="${RELEASE_ID}" \
+      ru.airhop.source-archive-sha256="${SOURCE_ARCHIVE_SHA256}" \
+      ru.airhop.base-image-id="${HERMES_BASE_ID}"

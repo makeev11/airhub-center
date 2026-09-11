@@ -42,7 +42,8 @@ type StarterChannelsClient = {
 export type StarterChannelsResult = {
   channels: Channel[];
   generalChannel: Channel;
-  welcomeChannel: Channel;
+  /** Existing legacy channel, never required or created for onboarding. */
+  welcomeChannel: Channel | null;
 };
 
 type WelcomeChannelOptions = {
@@ -96,7 +97,7 @@ export function findStarterChannels(
     STARTER_WELCOME_CHANNEL_NAME,
   );
 
-  if (!generalChannel || !welcomeChannel) {
+  if (!generalChannel) {
     return null;
   }
 
@@ -145,14 +146,13 @@ export function isStarterWelcomeChannel(channel: Channel | null | undefined) {
 }
 
 /**
- * Channels that get the welcome experience (intro action cards, guide
- * composer banner, chat-first agent creation): the starter
- * #welcome-everyone channel, plus the legacy private Welcome channel.
+ * Only the private Welcome gets onboarding controls. Existing public legacy
+ * channels remain readable as ordinary channels, without a second onboarding.
  */
 export function isWelcomeExperienceChannel(
   channel: Channel | null | undefined,
 ) {
-  return isWelcomeChannel(channel) || isStarterWelcomeChannel(channel);
+  return isWelcomeChannel(channel);
 }
 
 function isPrivateWelcomeChannelCandidate(channel: Channel) {

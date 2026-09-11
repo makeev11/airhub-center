@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { Bot, Users } from "lucide-react";
 import type { TeamMentionMember } from "@/features/messages/lib/mentionCandidates";
@@ -42,6 +43,7 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
   onSelect,
   position = "above",
 }: MentionAutocompleteProps) {
+  useMessengerCopy();
   const listRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -160,7 +162,9 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                     {suggestion.kind === "team" ? (
                       <span className="inline-flex shrink-0 items-center gap-1">
                         <Users aria-hidden="true" className="h-3.5 w-3.5" />
-                        team · {suggestion.teamMembers?.length ?? 0} agents
+                        {messageText("team ·")}{" "}
+                        {suggestion.teamMembers?.length ?? 0}{" "}
+                        {messageText("agents")}{" "}
                       </span>
                     ) : suggestion.isAgent ? (
                       <span className="inline-flex shrink-0 items-center gap-1">
@@ -187,14 +191,14 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                             ? `managed by ${suggestion.ownerLabel} · not in channel`
                             : suggestion.ownerLabel
                               ? `managed by ${suggestion.ownerLabel}`
-                              : "not in channel"
+                              : messageText("not in channel")
                         }
                       >
                         {suggestion.ownerLabel && suggestion.notInChannel
                           ? `managed by ${suggestion.ownerLabel} · not in channel`
                           : suggestion.ownerLabel
                             ? `managed by ${suggestion.ownerLabel}`
-                            : "not in channel"}
+                            : messageText("not in channel")}
                       </span>
                     ) : null}
                   </span>

@@ -1,3 +1,8 @@
+import {
+  messageError,
+  messageText,
+  useMessengerCopy,
+} from "@/shared/locale/messengerCopy";
 import { SmilePlus } from "lucide-react";
 import * as React from "react";
 
@@ -163,7 +168,7 @@ function resolveLabel(
   profiles: UserProfileLookup | undefined,
 ): string {
   if (!pubkey) {
-    return "Someone";
+    return messageText("Someone");
   }
   return resolveUserLabel({ pubkey, currentPubkey, profiles });
 }
@@ -238,6 +243,7 @@ function ProfileName({
   pubkey: string | undefined;
   underlineOnHover?: boolean;
 }) {
+  useMessengerCopy();
   const isAgentMention = highlight && isAgent;
   const node = (
     <span
@@ -292,6 +298,7 @@ function SystemMessageAvatar({
   profiles: UserProfileLookup | undefined;
   targetPubkey: string | undefined;
 }) {
+  useMessengerCopy();
   const hasActorAndTarget =
     actorPubkey && targetPubkey && actorPubkey !== targetPubkey;
   const actorLabel = actorPubkey
@@ -301,7 +308,7 @@ function SystemMessageAvatar({
         profiles,
         preferResolvedSelfLabel: true,
       })
-    : "Someone";
+    : messageText("Someone");
 
   const singlePubkey = actorPubkey ?? targetPubkey;
 
@@ -402,6 +409,7 @@ function MembershipPersonName({
   profiles: UserProfileLookup | undefined;
   pubkey: string;
 }) {
+  useMessengerCopy();
   return (
     <ProfileName
       isAgent={isKnownAgentPubkey(
@@ -431,6 +439,7 @@ function MemberNamesInlineList({
   profiles: UserProfileLookup | undefined;
   targets: string[];
 }) {
+  useMessengerCopy();
   const visibleTargets = targets.slice(0, MAX_VISIBLE_ADDITIONAL_MEMBER_NAMES);
   const hiddenTargets = targets.slice(MAX_VISIBLE_ADDITIONAL_MEMBER_NAMES);
   const renderName = (pubkey: string) => (
@@ -452,8 +461,8 @@ function MemberNamesInlineList({
             ? null
             : isLast && hiddenTargets.length === 0
               ? visibleTargets.length === 2
-                ? " and "
-                : ", and "
+                ? messageText(" and ")
+                : messageText(", and ")
               : ", ";
         return (
           <React.Fragment key={pubkey}>
@@ -464,14 +473,14 @@ function MemberNamesInlineList({
       })}
       {hiddenTargets.length > 0 ? (
         <>
-          , and{" "}
+          {messageText(", and")}{" "}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 className="cursor-help rounded-xs hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                 type="button"
               >
-                {hiddenTargets.length} others
+                {messageText("{count} more", { count: hiddenTargets.length })}
               </button>
             </TooltipTrigger>
             <TooltipContent className="max-w-72 p-2 text-left" side="top">
@@ -554,7 +563,7 @@ function describeSystemEvent(
         title: membershipTitle,
         action: (
           <>
-            added by{" "}
+            {messageText("added by")}{" "}
             <ProfileName pubkey={payload.actor} underlineOnHover>
               {resolveInlineDisplayLabel(
                 payload.actor,
@@ -562,7 +571,7 @@ function describeSystemEvent(
                 profiles,
               )}
             </ProfileName>
-            , along with{" "}
+            {messageText(", along with")}{" "}
             <MemberNamesInlineList
               agentPubkeys={agentPubkeys}
               currentPubkey={currentPubkey}
@@ -579,7 +588,7 @@ function describeSystemEvent(
         title: membershipTitle,
         action: (
           <>
-            joined the channel along with{" "}
+            {messageText("joined the channel along with")}{" "}
             <MemberNamesInlineList
               agentPubkeys={agentPubkeys}
               currentPubkey={currentPubkey}
@@ -595,14 +604,14 @@ function describeSystemEvent(
       if (normalizePubkey(payload.actor) === normalizePubkey(payload.target)) {
         return {
           title: membershipTitle,
-          action: "joined the channel",
+          action: messageText("joined the channel"),
         };
       }
       return {
         title: membershipTitle,
         action: (
           <>
-            added by{" "}
+            {messageText("added by")}{" "}
             <ProfileName pubkey={payload.actor} underlineOnHover>
               {resolveInlineDisplayLabel(
                 payload.actor,
@@ -617,12 +626,17 @@ function describeSystemEvent(
     case "member_left":
       return {
         title: actorName,
-        action: "left the channel",
+        action: messageText("left the channel"),
       };
     case "member_removed":
       return {
         title: actorName,
-        action: <>removed {targetName} from the channel</>,
+        action: (
+          <>
+            {messageText("removed")} {targetName}{" "}
+            {messageText("from the channel")}
+          </>
+        ),
       };
     case "topic_changed":
       return {
@@ -637,17 +651,17 @@ function describeSystemEvent(
     case "channel_created":
       return {
         title: actorName,
-        action: "created this channel",
+        action: messageText("created this channel"),
       };
     case "channel_archived":
       return {
         title: actorName,
-        action: "archived this channel",
+        action: messageText("archived this channel"),
       };
     case "channel_unarchived":
       return {
         title: actorName,
-        action: "unarchived this channel",
+        action: messageText("unarchived this channel"),
       };
     case "message_deleted": {
       // Room-facing tombstone. When a moderator removed the message, the relay
@@ -655,13 +669,13 @@ function describeSystemEvent(
       // content and the reporter are never disclosed here.
       if (payload.public_reason) {
         return {
-          title: "Removed by community moderators",
+          title: messageText("Removed by community moderators"),
           action: payload.public_reason,
         };
       }
       return {
         title: actorName,
-        action: "removed a message",
+        action: messageText("removed a message"),
       };
     }
     default:
@@ -693,6 +707,7 @@ export const SystemMessageRow = React.memo(function SystemMessageRow({
     remove: boolean,
   ) => Promise<void>;
 }) {
+  useMessengerCopy();
   const sourceMessages = React.useMemo(
     () => groupedMessages ?? [message],
     [groupedMessages, message],
@@ -856,7 +871,7 @@ export const SystemMessageRow = React.memo(function SystemMessageRow({
             />
             {reactionErrorMessage ? (
               <p className="mt-1.5 text-xs text-destructive">
-                {reactionErrorMessage}
+                {messageError(reactionErrorMessage)}
               </p>
             ) : null}
           </div>
@@ -883,7 +898,7 @@ export const SystemMessageRow = React.memo(function SystemMessageRow({
                     <TooltipTrigger asChild>
                       <PopoverTrigger asChild>
                         <Button
-                          aria-label="Open reactions"
+                          aria-label={messageText("Open reactions")}
                           className={SYSTEM_ACTION_BUTTON_CLASS}
                           size="sm"
                           type="button"
@@ -893,7 +908,7 @@ export const SystemMessageRow = React.memo(function SystemMessageRow({
                         </Button>
                       </PopoverTrigger>
                     </TooltipTrigger>
-                    <TooltipContent>React</TooltipContent>
+                    <TooltipContent>{messageText("React")}</TooltipContent>
                   </Tooltip>
                   <PopoverContent
                     align="end"
@@ -904,7 +919,7 @@ export const SystemMessageRow = React.memo(function SystemMessageRow({
                     {reactionErrorMessage ? (
                       <div className="px-3 pt-3 pb-0">
                         <p className="text-xs text-destructive">
-                          {reactionErrorMessage}
+                          {messageError(reactionErrorMessage)}
                         </p>
                       </div>
                     ) : null}

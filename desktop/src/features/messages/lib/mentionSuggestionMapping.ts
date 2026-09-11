@@ -1,6 +1,7 @@
 import type { MentionSuggestion } from "@/features/messages/ui/MentionAutocomplete";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { formatOwnerLabel } from "@/features/profile/lib/identity";
+import { AIRHOP_PRODUCT } from "@/shared/product/airhopProduct";
 import type { ChannelRole, ChannelType } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import type { TeamMentionMember } from "./mentionCandidates";
@@ -25,6 +26,7 @@ export function mapMentionCandidateToSuggestion(opts: {
   currentPubkey?: string | null;
   ownerProfiles?: UserProfileLookup;
   profiles?: UserProfileLookup;
+  membershipResolved?: boolean;
 }): MentionSuggestion {
   const {
     candidate,
@@ -34,9 +36,10 @@ export function mapMentionCandidateToSuggestion(opts: {
     ownerProfiles,
     profiles,
   } = opts;
-  const ownerLabel = candidate.isAgent
-    ? formatOwnerLabel(candidate.ownerPubkey, currentPubkey, ownerProfiles)
-    : null;
+  const ownerLabel =
+    candidate.isAgent && AIRHOP_PRODUCT.showAgentOwnerLabels
+      ? formatOwnerLabel(candidate.ownerPubkey, currentPubkey, ownerProfiles)
+      : null;
 
   return {
     pubkey: candidate.pubkey,
@@ -55,6 +58,7 @@ export function mapMentionCandidateToSuggestion(opts: {
     notInChannel:
       candidate.kind !== "team" &&
       channelType !== "dm" &&
+      opts.membershipResolved !== false &&
       candidate.isMember === false,
     ownerLabel,
     role: !candidate.isAgent && candidate.role === "admin" ? "admin" : null,

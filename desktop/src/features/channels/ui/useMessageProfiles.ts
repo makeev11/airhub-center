@@ -1,4 +1,6 @@
 import * as React from "react";
+import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
+import { withWelcomeGuestProfile } from "@/features/onboarding/welcomeGuestProfile";
 
 import {
   mergeCurrentProfileIntoLookup,
@@ -42,6 +44,7 @@ export function useMessageProfiles({
   managedAgents,
   profiles,
   relayAgents,
+  welcomeGuestPubkey,
 }: {
   channelMembers: ChannelMember[] | undefined;
   currentProfile: Profile | undefined;
@@ -49,9 +52,15 @@ export function useMessageProfiles({
   managedAgents: ManagedAgent[];
   profiles: UserProfileLookup | undefined;
   relayAgents: RelayAgent[];
+  welcomeGuestPubkey?: string | null;
 }): UserProfileLookup {
+  const locale = useAirHopLocale();
   const raw = React.useMemo(() => {
-    const base = mergeCurrentProfileIntoLookup(profiles, currentProfile) ?? {};
+    const base = withWelcomeGuestProfile(
+      mergeCurrentProfileIntoLookup(profiles, currentProfile) ?? {},
+      welcomeGuestPubkey,
+      locale,
+    );
     return mergeMemberAgentFlagsIntoProfiles(
       mergeAgentNamesIntoProfiles(
         base,
@@ -68,6 +77,8 @@ export function useMessageProfiles({
     managedAgents,
     profiles,
     relayAgents,
+    welcomeGuestPubkey,
+    locale,
   ]);
 
   const ref = React.useRef(raw);

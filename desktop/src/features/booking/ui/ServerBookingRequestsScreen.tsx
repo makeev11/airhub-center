@@ -1,4 +1,5 @@
 import * as React from "react";
+import { BookingConversationLinks } from "./BookingConversationLinks";
 import { useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
@@ -309,6 +310,10 @@ export function ServerBookingRequestsScreen() {
                 </div>
 
                 <div className="flex flex-wrap gap-2 border-t border-border/70 pt-4">
+                  <BookingConversationLinks
+                    familyId={item.family.id}
+                    representativeId={item.representative.id}
+                  />
                   {item.booking.status === "pending_confirmation" ? (
                     <>
                       <Button

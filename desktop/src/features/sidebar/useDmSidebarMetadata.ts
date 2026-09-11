@@ -1,7 +1,11 @@
 import * as React from "react";
 
 import { usePresenceQuery } from "@/features/presence/hooks";
-import { resolveUserLabel } from "@/features/profile/lib/identity";
+import {
+  isSelfDirectMessage,
+  resolveDmParticipantLabel,
+} from "@/features/channels/lib/dmParticipantDisplay";
+import { useProfilesWithSelf } from "@/features/profile/useProfilesWithSelf";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { resolveChannelDisplayLabel } from "@/features/sidebar/lib/channelLabels";
 import type { SidebarDmParticipant } from "@/features/sidebar/ui/SidebarSection";
@@ -13,12 +17,14 @@ export function useDmSidebarMetadata({
   fallbackDisplayName,
   profileDisplayName,
   enabled = true,
+  selfPresenceStatus,
 }: {
   currentPubkey?: string;
   directMessages: Channel[];
   fallbackDisplayName?: string;
   profileDisplayName?: string | null;
   enabled?: boolean;
+  selfPresenceStatus: PresenceStatus;
 }) {
   const selfDmLabels = React.useMemo(
     () =>
@@ -51,7 +57,10 @@ export function useDmSidebarMetadata({
   const dmProfilesQuery = useUsersBatchQuery(dmParticipantPubkeys, {
     enabled: enabled && directMessages.length > 0,
   });
-  const dmProfiles = dmProfilesQuery.data?.profiles;
+  const dmProfiles = useProfilesWithSelf(
+    dmProfilesQuery.data?.profiles,
+    currentPubkey,
+  );
   const dmPresenceByChannelId = React.useMemo(
     () =>
       Object.fromEntries(
@@ -71,28 +80,33 @@ export function useDmSidebarMetadata({
 
           return [
             channel.id,
-            otherParticipantPubkey
-              ? (dmPresenceQuery.data?.[otherParticipantPubkey.toLowerCase()] ??
-                "offline")
-              : "offline",
+            isSelfDirectMessage(channel, currentPubkey)
+              ? selfPresenceStatus
+              : otherParticipantPubkey
+                ? (dmPresenceQuery.data?.[
+                    otherParticipantPubkey.toLowerCase()
+                  ] ?? "offline")
+                : "offline",
           ];
         }),
       ) satisfies Record<string, PresenceStatus>,
-    [currentPubkey, directMessages, dmPresenceQuery.data, selfDmLabels],
+    [
+      currentPubkey,
+      directMessages,
+      dmPresenceQuery.data,
+      selfDmLabels,
+      selfPresenceStatus,
+    ],
   );
   const dmChannelLabels = React.useMemo(
     () =>
       Object.fromEntries(
         directMessages.map((channel) => [
           channel.id,
-          resolveChannelDisplayLabel(
-            channel,
-            currentPubkey,
-            dmProfilesQuery.data?.profiles,
-          ),
+          resolveChannelDisplayLabel(channel, currentPubkey, dmProfiles),
         ]),
       ),
-    [currentPubkey, directMessages, dmProfilesQuery.data],
+    [currentPubkey, directMessages, dmProfiles],
   );
   const dmParticipantsByChannelId = React.useMemo(
     () =>
@@ -124,7 +138,7 @@ export function useDmSidebarMetadata({
               avatarUrl:
                 dmProfiles?.[participant.pubkey.toLowerCase()]?.avatarUrl ??
                 null,
-              label: resolveUserLabel({
+              label: resolveDmParticipantLabel({
                 currentPubkey,
                 fallbackName: participant.fallbackName,
                 profiles: dmProfiles,

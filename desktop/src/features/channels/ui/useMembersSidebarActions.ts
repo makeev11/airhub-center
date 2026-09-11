@@ -1,3 +1,8 @@
+import {
+  messengerCount,
+  messageError,
+  messageText,
+} from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -162,10 +167,16 @@ export function useMembersSidebarActions({
         });
         setActionNoticeMessage(
           action === "stop"
-            ? `Stopped ${agent.name} in this community.`
+            ? messageText("Stopped {name} in this community.", {
+                name: agent.name,
+              })
             : action === "restart"
-              ? `Restarted ${agent.name} in this community.`
-              : `Started ${agent.name} in this community.`,
+              ? messageText("Restarted {name} in this community.", {
+                  name: agent.name,
+                })
+              : messageText("Started {name} in this community.", {
+                  name: agent.name,
+                }),
         );
         return;
       }
@@ -182,8 +193,10 @@ export function useMembersSidebarActions({
         }
         setActionNoticeMessage(
           agent.backend.type === "provider"
-            ? `Shutdown command sent to ${agent.name}.`
-            : `Stopped ${agent.name}.`,
+            ? messageText("Shutdown command sent to {name}.", {
+                name: agent.name,
+              })
+            : messageText("Stopped {name}.", { name: agent.name }),
         );
         return;
       }
@@ -194,9 +207,7 @@ export function useMembersSidebarActions({
       });
       setActionNoticeMessage(getLifecycleSuccessMessage(agent));
     } catch (error) {
-      setActionErrorMessage(
-        error instanceof Error ? error.message : "Failed to control agent.",
-      );
+      setActionErrorMessage(messageError(error, "Failed to control agent."));
     } finally {
       setActiveActionKey(null);
     }
@@ -217,7 +228,9 @@ export function useMembersSidebarActions({
       agents: controllableManagedBots,
       failureMessage: "Failed to respawn agent.",
       successMessage: (count) =>
-        `Spawned or respawned ${formatCountLabel(count, "agent", "agents")}.`,
+        messageText("Spawned or respawned {agents}.", {
+          agents: formatCountLabel(count, "agent", "agents"),
+        }),
     });
   }
 
@@ -239,11 +252,9 @@ export function useMembersSidebarActions({
       agents: stoppableManagedBots,
       failureMessage: "Failed to stop agent.",
       successMessage: (count) =>
-        `Stopped or requested shutdown for ${formatCountLabel(
-          count,
-          "agent",
-          "agents",
-        )}.`,
+        messageText("Stopped or requested shutdown for {agents}.", {
+          agents: formatCountLabel(count, "agent", "agents"),
+        }),
     });
   }
 
@@ -258,7 +269,9 @@ export function useMembersSidebarActions({
       failureMessage: "Failed to remove bot from channel.",
       onSettled: invalidateSidebarQueries,
       successMessage: (count) =>
-        `Removed ${formatCountLabel(count, "managed bot", "managed bots")} from this channel.`,
+        messageText("Removed {agents} from this channel.", {
+          agents: formatCountLabel(count, "managed bot", "managed bots"),
+        }),
     });
   }
 
@@ -287,7 +300,7 @@ export function useMembersSidebarActions({
 
   async function removeManagedBotMembership(pubkey: string) {
     if (!channelId) {
-      throw new Error("No channel selected.");
+      throw new Error(messageText("No channel selected."));
     }
 
     await removeChannelMember(channelId, pubkey);
@@ -305,7 +318,9 @@ export function useMembersSidebarActions({
   }
 
   return {
-    actionErrorMessage,
+    actionErrorMessage: actionErrorMessage
+      ? messageError(actionErrorMessage)
+      : null,
     actionNoticeMessage,
     handleLifecycleAction,
     handleRemoveAll,
@@ -321,12 +336,12 @@ export function useMembersSidebarActions({
 
 function getLifecycleSuccessMessage(agent: ManagedAgent) {
   if (agent.backend.type === "provider") {
-    return `Deployed ${agent.name}.`;
+    return messageText("Deployed {name}.", { name: agent.name });
   }
 
   return agent.status === "stopped"
-    ? `Respawned ${agent.name}.`
-    : `Spawned ${agent.name}.`;
+    ? messageText("Respawned {name}.", { name: agent.name })
+    : messageText("Spawned {name}.", { name: agent.name });
 }
 
 function formatFailureSummary(
@@ -350,5 +365,7 @@ function formatFailureSummary(
 }
 
 function formatCountLabel(count: number, singular: string, plural: string) {
-  return `${count} ${count === 1 ? singular : plural}`;
+  return singular === "agent" || singular === "managed bot"
+    ? messengerCount(count, "agent")
+    : `${count} ${count === 1 ? singular : plural}`;
 }

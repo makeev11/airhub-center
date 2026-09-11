@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Pencil, Unlink } from "lucide-react";
@@ -69,7 +70,7 @@ type LinkCardState = {
  * - `card`/`dialog` — render once inside the composer tree.
  */
 export function useLinkEditor(richText: UseRichTextEditorResult) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useAirHopLocale();
   const { getLinkSelectionInfo, applyLink, removeLink } = richText;
   const { goChannel } = useAppNavigation();
   const [draft, setDraft] = React.useState<DraftState | null>(null);
@@ -348,7 +349,7 @@ export function useLinkEditor(richText: UseRichTextEditorResult) {
             </a>
             <div className="flex items-center justify-end gap-0.5">
               <Button
-                aria-label={isRussian ? "Изменить ссылку" : "Edit link"}
+                aria-label={messageText("Edit link")}
                 onClick={editFromCard}
                 size="icon-xs"
                 type="button"
@@ -357,7 +358,7 @@ export function useLinkEditor(richText: UseRichTextEditorResult) {
                 <Pencil />
               </Button>
               <Button
-                aria-label={isRussian ? "Убрать ссылку" : "Unlink"}
+                aria-label={messageText("Unlink")}
                 onClick={removeFromCard}
                 size="icon-xs"
                 type="button"
@@ -383,12 +384,8 @@ export function useLinkEditor(richText: UseRichTextEditorResult) {
         <DialogHeader>
           <DialogTitle>
             {draft?.isExistingLink
-              ? isRussian
-                ? "Изменить ссылку"
-                : "Edit link"
-              : isRussian
-                ? "Добавить ссылку"
-                : "Add link"}
+              ? messageText("Edit link")
+              : messageText("Add link")}
           </DialogTitle>
         </DialogHeader>
         <form
@@ -402,11 +399,11 @@ export function useLinkEditor(richText: UseRichTextEditorResult) {
             className="flex flex-col gap-1 text-sm font-medium"
             htmlFor={textId}
           >
-            {isRussian ? "Текст ссылки" : "Display text"}
+            {messageText("Display text")}
             <Input
               id={textId}
               autoFocus={draft?.initialFocus === "text"}
-              placeholder={isRussian ? "Отображаемый текст" : "Text to display"}
+              placeholder={messageText("Text to display")}
               value={draft?.text ?? ""}
               onChange={(event) =>
                 setDraft((prev) =>
@@ -419,7 +416,7 @@ export function useLinkEditor(richText: UseRichTextEditorResult) {
             className="flex flex-col gap-1 text-sm font-medium"
             htmlFor={urlId}
           >
-            URL
+            {messageText("URL")}{" "}
             <Input
               id={urlId}
               autoFocus={draft?.initialFocus === "url"}
@@ -435,17 +432,17 @@ export function useLinkEditor(richText: UseRichTextEditorResult) {
           <div className="mt-2 flex items-center justify-between gap-2">
             {draft?.isExistingLink ? (
               <Button type="button" variant="destructive" onClick={remove}>
-                {isRussian ? "Удалить" : "Remove"}
+                {messageText("Remove")}
               </Button>
             ) : (
               <span />
             )}
             <div className="flex items-center gap-2">
               <Button type="button" variant="ghost" onClick={close}>
-                {isRussian ? "Отмена" : "Cancel"}
+                {messageText("Cancel")}
               </Button>
               <Button type="submit" disabled={!draft?.url.trim()}>
-                {isRussian ? "Сохранить" : "Save"}
+                {messageText("Save")}
               </Button>
             </div>
           </div>

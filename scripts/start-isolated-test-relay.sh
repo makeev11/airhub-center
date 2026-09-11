@@ -20,6 +20,8 @@
 # Usage:
 #   ./scripts/start-isolated-test-relay.sh [--profile <cargo-profile>] [--prepare-only]
 #   --prepare-only resets/seeds/builds but leaves relay lifecycle to the caller.
+#   --prebuilt uses current buzz-admin/relay binaries built by the caller; the
+#   native runner builds both together immediately before passing this flag.
 #
 # Teardown (safe — scoped to our project only):
 #   docker compose -p buzz-harness -f docker-compose.harness.yml down -v
@@ -32,10 +34,12 @@ cd "${REPO_ROOT}"
 
 CARGO_PROFILE="${CARGO_PROFILE:-ci}"
 PREPARE_ONLY=false
+PREBUILT=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile) CARGO_PROFILE="$2"; shift 2 ;;
     --prepare-only) PREPARE_ONLY=true; shift ;;
+    --prebuilt) PREBUILT=true; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -52,6 +56,15 @@ case "${CARGO_PROFILE}" in
     CARGO_TARGET_PROFILE="${CARGO_PROFILE}"
     ;;
 esac
+
+if [[ "${PREBUILT}" == "true" ]]; then
+  for binary in buzz-admin buzz-relay; do
+    [[ -x "./target/${CARGO_TARGET_PROFILE}/${binary}" ]] || {
+      echo "Missing prebuilt ${binary}; build the current sources first." >&2
+      exit 1
+    }
+  done
+fi
 
 PROJECT="buzz-harness"
 COMPOSE_FILE="docker-compose.harness.yml"
@@ -102,7 +115,12 @@ log "Resetting isolated database and applying all checked-in migrations..."
 # This database belongs only to the buzz-harness Compose project. Reset it on
 # every launch so stale events or migration state cannot alter test results.
 psql_h -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-DATABASE_URL="postgres://buzz:buzz_dev@localhost:${PG_PORT}/buzz" cargo run -p buzz-admin -- migrate
+if [[ "${PREBUILT}" == "true" ]]; then
+  DATABASE_URL="postgres://buzz:buzz_dev@localhost:${PG_PORT}/buzz" \
+    "./target/${CARGO_TARGET_PROFILE}/buzz-admin" migrate
+else
+  DATABASE_URL="postgres://buzz:buzz_dev@localhost:${PG_PORT}/buzz" cargo run -p buzz-admin -- migrate
+fi
 ok "Complete migration chain applied"
 
 # ── Deployment community + channels + members ────────────────────────────────
@@ -121,7 +139,9 @@ ok "Community + channels + members seeded"
 
 # ── Build relay from source (current branch) ─────────────────────────────────
 log "Building relay (profile=${CARGO_BUILD_PROFILE}, cargo=$(command -v cargo), $(cargo --version))..."
-cargo build --profile "${CARGO_BUILD_PROFILE}" -p buzz-relay
+if [[ "${PREBUILT}" != "true" ]]; then
+  cargo build --profile "${CARGO_BUILD_PROFILE}" -p buzz-relay
+fi
 ok "Relay built"
 
 if [[ "${PREPARE_ONLY}" == "true" ]]; then

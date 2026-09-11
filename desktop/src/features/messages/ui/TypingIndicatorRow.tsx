@@ -1,4 +1,7 @@
-import * as React from "react";
+import {
+  messengerTyping,
+  useMessengerCopy,
+} from "@/shared/locale/messengerCopy";
 
 import {
   resolveUserLabel,
@@ -35,22 +38,6 @@ function resolveFallbackName(channel: Channel | null, pubkey: string) {
   return channel.participants[participantIndex] ?? null;
 }
 
-function formatTypingLabel(names: string[]) {
-  if (names.length === 1) {
-    return `${names[0]} is typing...`;
-  }
-
-  if (names.length === 2) {
-    return `${names[0]} and ${names[1]} are typing...`;
-  }
-
-  if (names.length === 3) {
-    return `${names[0]}, ${names[1]}, and ${names[2]} are typing...`;
-  }
-
-  return `${names[0]}, ${names[1]}, and ${names.length - 2} others are typing...`;
-}
-
 export function TypingIndicatorRow({
   channel,
   className,
@@ -59,19 +46,16 @@ export function TypingIndicatorRow({
   typingPubkeys,
   variant = "default",
 }: TypingIndicatorRowProps) {
+  useMessengerCopy();
   const isActivityVariant = variant === "activity";
-  const labels = React.useMemo(
-    () =>
-      typingPubkeys.map((pubkey) =>
-        resolveUserLabel({
-          pubkey,
-          currentPubkey,
-          fallbackName: resolveFallbackName(channel, pubkey),
-          profiles,
-          preferResolvedSelfLabel: true,
-        }),
-      ),
-    [channel, currentPubkey, profiles, typingPubkeys],
+  const labels = typingPubkeys.map((pubkey) =>
+    resolveUserLabel({
+      pubkey,
+      currentPubkey,
+      fallbackName: resolveFallbackName(channel, pubkey),
+      profiles,
+      preferResolvedSelfLabel: true,
+    }),
   );
 
   return (
@@ -132,7 +116,7 @@ export function TypingIndicatorRow({
             )}
             data-testid="message-typing-indicator-label"
           >
-            <Shimmer>{formatTypingLabel(labels)}</Shimmer>
+            <Shimmer>{messengerTyping(labels)}</Shimmer>
           </p>
         </div>
       )}

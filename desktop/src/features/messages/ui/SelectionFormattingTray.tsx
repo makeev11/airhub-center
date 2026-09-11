@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
@@ -114,7 +115,7 @@ export function SelectionFormattingTray({
   disabled = false,
   onLinkButton,
 }: SelectionFormattingTrayProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useAirHopLocale();
   const [position, setPosition] = React.useState<TrayPosition | null>(null);
   const rafRef = React.useRef<number | null>(null);
   const trayRef = React.useRef<HTMLDivElement | null>(null);
@@ -201,9 +202,7 @@ export function SelectionFormattingTray({
       data-testid="selection-formatting-tray"
       onMouseDown={(event) => event.preventDefault()}
       role="toolbar"
-      aria-label={
-        isRussian ? "Форматирование выделенного текста" : "Selection formatting"
-      }
+      aria-label={messageText("Selection formatting")}
       style={{ left: position.left, top: position.top }}
     >
       <div className="max-w-full overflow-x-auto">

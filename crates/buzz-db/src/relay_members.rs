@@ -227,7 +227,8 @@ pub async fn remove_relay_member(
 ) -> Result<RemoveResult> {
     let result = sqlx::query(
         "DELETE FROM relay_members \
-         WHERE community_id = $1 AND pubkey = $2 AND role <> 'owner'",
+         WHERE community_id = $1 AND pubkey = $2 AND role <> 'owner' \
+         AND NOT EXISTS(SELECT 1 FROM airhop_registered_principals p WHERE p.community_id=$1 AND encode(p.pubkey,'hex')=$2)",
     )
     .bind(community.as_uuid())
     .bind(pubkey)
@@ -238,6 +239,7 @@ pub async fn remove_relay_member(
         return Ok(RemoveResult::Removed);
     }
 
+    reject_registered_principal(pool, community, pubkey).await?;
     // rows_affected == 0: either not found or is owner.  One cheap read to
     // distinguish the two cases so callers can return the right error message.
     let exists = sqlx::query("SELECT 1 FROM relay_members WHERE community_id = $1 AND pubkey = $2")
@@ -273,7 +275,8 @@ pub async fn remove_relay_member_if_role(
     expected_role: &str,
 ) -> Result<RemoveResult> {
     let result = sqlx::query(
-        "DELETE FROM relay_members WHERE community_id = $1 AND pubkey = $2 AND role = $3",
+        "DELETE FROM relay_members WHERE community_id = $1 AND pubkey = $2 AND role = $3 \
+         AND NOT EXISTS(SELECT 1 FROM airhop_registered_principals p WHERE p.community_id=$1 AND encode(p.pubkey,'hex')=$2)",
     )
     .bind(community.as_uuid())
     .bind(pubkey)
@@ -285,6 +288,7 @@ pub async fn remove_relay_member_if_role(
         return Ok(RemoveResult::Removed);
     }
 
+    reject_registered_principal(pool, community, pubkey).await?;
     // rows_affected == 0: either not found or role changed. One cheap read to
     // distinguish the cases so callers can return the right error message.
     let row = sqlx::query("SELECT role FROM relay_members WHERE community_id = $1 AND pubkey = $2")
@@ -319,14 +323,31 @@ pub async fn update_relay_member_role(
 ) -> Result<bool> {
     let result = sqlx::query(
         "UPDATE relay_members SET role = $1, updated_at = now() \
-         WHERE community_id = $2 AND pubkey = $3 AND role <> 'owner'",
+         WHERE community_id = $2 AND pubkey = $3 AND role <> 'owner' \
+         AND NOT EXISTS(SELECT 1 FROM airhop_registered_principals p WHERE p.community_id=$2 AND encode(p.pubkey,'hex')=$3)",
     )
     .bind(new_role)
     .bind(community.as_uuid())
     .bind(pubkey)
     .execute(pool)
     .await?;
+    if result.rows_affected() == 0 {
+        reject_registered_principal(pool, community, pubkey).await?;
+    }
     Ok(result.rows_affected() > 0)
+}
+
+async fn reject_registered_principal(
+    pool: &PgPool,
+    community: CommunityId,
+    pubkey: &str,
+) -> Result<()> {
+    let registered: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM airhop_registered_principals WHERE community_id=$1 AND encode(pubkey,'hex')=$2)")
+        .bind(community.as_uuid()).bind(pubkey).fetch_one(pool).await?;
+    if registered {
+        return Err(crate::DbError::AccessDenied("Manage registered agents and connectors in AirHop integration settings, not employee management".into()));
+    }
+    Ok(())
 }
 
 /// Ensures the configured owner pubkey holds the `"owner"` role *in

@@ -90,12 +90,14 @@ export type AirhopAgentState =
   | "running"
   | "stopped"
   | "attention"
-  | "unavailable";
+  | "unavailable"
+  | "registered";
 
 export type AirhopAgentCardModel = Readonly<{
   role: AirhopAgentRole;
   personaId: string;
   pubkey: string | null;
+  controllable: boolean;
   name: string;
   roleLabel: string;
   avatarUrl: string;
@@ -107,13 +109,21 @@ export type AirhopAgentCardModel = Readonly<{
 export function materializeAirhopAgentCards(
   managedAgents: readonly ManagedAgent[],
   locale: AirHopLocale,
+  relayUrl: string | null,
+  registered: readonly { role: string; pubkey: string }[] = [],
 ): AirhopAgentCardModel[] {
-  return AIRHOP_AGENT_CATALOG.map((definition) => {
+  return AIRHOP_AGENT_CATALOG.flatMap((definition) => {
+    const identity = registered.find((agent) => agent.role === definition.role);
+    if (!identity) return [];
     const managed = managedAgents.find(
-      (agent) => agent.personaId === definition.personaId,
+      (agent) =>
+        relayUrl !== null &&
+        agent.relayUrl === relayUrl &&
+        agent.pubkey === identity.pubkey &&
+        agent.personaId === definition.personaId,
     );
     const state: AirhopAgentState = !managed
-      ? "unavailable"
+      ? "registered"
       : managed.lastError
         ? "attention"
         : managed.status === "running" || managed.status === "deployed"
@@ -123,7 +133,8 @@ export function materializeAirhopAgentCards(
     return {
       role: definition.role,
       personaId: definition.personaId,
-      pubkey: managed?.pubkey ?? null,
+      pubkey: identity.pubkey,
+      controllable: Boolean(managed),
       name: definition.name[locale],
       roleLabel: definition.roleLabel[locale],
       avatarUrl: definition.avatarUrl,

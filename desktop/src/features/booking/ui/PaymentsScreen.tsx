@@ -89,7 +89,7 @@ function paymentMethodLabel(
   if (method === "cash") return messages.paymentMethodCash;
   if (method === "card") return messages.paymentMethodCard;
   if (method === "bank_transfer") return messages.paymentMethodBankTransfer;
-  if (method === "buzz") return "Buzz";
+  if (method === "buzz") return "AirHop Center";
   if (method === "legacy") return "Legacy";
   return messages.paymentMethodOther;
 }
@@ -564,7 +564,6 @@ function ServerPaymentsScreen() {
   const [status, setStatus] = React.useState<"loading" | "ready" | "error">(
     "loading",
   );
-  const [error, setError] = React.useState<Error | null>(null);
   const messages = getBookingAdminMessages(
     queue?.organization.locale ??
       booking.workspace?.organization.locale ??
@@ -572,12 +571,10 @@ function ServerPaymentsScreen() {
   );
   const load = React.useCallback(async () => {
     setStatus("loading");
-    setError(null);
     try {
       setQueue(await service.listPayments());
       setStatus("ready");
     } catch (cause) {
-      setError(cause instanceof Error ? cause : new Error(String(cause)));
       setStatus("error");
       throw cause;
     }
@@ -618,7 +615,7 @@ function ServerPaymentsScreen() {
       ) : status === "error" || !queue ? (
         <Alert variant="destructive">
           <AlertDescription className="space-y-3">
-            <p>{error?.message ?? messages.loadErrorDescription}</p>
+            <p>{messages.loadErrorDescription}</p>
             <Button onClick={() => void load()} size="sm" variant="outline">
               {messages.retry}
             </Button>

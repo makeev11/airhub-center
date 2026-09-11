@@ -34,10 +34,17 @@ pub mod booking_handoff;
 pub mod branch_directory;
 /// AirHub Center owner-enrollment codes and deployment binding.
 pub mod center_activation;
+/// Unified operational analytics shared by the Center UI and Analyst.
+pub mod center_analytics;
 /// Signed health challenges for activated AirHub Center installations.
 pub mod center_health;
 /// Provider-neutral external messaging connection and delivery outbox.
 pub mod channel_gateway;
+/// Client inbox, routing metadata and explicit legacy thread cutover.
+pub mod client_threads;
+pub mod consultation;
+/// Durable, parent-confirmed booking creation inside an external conversation.
+pub mod conversation_booking;
 /// Optimistic lifecycle and tariff commands for permanent enrollments.
 pub mod enrollment_lifecycle;
 /// Canonical parent conversation ownership and Hermes routing receipts.
@@ -60,18 +67,23 @@ pub mod family_primary_representative;
 pub mod group_directory;
 /// Versioned parent-safe Markdown retrieval for AirHop agents.
 pub mod knowledge;
+/// Private authoring, original attachments and immutable knowledge revisions.
+pub mod knowledge_workspace;
 /// Tenant-scoped commands for cancelling, overriding, and restoring one lesson.
 pub mod lesson_exception;
 /// Authoritative per-lesson roster, direct participants, and attendance.
 pub mod lesson_participants;
 /// Idempotent organization bootstrap and settings updates.
 pub mod organization_settings;
+mod parent_family_context;
 /// Currency-safe server analytics over authoritative payment expectations.
 pub mod payment_analytics;
 /// Rolling future payments and durable Buzz overdue-summary delivery state.
 pub mod payment_automation;
 /// Tenant-scoped payment work queue and audited staff commands.
 pub mod payment_queue;
+/// Registered organization agent identities and human/service classification.
+pub mod principal_directory;
 /// Atomic public booking command application service.
 pub mod public_booking;
 /// Credential-scoped parent booking management.
@@ -82,6 +94,8 @@ pub mod public_read;
 pub mod room_directory;
 /// Authoritative occurrence read-model persistence.
 pub mod schedule;
+/// First-party site analytics, booking attribution, and tracked links.
+pub mod site_analytics;
 /// Tenant-scoped staff booking queue projection.
 pub mod staff_queue;
 /// Tenant-scoped tariff directory and audited staff commands.
@@ -90,6 +104,8 @@ pub mod tariff_directory;
 pub mod teacher_directory;
 /// Tenant-scoped Airhop Welcome agent manifest and routing state.
 pub mod welcome_agents;
+/// Narrow, read-only eligibility for the external administrator's introduction.
+pub mod welcome_guest;
 
 /// Lifecycle of an Airhop organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -367,7 +383,7 @@ impl Db {
                     analytics_buzz_channel_id, staff_working_hours, default_trial_policy, \
                     track_attendance_by_default, allow_single_visits_by_default, \
                     existing_students_onboarding_status, public_booking_purpose, \
-                    public_booking_appearance, payment_day_of_month, status, version, \
+                    public_booking_appearance, payment_day_of_month, currency, status, version, \
                     created_at, updated_at \
              FROM airhop_organizations \
              WHERE community_id = $1",
@@ -394,13 +410,13 @@ impl Db {
                  community_id, id, name, locale, time_zone, staff_working_hours, default_trial_policy, \
                  track_attendance_by_default, allow_single_visits_by_default, \
                  existing_students_onboarding_status, public_booking_purpose, \
-                 public_booking_appearance, payment_day_of_month\
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
+                 public_booking_appearance, payment_day_of_month, currency\
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
              RETURNING id, name, locale, time_zone, payments_buzz_channel_id, \
                  analytics_buzz_channel_id, staff_working_hours, default_trial_policy, \
                  track_attendance_by_default, allow_single_visits_by_default, \
                  existing_students_onboarding_status, public_booking_purpose, \
-                 public_booking_appearance, payment_day_of_month, status, version, \
+                 public_booking_appearance, payment_day_of_month, currency, status, version, \
                  created_at, updated_at",
         )
         .bind(tenant.community().as_uuid())
@@ -422,6 +438,7 @@ impl Db {
             input.settings.public_booking_appearance,
         ))
         .bind(i16::from(input.settings.payment_day_of_month))
+        .bind(&input.settings.currency)
         .fetch_one(&self.pool)
         .await?;
         parse_organization_row(row)
@@ -645,6 +662,7 @@ fn parse_organization_row(row: sqlx::postgres::PgRow) -> Result<AirhopOrganizati
     let payment_day_of_month = u8::try_from(payment_day)
         .map_err(|_| DbError::InvalidData(format!("invalid AirHub payment day {payment_day}")))?;
     let settings = OrganizationSettings {
+        currency: row.try_get("currency")?,
         staff_working_hours: serde_json::from_value(row.try_get("staff_working_hours")?)?,
         default_trial_policy,
         track_attendance_by_default: row.try_get("track_attendance_by_default")?,

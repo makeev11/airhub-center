@@ -134,6 +134,7 @@ test("create uses an idempotent command then loads the card with a bearer token"
     },
     applicant: {
       parentName: "Мария",
+      parentLastName: "Иванова",
       phone: "+7 999 123-45-67",
       childName: "Лев",
       childBirthDate: "2020-08-10",
@@ -141,7 +142,18 @@ test("create uses an idempotent command then loads the card with a bearer token"
     },
     idempotencyKey: "public-booking-command-0001",
     purpose: "trial",
-    source: { surface: "standalone", attributionBranchId: BRANCH_ID },
+    source: {
+      surface: "standalone",
+      attributionBranchId: BRANCH_ID,
+      analytics: {
+        visitorId: "11111111-1111-4111-8111-111111111111",
+        sessionId: "22222222-2222-4222-8222-222222222222",
+        journeyId: "33333333-3333-4333-8333-333333333333",
+        source: "yandex_maps",
+        campaign: "autumn-trials",
+        referrerHost: "yandex.ru",
+      },
+    },
   });
 
   const createRequest = requests[1];
@@ -159,6 +171,7 @@ test("create uses an idempotent command then loads the card with a bearer token"
     },
     applicant: {
       parentName: "Мария",
+      parentLastName: "Иванова",
       phone: "+7 999 123-45-67",
       childName: "Лев",
       childBirthDate: "2020-08-10",
@@ -166,7 +179,18 @@ test("create uses an idempotent command then loads the card with a bearer token"
       consentPolicyVersion: "public-booking-v1",
     },
     preferredContactChannel: "none",
-    source: { surface: "standalone", attributionBranchId: BRANCH_ID },
+    source: {
+      surface: "standalone",
+      attributionBranchId: BRANCH_ID,
+      analytics: {
+        visitorId: "11111111-1111-4111-8111-111111111111",
+        sessionId: "22222222-2222-4222-8222-222222222222",
+        journeyId: "33333333-3333-4333-8333-333333333333",
+        source: "yandex_maps",
+        campaign: "autumn-trials",
+        referrerHost: "yandex.ru",
+      },
+    },
   });
   assert.equal(
     new Headers(cardRequest.init.headers).get("Authorization"),
@@ -198,6 +222,7 @@ test("stable API errors map to the public flow error contract", async () => {
         },
         applicant: {
           parentName: "Мария",
+          parentLastName: "Иванова",
           phone: "+79991234567",
           childName: "Лев",
           childBirthDate: "2020-08-10",

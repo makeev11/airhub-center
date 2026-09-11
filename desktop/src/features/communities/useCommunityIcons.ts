@@ -36,7 +36,7 @@ function iconQueryOptions(community: Community) {
  * Community icons for the rail, keyed by community id. Each icon is read
  * from its relay's NIP-11 document over plain HTTP — active and inactive
  * communities alike. Falls back to the localStorage cache (then null →
- * initials) when a relay is unreachable.
+ * sunflower) when a relay is unreachable.
  */
 export function useCommunityIcons(
   communities: Community[],
@@ -53,7 +53,7 @@ export function useCommunityIcons(
   return icons;
 }
 
-/** Icon of the ACTIVE community, for settings preview. */
+/** Icon of the active community, shared by the sidebar, menu, and settings. */
 export function useActiveCommunityIcon(relayUrl: string | undefined) {
   return useQuery({
     queryKey: communityIconQueryKey(relayUrl ?? ""),
@@ -62,6 +62,7 @@ export function useActiveCommunityIcon(relayUrl: string | undefined) {
       if (relayUrl) saveCachedCommunityIcon(relayUrl, icon);
       return icon;
     },
+    placeholderData: relayUrl ? loadCachedCommunityIcon(relayUrl) : null,
     enabled: relayUrl !== undefined,
     staleTime: ICON_STALE_MS,
   });

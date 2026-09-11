@@ -40,23 +40,47 @@ test("Airhop agent names are available in every supported locale", () => {
   assert.equal(AIRHOP_AGENT_CATALOG[3].name["en-US"], "Content Marketer");
 });
 
-test("cards match only the current built-in persona ids", () => {
+const managed = (pubkey, relayUrl = "wss://demo.airhop.ru") => ({
+  pubkey,
+  relayUrl,
+  personaId: "builtin:airhop-fizz",
+  model: "test",
+  status: "running",
+  lastError: null,
+  respondTo: "owner-only",
+});
+test("registered identity wins over an unrelated local duplicate with the same role", () => {
+  const canonical = "a".repeat(64),
+    duplicate = "b".repeat(64);
   const cards = materializeAirhopAgentCards(
-    [
-      {
-        pubkey: "a".repeat(64),
-        personaId: "builtin:airhop-fizz",
-        model: "managed-model",
-        status: "running",
-        lastError: null,
-        respondTo: "owner-only",
-      },
-    ],
+    [managed(duplicate), managed(canonical)],
     "ru-RU",
+    "wss://demo.airhop.ru",
+    [{ role: "fizz", pubkey: canonical }],
   );
-
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].pubkey, canonical);
   assert.equal(cards[0].name, "Физ");
   assert.equal(cards[0].state, "running");
-  assert.equal(cards[0].model, "managed-model");
-  assert.equal(cards[1].state, "unavailable");
+  assert.equal(cards[0].controllable, true);
+});
+test("unregistered personas cannot appear; remote registration does not imply a local running process", () => {
+  const key = "a".repeat(64);
+  assert.deepEqual(
+    materializeAirhopAgentCards(
+      [managed(key)],
+      "ru-RU",
+      "wss://demo.airhop.ru",
+    ),
+    [],
+  );
+  const [card] = materializeAirhopAgentCards(
+    [managed(key, "wss://other.example")],
+    "en-US",
+    "wss://demo.airhop.ru",
+    [{ role: "fizz", pubkey: key }],
+  );
+  assert.equal(card.name, "Fizz");
+  assert.equal(card.state, "registered");
+  assert.equal(card.controllable, false);
 });

@@ -1,3 +1,4 @@
+import { messageError, messageText } from "@/shared/locale/messengerCopy";
 import { Search, UserPlus, X } from "lucide-react";
 import * as React from "react";
 
@@ -172,7 +173,7 @@ export function ChannelMemberInviteCard({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-medium">
           <UserPlus className="h-4 w-4" />
-          <span>{isRussian ? "Добавить участников" : "Add members"}</span>
+          <span>{messageText("Add members")}</span>
         </div>
         {inviteTargets.length > 0 ? (
           <span className="rounded-full bg-background px-2 py-1 text-2xs font-medium leading-none text-muted-foreground">
@@ -182,7 +183,7 @@ export function ChannelMemberInviteCard({
       </div>
       <div className="space-y-2">
         <label className="sr-only" htmlFor="channel-management-search-users">
-          {isRussian ? "Поиск сотрудников" : "Search people"}
+          {messageText("Search people")}
         </label>
         <div className="rounded-lg border border-border/80 bg-background">
           <div className="flex items-center gap-2 px-2.5 py-2">
@@ -193,11 +194,7 @@ export function ChannelMemberInviteCard({
               disabled={isPending}
               id="channel-management-search-users"
               onChange={(event) => setInviteQuery(event.target.value)}
-              placeholder={
-                isRussian
-                  ? "Найдите сотрудника или вставьте публичный ключ"
-                  : "Search people, or paste a public key"
-              }
+              placeholder={messageText("Search people, or paste a public key")}
               value={inviteQuery}
             />
           </div>
@@ -221,7 +218,9 @@ export function ChannelMemberInviteCard({
                     aria-label={
                       isRussian
                         ? `Убрать ${formatSearchUserName(invitee)}`
-                        : `Remove ${formatSearchUserName(invitee)}`
+                        : messageText("Remove {name}", {
+                            name: formatSearchUserName(invitee),
+                          })
                     }
                     className="text-muted-foreground transition-colors hover:text-foreground"
                     onClick={() => {
@@ -259,7 +258,7 @@ export function ChannelMemberInviteCard({
             <div className="border-t border-border/70 px-2 py-2">
               {userSearchQuery.isLoading && !directInvitee ? (
                 <p className="px-2 py-1 text-sm text-muted-foreground">
-                  {isRussian ? "Ищем…" : "Searching…"}
+                  {messageText("Searching…")}
                 </p>
               ) : inviteSearchResults.length > 0 || directInvitee ? (
                 <div className="max-h-44 space-y-1 overflow-y-auto">
@@ -286,11 +285,11 @@ export function ChannelMemberInviteCard({
                           {truncatePubkey(directInvitee.pubkey)}
                         </p>
                         <span className="shrink-0 text-xs text-muted-foreground">
-                          {isRussian ? "по публичному ключу" : "by public key"}
+                          {messageText("by public key")}
                         </span>
                       </div>
                       <span className="text-xs text-muted-foreground">
-                        {isRussian ? "Добавить" : "Add"}
+                        {messageText("Add")}
                       </span>
                     </button>
                   ) : null}
@@ -316,19 +315,19 @@ export function ChannelMemberInviteCard({
                         </p>
                         {result.isAgent ? (
                           <span className="shrink-0 text-xs text-muted-foreground">
-                            {isRussian ? "агент" : "agent"}
+                            {messageText("agent")}
                           </span>
                         ) : null}
                       </div>
                       <span className="text-xs text-muted-foreground">
-                        {isRussian ? "Добавить" : "Add"}
+                        {messageText("Add")}
                       </span>
                     </button>
                   ))}
                 </div>
               ) : (
                 <p className="px-2 py-1 text-sm text-muted-foreground">
-                  {isRussian ? "Ничего не найдено." : "No matching users."}
+                  {messageText("No matching users.")}
                 </p>
               )}
             </div>
@@ -336,17 +335,17 @@ export function ChannelMemberInviteCard({
         </div>
         {userSearchQuery.error instanceof Error ? (
           <p className="text-sm text-destructive">
-            {userSearchQuery.error.message}
+            {messageError(userSearchQuery.error.message)}
           </p>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="sr-only" htmlFor="channel-member-role">
-          {isRussian ? "Роль" : "Role"}
+          {messageText("Role")}
         </label>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            {isRussian ? "Роль" : "Role"}
+            {messageText("Role")}
           </span>
           <select
             className="h-8 rounded-md border border-input bg-background px-2.5 text-sm"
@@ -382,23 +381,19 @@ export function ChannelMemberInviteCard({
           size="sm"
           type="submit"
         >
-          {isPending
-            ? isRussian
-              ? "Добавляем…"
-              : "Adding..."
-            : isRussian
-              ? "Добавить"
-              : "Add members"}
+          {isPending ? messageText("Adding...") : messageText("Add members")}
         </Button>
       </div>
       {requestErrorMessage ? (
-        <p className="text-sm text-destructive">{requestErrorMessage}</p>
+        <p className="text-sm text-destructive">
+          {messageError(requestErrorMessage)}
+        </p>
       ) : null}
       {submissionErrors.length > 0 ? (
         <div className="space-y-1 text-sm text-destructive">
           {submissionErrors.map((error) => (
             <p key={`${error.pubkey}-${error.error}`}>
-              {truncatePubkey(error.pubkey)}: {error.error}
+              {truncatePubkey(error.pubkey)}: {messageError(error.error)}
             </p>
           ))}
         </div>

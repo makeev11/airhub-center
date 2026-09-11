@@ -3,13 +3,36 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { routes } from "./src/app/routes";
+import {
+  readReleaseIdentity,
+  repositoryRoot,
+} from "./scripts/airhop-release-identity.mjs";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+// @ts-expect-error process is a nodejs global
+const airhopPublicWeb = process.env.VITE_AIRHOP_PUBLIC_WEB === "1";
+const releaseCommit = process.env.AIRHOP_RELEASE_COMMIT;
+const releaseIdentity = releaseCommit
+  ? readReleaseIdentity(repositoryRoot, releaseCommit)
+  : null;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [
+    {
+      name: "airhop-release-identity",
+      apply: "build",
+      generateBundle() {
+        if (!releaseIdentity) return;
+        readReleaseIdentity(repositoryRoot, releaseIdentity.commit);
+        this.emitFile({
+          type: "asset",
+          fileName: "airhop-release.json",
+          source: `${JSON.stringify(releaseIdentity, null, 2)}\n`,
+        });
+      },
+    },
     tanstackRouter({
       target: "react",
       routesDirectory: "./src/app/routes",
@@ -23,6 +46,14 @@ export default defineConfig(async () => ({
     }),
     react(),
   ],
+  define: {
+    "import.meta.env.VITE_AIRHOP_RELEASE_ID": JSON.stringify(
+      releaseIdentity?.releaseId ?? "",
+    ),
+    "import.meta.env.VITE_AIRHOP_RELEASE_COMMIT": JSON.stringify(
+      releaseIdentity?.commit ?? "",
+    ),
+  },
   resolve: {
     alias: {
       "@": "/src",
@@ -34,6 +65,7 @@ export default defineConfig(async () => ({
   //
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
+  build: airhopPublicWeb ? { assetsDir: "booking-assets" } : undefined,
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: parseInt(process.env.VITE_PORT || "1420", 10),

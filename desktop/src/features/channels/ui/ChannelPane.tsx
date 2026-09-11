@@ -17,7 +17,7 @@ import {
   MessageTimeline,
   type MessageTimelineHandle,
 } from "@/features/messages/ui/MessageTimeline";
-import { buildDirectMessageIntro } from "@/features/channels/lib/dmParticipantDisplay";
+import { useDirectMessageIntro } from "@/features/channels/lib/useDirectMessageIntro";
 import {
   getDmHuddleMemberPubkeys,
   hasOtherDmParticipant,
@@ -428,15 +428,11 @@ export const ChannelPane = React.memo(function ChannelPane({
   }, [botTypingEntries, openThreadHeadId]);
   const hasThreadComposerBotActivity =
     threadComposerBotTypingPubkeys.length > 0;
-  const directMessageIntro = React.useMemo(
-    () =>
-      buildDirectMessageIntro({
-        channel: activeChannel,
-        currentPubkey,
-        profiles,
-      }),
-    [activeChannel, currentPubkey, profiles],
-  );
+  const directMessageIntro = useDirectMessageIntro({
+    channel: activeChannel,
+    currentPubkey,
+    profiles,
+  });
 
   const handleWelcomeAddAgent = React.useCallback(() => {
     onAddAgent?.({
@@ -781,9 +777,11 @@ export const ChannelPane = React.memo(function ChannelPane({
                             : activeChannel
                               ? activeChannel.channelType === "dm" &&
                                 directMessageIntro
-                                ? copy.messagePerson(
-                                    directMessageIntro.displayName,
-                                  )
+                                ? directMessageIntro.isSelf
+                                  ? copy.messageSelf
+                                  : copy.messagePerson(
+                                      directMessageIntro.displayName,
+                                    )
                                 : copy.messageChannel(activeChannel.name)
                               : copy.selectChannel
                   }

@@ -15,6 +15,57 @@ pub async fn recover_pending_hermes_publications(
     state: &Arc<AppState>,
     batch_limit: i64,
 ) -> anyhow::Result<usize> {
+    // Routing notices are committed with their metadata change, then dispatched
+    // through the ordinary Buzz event fan-out. Recovery never sends them externally.
+    state
+        .db
+        .prepare_client_inbound_notifications(&state.relay_keypair)
+        .await?;
+    for notice in state.db.pending_client_notifications().await? {
+        let tenant = TenantContext::resolved(notice.community_id, notice.host);
+        if let Some(stored) = state
+            .db
+            .get_event_by_id(tenant.community(), &notice.event_id)
+            .await?
+        {
+            let dispatched = crate::handlers::event::dispatch_stored_recovery_event(
+                &tenant,
+                state,
+                &stored,
+                buzz_core::kind::KIND_STREAM_MESSAGE,
+                &stored.event.pubkey.to_hex(),
+                None,
+            )
+            .await;
+            if !dispatched {
+                continue;
+            }
+            if let Some(channel_id) = stored.channel_id {
+                let root = stored
+                    .event
+                    .tags
+                    .iter()
+                    .find_map(|tag| {
+                        let parts = tag.as_slice();
+                        (parts.len() >= 4 && parts[0] == "e" && parts[3] == "root")
+                            .then(|| hex::decode(&parts[1]).ok())
+                            .flatten()
+                    })
+                    .unwrap_or_else(|| notice.event_id.clone());
+                crate::handlers::side_effects::emit_live_thread_summary(
+                    &tenant, state, channel_id, root,
+                );
+            }
+            if let Some(channel) = notice.archived_channel_id {
+                crate::handlers::side_effects::emit_group_discovery_events(&tenant, state, channel)
+                    .await?;
+            }
+            state
+                .db
+                .complete_client_notification(tenant.community(), &notice.event_id)
+                .await?;
+        }
+    }
     let jobs = state
         .db
         .prepare_airhop_hermes_publication_recovery(batch_limit)

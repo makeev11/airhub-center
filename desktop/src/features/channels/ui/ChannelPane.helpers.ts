@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import { isEphemeralChannel } from "@/features/channels/lib/ephemeralChannel";
 import { resolveActivationLocale } from "@/features/activation/i18n";
 import type { TimelineMessage } from "@/features/messages/types";
@@ -22,6 +23,15 @@ export function getChannelIntroKind(channel: Channel): string {
 }
 
 export function getChannelIntroDescription(channel: Channel): string | null {
+  const text =
+    channel.topic?.trim() ||
+    channel.purpose?.trim() ||
+    channel.description?.trim();
+  if (
+    channel.name === "general" &&
+    text === "General conversation and community updates."
+  )
+    return messageText("General conversation and community updates.");
   return (
     channel.topic?.trim() ||
     channel.purpose?.trim() ||

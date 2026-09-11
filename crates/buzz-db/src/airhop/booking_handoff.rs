@@ -36,6 +36,34 @@ pub enum BookingHandoffStatus {
 }
 
 impl Db {
+    /// Returns only configured channels with a supported booking-confirmation handoff.
+    pub async fn airhop_booking_confirmation_channels(
+        &self,
+        tenant: &TenantContext,
+        credential: PublicManagementCredential,
+    ) -> Result<Vec<String>> {
+        let available: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM airhop_bookings b
+             JOIN airhop_organizations o ON o.community_id = b.community_id AND o.id = b.organization_id
+             JOIN airhop_channel_connections c ON c.community_id = b.community_id AND c.organization_id = b.organization_id
+             JOIN airhop_channel_credentials secret ON secret.community_id = c.community_id AND secret.connection_id = c.id
+             WHERE b.community_id = $1 AND b.management_key_version = $2 AND b.management_token_digest = $3
+               AND o.status = 'active' AND b.status IN ('pending_confirmation', 'confirmed')
+               AND c.provider = 'telegram' AND c.status = 'active'
+               AND secret.provider_bot_username ~ '^[A-Za-z0-9_]+$')",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(credential.key_version)
+        .bind(credential.token_digest.as_slice())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(if available {
+            vec!["telegram".to_owned()]
+        } else {
+            Vec::new()
+        })
+    }
+
     /// Links only conversations the requesting staff principal can actually read.
     pub async fn list_airhop_family_conversations(
         &self,
@@ -44,15 +72,15 @@ impl Db {
         pubkey: [u8; 32],
     ) -> Result<Vec<Value>> {
         let rows = sqlx::query(
-            "SELECT v.channel_id, v.representative_id, c.provider FROM airhop_external_conversations v
+            "SELECT v.id, v.channel_id, encode(v.root_event_id,'hex') AS root_event_id, v.representative_id, c.provider FROM airhop_external_conversations v
              JOIN airhop_external_conversation_routes r ON r.community_id = v.community_id AND r.conversation_id = v.id
              JOIN airhop_channel_connections c ON c.community_id = r.community_id AND c.id = r.connection_id
              JOIN channel_members m ON m.community_id = v.community_id AND m.channel_id = v.channel_id
              WHERE v.community_id = $1 AND v.family_id = $2 AND m.pubkey = $3 AND m.removed_at IS NULL
-               AND v.status = 'active' AND r.status = 'active' AND c.status = 'active'
+               AND v.status = 'active' AND (NOT v.threaded OR v.root_event_id IS NOT NULL)
              ORDER BY v.updated_at DESC, v.id LIMIT 100",
         ).bind(tenant.community().as_uuid()).bind(family_id).bind(pubkey.as_slice()).fetch_all(&self.pool).await?;
-        rows.iter().map(|row| Ok(json!({"channelId": row.try_get::<Uuid, _>("channel_id")?,
+        rows.iter().map(|row| Ok(json!({"conversationId":row.try_get::<Uuid,_>("id")?, "rootEventId":row.try_get::<Option<String>,_>("root_event_id")?, "channelId": row.try_get::<Uuid, _>("channel_id")?,
             "representativeId": row.try_get::<Uuid, _>("representative_id")?, "provider": row.try_get::<String, _>("provider")?}))).collect()
     }
 
@@ -120,7 +148,7 @@ impl Db {
              JOIN airhop_channel_credentials secret ON secret.community_id = c.community_id
                AND secret.connection_id = c.id
              WHERE c.community_id = $1 AND c.organization_id = $2 AND c.provider = 'telegram'
-               AND c.status = 'active' AND secret.provider_bot_username IS NOT NULL
+               AND c.status = 'active' AND secret.provider_bot_username ~ '^[A-Za-z0-9_]+$'
              ORDER BY c.created_at, c.id LIMIT 1 FOR SHARE OF c",
         )
         .bind(tenant.community().as_uuid())
@@ -329,7 +357,7 @@ impl Db {
             .bind(tenant.community().as_uuid()).bind(conversation_id).bind(family_id).bind(representative_id).execute(&mut *tx).await?;
         // Cancel unverified turns already running before binding. Their signed
         // context must not acquire new permissions retroactively.
-        sqlx::query("UPDATE airhop_hermes_turn_receipts SET status = 'cancelled', finished_at = now(), outcome = 'identity_bound' WHERE community_id = $1 AND conversation_id = $2 AND status = 'leased'")
+        sqlx::query("UPDATE airhop_hermes_turn_receipts SET status = 'cancelled', finished_at = now(), outcome = NULL, error_code = 'identity_bound' WHERE community_id = $1 AND conversation_id = $2 AND status = 'leased'")
             .bind(tenant.community().as_uuid()).bind(conversation_id).execute(&mut *tx).await?;
         sqlx::query("UPDATE airhop_booking_messenger_handoffs SET status = 'consumed', conversation_id = $3, consumed_at = now() WHERE community_id = $1 AND token_digest = $2")
             .bind(tenant.community().as_uuid()).bind(token_digest.as_slice()).bind(conversation_id).execute(&mut *tx).await?;
@@ -341,9 +369,9 @@ impl Db {
                 .try_get::<Option<String>, _>("child_name")?
                 .unwrap_or_default()
         );
-        sqlx::query("UPDATE channels SET name = $3 WHERE community_id = $1 AND id = $2")
+        sqlx::query("UPDATE airhop_external_conversations SET title=$3,version=version+1,updated_at=now() WHERE community_id=$1 AND id=$2")
             .bind(tenant.community().as_uuid())
-            .bind(route.try_get::<Uuid, _>("channel_id")?)
+            .bind(conversation_id)
             .bind(title.chars().take(200).collect::<String>())
             .execute(&mut *tx)
             .await?;

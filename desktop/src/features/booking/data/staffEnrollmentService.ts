@@ -32,7 +32,7 @@ const commandSchema = z.object({
       }),
     )
     .min(1)
-    .max(7),
+    .max(21),
 });
 const outcomeSchema = z.object({
   childId: uuidSchema,

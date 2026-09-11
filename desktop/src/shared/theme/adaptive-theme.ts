@@ -208,6 +208,9 @@ export function createThemeVars(
   const fallbackOrange = isDark ? "#d29922" : "#9a6700";
 
   const accentGreen = gitColors?.added ?? fallbackGreen;
+  // Action semantics are not syntax highlighting: some themes use white for
+  // deleted code, which makes destructive menu text disappear on light surfaces.
+  const destructive = isDark ? "#ff7b72" : fallbackRed;
   const accentRed = gitColors?.deleted ?? fallbackRed;
   const accentOrange = fallbackOrange;
 
@@ -227,7 +230,6 @@ export function createThemeVars(
   const huddlePopoverBg = huddleChevronBg;
   const huddlePopoverBorder = huddleControlHoverBg;
   const huddleTooltipBg = huddleControlBg;
-  const primaryFg = hexToHsl(primaryBg);
   const textFg = hexToHsl(syntaxFg);
   const huddleControlFg = isDark ? textFg : "0 0% 98%";
 
@@ -261,8 +263,9 @@ export function createThemeVars(
       "--secondary-foreground": textFg,
 
       // Destructive
-      "--destructive": hexToHsl(accentRed),
-      "--destructive-foreground": primaryFg,
+      "--destructive": hexToHsl(destructive),
+      "--destructive-foreground":
+        luminance(destructive) > 0.179 ? "0 0% 0%" : "0 0% 100%",
 
       // Borders
       "--border": hexToHsl(borderColor),

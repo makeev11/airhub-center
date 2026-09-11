@@ -204,6 +204,7 @@ impl StoredAgentCommand {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PutOrganizationSettingsCommand {
+    currency: String,
     expected_version: i64,
     name: String,
     locale: String,
@@ -869,6 +870,7 @@ pub(crate) async fn commit_airhop_agent_action_from_reaction(
                     payments_buzz_channel_id: command.payments_buzz_channel_id,
                     analytics_buzz_channel_id: command.analytics_buzz_channel_id,
                     settings: OrganizationSettings {
+                        currency: command.currency,
                         staff_working_hours: command.staff_working_hours,
                         default_trial_policy: command.default_trial_policy,
                         track_attendance_by_default: command.track_attendance_by_default,
@@ -1551,7 +1553,8 @@ mod tests {
                         "existingStudentsOnboardingStatus": "not_started",
                         "publicBookingPurpose": "trial",
                         "publicBookingAppearance": "automatic",
-                        "paymentDayOfMonth": 10
+                        "paymentDayOfMonth": 10,
+                        "currency": "RUB"
                     }
                 }),
                 "put_organization_settings",
@@ -2494,7 +2497,8 @@ mod tests {
                 "existingStudentsOnboardingStatus": "not_started",
                 "publicBookingPurpose": "trial",
                 "publicBookingAppearance": "automatic",
-                "paymentDayOfMonth": 10
+                "paymentDayOfMonth": 10,
+                "currency": "RUB"
             }
         });
         let settings_digest: [u8; 32] =

@@ -345,6 +345,8 @@ export function createBookingFormatters(locale: string): BookingFormatters {
       const formatter = new Intl.NumberFormat(resolvedLocale, {
         style: "currency",
         currency,
+        currencyDisplay:
+          currency.toUpperCase() === "RUB" ? "narrowSymbol" : "symbol",
       });
       return formatter.format(amountMinor / 10 ** fractionDigits);
     },

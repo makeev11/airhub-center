@@ -353,6 +353,9 @@ type MockBridgeOptions = {
    * evaluates false).
    */
   relayRole?: "owner" | "admin" | "member" | null;
+  principalDirectory?: unknown;
+  relayMembers?: Array<{ pubkey: string; role: "owner" | "admin" | "member" }>;
+  emptyChannelHistory?: boolean;
   /**
    * Descriptors returned by the mocked `pick_and_upload_media` /
    * `upload_media_bytes` commands. When omitted, the bridge returns a single
@@ -414,6 +417,7 @@ type MockBridgeOptions = {
    * can exercise the "Thread deleted" label / disabled-send path.
    */
   deletedEventIds?: string[];
+  eventLookupErrors?: Record<string, string>;
   /**
    * When true, `get_identity` returns `lost: true` until `persist_current_identity`
    * or `import_identity` is invoked. Drives the identity-lost recovery UX in tests.

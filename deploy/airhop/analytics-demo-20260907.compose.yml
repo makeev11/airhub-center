@@ -1,0 +1,8 @@
+# Final override for the explicitly approved buzz-demo installation only.
+services:
+  relay:
+    image: airhub-center-relay:analytics-20260907-879f9cda-hygge
+    environment:
+      BUZZ_AUTO_MIGRATE: "true"
+    labels:
+      ru.airhop.release: analytics-20260907-879f9cda-hygge

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 from pathlib import Path
 import tempfile
@@ -9,7 +9,7 @@ import time
 import unittest
 from uuid import UUID
 
-from airhop_hermes_gateway.client import RouteResolution
+from airhop_hermes_gateway.client import RouteResolution, GatewayHttpError
 from airhop_hermes_gateway.config import Settings
 from airhop_hermes_gateway.runtime import TelegramGatewayRuntime
 
@@ -177,6 +177,45 @@ class TelegramGatewayRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         self.tempdir.cleanup()
+
+    async def test_rejected_root_is_resolved_again_but_uncertain_delivery_is_not_resigned(self):
+        client = FakeClient()
+        original_resolve = client.resolve_route
+        root = "ab" * 32
+        async def resolve(*args, **kwargs):
+            return replace(await original_resolve(*args, **kwargs), threaded=True,
+                           root_event_id=root if client.ingested else None)
+        client.resolve_route = resolve
+        async def ingest(provider_event_id, event):
+            client.ingested.append((provider_event_id, event))
+            if len(client.ingested) == 1:
+                raise GatewayHttpError(409, "airhop_thread_changed")
+            if len(client.ingested) == 2:
+                raise GatewayHttpError(503, "temporary")
+            return {"accepted": True}
+        client.ingest = ingest
+        runtime = TelegramGatewayRuntime(settings=self.settings, adapter=FakeAdapter(), client=client, signer=FakeSigner())
+        await runtime.spool.initialize()
+        await runtime.handle_message(FakeEvent("Здравствуйте", 900, FakeSource("42")))
+        first = await runtime.spool.claim()
+        await runtime._deliver_inbound(first)
+        await asyncio.sleep(0.12)
+        second = await runtime.spool.claim()
+        self.assertIsNone(second.event)
+        await runtime._deliver_inbound(second)
+        await runtime.spool.retry(second.provider_event_id, "test_now", 0.05)
+        await asyncio.sleep(0.06)
+        third = await runtime.spool.claim()
+        self.assertIsNotNone(third.event)
+        await runtime._deliver_inbound(third)
+        rejected, accepted, replay = [item[1] for item in client.ingested]
+        self.assertFalse(any(tag[0] == "e" for tag in rejected["tags"]))
+        self.assertIn(["e", root, "", "root"], accepted["tags"])
+        self.assertIn(["e", root, "", "reply"], accepted["tags"])
+        self.assertNotEqual(rejected["id"], accepted["id"])
+        self.assertEqual(accepted, replay)
+        self.assertEqual(len(client.handoff_digests), 2)
+        self.assertIsNone(await runtime.spool.claim())
 
     async def test_booking_start_survives_restart_without_persisting_raw_grant(self):
         client = FakeClient()

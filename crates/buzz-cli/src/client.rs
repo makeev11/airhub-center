@@ -849,6 +849,30 @@ impl BuzzClient {
         .await
     }
 
+    /// Calls the existing scoped parent backend using a supervisor-issued grant.
+    pub async fn call_airhop_parent_backend(
+        &self,
+        request: &serde_json::Value,
+        grant: &str,
+    ) -> Result<String, CliError> {
+        let url = format!("{}/api/airhop/agents/v1/backend", self.relay_url);
+        let body = serde_json::to_vec(request)
+            .map_err(|error| CliError::Other(format!("invalid parent request: {error}")))?;
+        let auth = sign_nip98(&self.keys, "POST", &url, Some(&body))?;
+        let response = self
+            .with_auth_tag(
+                self.http
+                    .post(&url)
+                    .header("Authorization", auth)
+                    .header("x-airhop-agent-context", grant)
+                    .header("Content-Type", "application/json")
+                    .body(body),
+            )
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
     /// Submit a signed Nostr event via POST /events.
     ///
     /// For non-idempotent moderation command kinds (9040–9044), an ambiguous

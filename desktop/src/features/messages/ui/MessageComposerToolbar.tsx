@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import type { Editor } from "@tiptap/react";
 import { AnimatePresence, motion } from "motion/react";
@@ -53,7 +54,7 @@ export const MessageComposerToolbar = React.memo(
     onPaperclip: () => void;
     sendDisabled: boolean;
   }) {
-    const isRussian = useAirHopLocale() === "ru-RU";
+    useAirHopLocale();
     return (
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <SelectionFormattingTray
@@ -93,11 +94,7 @@ export const MessageComposerToolbar = React.memo(
                   <Tooltip disableHoverableContent>
                     <TooltipTrigger asChild>
                       <Button
-                        aria-label={
-                          isRussian
-                            ? "Показать форматирование"
-                            : "Toggle formatting"
-                        }
+                        aria-label={messageText("Toggle formatting")}
                         aria-pressed={isFormattingOpen}
                         disabled={composerDisabled}
                         onClick={() => onFormattingToggle(!isFormattingOpen)}
@@ -109,9 +106,7 @@ export const MessageComposerToolbar = React.memo(
                         <ALargeSmall />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>
-                      {isRussian ? "Форматирование" : "Formatting"}
-                    </TooltipContent>
+                    <TooltipContent>{messageText("Formatting")}</TooltipContent>
                   </Tooltip>
                 </motion.div>
                 <motion.div
@@ -124,11 +119,7 @@ export const MessageComposerToolbar = React.memo(
                   <Tooltip disableHoverableContent>
                     <TooltipTrigger asChild>
                       <Button
-                        aria-label={
-                          isRussian
-                            ? "Скрыть форматирование"
-                            : "Close formatting"
-                        }
+                        aria-label={messageText("Close formatting")}
                         disabled={composerDisabled}
                         onClick={() => onFormattingToggle(false)}
                         onMouseDown={onCaptureSelection}
@@ -141,7 +132,7 @@ export const MessageComposerToolbar = React.memo(
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {isRussian ? "Скрыть форматирование" : "Close formatting"}
+                      {messageText("Close formatting")}
                     </TooltipContent>
                   </Tooltip>
                   <div className="mx-1 h-5 w-px shrink-0 bg-border/60" />
@@ -176,7 +167,7 @@ export const MessageComposerToolbar = React.memo(
                 <Tooltip disableHoverableContent>
                   <TooltipTrigger asChild>
                     <Button
-                      aria-label={isRussian ? "Упомянуть" : "Mention someone"}
+                      aria-label={messageText("Mention someone")}
                       data-testid="message-insert-mention"
                       disabled={composerDisabled}
                       onClick={onOpenMentionPicker}
@@ -189,15 +180,13 @@ export const MessageComposerToolbar = React.memo(
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {isRussian ? "Упомянуть" : "Mention someone"}
+                    {messageText("Mention someone")}
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip disableHoverableContent>
                   <TooltipTrigger asChild>
                     <Button
-                      aria-label={
-                        isRussian ? "Прикрепить файл" : "Attach image"
-                      }
+                      aria-label={messageText("Attach image")}
                       disabled={composerDisabled || isUploading}
                       onClick={onPaperclip}
                       onMouseDown={onCaptureSelection}
@@ -208,9 +197,7 @@ export const MessageComposerToolbar = React.memo(
                       <Paperclip />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
-                    {isRussian ? "Прикрепить файл" : "Attach image"}
-                  </TooltipContent>
+                  <TooltipContent>{messageText("Attach image")}</TooltipContent>
                 </Tooltip>
                 <ComposerEmojiPicker
                   disabled={composerDisabled}
@@ -229,11 +216,7 @@ export const MessageComposerToolbar = React.memo(
                   <Tooltip disableHoverableContent>
                     <TooltipTrigger asChild>
                       <Button
-                        aria-label={
-                          isRussian
-                            ? "Показать форматирование"
-                            : "Toggle formatting"
-                        }
+                        aria-label={messageText("Toggle formatting")}
                         aria-pressed={isFormattingOpen}
                         disabled={composerDisabled}
                         onClick={() => onFormattingToggle(!isFormattingOpen)}
@@ -245,9 +228,7 @@ export const MessageComposerToolbar = React.memo(
                         <ALargeSmall />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>
-                      {isRussian ? "Форматирование" : "Formatting"}
-                    </TooltipContent>
+                    <TooltipContent>{messageText("Formatting")}</TooltipContent>
                   </Tooltip>
                 </motion.div>
               </motion.div>
@@ -259,13 +240,7 @@ export const MessageComposerToolbar = React.memo(
           {extraActions}
           <Button
             aria-label={
-              isSending
-                ? isRussian
-                  ? "Отправляем"
-                  : "Sending"
-                : isRussian
-                  ? "Отправить сообщение"
-                  : "Send message"
+              isSending ? messageText("Sending") : messageText("Send message")
             }
             className="rounded-full"
             data-testid="send-message"

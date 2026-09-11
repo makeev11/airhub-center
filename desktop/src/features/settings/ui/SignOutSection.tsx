@@ -1,5 +1,6 @@
 import * as React from "react";
 import { toast } from "sonner";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 
 import { NsecMaskedDisplay } from "@/features/onboarding/ui/NsecMaskedDisplay";
 import { getNsec, signOut } from "@/shared/api/tauriIdentity";
@@ -40,6 +41,14 @@ export const SIGNOUT_CONFIRM_PHRASE = "wipe all my data";
  * Only when both gates pass does "Delete my data" become clickable.
  */
 export function SignOutSection() {
+  const russian = useAirHopLocale() === "ru-RU";
+  const confirmPhrase = russian
+    ? "удалить данные с устройства"
+    : SIGNOUT_CONFIRM_PHRASE;
+  const pendingLabel = russian ? "Выходим…" : "Signing out…";
+  const deleteLabel = russian
+    ? "Выйти и удалить локальные данные"
+    : "Sign out and delete local data";
   const [isOpen, setIsOpen] = React.useState(false);
   const [isPending, setIsPending] = React.useState(false);
 
@@ -54,8 +63,7 @@ export function SignOutSection() {
 
   // Typed-confirmation gate.
   const [confirmText, setConfirmText] = React.useState("");
-  const isPhraseConfirmed =
-    confirmText.trim().toLowerCase() === SIGNOUT_CONFIRM_PHRASE;
+  const isPhraseConfirmed = confirmText.trim().toLowerCase() === confirmPhrase;
 
   const canDelete = hasConfirmedBackup && isPhraseConfirmed && !isPending;
 
@@ -83,12 +91,12 @@ export function SignOutSection() {
     try {
       const value = await getNsec();
       if (!fetchCancelledRef.current) setNsec(value);
-    } catch (err) {
+    } catch {
       if (!fetchCancelledRef.current)
         setNsecError(
-          err instanceof Error
-            ? err.message
-            : "Failed to retrieve private key.",
+          russian
+            ? "Не удалось получить ключ доступа. Повторите попытку."
+            : "Failed to retrieve private key. Please try again.",
         );
     } finally {
       if (!fetchCancelledRef.current) setIsNsecLoading(false);
@@ -111,11 +119,15 @@ export function SignOutSection() {
         window.localStorage.clear();
         window.sessionStorage.clear();
       })
-      .catch((err: unknown) => {
+      .catch(() => {
         setIsPending(false);
         setIsOpen(false);
         resetDialogState();
-        toast.error(err instanceof Error ? err.message : "Sign out failed.");
+        toast.error(
+          russian
+            ? "Не удалось выйти. Повторите попытку."
+            : "Sign out failed. Please try again.",
+        );
       });
   }
 
@@ -126,11 +138,13 @@ export function SignOutSection() {
     >
       <div className="flex items-center justify-between gap-4 px-1">
         <div className="min-w-0 space-y-1">
-          <h2 className="text-lg font-semibold tracking-tight">Sign out</h2>
+          <h2 className="text-lg font-semibold tracking-tight">
+            {russian ? "Выход из аккаунта" : "Sign out"}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Removes your identity key and all local app data from this device.
-            Before signing out, create and test a password-protected key backup
-            above — this cannot be undone.
+            {russian
+              ? "Ключ доступа и локальные данные приложения будут удалены с этого устройства. Данные центра на сервере останутся. Перед выходом сохраните ключ или проверьте резервную копию: без них вы можете потерять доступ к аккаунту."
+              : "Your identity key and local app data will be removed from this device. Center data on the server will remain. Before signing out, save your key or verify a backup: without them, you may lose access to your account."}
           </p>
         </div>
         <Button
@@ -142,9 +156,9 @@ export function SignOutSection() {
           variant="destructive"
         >
           {isPending ? (
-            <Spinner aria-label="Signing out" className="h-4 w-4 border-2" />
+            <Spinner aria-label={pendingLabel} className="h-4 w-4 border-2" />
           ) : null}
-          {isPending ? "Signing out…" : "Delete my data"}
+          {isPending ? pendingLabel : deleteLabel}
         </Button>
       </div>
       <AlertDialog
@@ -158,20 +172,28 @@ export function SignOutSection() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Sign out and wipe all data?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {russian
+                ? "Выйти и удалить данные с устройства?"
+                : "Sign out and delete data from this device?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will delete your identity key, all agent settings, and cached
-              data from this device, then relaunch Buzz into first-run setup.
-              This cannot be undone.
+              {russian
+                ? "Будут удалены ключ доступа, локальные настройки агентов и кеш приложения. AirHop Center перезапустится и предложит войти заново. Это действие нельзя отменить; данные на сервере не удаляются."
+                : "This removes your identity key, local agent settings, and app cache. AirHop Center will restart and ask you to sign in again. This cannot be undone; server data is not deleted."}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           <div className="space-y-3">
             <p className="text-sm font-medium">
-              1. Confirm you can restore your identity
+              {russian
+                ? "1. Подтвердите, что сможете восстановить доступ"
+                : "1. Confirm you can restore your identity"}
             </p>
             {isNsecLoading ? (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <p className="text-sm text-muted-foreground">
+                {russian ? "Загрузка…" : "Loading…"}
+              </p>
             ) : nsecError ? (
               <p
                 className="text-sm text-destructive"
@@ -198,8 +220,9 @@ export function SignOutSection() {
                 }
               />
               <span>
-                I have tested a key backup or saved this private key somewhere
-                safe.
+                {russian
+                  ? "Я проверил резервную копию или сохранил этот секретный ключ в безопасном месте."
+                  : "I have tested a key backup or saved this private key somewhere safe."}
               </span>
             </label>
           </div>
@@ -209,9 +232,10 @@ export function SignOutSection() {
               className="text-sm font-medium"
               htmlFor="signout-confirm-phrase"
             >
-              2. Type{" "}
-              <span className="font-semibold">"{SIGNOUT_CONFIRM_PHRASE}"</span>{" "}
-              to confirm
+              {russian
+                ? "2. Для подтверждения введите "
+                : "2. To confirm, type "}
+              <span className="font-semibold">«{confirmPhrase}»</span>
             </label>
             <Input
               autoComplete="off"
@@ -219,14 +243,16 @@ export function SignOutSection() {
               disabled={isPending}
               id="signout-confirm-phrase"
               onChange={(event) => setConfirmText(event.target.value)}
-              placeholder={SIGNOUT_CONFIRM_PHRASE}
+              placeholder={confirmPhrase}
               spellCheck={false}
               value={confirmText}
             />
           </div>
 
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isPending}>
+              {russian ? "Отмена" : "Cancel"}
+            </AlertDialogCancel>
             {/* A plain Button, not AlertDialogAction: Radix's Action closes
                 the dialog on click, which would drop the pending state while
                 the wipe + restart is still in flight. */}
@@ -239,11 +265,11 @@ export function SignOutSection() {
             >
               {isPending ? (
                 <Spinner
-                  aria-label="Signing out"
+                  aria-label={pendingLabel}
                   className="h-4 w-4 border-2"
                 />
               ) : null}
-              {isPending ? "Signing out…" : "Delete my data"}
+              {isPending ? pendingLabel : deleteLabel}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

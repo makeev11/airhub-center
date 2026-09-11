@@ -1,3 +1,8 @@
+import {
+  useAirhopPrincipalDirectory,
+  humanMembers,
+} from "@/features/airhop-agents/data/principalDirectory";
+import { useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { Crown, MoreHorizontal, Search, Shield } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import * as React from "react";
@@ -48,7 +53,7 @@ function formatDisplayName(
       ? "Владелец центра"
       : "Community owner"
     : russian
-      ? "Без имени"
+      ? "Профиль не заполнен"
       : "Unnamed member";
 }
 
@@ -105,6 +110,7 @@ function RelayMemberRow({
   profile?: UserProfileSummary;
   member: RelayMember;
 }) {
+  const m = useMessengerCopy();
   const locale = useAirHopLocale();
   const isRussian = locale === "ru-RU";
   const removeMutation = useRemoveRelayMemberMutation();
@@ -119,7 +125,16 @@ function RelayMemberRow({
     (currentRole === "owner" || member.role === "member");
   const canPromote = currentRole === "owner" && member.role === "member";
   const canDemote = currentRole === "owner" && member.role === "admin";
-  const hasActions = canRemove || canPromote || canDemote;
+  const hasActions = currentRole === "owner" || currentRole === "admin";
+  const removeReason = isBusy
+    ? m("Wait for the current operation to finish.")
+    : isSelf
+      ? m("Cannot remove yourself.")
+      : member.role === "owner"
+        ? m("The center owner cannot be removed.")
+        : !canRemove
+          ? m("Only the owner can remove an administrator.")
+          : null;
   const displayName = formatDisplayName(
     member,
     profile?.displayName,
@@ -266,18 +281,28 @@ function RelayMemberRow({
             {canRemove && (canPromote || canDemote) ? (
               <DropdownMenuSeparator />
             ) : null}
-            {canRemove ? (
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={() =>
-                  void mutateWithToast(
-                    () => removeMutation.mutateAsync(member.pubkey),
-                    isRussian ? "Сотрудник удалён" : "Removed community member",
-                  )
-                }
+            <DropdownMenuItem
+              disabled={!canRemove || isBusy}
+              aria-describedby={
+                removeReason ? `remove-reason-${member.pubkey}` : undefined
+              }
+              className="text-destructive focus:text-destructive"
+              onClick={() =>
+                void mutateWithToast(
+                  () => removeMutation.mutateAsync(member.pubkey),
+                  isRussian ? "Сотрудник удалён" : "Removed community member",
+                )
+              }
+            >
+              {isRussian ? "Удалить из центра" : "Remove from community"}
+            </DropdownMenuItem>
+            {removeReason ? (
+              <p
+                id={`remove-reason-${member.pubkey}`}
+                className="max-w-60 px-2 py-2 text-xs text-muted-foreground"
               >
-                {isRussian ? "Удалить из центра" : "Remove from community"}
-              </DropdownMenuItem>
+                {removeReason}
+              </p>
             ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -292,13 +317,18 @@ export function CommunityMembersSettingsCard({
   currentPubkey?: string;
 }) {
   const isRussian = useAirHopLocale() === "ru-RU";
+  const m = useMessengerCopy();
   const myMembershipQuery = useMyRelayMembershipLookupQuery();
   const currentRole = myMembershipQuery.data?.membership?.role ?? null;
   const canManageRelay = currentRole === "owner" || currentRole === "admin";
   const membersQuery = useRelayMembersQuery(canManageRelay);
+  const directory = useAirhopPrincipalDirectory(canManageRelay);
   const members = React.useMemo(
-    () => membersQuery.data ?? [],
-    [membersQuery.data],
+    () =>
+      directory.data
+        ? humanMembers(membersQuery.data ?? [], directory.data)
+        : [],
+    [membersQuery.data, directory.data],
   );
   const profilesQuery = useUsersBatchQuery(
     members.map((member) => member.pubkey),
@@ -364,6 +394,18 @@ export function CommunityMembersSettingsCard({
         }
       />
 
+      {directory.isLoading ? (
+        <p role="status">{m("Loading…")}</p>
+      ) : directory.isError || !directory.data ? (
+        <div role="alert">
+          <p>
+            {m("Could not verify employee identities. Refresh to try again.")}
+          </p>
+          <Button variant="outline" onClick={() => void directory.refetch()}>
+            {m("Retry")}
+          </Button>
+        </div>
+      ) : null}
       <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/70 shadow-xs">
         <div className="space-y-3 p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3">

@@ -257,13 +257,18 @@ class TelegramGatewayRuntime:
                         ["airhop-provider", "telegram"],
                         ["airhop-connection", str(self.settings.connection_id)],
                         ["airhop-conversation", route.conversation_id],
-                    ],
+                    ] + ([["e", route.root_event_id, "", "root"], ["e", route.root_event_id, "", "reply"]] if route.root_event_id else []),
                 )
                 await self.spool.persist_event(item.provider_event_id, event)
             await self.client.ingest(item.provider_event_id, event)
             await self.spool.delivered(item.provider_event_id)
         except GatewayHttpError as exc:
-            if exc.status_code == 404 and item.event is None:
+            if exc.status_code == 409 and str(exc) == "airhop_thread_changed":
+                # The relay guarantees this candidate was NOT inserted. Only this
+                # explicit rejection permits re-signing; transport uncertainty
+                # always retries the exact persisted signed event.
+                await self.spool.reject_thread_candidate(item.provider_event_id)
+            elif exc.status_code == 404 and item.event is None:
                 # A handoff may bind the route shortly after /start. Keep the
                 # provider update durable and retry without exposing its code.
                 await self.spool.retry(

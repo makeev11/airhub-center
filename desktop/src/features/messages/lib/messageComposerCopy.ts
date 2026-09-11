@@ -1,20 +1,17 @@
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
-
+import { useMessengerCopy } from "@/shared/locale/messengerCopy";
 export function useComposerCopy(
   channelName: string,
   editTarget: unknown,
   replyTarget: { author: string } | null | undefined,
   placeholder?: string,
 ): string {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const m = useMessengerCopy();
   if (!editTarget && placeholder) return placeholder;
-  const edit = Boolean(editTarget);
-  const replyAuthor = replyTarget?.author;
-  if (edit) return isRussian ? "Измените сообщение" : "Edit your message";
-  if (replyAuthor) {
-    return isRussian
-      ? `Ответ для ${replyAuthor} в #${channelName}`
-      : `Reply to ${replyAuthor} in #${channelName}`;
-  }
-  return isRussian ? `Сообщение в #${channelName}` : `Message #${channelName}`;
+  if (editTarget) return m("Edit your message");
+  if (replyTarget?.author)
+    return m("Reply to {author} in #{name}", {
+      author: replyTarget.author,
+      name: channelName,
+    });
+  return m("Message #{name}", { name: channelName });
 }

@@ -104,6 +104,22 @@ pub(crate) async fn get_welcome_team(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let principal =
         authenticate_airhop_agent(&state, &headers, "GET", WELCOME_TEAM_PATH, None).await?;
+    // Parent-facing Hermes receives only its closed introduction envelope, not
+    // the internal team's manifest or Welcome conversation context.
+    if state
+        .db
+        .get_current_airhop_parent_agent_deployment(&principal.tenant)
+        .await
+        .map_err(map_db_error)?
+        .is_some_and(|deployment| deployment.agent_pubkey == principal.pubkey.to_bytes())
+    {
+        let invitation = state
+            .db
+            .airhop_welcome_guest_invitation(&principal.tenant, principal.pubkey.as_bytes())
+            .await
+            .map_err(map_db_error)?;
+        return Ok(Json(json!({ "guestInvitation": invitation })));
+    }
     let manifest = state
         .db
         .get_airhop_welcome_team(&principal.tenant)

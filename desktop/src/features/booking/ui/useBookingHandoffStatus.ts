@@ -22,15 +22,18 @@ export function useBookingHandoffStatus(
   useEffect(() => {
     if (
       !token ||
-      !expiresAt ||
-      (connected && status !== "pending_confirmation")
+      service.confirmationPreview ||
+      (status !== "pending_confirmation" && (!expiresAt || connected))
     )
       return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
+    let refreshing = false;
     const refresh = async () => {
-      if (stopped) return;
-      if (Date.now() >= Date.parse(expiresAt)) {
+      if (stopped || refreshing) return;
+      clearTimeout(timer);
+      refreshing = true;
+      if (expiresAt && Date.now() >= Date.parse(expiresAt)) {
         setSuccess((current) =>
           current?.token === token &&
           current.card.messengerHandoff?.expiresAt === expiresAt
@@ -40,19 +43,23 @@ export function useBookingHandoffStatus(
               }
             : current,
         );
-        return;
       }
       try {
         const card = await service.getManagementCard(token);
         if (!stopped && card)
           setSuccess((current) =>
-            current?.token === token &&
-            current.card.messengerHandoff?.expiresAt === expiresAt
+            current?.token === token
               ? {
                   ...current,
                   card: {
                     ...card,
-                    messengerHandoff: current.card.messengerHandoff,
+                    messengerHandoff:
+                      !card.telegramConnected &&
+                      current.card.messengerHandoff &&
+                      Date.parse(current.card.messengerHandoff.expiresAt) >
+                        Date.now()
+                        ? current.card.messengerHandoff
+                        : undefined,
                   },
                 }
               : current,
@@ -63,13 +70,22 @@ export function useBookingHandoffStatus(
           return;
       } catch {
         /* A temporary read failure does not invalidate the issued link. */
+      } finally {
+        refreshing = false;
       }
       if (!stopped) timer = setTimeout(refresh, 5000);
     };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
     timer = setTimeout(refresh, 2000);
     return () => {
       stopped = true;
       clearTimeout(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [token, expiresAt, connected, status, service, setSuccess]);
 }

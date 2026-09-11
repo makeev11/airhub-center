@@ -488,40 +488,8 @@ pub fn normalize_agent_args(command: &str, agent_args: Vec<String>) -> Vec<Strin
     normalized
 }
 
-fn profile_target_dirs(root: &Path) -> [PathBuf; 2] {
-    if cfg!(debug_assertions) {
-        // `just dev` builds fresh debug sidecars; never prefer stale release output.
-        [root.join("target/debug"), root.join("target/release")]
-    } else {
-        [root.join("target/release"), root.join("target/debug")]
-    }
-}
-
-fn command_search_dirs_for(
-    workspace_root: &Path,
-    current_dir: Option<&Path>,
-    current_exe_dir: Option<&Path>,
-    prefer_bundled: bool,
-) -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    if prefer_bundled {
-        dirs.extend(current_exe_dir.map(Path::to_path_buf));
-    }
-    dirs.extend(profile_target_dirs(workspace_root));
-    if let Some(current_dir) = current_dir {
-        dirs.extend(profile_target_dirs(current_dir));
-    }
-    if !prefer_bundled {
-        dirs.extend(current_exe_dir.map(Path::to_path_buf));
-    }
-
-    dirs.into_iter().fold(Vec::new(), |mut unique, dir| {
-        if !unique.contains(&dir) {
-            unique.push(dir);
-        }
-        unique
-    })
-}
+mod search_dirs;
+use search_dirs::command_search_dirs_for;
 
 fn command_search_dirs() -> Vec<PathBuf> {
     let workspace_root = workspace_root_dir();
@@ -534,7 +502,10 @@ fn command_search_dirs() -> Vec<PathBuf> {
         &workspace_root,
         current_dir.as_deref(),
         current_exe_dir.as_deref(),
-        !cfg!(debug_assertions),
+        // Native acceptance builds mirror release packaging even though their
+        // shell is debug-enabled. Otherwise a stale workspace buzz-acp wins
+        // over the freshly bundled sidecar and invalidates the whole test.
+        !cfg!(debug_assertions) || cfg!(feature = "wdio"),
     )
 }
 

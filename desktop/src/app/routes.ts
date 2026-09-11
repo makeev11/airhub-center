@@ -20,6 +20,8 @@ export const routes = rootRoute("root.tsx", [
     route("/tariffs", "booking.tariffs.tsx"),
     route("/payments", "booking.payments.tsx"),
     route("/analytics", "booking.analytics.tsx"),
+    route("/knowledge", "booking.knowledge.tsx"),
+    route("/inbox", "booking.inbox.tsx"),
     route("/teachers", "booking.teachers.tsx"),
     route("/settings", "booking.settings.tsx"),
   ]),

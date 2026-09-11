@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import {
   ChevronRight,
   Copy,
@@ -125,20 +126,21 @@ export function CopyFieldRow({
   value: string;
   testId?: string;
 }) {
+  useMessengerCopy();
   async function handleCopy() {
     await writeTextToClipboard(value);
-    toast.success(`Copied ${label.toLowerCase()}`);
+    toast.success(messageText("Copied {label}", { label }));
   }
 
   return (
     <button
-      aria-label={`Copy ${label}`}
+      aria-label={messageText("Copy {label}", { label })}
       className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
       data-testid={testId}
       onClick={() => {
         void handleCopy();
       }}
-      title={`Copy ${label}`}
+      title={messageText("Copy {label}", { label })}
       type="button"
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted/60">

@@ -12,7 +12,10 @@ import {
   updateManagedAgent,
 } from "@/shared/api/tauri";
 import { getGlobalAgentConfig } from "@/shared/api/tauriGlobalAgentConfig";
-import { startManagedAgentRuntimesForRelay } from "@/shared/api/tauriManagedAgents";
+import {
+  setManagedAgentStartOnAppLaunch,
+  startManagedAgentRuntimesForRelay,
+} from "@/shared/api/tauriManagedAgents";
 import { listPersonas, setPersonaActive } from "@/shared/api/tauriPersonas";
 import type {
   AcpRuntime,
@@ -362,6 +365,7 @@ async function provisionWelcomeTeam(
     (runtime): runtime is AcpRuntime => runtime.availability === "available",
   );
   const mutableAgents = {} as Record<AirhopWelcomeRole, ManagedAgent>;
+  const changedEnvironments = new Set<string>();
 
   for (const baseStarter of WELCOME_TEAM_STARTERS) {
     const localized = welcomeRoleDefinition(
@@ -391,6 +395,7 @@ async function provisionWelcomeTeam(
     );
     if (existing) {
       const update = welcomeStarterRuntimeUpdate(existing, desired);
+      if (update?.envVars) changedEnvironments.add(existing.pubkey);
       mutableAgents[starter.role] = update
         ? (await updateManagedAgent(update)).agent
         : existing;
@@ -413,6 +418,19 @@ async function provisionWelcomeTeam(
     },
   });
 
+  // Creation stays dormant until membership and the authoritative role registry
+  // exist. Once registered, persist restart intent rather than only starting
+  // this session's processes (otherwise a cold launch restores an empty team).
+  for (const role of Object.keys(mutableAgents) as AirhopWelcomeRole[]) {
+    const agent = mutableAgents[role];
+    if (!agent.startOnAppLaunch) {
+      mutableAgents[role] = await setManagedAgentStartOnAppLaunch(
+        agent.pubkey,
+        true,
+      );
+    }
+  }
+
   const legacyAgents = existingAgents.filter((agent) =>
     isLegacyGenericWelcomeAgent(agent, relayUrl),
   );
@@ -425,9 +443,13 @@ async function provisionWelcomeTeam(
   if (!runtimeRelayUrl) {
     throw new Error("Welcome Team provisioning requires a relay URL.");
   }
+  // Updating persisted configuration does not replace a running process's
+  // environment. Rebind reused agents only after the new channel membership
+  // and role registry exist, before delivering the Welcome kickoff.
   await startManagedAgentRuntimesForRelay(
     Object.values(agents),
     runtimeRelayUrl,
+    changedEnvironments,
   );
   return agents;
 }

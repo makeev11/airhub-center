@@ -13,6 +13,32 @@ import { openSettings } from "../helpers/settings";
 
 const CONFIRM_PHRASE = "wipe all my data";
 
+test("Russian sign-out copy and confirmation phrase retain both safety gates", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("airhop.locale.v1", "ru-RU"),
+  );
+  await installMockBridge(page);
+  await page.goto("/");
+  await openSignOutDialog(page);
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toContainText("Выйти и удалить данные с устройства?");
+  await expect(dialog).toContainText("данные на сервере не удаляются");
+  await expect(dialog).not.toContainText("Sign out");
+  const confirm = page.getByTestId("signout-confirm");
+  await page
+    .getByTestId("signout-confirm-phrase")
+    .fill("удалить данные с устройства");
+  await expect(confirm).toBeDisabled();
+  await page.getByTestId("signout-backup-confirm").click();
+  await expect(confirm).toBeEnabled();
+  await page.getByRole("button", { name: "Отмена", exact: true }).click();
+  await page.getByTestId("signout-open-dialog").click();
+  await expect(confirm).toBeDisabled();
+  await expect(page.getByTestId("signout-confirm-phrase")).toHaveValue("");
+});
+
 async function openSignOutDialog(page: Page) {
   await openSettings(page, "profile");
   const section = page.getByTestId("settings-signout");

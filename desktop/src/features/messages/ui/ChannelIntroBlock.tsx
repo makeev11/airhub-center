@@ -1,3 +1,4 @@
+import { useMessengerCopy } from "@/shared/locale/messengerCopy";
 import type * as React from "react";
 import { Hash } from "lucide-react";
 
@@ -18,6 +19,7 @@ export type ChannelIntro = {
   description?: string | null;
   icon?: React.ReactNode;
   leadIn?: string;
+  beginning?: string;
 };
 
 /**
@@ -34,6 +36,7 @@ export function ChannelIntroBlock({
   className?: string;
   intro: ChannelIntro;
 }) {
+  const m = useMessengerCopy();
   return (
     <div
       className={cn(
@@ -52,11 +55,7 @@ export function ChannelIntroBlock({
         #{intro.channelName}
       </p>
       <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
-        {intro.leadIn ?? "This is the beginning of the"}{" "}
-        <span className="font-medium text-foreground">
-          {intro.channelKindLabel}
-        </span>
-        .
+        {intro.beginning ?? m("This is the beginning of the channel.")}
       </p>
       {intro.description ? (
         <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">

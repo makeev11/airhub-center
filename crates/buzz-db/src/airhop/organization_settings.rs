@@ -138,6 +138,7 @@ impl Db {
                     "public_booking_purpose",
                     "public_booking_appearance",
                     "payment_day_of_month",
+                    "currency",
                 ],
             ),
             Some(current) => {
@@ -343,6 +344,7 @@ pub(super) async fn put_airhop_organization_settings_in_transaction(
                 "public_booking_purpose",
                 "public_booking_appearance",
                 "payment_day_of_month",
+                "currency",
             ],
         ),
         Some(current) => {
@@ -465,7 +467,7 @@ async fn load_locked_organization(
                 analytics_buzz_channel_id, staff_working_hours, default_trial_policy, \
                 track_attendance_by_default, allow_single_visits_by_default, \
                 existing_students_onboarding_status, public_booking_purpose, \
-                public_booking_appearance, payment_day_of_month, status, version, \
+                public_booking_appearance, payment_day_of_month, currency, status, version, \
                 created_at, updated_at \
          FROM airhop_organizations \
          WHERE community_id = $1 \
@@ -490,8 +492,8 @@ async fn insert_organization(
              analytics_buzz_channel_id, staff_working_hours, default_trial_policy, \
              track_attendance_by_default, allow_single_visits_by_default, \
              existing_students_onboarding_status, public_booking_purpose, \
-             public_booking_appearance, payment_day_of_month, created_at, updated_at\
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)",
+             public_booking_appearance, payment_day_of_month, created_at, updated_at, currency\
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, $17)",
     )
     .bind(tenant.community().as_uuid())
     .bind(organization_id)
@@ -513,6 +515,7 @@ async fn insert_organization(
     ))
     .bind(i16::from(input.settings.payment_day_of_month))
     .bind(occurred_at)
+    .bind(&input.settings.currency)
     .execute(&mut **transaction)
     .await?;
     Ok(())
@@ -532,7 +535,7 @@ async fn update_organization(
              track_attendance_by_default = $10, allow_single_visits_by_default = $11, \
              existing_students_onboarding_status = $12, public_booking_purpose = $13, \
              public_booking_appearance = $14, payment_day_of_month = $15, \
-             version = version + 1, updated_at = $16 \
+             version = version + 1, updated_at = $16, currency = $18 \
          WHERE community_id = $1 AND id = $2 AND version = $17 AND status = 'active' \
          RETURNING version",
     )
@@ -557,6 +560,7 @@ async fn update_organization(
     .bind(i16::from(input.settings.payment_day_of_month))
     .bind(occurred_at)
     .bind(input.expected_version)
+    .bind(&input.settings.currency)
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(DbError::AirhopVersionConflict)
@@ -567,6 +571,9 @@ fn changed_fields(
     input: &PutOrganizationSettingsInput,
 ) -> Vec<&'static str> {
     let mut fields = Vec::new();
+    if current.settings.currency != input.settings.currency {
+        fields.push("currency");
+    }
     if current.name != input.name.trim() {
         fields.push("name");
     }
@@ -721,6 +728,7 @@ mod tests {
             payments_buzz_channel_id: None,
             analytics_buzz_channel_id: None,
             settings: OrganizationSettings {
+                currency: "RUB".to_owned(),
                 staff_working_hours: Default::default(),
                 default_trial_policy: TrialPolicy::Free,
                 track_attendance_by_default: true,
@@ -762,5 +770,57 @@ mod tests {
             ..input()
         })
         .is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
+    async fn organization_currency_round_trips_on_insert_and_update() {
+        let db = Db::new(&crate::DbConfig {
+            database_url: std::env::var("BUZZ_TEST_DATABASE_URL").unwrap(),
+            min_connections: 0,
+            max_connections: 2,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        db.migrate().await.unwrap();
+        let tenant = TenantContext::resolved(
+            buzz_core::CommunityId::from_uuid(Uuid::new_v4()),
+            format!("currency-{}.test", Uuid::new_v4()),
+        );
+        let mut tx = db.pool.begin().await.unwrap();
+        sqlx::query("INSERT INTO communities(id, host) VALUES ($1,$2)")
+            .bind(tenant.community().as_uuid())
+            .bind(tenant.host())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let id = Uuid::new_v4();
+        let mut command = input();
+        command.settings.currency = "BRL".to_owned();
+        insert_organization(&mut tx, &tenant, id, &command, Utc::now())
+            .await
+            .unwrap();
+        let first = load_locked_organization(&mut tx, &tenant)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.settings.currency, "BRL");
+        command.expected_version = first.version;
+        command.settings.currency = "RUB".to_owned();
+        assert!(changed_fields(&first, &command).contains(&"currency"));
+        update_organization(&mut tx, &tenant, id, &command, Utc::now())
+            .await
+            .unwrap();
+        assert_eq!(
+            load_locked_organization(&mut tx, &tenant)
+                .await
+                .unwrap()
+                .unwrap()
+                .settings
+                .currency,
+            "RUB"
+        );
+        tx.rollback().await.unwrap();
     }
 }

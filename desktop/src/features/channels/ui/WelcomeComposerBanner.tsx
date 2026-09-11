@@ -1,8 +1,10 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Bot, Check } from "lucide-react";
 
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
+import { resolveWelcomeLocale } from "@/features/onboarding/welcomeTeamLocale";
 import { cn } from "@/shared/lib/cn";
 
 const WELCOME_PERSONA_NAMES = ["Fizz"] as const;
@@ -138,7 +140,7 @@ const welcomeComposerBannerSuccessCopyVariants = {
 export function containsWelcomePersonaMention(content: string) {
   const normalizedContent = content.toLowerCase();
 
-  return WELCOME_PERSONA_NAMES.some((personaName) =>
+  return ["Fizz", "Физ", "Fiz"].some((personaName) =>
     normalizedContent.includes(`@${personaName.toLowerCase()}`),
   );
 }
@@ -165,10 +167,12 @@ function getWelcomePersonaEnterTotalSeconds(characterCount: number) {
 }
 
 function WelcomeComposerPersonaMention() {
+  useMessengerCopy();
+  const locale = useAirHopLocale();
   const shouldReduceMotion = useReducedMotion();
   const [personaIndex, setPersonaIndex] = React.useState(0);
   const activePersonaName = WELCOME_PERSONA_NAMES[personaIndex];
-  const activeMention = `@${activePersonaName}`;
+  const activeMention = resolveWelcomeLocale(locale).names.fizz;
   const activeMentionCharacters = React.useMemo(
     () => getWelcomeMentionCharacters(activeMention),
     [activeMention],
@@ -249,7 +253,7 @@ function WelcomeComposerPersonaMention() {
         ...(mentionWidth === null ? {} : { width: mentionWidth }),
       }}
     >
-      <span className="sr-only">@Fizz</span>
+      <span className="sr-only">{activeMention}</span>
       <span
         aria-hidden
         className="pointer-events-none invisible inline-block whitespace-nowrap leading-[inherit]"
@@ -302,7 +306,13 @@ export function WelcomeComposerBanner({
   settingUp = false,
   state,
 }: WelcomeComposerBannerProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const prompt = {
+    "ru-RU": ["Напишите свой вопрос — ", " поможет. Упоминание не нужно."],
+    "en-US": ["Write your question — ", " will help. No mention needed."],
+    "pt-BR": ["Escreva sua pergunta — ", " vai ajudar. Não precisa mencionar."],
+    "tr-TR": ["Sorunuzu yazın — ", " yardımcı olur. Etiketlemeniz gerekmez."],
+  }[locale];
 
   if (state === "hidden") {
     return null;
@@ -393,7 +403,7 @@ export function WelcomeComposerBanner({
                 key="complete-copy"
                 variants={welcomeComposerBannerSuccessCopyVariants}
               >
-                {isRussian ? "Отлично." : "Nice work."}
+                {messageText("Nice work.")}
               </motion.span>
             ) : settingUp ? (
               <motion.span
@@ -405,9 +415,7 @@ export function WelcomeComposerBanner({
                 key="setting-up-copy"
                 variants={welcomeComposerBannerContentVariants}
               >
-                {isRussian
-                  ? "Настраиваем вашу команду…"
-                  : "Setting up your welcome team…"}
+                {messageText("Setting up your welcome team…")}
               </motion.span>
             ) : (
               <motion.span
@@ -418,11 +426,9 @@ export function WelcomeComposerBanner({
                 key="prompt-copy"
                 variants={welcomeComposerBannerContentVariants}
               >
-                {isRussian ? "Позовите " : "Mention "}
+                {prompt[0]}
                 <WelcomeComposerPersonaMention />
-                {isRussian
-                  ? " или другого коллегу, когда понадобится помощь."
-                  : " or another teammate whenever you want their help."}
+                {prompt[1]}
               </motion.span>
             )}
           </AnimatePresence>

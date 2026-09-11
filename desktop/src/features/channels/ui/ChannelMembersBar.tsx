@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import { EllipsisVertical, Settings2, Users } from "lucide-react";
 import * as React from "react";
 import { useAvailableAcpRuntimes } from "@/features/agents/hooks";
@@ -81,7 +82,7 @@ export function ChannelMembersBar({
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
-            aria-label={isRussian ? "Действия с каналом" : "Channel actions"}
+            aria-label={messageText("Channel actions")}
             data-testid="channel-actions-menu-trigger"
             size="icon"
             type="button"
@@ -96,7 +97,7 @@ export function ChannelMembersBar({
             onSelect={onToggleMembers}
           >
             <Users />
-            <span>{isRussian ? "Участники" : "Members"}</span>
+            <span>{messageText("Members")}</span>
             <span className="ml-auto text-xs text-muted-foreground">
               {memberCount}
             </span>
@@ -106,7 +107,7 @@ export function ChannelMembersBar({
             onSelect={onManageChannel}
           >
             <Settings2 />
-            <span>{isRussian ? "Настроить канал" : "Manage channel"}</span>
+            <span>{messageText("Manage channel")}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -132,15 +133,13 @@ export function ChannelMembersBar({
               </span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>
-            {isRussian ? "Участники канала" : "Channel members"}
-          </TooltipContent>
+          <TooltipContent>{messageText("Channel members")}</TooltipContent>
         </Tooltip>
 
         <Tooltip disableHoverableContent>
           <TooltipTrigger asChild>
             <Button
-              aria-label={isRussian ? "Настроить канал" : "Manage channel"}
+              aria-label={messageText("Manage channel")}
               data-testid="channel-management-trigger"
               onClick={onManageChannel}
               size="icon"
@@ -150,9 +149,7 @@ export function ChannelMembersBar({
               <EllipsisVertical />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>
-            {isRussian ? "Настройки канала" : "Channel settings"}
-          </TooltipContent>
+          <TooltipContent>{messageText("Channel settings")}</TooltipContent>
         </Tooltip>
       </div>
     );

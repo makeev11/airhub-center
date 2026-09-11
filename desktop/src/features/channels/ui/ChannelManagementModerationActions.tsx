@@ -1,3 +1,4 @@
+import { messageError, messageText } from "@/shared/locale/messengerCopy";
 import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 
@@ -112,9 +113,7 @@ export function ChannelDeleteConfirmationDialog({
       ) : null}
       <AlertDialogContent data-testid="channel-delete-confirmation-dialog">
         <AlertDialogHeader>
-          <AlertDialogTitle>
-            {isRussian ? "Удалить канал?" : "Delete channel?"}
-          </AlertDialogTitle>
+          <AlertDialogTitle>{messageText("Delete channel?")}</AlertDialogTitle>
           <AlertDialogDescription>
             {isRussian
               ? `Канал «${channelName}» будет удалён из Центра. Это действие нельзя отменить.`
@@ -122,7 +121,9 @@ export function ChannelDeleteConfirmationDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error instanceof Error ? (
-          <p className="text-sm text-destructive">{error.message}</p>
+          <p className="text-sm text-destructive">
+            {messageError(error.message)}
+          </p>
         ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel asChild>
@@ -132,7 +133,7 @@ export function ChannelDeleteConfirmationDialog({
               type="button"
               variant="outline"
             >
-              {isRussian ? "Отмена" : "Cancel"}
+              {messageText("Cancel")}
             </Button>
           </AlertDialogCancel>
           <AlertDialogAction asChild>
@@ -147,12 +148,8 @@ export function ChannelDeleteConfirmationDialog({
               variant="destructive"
             >
               {isPending
-                ? isRussian
-                  ? "Удаляем…"
-                  : "Deleting..."
-                : isRussian
-                  ? "Удалить канал"
-                  : "Delete channel"}
+                ? messageText("Deleting...")
+                : messageText("Delete channel")}
             </Button>
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -174,22 +171,14 @@ export function ChannelManagementModerationActions({
   resolvedChannelName,
   unarchiveChannelMutation,
 }: ChannelManagementModerationActionsProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useAirHopLocale();
   const restoreLabel = unarchiveChannelMutation.isPending
-    ? isRussian
-      ? "Восстанавливаем канал"
-      : "Restoring channel"
-    : isRussian
-      ? "Восстановить канал"
-      : "Unarchive channel";
+    ? messageText("Restoring channel")
+    : messageText("Unarchive channel");
   const archiveLabel = archiveChannelMutation.isPending
-    ? isRussian
-      ? "Архивируем канал"
-      : "Archiving channel"
-    : isRussian
-      ? "Архивировать канал"
-      : "Archive channel";
-  const deleteLabel = isRussian ? "Удалить канал" : "Delete channel";
+    ? messageText("Archiving channel")
+    : messageText("Archive channel");
+  const deleteLabel = messageText("Delete channel");
   return (
     <div
       className={cn(

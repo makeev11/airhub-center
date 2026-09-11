@@ -9,6 +9,8 @@ use uuid::Uuid;
 
 use crate::{Db, DbError, Result};
 
+mod history;
+
 /// Stable product blueprint for the parent-facing Hermes administrator.
 pub const PARENT_ADMINISTRATOR_BLUEPRINT: &str = "airhop.hermes.parent_administrator";
 
@@ -200,7 +202,8 @@ pub struct HermesTurnReceipt {
     pub lease_expires_at: DateTime<Utc>,
     /// Number of leases for this same input batch.
     pub attempt: i32,
-    /// Immutable deployment/capability snapshot.
+    /// Deployment/capability snapshot, with a server-owned `historySnapshotAt`
+    /// watermark refreshed only when a new lease attempt is acquired.
     pub configuration_snapshot: serde_json::Value,
     /// Whether this acquisition replayed the same input batch.
     pub replayed: bool,
@@ -489,14 +492,41 @@ impl Db {
         {
             let mut receipt = turn_from_row(&row, true)?;
             require_same_turn_scope(&receipt, input)?;
-            if receipt.status != HermesTurnStatus::Leased {
+            let recoverable = receipt.status == HermesTurnStatus::Failed
+                && row.try_get::<Option<String>, _>("error_code")?.as_deref()
+                    == Some("runtime_finished_without_reply")
+                && receipt.attempt < 3;
+            if receipt.status != HermesTurnStatus::Leased && !recoverable {
                 return Err(DbError::AirhopVersionConflict);
             }
-            if receipt.lease_expires_at <= Utc::now() {
+            if receipt.lease_expires_at <= Utc::now() || recoverable {
+                sqlx::query(
+                    "UPDATE airhop_hermes_turn_receipts
+                     SET status='failed', error_code='lease_expired', finished_at=now(), updated_at=now()
+                     WHERE community_id=$1 AND conversation_id=$2 AND id<>$3
+                       AND status='leased' AND lease_expires_at<=now()",
+                ).bind(community_id).bind(input.conversation_id).bind(receipt.id)
+                .execute(&mut *tx).await?;
+                let other_active: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM airhop_hermes_turn_receipts
+                     WHERE community_id=$1 AND conversation_id=$2 AND id<>$3
+                       AND status='leased' AND lease_expires_at > now())",
+                )
+                .bind(community_id)
+                .bind(input.conversation_id)
+                .bind(receipt.id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if other_active {
+                    return Err(DbError::AirhopCommandInProgress);
+                }
                 let rotated = sqlx::query(
                     "UPDATE airhop_hermes_turn_receipts
                      SET lease_token = gen_random_uuid(),
+                         status = 'leased', finished_at = NULL, error_code = NULL, outcome = NULL,
                          lease_expires_at = now() + ($5::BIGINT * interval '1 second'),
+                         configuration_snapshot = configuration_snapshot ||
+                           jsonb_build_object('historySnapshotAt', clock_timestamp()),
                          attempt = attempt + 1, updated_at = now()
                      WHERE community_id = $1 AND organization_id = $2
                        AND cycle_id = $3 AND input_batch_id = $4
@@ -516,6 +546,22 @@ impl Db {
                 deployment,
                 turn: receipt,
             });
+        }
+
+        // A reconnect may package the same inputs under a different batch ID.
+        // A completed newer source already covers the older messages in its
+        // snapshot. Check under the conversation lock for new batches; an explicitly
+        // recoverable existing lease keeps its original retry contract.
+        let answered: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM airhop_hermes_turn_receipts done
+             JOIN events handled ON handled.community_id=done.community_id AND handled.id=done.source_message_id
+             JOIN events source ON source.community_id=done.community_id AND source.id=$4
+             WHERE done.community_id=$1 AND done.conversation_id=$2 AND done.cycle_id=$3
+               AND done.status='completed' AND handled.received_at>=source.received_at)",
+        ).bind(community_id).bind(input.conversation_id).bind(input.cycle_id)
+            .bind(input.source_message_id.as_slice()).fetch_one(&mut *tx).await?;
+        if answered {
+            return Err(DbError::AirhopVersionConflict);
         }
 
         sqlx::query(
@@ -552,7 +598,8 @@ impl Db {
                 family_id, representative_id, lease_token, lease_expires_at,
                 configuration_snapshot
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                gen_random_uuid(), now() + ($12::BIGINT * interval '1 second'), $13)
+                gen_random_uuid(), now() + ($12::BIGINT * interval '1 second'),
+                $13::JSONB || jsonb_build_object('historySnapshotAt', clock_timestamp()))
              RETURNING *",
         )
         .bind(community_id)
@@ -670,6 +717,42 @@ impl Db {
         }
     }
 
+    /// Checks whether the exact runtime lease needs a parent reply without
+    /// completing it. Staff resumes with no unanswered input may remain silent.
+    pub async fn airhop_parent_turn_needs_reply(
+        &self,
+        tenant: &TenantContext,
+        turn_id: Uuid,
+        lease_token: Uuid,
+        agent_pubkey: [u8; 32],
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT * FROM airhop_hermes_turn_receipts WHERE community_id=$1 AND id=$2 FOR UPDATE",
+        )
+        .bind(tenant.community().as_uuid())
+        .bind(turn_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| DbError::NotFound("AirHop Hermes turn".into()))?;
+        let turn = turn_from_row(&row, true)?;
+        if turn.agent_pubkey != agent_pubkey || turn.lease_token != lease_token {
+            return Err(DbError::AccessDenied(
+                "AirHop Hermes turn lease belongs to another runtime".into(),
+            ));
+        }
+        let needs_reply = turn.status == HermesTurnStatus::Leased
+            && turn.lease_expires_at > Utc::now()
+            && !history::resume_has_no_pending_parent(
+                &mut tx,
+                *tenant.community().as_uuid(),
+                &turn,
+            )
+            .await?;
+        tx.commit().await?;
+        Ok(needs_reply)
+    }
+
     /// Completes the exact active lease once. Repeated acknowledgement of the
     /// same terminal state is idempotent; a different outcome is rejected.
     pub async fn finish_airhop_parent_agent_turn(
@@ -700,6 +783,13 @@ impl Db {
         }
         let (status, outcome, error_code) = completion_columns(completion);
         if current.status != HermesTurnStatus::Leased {
+            // Runtime finalization is a conditional fallback, never a rewrite
+            // of a committed reply, cancelled turn or previously failed lease.
+            if matches!(completion, FinishHermesTurn::Failed { error_code } if error_code == "runtime_finished_without_reply")
+            {
+                tx.commit().await?;
+                return Ok(current);
+            }
             let same_status = current.status.as_str() == status;
             let stored_outcome: Option<String> = row.try_get("outcome")?;
             let stored_error: Option<String> = row.try_get("error_code")?;
@@ -717,6 +807,16 @@ impl Db {
                 "AirHop Hermes turn lease expired before completion".to_owned(),
             ));
         }
+        // A staff resume with no unanswered parent input is a legitimate
+        // silent wait, not a broken model turn. Parent input still requires a
+        // committed reply; the classifier/model cannot choose this exemption.
+        let silent_resume = matches!(completion, FinishHermesTurn::Failed { error_code } if error_code == "runtime_finished_without_reply")
+            && history::resume_has_no_pending_parent(&mut tx, community_id, &current).await?;
+        let (status, outcome, error_code) = if silent_resume {
+            ("completed", Some("waiting_parent"), None)
+        } else {
+            (status, outcome, error_code)
+        };
         let updated = sqlx::query(
             "UPDATE airhop_hermes_turn_receipts
              SET status = $4, outcome = $5, error_code = $6,

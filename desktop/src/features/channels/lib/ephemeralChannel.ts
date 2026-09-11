@@ -1,3 +1,5 @@
+import { resolveAirHopLocale } from "@/shared/locale/airhopLocale";
+import { messageText } from "@/shared/locale/messengerCopy";
 import type { Channel } from "@/shared/api/types";
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat("en-US", {
@@ -43,8 +45,12 @@ function resolveRemainingSeconds(
 }
 
 function formatCompactRemaining(remainingSeconds: number): string {
+  if (resolveAirHopLocale() !== "en-US" && remainingSeconds > 0)
+    return messageText("Time left: {duration}", {
+      duration: localizedDuration(remainingSeconds, "short"),
+    });
   if (remainingSeconds <= 0) {
-    return "Cleanup due";
+    return messageText("Cleanup due");
   }
 
   if (remainingSeconds <= 60) {
@@ -63,6 +69,16 @@ function formatCompactRemaining(remainingSeconds: number): string {
 }
 
 function formatVerboseRemaining(remainingSeconds: number): string {
+  if (resolveAirHopLocale() !== "en-US") {
+    const size =
+      remainingSeconds < 3600 ? 60 : remainingSeconds < 86400 ? 3600 : 86400;
+    return new Intl.RelativeTimeFormat(resolveAirHopLocale(), {
+      numeric: "auto",
+    }).format(
+      Math.max(0, Math.ceil(remainingSeconds / size)),
+      size === 60 ? "minute" : size === 3600 ? "hour" : "day",
+    );
+  }
   if (remainingSeconds <= 0) {
     return "now";
   }
@@ -92,6 +108,10 @@ function formatVerboseRemaining(remainingSeconds: number): string {
 }
 
 function formatCompactTtl(ttlSeconds: number): string {
+  if (resolveAirHopLocale() !== "en-US")
+    return messageText("Lifetime: {duration}", {
+      duration: localizedDuration(ttlSeconds, "short"),
+    });
   if (ttlSeconds < 60) {
     return `${Math.max(1, ttlSeconds)}s TTL`;
   }
@@ -108,6 +128,8 @@ function formatCompactTtl(ttlSeconds: number): string {
 }
 
 function formatVerboseTtl(ttlSeconds: number): string {
+  if (resolveAirHopLocale() !== "en-US")
+    return localizedDuration(ttlSeconds, "long");
   if (ttlSeconds < 60) {
     const seconds = Math.max(1, ttlSeconds);
     return `${seconds} second${seconds === 1 ? "" : "s"}`;
@@ -138,7 +160,13 @@ export function getEphemeralChannelDisplay(
   const remainingSeconds = resolveRemainingSeconds(channel.ttlDeadline, nowMs);
   const absoluteDeadlineLabel =
     channel.ttlDeadline && !Number.isNaN(Date.parse(channel.ttlDeadline))
-      ? absoluteTimeFormatter.format(new Date(channel.ttlDeadline))
+      ? (resolveAirHopLocale() === "en-US"
+          ? absoluteTimeFormatter
+          : new Intl.DateTimeFormat(resolveAirHopLocale(), {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })
+        ).format(new Date(channel.ttlDeadline))
       : null;
   if (remainingSeconds === null) {
     return {
@@ -148,10 +176,13 @@ export function getEphemeralChannelDisplay(
           : formatCompactTtl(channel.ttlSeconds),
       tooltipLabel:
         channel.ttlSeconds === null
-          ? "Ephemeral channel. Cleans up automatically after inactivity."
-          : `Ephemeral channel. Cleans up after ${formatVerboseTtl(
-              channel.ttlSeconds,
-            )} of inactivity.`,
+          ? messageText(
+              "Ephemeral channel. Cleans up automatically after inactivity.",
+            )
+          : messageText(
+              "Ephemeral channel. Cleans up after {duration} of inactivity.",
+              { duration: formatVerboseTtl(channel.ttlSeconds) },
+            ),
     };
   }
 
@@ -161,12 +192,35 @@ export function getEphemeralChannelDisplay(
   return {
     detailLabel: compactRemaining,
     tooltipLabel:
-      compactRemaining === "Cleanup due"
-        ? "Ephemeral channel. Cleanup is due now."
+      remainingSeconds <= 0
+        ? messageText("Ephemeral channel. Cleanup is due now.")
         : absoluteDeadlineLabel
-          ? `Ephemeral channel. Cleans up ${verboseRemaining}. Scheduled for ${absoluteDeadlineLabel}.`
-          : `Ephemeral channel. Cleans up ${verboseRemaining}.`,
+          ? messageText(
+              "Ephemeral channel. Cleans up {time}. Scheduled for {date}.",
+              { time: verboseRemaining, date: absoluteDeadlineLabel },
+            )
+          : messageText("Ephemeral channel. Cleans up {time}.", {
+              time: verboseRemaining,
+            }),
   };
+}
+
+function localizedDuration(seconds: number, unitDisplay: "long" | "short") {
+  const size =
+    seconds < 60 ? 1 : seconds < 3600 ? 60 : seconds < 86400 ? 3600 : 86400;
+  const unit =
+    size === 1
+      ? "second"
+      : size === 60
+        ? "minute"
+        : size === 3600
+          ? "hour"
+          : "day";
+  return new Intl.NumberFormat(resolveAirHopLocale(), {
+    style: "unit",
+    unit,
+    unitDisplay,
+  }).format(Math.max(1, Math.ceil(seconds / size)));
 }
 
 const TTL_UNIT_SECONDS: Record<string, number> = {

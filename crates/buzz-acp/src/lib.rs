@@ -1488,7 +1488,7 @@ async fn tokio_main() -> Result<()> {
     tracing::info!("discovered {} channel(s)", channel_info_map.len());
     let channel_ids: Vec<Uuid> = channel_info_map.keys().copied().collect();
 
-    let rules: Vec<SubscriptionRule> = match config.subscribe_mode {
+    let mut rules: Vec<SubscriptionRule> = match config.subscribe_mode {
         SubscribeMode::Mentions => {
             vec![SubscriptionRule {
                 name: "mentions".into(),
@@ -1525,6 +1525,11 @@ async fn tokio_main() -> Result<()> {
         }
     };
 
+    if let Some(rule) =
+        airhop::welcome_message_rule(config.airhop_route_gate, &config.flat_channel_ids)
+    {
+        rules.push(rule);
+    }
     let channel_filters = config::resolve_channel_filters(&config, &channel_ids, &rules);
     if channel_filters.is_empty() {
         tracing::warn!("no channel subscriptions resolved — agent will sit idle");
@@ -1554,8 +1559,10 @@ async fn tokio_main() -> Result<()> {
 
     let runtime_start_nonce = std::env::var("BUZZ_MANAGED_AGENT_START_NONCE").unwrap_or_default();
     let dedup_mode = config.dedup_mode;
-    let mut queue =
-        EventQueue::new(dedup_mode).with_in_flight_deadline(config.max_turn_duration_secs);
+    let mut queue = EventQueue::new(dedup_mode)
+        .with_in_flight_deadline(config.max_turn_duration_secs)
+        .with_thread_isolation(config.airhop_role == Some(airhop::AirhopRole::ParentAdministrator))
+        .with_parent_pacing(config.airhop_role == Some(airhop::AirhopRole::ParentAdministrator));
 
     let welcome_route_gate = airhop::WelcomeRouteGate::new(
         config.airhop_route_gate,
@@ -1565,11 +1572,11 @@ async fn tokio_main() -> Result<()> {
         startup_owner.clone(),
         relay.rest_client(),
     );
-    let parent_supervisor_gate = airhop::ParentSupervisorGate::new(
+    let parent_supervisor_gate = Arc::new(airhop::ParentSupervisorGate::new(
         config.airhop_role,
         config.airhop_context_grant_file.clone(),
         relay.rest_client(),
-    );
+    ));
 
     // Online means the harness can receive work, not merely that its socket is
     // connected. Publishing after channel subscriptions gives desktop callers
@@ -1594,6 +1601,8 @@ async fn tokio_main() -> Result<()> {
 
     let base_prompt_content = config.base_prompt_content.take();
     let ctx = Arc::new(PromptContext {
+        parent_supervisor: (config.airhop_role == Some(airhop::AirhopRole::ParentAdministrator))
+            .then(|| Arc::clone(&parent_supervisor_gate)),
         mcp_servers: build_mcp_servers(&config),
         initial_message: config.initial_message.clone(),
         idle_timeout: Duration::from_secs(config.idle_timeout_secs),
@@ -1637,6 +1646,12 @@ async fn tokio_main() -> Result<()> {
         );
     }
 
+    let mut parent_pacing_tick =
+        if config.airhop_role == Some(airhop::AirhopRole::ParentAdministrator) {
+            Some(tokio::time::interval(Duration::from_millis(250)))
+        } else {
+            None
+        };
     let mut heartbeat = if config.heartbeat_interval_secs > 0 {
         let interval = Duration::from_secs(config.heartbeat_interval_secs);
         Some(tokio::time::interval_at(
@@ -1647,6 +1662,10 @@ async fn tokio_main() -> Result<()> {
         None
     };
     let mut heartbeat_in_flight = false;
+    let mut guest_intro_timer = (config.airhop_role
+        == Some(airhop::AirhopRole::ParentAdministrator))
+    .then(|| tokio::time::interval(Duration::from_secs(10)));
+    let mut published_guest_intro = None;
 
     let mut presence_heartbeat = if config.presence_enabled {
         let interval = Duration::from_secs(60);
@@ -1915,6 +1934,22 @@ async fn tokio_main() -> Result<()> {
             }
         }
 
+        // A fragment window needs its own wakeup; waiting for the next message
+        // or the 30-second maintenance tick would strand a quiet parent chat.
+        if pool_ready && parent_pacing_tick.is_some() && queue.has_flushable_work() {
+            for (channel_id, thread_tags) in dispatch_pending(
+                &mut pool,
+                &mut queue,
+                &ctx,
+                &parent_supervisor_gate,
+                &mut last_activity,
+            )
+            .await
+            {
+                typing_channels.insert(channel_id, thread_tags);
+            }
+        }
+
         // Borrow result_rx and join_set simultaneously via split-borrow helper.
         let pool_event: Option<PoolEvent> = {
             let (result_rx, join_set) = pool.rx_and_join_set();
@@ -1946,6 +1981,12 @@ async fn tokio_main() -> Result<()> {
                 Some((attempt, result)) = wake_rx.recv(), if config.lazy_pool && !pool_ready => {
                     Some(PoolEvent::Wake(attempt, result))
                 }
+                _ = async {
+                    match parent_pacing_tick.as_mut() {
+                        Some(timer) => timer.tick().await,
+                        None => std::future::pending().await,
+                    }
+                } => None,
                 // Gated on pending work: with an empty queue there is nothing
                 // for the retry to dispatch, and a past `retry_at` would
                 // otherwise complete instantly on every iteration (busy spin).
@@ -2323,7 +2364,13 @@ async fn tokio_main() -> Result<()> {
                             // Event is already queued. If mode requires it AND
                             // the channel has an in-flight task, fire cancel —
                             // OR take the non-cancelling (ACP steer) fork for Steer signals.
-                            if accepted && queue.is_channel_in_flight(buzz_event.channel_id) {
+                            // Kickoff stages are independent tasks with separate receipts.
+                            // Steering them into the preceding turn can acknowledge and
+                            // discard the task without ever producing its stage receipt.
+                            if accepted
+                                && !airhop::is_kickoff_task(&event_for_steer)
+                                && queue.is_channel_in_flight(buzz_event.channel_id)
+                            {
                                 // Author eligibility (owner ∪ allowlist ∪ siblings)
                                 // is already enforced by the inbound author gate
                                 // above, so the mid-turn signal fires for every
@@ -2387,6 +2434,22 @@ async fn tokio_main() -> Result<()> {
                                 break;
                             }
                         }
+                    }
+                    None
+                }
+                _ = async {
+                    match guest_intro_timer.as_mut() {
+                        Some(timer) => timer.tick().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    let _ = result_rx;
+                    match tokio::time::timeout(Duration::from_secs(3),
+                        airhop::guest::publish_if_invited(&relay.rest_client(), published_guest_intro)
+                    ).await {
+                        Ok(Ok(receipt)) => published_guest_intro = receipt,
+                        Ok(Err(error)) => tracing::debug!(%error, "Welcome guest introduction will retry"),
+                        Err(_) => tracing::debug!("Welcome guest introduction timed out; will retry"),
                     }
                     None
                 }
@@ -2492,10 +2555,27 @@ async fn tokio_main() -> Result<()> {
         };
 
         match pool_event {
-            Some(PoolEvent::Result(result)) => {
+            Some(PoolEvent::Result(mut result)) => {
                 // Stop typing indicator for the completed channel.
                 if let PromptSource::Channel(ch) = &result.source {
                     typing_channels.remove(ch);
+                    if parent_supervisor_gate.finish_channel(*ch).await {
+                        // An ACP end_turn is not proof of a delivered parent
+                        // reply. Recover the input retained by the dispatcher.
+                        if result.batch.is_none() {
+                            result.batch = pool
+                                .task_map()
+                                .values()
+                                .find(|meta| meta.agent_index == result.agent.index)
+                                .and_then(|meta| meta.recoverable_batch.clone());
+                        }
+                        if matches!(result.outcome, PromptOutcome::Ok(_)) {
+                            result.outcome = PromptOutcome::Error(acp::AcpError::AgentError {
+                                code: -32000,
+                                message: "Hermes ended without committing a parent reply".into(),
+                            });
+                        }
+                    }
                 }
                 if handle_prompt_result(
                     &mut pool,
@@ -2848,6 +2928,9 @@ async fn tokio_main() -> Result<()> {
             tracing::debug!(agent = idx, "reaped idle agent on shutdown");
         }
     }
+    parent_supervisor_gate
+        .finish_idle_channels(&HashSet::new())
+        .await;
     drop(pool);
 
     // Abort any in-flight respawn tasks. They may be sleeping in backoff or
@@ -3087,6 +3170,13 @@ async fn dispatch_pending(
     parent_supervisor_gate: &airhop::ParentSupervisorGate,
     last_activity: &mut tokio::time::Instant,
 ) -> Vec<(Uuid, ThreadTags)> {
+    // Also covers panics/aborts, whose tasks never produce PromptResult.
+    let active = pool
+        .task_map()
+        .values()
+        .filter_map(|meta| meta.channel_id)
+        .collect();
+    parent_supervisor_gate.finish_idle_channels(&active).await;
     let mut dispatched_channels = Vec::new();
     loop {
         let batch = match queue.flush_next() {
@@ -3110,14 +3200,35 @@ async fn dispatch_pending(
                 break;
             }
         };
-        if !parent_supervisor_gate.claim_batch(&batch).await {
+        let claim = parent_supervisor_gate.claim_batch(&batch).await;
+        let airhop::ParentClaimDecision::Run(parent_scope) = claim else {
             tracing::debug!(
                 channel = %channel_id,
                 "AirHop parent supervisor rejected queued batch"
             );
             pool.return_agent(agent);
+            if claim == airhop::ParentClaimDecision::Retry {
+                queue.defer(batch, std::time::Duration::from_secs(5));
+            }
             queue.mark_complete(channel_id);
             continue;
+        };
+        if let Some(parent_scope) = parent_scope {
+            tracing::info!(
+                conversation_id = %parent_scope.conversation_id,
+                queued_events = batch.events.len(),
+                queue_wait_ms = batch.events.iter().map(|event| event.received_at.elapsed().as_millis()).max().unwrap_or(0),
+                "AirHop parent turn claimed"
+            );
+            if let Some(threaded) = parent_scope.threaded {
+                queue.set_parent_channel_threaded(channel_id, threaded);
+            }
+            agent
+                .state
+                .prepare_parent_thread(channel_id, parent_scope.conversation_id.to_string());
+            // Rebuild from the bounded, authorized snapshot each turn. Old tool
+            // results and model-only answers must not become another history.
+            agent.state.invalidate_channel(&channel_id);
         }
         tracing::debug!(agent = agent.index, channel = %channel_id, affinity_hit, "agent_claimed");
 

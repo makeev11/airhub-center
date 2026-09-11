@@ -61,6 +61,9 @@ pub enum ExistingStudentsOnboardingStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrganizationSettings {
+    /// Currency for new tariffs; existing monetary records retain their currency.
+    #[serde(default = "default_currency")]
+    pub currency: String,
     /// Human-staff availability, independent of lesson and branch hours.
     #[serde(default)]
     pub staff_working_hours: WeeklyStaffWorkingHours,
@@ -83,6 +86,10 @@ pub struct OrganizationSettings {
 impl OrganizationSettings {
     /// Validates organization-level numeric invariants.
     pub fn validate(&self) -> Result<(), OrganizationSettingsError> {
+        if self.currency.len() != 3 || !self.currency.bytes().all(|byte| byte.is_ascii_uppercase())
+        {
+            return Err(OrganizationSettingsError::InvalidCurrency);
+        }
         for (weekday, periods) in &self.staff_working_hours {
             for (period_index, period) in periods.iter().enumerate() {
                 let start = NaiveTime::parse_from_str(&period.start_time, "%H:%M");
@@ -110,6 +117,9 @@ impl OrganizationSettings {
 /// Invalid organization settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum OrganizationSettingsError {
+    /// Currency must be an uppercase three-letter code.
+    #[error("invalid currency code")]
+    InvalidCurrency,
     /// Staff working periods use valid local times and end after they begin.
     #[error("invalid staff working period {period_index} on {weekday:?}")]
     InvalidStaffWorkingPeriod {
@@ -123,12 +133,18 @@ pub enum OrganizationSettingsError {
     InvalidPaymentDay(u8),
 }
 
+/// Backwards-compatible currency for organizations without an explicit setting.
+pub fn default_currency() -> String {
+    "RUB".to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn settings(payment_day_of_month: u8) -> OrganizationSettings {
         OrganizationSettings {
+            currency: "RUB".to_owned(),
             staff_working_hours: BTreeMap::new(),
             default_trial_policy: TrialPolicy::Free,
             track_attendance_by_default: true,

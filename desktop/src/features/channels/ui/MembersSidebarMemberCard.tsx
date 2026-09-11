@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import {
   Activity,
   Ban,
@@ -84,10 +85,10 @@ export type MemberModerationState = {
 };
 
 /** Timeout durations offered in the member menu, in seconds. */
-const TIMEOUT_PRESETS: { label: string; seconds: number }[] = [
-  { label: "1 hour", seconds: 60 * 60 },
-  { label: "24 hours", seconds: 24 * 60 * 60 },
-  { label: "7 days", seconds: 7 * 24 * 60 * 60 },
+const TIMEOUT_PRESETS: { labelKey: string; seconds: number }[] = [
+  { labelKey: "1 hour", seconds: 60 * 60 },
+  { labelKey: "24 hours", seconds: 24 * 60 * 60 },
+  { labelKey: "7 days", seconds: 7 * 24 * 60 * 60 },
 ];
 
 const MEMBER_ROW_INSET_DIVIDER_CLASS =
@@ -98,7 +99,7 @@ function formatRoleLabel(
   memberIsBot: boolean,
   isRussian: boolean,
 ) {
-  if (memberIsBot) return isRussian ? "AI-агент" : "AI agent";
+  if (memberIsBot) return messageText("AI agent");
   if (member.role === "owner") return isRussian ? "владелец" : "owner";
   if (member.role === "admin") {
     return isRussian ? "администратор" : "administrator";
@@ -107,14 +108,14 @@ function formatRoleLabel(
   return null;
 }
 
-function formatRespondToLabel(agent: ManagedAgent, isRussian: boolean) {
+function formatRespondToLabel(agent: ManagedAgent) {
   switch (agent.respondTo) {
     case "anyone":
-      return isRussian ? "Все" : "Anyone";
+      return messageText("Anyone");
     case "allowlist":
-      return `${isRussian ? "Выбранные сотрудники" : "Selected people"} (${agent.respondToAllowlist.length})`;
+      return `${messageText("Selected people")} (${agent.respondToAllowlist.length})`;
     default:
-      return isRussian ? "Только я" : "Only me";
+      return messageText("Only me");
   }
 }
 
@@ -155,6 +156,7 @@ export function MembersSidebarMemberCard({
   profileAvatarUrl,
   viewerIsOwner,
 }: MembersSidebarMemberCardProps) {
+  useMessengerCopy();
   const isRussian = useAirHopLocale() === "ru-RU";
   const roleLabel = formatRoleLabel(member, memberIsBot, isRussian);
   const disabled = isActionPending || isArchived;
@@ -239,12 +241,8 @@ export function MembersSidebarMemberCard({
                   : "В другом центре"
                 : agentCommunityAvailability(managedAgentRuntime)
               : managedAgent && isManagedAgentActive(managedAgent)
-                ? isRussian
-                  ? "Работает"
-                  : "Running"
-                : isRussian
-                  ? "Остановлен"
-                  : "Stopped"}
+                ? messageText("Running")
+                : messageText("Stopped")}
           </Badge>
         ) : null}
         {managedAgent ? (
@@ -252,7 +250,7 @@ export function MembersSidebarMemberCard({
             className="sr-only"
             data-testid={`sidebar-managed-agent-respond-to-${member.pubkey}`}
           >
-            {formatRespondToLabel(managedAgent, isRussian)}
+            {formatRespondToLabel(managedAgent)}
           </span>
         ) : null}
       </div>
@@ -272,7 +270,7 @@ export function MembersSidebarMemberCard({
           aria-label={
             isRussian
               ? `Открыть профиль: ${memberLabel}`
-              : `Open profile for ${memberLabel}`
+              : messageText("Open profile for {name}", { name: memberLabel })
           }
           className="absolute inset-0 z-0 cursor-pointer focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
           data-testid={`sidebar-member-open-profile-${member.pubkey}`}
@@ -356,6 +354,7 @@ function MemberActionsMenu({
   pairAction?: ManagedAgentPairAction;
   isRussian: boolean;
 }) {
+  useMessengerCopy();
   const showChangeRole =
     canChangeRole && !memberIsBot && member.role !== "owner";
   const isBanned = moderationState?.banned ?? false;
@@ -387,7 +386,7 @@ function MemberActionsMenu({
             onClick={() => onViewActivity?.(member.pubkey)}
           >
             <Activity className="h-4 w-4" />
-            {isRussian ? "Активность" : "View activity"}
+            {messageText("View activity")}
           </DropdownMenuItem>
         ) : null}
         {memberIsBot && managedAgent ? (
@@ -418,7 +417,7 @@ function MemberActionsMenu({
                 onClick={() => onEditRespondTo(managedAgent)}
               >
                 <Pencil className="h-4 w-4" />
-                {isRussian ? "Доступ агента…" : "Manage agent access..."}
+                {messageText("Manage agent access...")}
               </DropdownMenuItem>
             ) : null}
             {canRemoveMember || showChangeRole ? (
@@ -433,7 +432,7 @@ function MemberActionsMenu({
               disabled={disabled}
             >
               <Shield className="h-4 w-4" />
-              {isRussian ? "Изменить роль" : "Change role"}
+              {messageText("Change role")}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {PEOPLE_ROLES.map((role) => (
@@ -470,7 +469,7 @@ function MemberActionsMenu({
               onClick={() => onRemoveMember(member)}
             >
               <Trash2 className="h-4 w-4" />
-              {isRussian ? "Убрать из канала" : "Remove from channel"}
+              {messageText("Remove from channel")}
             </DropdownMenuItem>
           </>
         ) : null}
@@ -486,7 +485,7 @@ function MemberActionsMenu({
                 onClick={() => onUntimeout(member)}
               >
                 <ShieldCheck className="h-4 w-4" />
-                {isRussian ? "Снять ограничение" : "Lift timeout"}
+                {messageText("Lift timeout")}
               </DropdownMenuItem>
             ) : (
               <DropdownMenuSub>
@@ -495,7 +494,7 @@ function MemberActionsMenu({
                   disabled={disabled}
                 >
                   <Clock className="h-4 w-4" />
-                  {isRussian ? "Ограничить" : "Time out"}
+                  {messageText("Time out")}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   {TIMEOUT_PRESETS.map((preset) => (
@@ -516,7 +515,7 @@ function MemberActionsMenu({
                           : preset.seconds === 24 * 60 * 60
                             ? "24 часа"
                             : "7 дней"
-                        : preset.label}
+                        : messageText(preset.labelKey)}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuSubContent>
@@ -529,7 +528,7 @@ function MemberActionsMenu({
                 onClick={() => onUnban(member)}
               >
                 <CircleSlash className="h-4 w-4" />
-                {isRussian ? "Снять блокировку" : "Lift ban"}
+                {messageText("Lift ban")}
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem
@@ -539,7 +538,7 @@ function MemberActionsMenu({
                 onClick={() => onBan(member)}
               >
                 <Ban className="h-4 w-4" />
-                {isRussian ? "Заблокировать в центре" : "Ban from community"}
+                {messageText("Ban from community")}
               </DropdownMenuItem>
             )}
           </>

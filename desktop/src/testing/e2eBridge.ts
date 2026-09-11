@@ -601,6 +601,13 @@ type E2eConfig = {
     /** Delay EOSE for membership snapshots after delivering the event. */
     relayMembershipEoseDelayMs?: number;
     relayRole?: "owner" | "admin" | "member" | null;
+    /** Authoritative directory returned by the isolated AirHop fixture. */
+    principalDirectory?: unknown;
+    relayMembers?: Array<{
+      pubkey: string;
+      role: "owner" | "admin" | "member";
+    }>;
+    emptyChannelHistory?: boolean;
     // Descriptors returned by the mocked `pick_and_upload_media` /
     // `upload_media_bytes` commands. Lets a spec drive the attachment flow
     // (e.g. a generic PDF) without a real upload pipeline. See
@@ -659,6 +666,8 @@ type E2eConfig = {
     // Event IDs that `get_event` should report as definitively not found.
     // Causes `useDraftRootStatus` to classify as `deleted`.
     deletedEventIds?: string[];
+    /** Per-event transport failures for Inbox availability/retry regressions. */
+    eventLookupErrors?: Record<string, string>;
     // Pending community deep links (buzz://join / buzz://connect / buzz://add-community) seeded into
     // the mocked Rust-side queue. Mirrors the real queue's semantics:
     // `take_pending_community_deep_link` peeks the head and
@@ -1498,6 +1507,9 @@ declare global {
     __BUZZ_E2E_MUTATE_CHANNEL__?: (opts: {
       channelId: string;
       channelType?: "stream" | "forum" | "dm";
+      topic?: string | null;
+      purpose?: string | null;
+      description?: string;
       removeMemberPubkey?: string;
     }) => void;
     /**
@@ -1902,6 +1914,11 @@ function resetMockRelayMembers(config: E2eConfig | undefined) {
         };
   mockRelayMembers = [
     ...(activeRoleMember ? [activeRoleMember] : []),
+    ...(config?.mock?.relayMembers ?? []).map((member) => ({
+      ...member,
+      added_by: pubkey,
+      created_at: isoMinutesAgo(30),
+    })),
     {
       pubkey: ALICE_PUBKEY,
       role: "admin",
@@ -4094,6 +4111,11 @@ function getMockMessageStore(channelId: string): RelayEvent[] {
     return existing;
   }
 
+  if (getConfig()?.mock?.emptyChannelHistory) {
+    const empty: RelayEvent[] = [];
+    mockMessages.set(channelId, empty);
+    return empty;
+  }
   const seeded: RelayEvent[] =
     channelId === "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50"
       ? [
@@ -4341,6 +4363,16 @@ function emitMockHistory(
 ) {
   const events = getMockMessageStore(channelId)
     .filter((event) => {
+      // Inbox single-event and descendant lookups must see the same filtered
+      // result as the relay, not unrelated cached messages from this channel.
+      if (filter.ids && !filter.ids.includes(event.id)) return false;
+      if (
+        filter["#e"] &&
+        !event.tags.some(
+          (tag) => tag[0] === "e" && filter["#e"]?.includes(tag[1]),
+        )
+      )
+        return false;
       if (filter.kinds && !filter.kinds.includes(event.kind)) {
         return false;
       }
@@ -6355,10 +6387,7 @@ async function handleEnsureStarterChannels(
     touchMockChannel(channel);
   };
 
-  for (const channelName of [
-    STARTER_GENERAL_CHANNEL_NAME,
-    STARTER_WELCOME_CHANNEL_NAME,
-  ]) {
+  for (const channelName of [STARTER_GENERAL_CHANNEL_NAME]) {
     const channel = mockChannels.find(
       (candidate) =>
         candidate.name === channelName &&
@@ -9499,6 +9528,8 @@ async function resolveGetEvent(
   const identity = getIdentity(config);
   if (!identity) {
     // Allow test specs to mark specific event IDs as definitively deleted.
+    const lookupError = config?.mock?.eventLookupErrors?.[args.eventId];
+    if (lookupError) throw new Error(lookupError);
     if (config?.mock?.deletedEventIds?.includes(args.eventId)) {
       throw new Error("event not found");
     }
@@ -10059,6 +10090,13 @@ function installMockAirhopWelcomeApi() {
     ).toUpperCase();
 
     if (method === "GET" && url.pathname === "/api/airhop/staff/v1/settings") {
+      if (config.mock?.principalDirectory !== undefined)
+        return new Response(
+          JSON.stringify({
+            principalDirectory: config.mock.principalDirectory,
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        );
       return new Response(JSON.stringify({ error: "not configured" }), {
         status: 404,
         headers: { "Content-Type": "application/json" },
@@ -10257,6 +10295,9 @@ export function maybeInstallE2eTauriMocks() {
   window.__BUZZ_E2E_MUTATE_CHANNEL__ = ({
     channelId,
     channelType,
+    topic,
+    purpose,
+    description,
     removeMemberPubkey,
   }) => {
     const channel = mockChannels.find((ch) => ch.id === channelId);
@@ -10264,6 +10305,9 @@ export function maybeInstallE2eTauriMocks() {
     if (channelType !== undefined) {
       channel.channel_type = channelType;
     }
+    if (topic !== undefined) channel.topic = topic;
+    if (purpose !== undefined) channel.purpose = purpose;
+    if (description !== undefined) channel.description = description;
     if (removeMemberPubkey !== undefined) {
       channel.members = channel.members.filter(
         (m) => m.pubkey !== removeMemberPubkey,

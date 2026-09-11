@@ -1,3 +1,4 @@
+import { messageError, messageText } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -52,11 +53,9 @@ export function useMembersSidebarModeration(open: boolean) {
     async (action: () => Promise<unknown>, success: string) => {
       try {
         await action();
-        toast.success(success);
+        toast.success(messageText(success));
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Moderation action failed",
-        );
+        toast.error(messageError(error, "Moderation action failed"));
       }
     },
     [],

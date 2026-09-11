@@ -6,6 +6,7 @@ import { EN_BOOKING_PARTICIPANT_SOURCE_MESSAGES } from "@/features/booking/lib/b
 export const EN_BOOKING_ADMIN_MESSAGES = {
   ...enPaymentMessages,
   productName: "AirHop",
+  navInbox: "Client Inbox",
   navSchedule: "Schedule",
   navRequests: "Requests",
   navClients: "Clients",
@@ -14,6 +15,7 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
   navTariffs: "Plans",
   navPayments: "Payments",
   navAnalytics: "Analytics",
+  navKnowledge: "Knowledge base",
   navTeachers: "Teachers",
   navSettings: "Settings",
   loadingTitle: "Loading AirHop",
@@ -101,7 +103,8 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
     "Enter a supported three-letter currency code, for example USD.",
   invalidPrice: "Enter a non-negative amount valid for the selected currency.",
   branchesTitle: "Branches",
-  branchesDescription: "Addresses, working hours, and work-channel routing.",
+  branchesDescription:
+    "Addresses, conversation responsibles, map links, and work channels.",
   addBranch: "Add branch",
   noBranchesTitle: "No branches yet",
   noBranchesDescription:
@@ -112,14 +115,14 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
   buzzChannelHint:
     "The team receives new bookings, tasks, and AirHop notifications here. An existing channel will be linked; otherwise it will be created when you save.",
   buzzChannelPlaceholder: "for example, downtown",
-  buzzChannelSearching: "Looking for the channel in Buzz…",
+  buzzChannelSearching: "Looking for the channel…",
   buzzChannelFound: (name) =>
     `Channel #${name} found. The branch will be linked to it.`,
   buzzChannelWillCreate: (name) =>
     `Channel #${name} does not exist yet. It will be created when the branch is saved.`,
   buzzChannelSuggestions: "Similar channels:",
   buzzChannelLookupError:
-    "Could not check or create the channel. Check the Buzz connection and try again.",
+    "Could not check or create the channel. Check the Center connection and try again.",
   buzzChannelUnavailable: "Linked channel unavailable",
   buzzChannelDescription: (branchName) =>
     `AirHop work channel for the “${branchName}” branch.`,
@@ -190,9 +193,10 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
   noRoom: "Not selected",
   groupTeachers: "Teachers",
   noTeachers: "No teacher",
-  groupMinAge: "Minimum age, months",
-  groupMaxAge: "Maximum age, months",
-  ageMonthsHint: "Optional. Each limit can be set independently.",
+  groupMinAge: "Minimum age, years",
+  groupMaxAge: "Maximum age, years inclusive",
+  ageMonthsHint:
+    "Optional. Enter completed years. A maximum of 6 includes children until their seventh birthday.",
   groupCapacity: "Capacity",
   capacityHint: "Leave blank for no limit.",
   groupTrialPolicy: "Trial class",
@@ -276,7 +280,7 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
   noTeachersDescription:
     "You can work without teachers or add the first teacher to the directory.",
   teacherName: "Teacher name",
-  teacherBuzzUsername: "Buzz username",
+  teacherBuzzUsername: "Center username",
   teacherBuzzUsernameHint: "Optional. Enter the name without @.",
   createTeacherTitle: "New teacher",
   editTeacherTitle: "Edit teacher",
@@ -307,7 +311,7 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
   tariffCurrency: "Currency",
   tariffWeeklyScheduleLimit: "Classes per week",
   tariffWeeklyScheduleLimitHint:
-    "When enrolling, a staff member can select no more than this number of days.",
+    "Up to 21 classes per week. Multiple classes on the same day are allowed.",
   tariffPaymentDay: "Payment day",
   tariffPaymentDayInherited: (day) => `Use Center setting — day ${day}`,
   tariffPaymentDayCustom: "Different day",
@@ -334,7 +338,7 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
   tariffPerWeek: (count) => `${count} per week`,
   tariffPaymentDaySummary: (day) => `Payment on day ${day}`,
   tariffPaymentDayCenterSummary: (day) => `Center payment day: ${day}`,
-  invalidWeeklyScheduleLimit: "Choose 1 to 7 classes per week.",
+  invalidWeeklyScheduleLimit: "Choose 1 to 21 classes per week.",
   invalidPaymentDay: "Enter a day from 1 to 28.",
   enrollChildTitle: "Enroll in a group",
   enrollChildDescription:

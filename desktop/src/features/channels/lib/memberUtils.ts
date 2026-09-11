@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import type { ChannelMember } from "@/shared/api/types";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 
@@ -14,7 +15,7 @@ export function formatMemberName(
   currentPubkey?: string,
 ) {
   if (currentPubkey && member.pubkey === currentPubkey) {
-    return "You";
+    return messageText("You");
   }
 
   return member.displayName ?? truncatePubkey(member.pubkey);

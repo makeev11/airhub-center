@@ -17,6 +17,8 @@ import type {
 } from "@/features/home/lib/inbox";
 import { getProjectInboxReference } from "@/features/home/lib/projectInbox";
 import { ProjectInboxDetail } from "@/features/home/ui/ProjectInboxDetail";
+import { InboxContextUnavailableNotice } from "@/features/home/ui/InboxContextUnavailableNotice";
+import type { InboxContextUnavailable } from "@/features/home/lib/loadInboxThreadContext";
 import { ChannelMembersBar } from "@/features/channels/ui/ChannelMembersBar";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { formatInboxTypeLabel } from "@/features/home/lib/inbox";
@@ -71,6 +73,8 @@ type InboxDetailPaneProps = {
   isSendingReply?: boolean;
   isSinglePanelView?: boolean;
   hasThreadContextLoadError?: boolean;
+  contextUnavailable?: InboxContextUnavailable;
+  onRetryContext?: () => void;
   isThreadContextLoading?: boolean;
   item: InboxItem | null;
   messages?: InboxContextMessage[];
@@ -142,6 +146,8 @@ function InboxMessageDetailPane({
   isSendingReply = false,
   isSinglePanelView = false,
   hasThreadContextLoadError = false,
+  contextUnavailable = null,
+  onRetryContext,
   isThreadContextLoading = false,
   item,
   messages = [],
@@ -605,7 +611,21 @@ function InboxMessageDetailPane({
                     ? "Не удалось загрузить часть контекста сообщения."
                     : "Some message context could not be loaded."}
                 </span>
+                {onRetryContext ? (
+                  <button
+                    className="ml-auto shrink-0 rounded px-2 py-1 font-medium underline underline-offset-2 disabled:opacity-50"
+                    data-testid="home-inbox-context-retry"
+                    disabled={isThreadContextLoading}
+                    onClick={onRetryContext}
+                    type="button"
+                  >
+                    {isRussian ? "Повторить" : "Retry"}
+                  </button>
+                ) : null}
               </div>
+            ) : null}
+            {contextUnavailable ? (
+              <InboxContextUnavailableNotice reason={contextUnavailable} />
             ) : null}
             {displayMessages.map((message, index) => {
               const hasUnreadBoundary = message.id === unreadBoundaryEventId;

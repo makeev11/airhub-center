@@ -1,6 +1,6 @@
 //! Capacity-safe AirHub booking persistence.
 
-use airhop_core::{AgeLimits, BookingStatus, StableLessonReference, TrialPolicy, Weekday};
+use airhop_core::{BookingStatus, StableLessonReference, TrialPolicy, Weekday};
 use buzz_core::TenantContext;
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde_json::Value;
@@ -55,15 +55,7 @@ pub(super) async fn recheck_online_confirmation(
         &trial_policy,
         row.try_get("allow_single_visits")?,
     )?;
-    let age = AgeLimits::new(
-        optional_months(row.try_get("min_age_months")?)?,
-        optional_months(row.try_get("max_age_months")?)?,
-    )
-    .map_err(|error| DbError::InvalidData(error.to_string()))?;
     let date: NaiveDate = row.try_get("effective_date")?;
-    if !age.contains_birth_date(row.try_get("birth_date")?, date) {
-        return Err(DbError::AirhopAgeMismatch);
-    }
     // Pending bookings already hold seats. Count unique children across both
     // permanent enrollments and bookings, using the Core's schedule selection.
     let original_date: NaiveDate = row.try_get("original_date")?;
@@ -188,8 +180,8 @@ pub struct BookingRecord {
 
 /// Reserves one lesson for one distinct child inside the command transaction.
 ///
-/// The stable materialized occurrence row is locked before authoritative age,
-/// policy, identity, and capacity checks. Concurrent reservations for the same
+/// The stable materialized occurrence row is locked before authoritative
+/// visit-policy, identity, and capacity checks. Age is a recommendation. Concurrent reservations for the same
 /// occurrence therefore serialize, while enrollment and booking occupancy is
 /// deduplicated by child id. The caller is responsible for appending the
 /// resulting domain event and committing the command in this same transaction.
@@ -241,7 +233,7 @@ pub async fn reserve_booking(
         occurrence.try_get("allow_single_visits")?,
     )?;
 
-    let identity = sqlx::query(
+    sqlx::query(
         "SELECT child.birth_date \
          FROM airhop_children child \
          JOIN airhop_families family \
@@ -280,15 +272,6 @@ pub async fn reserve_booking(
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(DbError::AirhopIdentityMismatch)?;
-    let birth_date: NaiveDate = identity.try_get("birth_date")?;
-    let minimum_age = optional_months(occurrence.try_get("min_age_months")?)?;
-    let maximum_age = optional_months(occurrence.try_get("max_age_months")?)?;
-    let age_limits = AgeLimits::new(minimum_age, maximum_age)
-        .map_err(|error| DbError::InvalidData(error.to_string()))?;
-    if !age_limits.contains_birth_date(birth_date, effective_date) {
-        return Err(DbError::AirhopAgeMismatch);
-    }
-
     let occupancy = sqlx::query(
         "SELECT COUNT(*)::BIGINT AS occupancy, \
                 COALESCE(bool_or(child_id = $7), FALSE) AS already_present \
@@ -442,13 +425,6 @@ fn validate_visit_policy(
         BookingVisitKind::Single if !single_visit_allowed => Err(DbError::AirhopVisitDisabled),
         BookingVisitKind::Trial | BookingVisitKind::Single => Ok(()),
     }
-}
-
-fn optional_months(value: Option<i32>) -> Result<Option<u32>> {
-    value
-        .map(u32::try_from)
-        .transpose()
-        .map_err(|_| DbError::InvalidData("AirHub age limit is invalid".to_owned()))
 }
 
 const fn has_capacity(capacity: Option<i32>, occupied: i64, already_present: bool) -> bool {

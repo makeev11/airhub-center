@@ -122,6 +122,44 @@ test("configured enrollment and first payment are created atomically", () => {
   assert.equal(draft.paymentExpectations.at(-1).amountMinor, 600_000);
 });
 
+test("a tariff supports three distinct lessons each day, 21 weekly slots", () => {
+  const workspace = workspaceWithClient();
+  workspace.tariffs.find(
+    (tariff) => tariff.id === "tariff-weekly-2",
+  ).weeklyScheduleLimit = 21;
+  const rule = workspace.recurrenceRules.find(
+    (item) => item.id === "robotics-junior-weekly",
+  );
+  const weekdays = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+  ];
+  const selections = [];
+  for (let index = 0; index < 3; index++) {
+    const id = `daily-rule-${index}`;
+    workspace.recurrenceRules.push({
+      ...rule,
+      id,
+      weekdays,
+      startTime: `${10 + index * 2}:00`,
+      endTime: `${11 + index * 2}:00`,
+    });
+    selections.push(
+      ...weekdays.map((weekday) => ({ recurrenceRuleId: id, weekday })),
+    );
+  }
+  const draft = commerce.createConfiguredEnrollmentWithPayment(workspace, {
+    enrollment: configuredEnrollment({ weeklyScheduleSelections: selections }),
+    payment: firstPayment(),
+  });
+  assert.equal(draft.enrollments.at(-1).weeklyScheduleSelections.length, 21);
+});
+
 test("staff can enroll a child outside the group's recommended age range", () => {
   const workspace = workspaceWithClient();
   workspace.children.find((child) => child.id === "child-masha").birthDate =

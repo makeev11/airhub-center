@@ -607,7 +607,7 @@ fn validate_tariff_fields(
         || price_minor < 0
         || currency.len() != 3
         || !currency.bytes().all(|value| value.is_ascii_uppercase())
-        || !(1..=7).contains(&weekly_schedule_limit)
+        || !(1..=21).contains(&weekly_schedule_limit)
         || payment_day_of_month.is_some_and(|value| !(1..=28).contains(&value))
     {
         return Err(DbError::InvalidData(
@@ -627,6 +627,7 @@ mod tests {
 
     #[test]
     fn tariff_validation_accepts_business_boundaries() {
+        assert!(validate_tariff_fields("Три в день", None, 1, "RUB", 21, None).is_ok());
         assert!(validate_tariff_fields("Раз в неделю", None, 0, "RUB", 1, None).is_ok());
         assert!(
             validate_tariff_fields("Каждый день", Some("Описание"), 1, "USD", 7, Some(28)).is_ok()
@@ -635,6 +636,7 @@ mod tests {
 
     #[test]
     fn tariff_validation_rejects_invalid_money_schedule_and_payment_day() {
+        assert!(validate_tariff_fields("Тариф", None, 1, "RUB", 22, None).is_err());
         assert!(validate_tariff_fields("", None, 1, "RUB", 1, None).is_err());
         assert!(validate_tariff_fields("Тариф", None, -1, "RUB", 1, None).is_err());
         assert!(validate_tariff_fields("Тариф", None, 1, "rub", 1, None).is_err());

@@ -17,6 +17,8 @@ import { Route as bookingDotsettingsRouteImport } from "./routes/booking.setting
 import { Route as bookingDotscheduleRouteImport } from "./routes/booking.schedule";
 import { Route as bookingDotrequestsRouteImport } from "./routes/booking.requests";
 import { Route as bookingDotpaymentsRouteImport } from "./routes/booking.payments";
+import { Route as bookingDotknowledgeRouteImport } from "./routes/booking.knowledge";
+import { Route as bookingDotinboxRouteImport } from "./routes/booking.inbox";
 import { Route as bookingDotgroupsRouteImport } from "./routes/booking.groups";
 import { Route as bookingDotdemoHostRouteImport } from "./routes/booking.demo-host";
 import { Route as bookingDotclientsRouteImport } from "./routes/booking.clients";
@@ -88,6 +90,16 @@ const bookingDotpaymentsRoute = bookingDotpaymentsRouteImport.update({
   path: "/booking/payments",
   getParentRoute: () => rootRouteImport,
 } as any);
+const bookingDotknowledgeRoute = bookingDotknowledgeRouteImport.update({
+  id: "/booking/knowledge",
+  path: "/booking/knowledge",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const bookingDotinboxRoute = bookingDotinboxRouteImport.update({
+  id: "/booking/inbox",
+  path: "/booking/inbox",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const bookingDotgroupsRoute = bookingDotgroupsRouteImport.update({
   id: "/booking/groups",
   path: "/booking/groups",
@@ -154,6 +166,8 @@ export interface FileRoutesByFullPath {
   "/booking/clients": typeof bookingDotclientsRouteWithChildren;
   "/booking/demo-host": typeof bookingDotdemoHostRoute;
   "/booking/groups": typeof bookingDotgroupsRoute;
+  "/booking/inbox": typeof bookingDotinboxRoute;
+  "/booking/knowledge": typeof bookingDotknowledgeRoute;
   "/booking/payments": typeof bookingDotpaymentsRoute;
   "/booking/requests": typeof bookingDotrequestsRoute;
   "/booking/schedule": typeof bookingDotscheduleRoute;
@@ -177,6 +191,8 @@ export interface FileRoutesByTo {
   "/booking/branches": typeof bookingDotbranchesRoute;
   "/booking/demo-host": typeof bookingDotdemoHostRoute;
   "/booking/groups": typeof bookingDotgroupsRoute;
+  "/booking/inbox": typeof bookingDotinboxRoute;
+  "/booking/knowledge": typeof bookingDotknowledgeRoute;
   "/booking/payments": typeof bookingDotpaymentsRoute;
   "/booking/requests": typeof bookingDotrequestsRoute;
   "/booking/schedule": typeof bookingDotscheduleRoute;
@@ -202,6 +218,8 @@ export interface FileRoutesById {
   "/booking/clients": typeof bookingDotclientsRouteWithChildren;
   "/booking/demo-host": typeof bookingDotdemoHostRoute;
   "/booking/groups": typeof bookingDotgroupsRoute;
+  "/booking/inbox": typeof bookingDotinboxRoute;
+  "/booking/knowledge": typeof bookingDotknowledgeRoute;
   "/booking/payments": typeof bookingDotpaymentsRoute;
   "/booking/requests": typeof bookingDotrequestsRoute;
   "/booking/schedule": typeof bookingDotscheduleRoute;
@@ -228,6 +246,8 @@ export interface FileRouteTypes {
     | "/booking/clients"
     | "/booking/demo-host"
     | "/booking/groups"
+    | "/booking/inbox"
+    | "/booking/knowledge"
     | "/booking/payments"
     | "/booking/requests"
     | "/booking/schedule"
@@ -251,6 +271,8 @@ export interface FileRouteTypes {
     | "/booking/branches"
     | "/booking/demo-host"
     | "/booking/groups"
+    | "/booking/inbox"
+    | "/booking/knowledge"
     | "/booking/payments"
     | "/booking/requests"
     | "/booking/schedule"
@@ -275,6 +297,8 @@ export interface FileRouteTypes {
     | "/booking/clients"
     | "/booking/demo-host"
     | "/booking/groups"
+    | "/booking/inbox"
+    | "/booking/knowledge"
     | "/booking/payments"
     | "/booking/requests"
     | "/booking/schedule"
@@ -300,6 +324,8 @@ export interface RootRouteChildren {
   bookingDotclientsRoute: typeof bookingDotclientsRouteWithChildren;
   bookingDotdemoHostRoute: typeof bookingDotdemoHostRoute;
   bookingDotgroupsRoute: typeof bookingDotgroupsRoute;
+  bookingDotinboxRoute: typeof bookingDotinboxRoute;
+  bookingDotknowledgeRoute: typeof bookingDotknowledgeRoute;
   bookingDotpaymentsRoute: typeof bookingDotpaymentsRoute;
   bookingDotrequestsRoute: typeof bookingDotrequestsRoute;
   bookingDotscheduleRoute: typeof bookingDotscheduleRoute;
@@ -396,6 +422,20 @@ declare module "@tanstack/react-router" {
       path: "/booking/payments";
       fullPath: "/booking/payments";
       preLoaderRoute: typeof bookingDotpaymentsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/booking/knowledge": {
+      id: "/booking/knowledge";
+      path: "/booking/knowledge";
+      fullPath: "/booking/knowledge";
+      preLoaderRoute: typeof bookingDotknowledgeRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/booking/inbox": {
+      id: "/booking/inbox";
+      path: "/booking/inbox";
+      fullPath: "/booking/inbox";
+      preLoaderRoute: typeof bookingDotinboxRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/booking/groups": {
@@ -495,6 +535,8 @@ const rootRouteChildren: RootRouteChildren = {
   bookingDotclientsRoute: bookingDotclientsRouteWithChildren,
   bookingDotdemoHostRoute: bookingDotdemoHostRoute,
   bookingDotgroupsRoute: bookingDotgroupsRoute,
+  bookingDotinboxRoute: bookingDotinboxRoute,
+  bookingDotknowledgeRoute: bookingDotknowledgeRoute,
   bookingDotpaymentsRoute: bookingDotpaymentsRoute,
   bookingDotrequestsRoute: bookingDotrequestsRoute,
   bookingDotscheduleRoute: bookingDotscheduleRoute,

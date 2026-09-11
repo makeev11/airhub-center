@@ -1,7 +1,7 @@
 # AirHop Hermes Channel Gateway contract
 
 Статус: server foundation, Telegram self-service и hosted gateway supervisor реализованы  
-Дата: 2026-08-21
+Дата: 2026-09-09 (кандидат shared-thread; ещё не выложен)
 
 ## Граница ответственности
 
@@ -40,7 +40,8 @@ identity/conversation metadata и не получает фиктивный Nostr
 ```json
 {
   "token": "<BotFather token>",
-  "hermesEnabled": true
+  "hermesEnabled": true,
+  "routing": { "buzzChannelId": null, "branchId": null }
 }
 ```
 
@@ -83,7 +84,8 @@ offline независимо от последнего reported status.
   "status": "active",
   "hermesEnabled": true,
   "capabilities": { "typing": true, "media": ["voice"] },
-  "expectedVersion": 0
+  "expectedVersion": 0,
+  "routing": { "buzzChannelId": null, "branchId": null }
 }
 ```
 
@@ -159,13 +161,23 @@ Telegram runtime и отдельный SQLite spool на connection, остан�
 }
 ```
 
-Ответ содержит только `conversationId`, `channelId`, статусы route/connection и
-`created`. Если exact private provider chat ещё не известен, этот же POST под
-scoped advisory lock создаёт один private Buzz stream, неподтверждённый
-`ExternalConversation`, первый ownership cycle и route. В канал добавляются
-Hermes, точный connector и owner/admin центра; relay публикует обычные NIP-29
-discovery/membership events. Повтор или параллельный первый update получает тот
-же route, а не второй тред.
+Ответ содержит `conversationId`, `channelId`, `rootEventId`, `threaded`, статусы
+route/connection и `created`. Под scoped advisory lock резервируются conversation,
+первый cycle и route, **не канал**. Пока первое сообщение не принято, root равен null.
+Первый подписанный inbound становится единственным root атомарно с inbound receipt,
+событием и thread metadata. Повтор/конкурентный resolve возвращает ту же сущность.
+При проигранной гонке root сервер до вставки отвечает 409 `airhop_thread_changed`:
+шлюз повторно разрешает route и подписывает reply. При сетевой неопределённости
+повторяет **тот же сохранённый подписанный event**, не создаёт новый.
+
+Канал задаётся в connection: `routing.branchId=null` означает общее подключение,
+`routing.branchId=<active branch>` — филиальное. Явный `buzzChannelId` выбирает
+закрытый активный stream; без него используется рабочий канал филиала или singleton
+организации `parents`. Последний создаётся только при настройке connection,
+с owner/admin, connector и Гермесом; discovery публикуется на этой границе.
+Внешний родитель не становится фиктивным Buzz-участником.
+Изменение обычного статуса с отсутствующим `routing` не меняет membership/канал.
+Изменение routing применяется к новым контактам; старые не переезжают неявно.
 
 Это только безопасный direct-contact bootstrap. Он не подтверждает Family или
 Representative и не притворяется booking handoff. Гермес должен уточнить, хочет
@@ -186,7 +198,8 @@ Representative и не притворяется booking handoff. Гермес д
 ```
 
 Adapter нормализует входящее сообщение и подписывает kind-9 exact connector
-principal. Conversation определяют `h` tag события и сохранённый route; Relay
+principal. Conversation определяют точный `airhop-conversation`, `h` tag,
+канонический root и сохранённый route; Relay
 повторно проверяет connector, route и channel membership.
 Provider event ID хэшируется с tenant и connection. Тот же ID с другим event
 отклоняется; тот же ID и event является безопасным retry.
@@ -262,5 +275,71 @@ implementation, но не канонический AirHop conversation/outbox co
 `v2026.8.18` (`e624e9fde561e1add9388384012b295fde669ade`), использует его
 `TelegramAdapter` для polling/webhook/send и не запускает Hermes model loop.
 Первый slice принимает только private DM text/command/location. Media, typing,
-generic unbound-contact provisioning и booking handoff grant consumption
-остаются отдельными следующими контрактами, а не скрытыми эвристиками.
+оригинальные вложения и typing остаются отдельными контрактами. First contact и
+booking handoff реализованы; неподдерживаемое вложение не выдается за прочитанное.
+
+
+## Очередь, ответственность и безопасность общего канала
+
+Физический адрес — `channelId + rootEventId`. Филиал, ответственный и очередь
+не являются ACL. Участники общего канала видят все его разговоры; для строгой
+изоляции настройте отдельные филиальные connection/каналы. Переезд после выбора
+филиала запрещён: новая семья, следующая запись и следующий цикл используют тот
+же conversation/root. Binding обновляет название обращения, не имя канала.
+
+`GET /api/airhop/staff/v1/client-conversations` (NIP-98, no-store): до 100 строк,
+keyset `before + afterId`, фильтры branchId/unassignedBranch, mine, status,
+connectionId, search, familyId/representativeId, conversationId. Поиск по текущему
+названию; это не новый API сообщений. Из очереди и карточек семьи/записи открывается
+стандартный Buzz thread. Непринятые резервации без root в очередь не попадают.
+
+Подписанный kind **9051** через `/events` или CLI `buzz airhop client-command`:
+`{idempotencyKey, conversationId, expectedVersion, action}`, где action —
+`assign_branch {branchId}`, `assign {pubkey}`, `set_status {status}` или
+`migrate_legacy {expectedRouteVersion}`. Требуется точный `airhop-community` tag,
+действующая staff membership, CAS; изменение и retry receipt коммитятся вместе.
+Настройка ответственных: тот же kind с
+`{idempotencyKey, branchId, expectedVersion, responsiblePubkeys}`, до восьми
+существующих сотрудников, только owner/admin. Настройка не выдаёт membership.
+
+Неизвестный филиал получает owner/admin fallback. Гермес уточняет выбор и вызывает
+`airhop_assign_conversation_branch` с цитатой из текущего authenticated inbound;
+backend перепроверяет lease, источник, филиал и версию. Настроенные ответственные,
+имеющие доступ, получают настоящие внутренние p-mentions; если таких нет — владелец.
+Новые inbound-alerts сохраняются в durable очереди и подписываются relay отдельно:
+исходный root не рассылает уведомление всем участникам общего канала. Внутренние
+упоминания не попадают в provider outbox. Уведомление не гарантирует немедленный
+push на офлайн-устройство; каноническое сообщение остаётся доступно в истории.
+Если доступного ответственного нет, попытка откладывается на 60 секунд и не
+задерживает другие обращения. Ошибка Redis оставляет доставку уведомления в очереди.
+
+Состояния: waiting_staff / waiting_parent / resolved. Новое входящее после resolved
+создаёт новый ownership cycle в той же ветке. Подтверждённая доставка ответа переводит
+очередь в waiting_parent, только если после него не пришёл клиент и сотрудник не
+поменял состояние. Передача Гермесом сотруднику остаётся waiting_staff.
+ACP делит batch по root и модельные сессии по supervisor-confirmed conversation;
+parent runtime не допускает flat-channel history. Соседние клиенты не становятся
+контекстом подтверждения записи или отправки ответа.
+Для обработки живой очереди обязателен обновляемый `BUZZ_AIRHOP_CONTEXT_GRANT_FILE`;
+статический grant не отключает supervisor-проверку и не разрешает такую обработку.
+
+## Явная миграция legacy
+
+1. Сначала обновить relay, gateway, MCP/persona и Center одним кандидатом с миграцией
+   0057; настройки не запускают перенос данных автоматически.
+2. Настроить parent channel у подключения, проверить membership и резервную копию.
+3. В очереди owner/admin нажимает «Проверить перенос старого разговора» либо вызывает
+   `buzz airhop client-migration-preview --conversation-id <id>`.
+4. Любые pending/leased deliveries, committed/unpublished replies или live turns
+   блокируют перенос. Их нужно завершить/сверить, не удалять для обхода проверки.
+5. Явная команда с версиями conversation/route атомарно создаёт подписанный служебный
+   root со ссылкой на архив, меняет адрес прежнего conversation и версию прежнего
+   route, архивирует старый канал. Исторические события не копируются/переподписываются.
+6. Exact replay возвращает прежний результат. Старый канал не может отправлять
+   outbound. Не принятый до переноса inbound получает 409 для безопасного re-resolve;
+   уже принятый exact replay подтверждается по durable receipt даже после cutover.
+
+Отключение connection сохраняет историю и останавливает новые claims; pending outbox
+получает superseded. Уже начавшийся внешний сетевой send нельзя отозвать задним числом:
+перед миграцией именно поэтому требуется завершение всех leases. Rollback приложения
+не является rollback данных: после cutover нельзя включать старый per-contact gateway.

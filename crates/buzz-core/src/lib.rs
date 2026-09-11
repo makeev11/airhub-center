@@ -38,6 +38,8 @@ pub mod relay;
 pub mod tenant;
 /// Schnorr signature and event ID verification.
 pub mod verification;
+/// Minimal signed guest introduction, without access to Welcome history.
+pub mod welcome_guest;
 
 pub use error::VerificationError;
 pub use event::StoredEvent;

@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { BotActivityAgent } from "@/features/channels/ui/BotActivityBar";
 import type { ChannelAgentSessionAgent } from "@/features/channels/ui/useChannelAgentSessions";
@@ -35,7 +36,7 @@ export function resolveSelectedAgentSession({
   const profile = profiles?.[openAgentSessionPubkey.toLowerCase()];
   return {
     pubkey: openAgentSessionPubkey,
-    name: profile?.displayName?.trim() || "Agent",
+    name: profile?.displayName?.trim() || messageText("Agent"),
     status: "deployed",
     agentSource: "relay",
     canInterruptTurn: false,

@@ -69,6 +69,9 @@ const sidecars = Object.freeze([
 ] as const);
 
 export const AIRHOP_PRODUCT = Object.freeze({
+  // Center agents are product roles. Ownership still governs authorization,
+  // but personal-owner bylines are not part of their displayed identity.
+  showAgentOwnerLabels: false,
   routes,
   settings,
   nativeCapabilities,

@@ -49,13 +49,13 @@ export function previewAirhopAction(
     lines.push(
       `${russian ? "Тариф" : "Tariff"}: ${command.name}`,
       `${russian ? "Стоимость" : "Price"}: ${formatters.money(command.priceMinor, command.currency)}`,
-      `${russian ? "Дней в неделю" : "Days per week"}: ${command.weeklyScheduleLimit}`,
+      `${russian ? "Занятий в неделю" : "Classes per week"}: ${command.weeklyScheduleLimit}`,
     );
   } else if (command.type === "UpdateTariff") {
     lines.push(
       `${russian ? "Тариф" : "Tariff"}: ${command.name}`,
       `${russian ? "Новая стоимость" : "New price"}: ${formatters.money(command.priceMinor, command.currency)}`,
-      `${russian ? "Дней в неделю" : "Days per week"}: ${command.weeklyScheduleLimit}`,
+      `${russian ? "Занятий в неделю" : "Classes per week"}: ${command.weeklyScheduleLimit}`,
     );
   } else if (command.type === "SetTariffStatus") {
     const tariff = workspace.tariffs.find(({ id }) => id === command.tariffId);

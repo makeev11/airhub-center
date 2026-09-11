@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import sqlite3
 import time
-from typing import Any
+from typing import Any, Iterator
 
 
 @dataclass(frozen=True)
@@ -30,17 +31,19 @@ class InboundSpool:
     async def initialize(self) -> None:
         await asyncio.to_thread(self._initialize)
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.path, timeout=10.0)
         try:
             os.chmod(self.path, 0o600)
-        except FileNotFoundError:
-            pass
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA synchronous=FULL")
-        connection.execute("PRAGMA busy_timeout=10000")
-        return connection
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute("PRAGMA busy_timeout=10000")
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -169,6 +172,19 @@ class InboundSpool:
                 "UPDATE inbound_spool SET event_json = COALESCE(event_json, ?), "
                 "updated_at = ? WHERE provider_event_id = ? AND status = 'processing'",
                 (encoded, time.time(), provider_event_id),
+            )
+
+    async def reject_thread_candidate(self, provider_event_id: str) -> None:
+        """Discard only a candidate explicitly rejected before relay insertion."""
+        await asyncio.to_thread(self._reject_thread_candidate, provider_event_id)
+
+    def _reject_thread_candidate(self, provider_event_id: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "UPDATE inbound_spool SET event_json=NULL, status='pending', "
+                "next_attempt_at=?, last_error_code='thread_changed', updated_at=? "
+                "WHERE provider_event_id=? AND status='processing'",
+                (time.time() + 0.1, time.time(), provider_event_id),
             )
 
     async def delivered(self, provider_event_id: str) -> None:

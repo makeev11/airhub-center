@@ -571,7 +571,31 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 52);
+        assert_eq!(migrations.len(), 64);
+        assert_eq!(migrations[63].version, 64);
+        assert!(migrations[63]
+            .sql
+            .as_str()
+            .contains("CREATE TRIGGER airhop_welcome_kickoff_publication"));
+        assert_eq!(migrations[62].version, 63);
+        assert!(migrations[62]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_welcome_guest_invitations"));
+        assert_eq!(migrations[61].version, 62);
+        assert!(migrations[61]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_consultation_exposures"));
+        assert_eq!(migrations[60].version, 61);
+        assert!(migrations[60]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_consultations"));
+        assert!(migrations[60]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_consultation_questions"));
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -1081,6 +1105,27 @@ mod tests {
         assert!(airhop_payment_ledger.contains("REFERENCES airhop_payment_expectations"));
         assert!(airhop_payment_ledger.contains("WHERE status = 'paid'"));
         assert!(airhop_payment_ledger.contains("'legacy'"));
+
+        assert_eq!(migrations[52].version, 53);
+        let airhop_site_analytics = migrations[52].sql.as_str();
+        assert!(airhop_site_analytics.contains("CREATE TABLE airhop_tracking_links"));
+        assert!(airhop_site_analytics.contains("CREATE TABLE airhop_site_analytics_events"));
+        assert!(airhop_site_analytics.contains("airhop_site_analytics_events_append_only"));
+        assert!(airhop_site_analytics.contains("buzz.airhop_analytics_retention"));
+        assert_eq!(migrations[53].version, 54);
+        assert!(migrations[53]
+            .sql
+            .as_str()
+            .contains("airhop_site_analytics_booking_idx"));
+        assert_eq!(migrations[54].version, 55);
+        assert!(migrations[54]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_conversation_booking_drafts"));
+        assert!(migrations[54]
+            .sql
+            .as_str()
+            .contains("airhop_consents_channel_check"));
     }
 
     #[test]

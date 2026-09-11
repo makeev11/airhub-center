@@ -9,6 +9,10 @@
 pub mod age;
 pub mod booking;
 pub mod capacity;
+pub mod client_conversations;
+pub mod consultation;
+pub mod conversation_booking;
+pub mod knowledge;
 pub mod organization;
 pub mod schedule;
 

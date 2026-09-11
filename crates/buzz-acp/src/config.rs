@@ -1161,6 +1161,15 @@ impl Config {
             ));
         }
 
+        if airhop_role == Some(crate::airhop::AirhopRole::ParentAdministrator)
+            && !flat_channel_ids.is_empty()
+        {
+            return Err(ConfigError::ConfigFile(
+                "parent_administrator cannot read shared-channel history through flat channels"
+                    .into(),
+            ));
+        }
+
         let config = Config {
             keys,
             relay_url: args.relay_url,
@@ -1380,7 +1389,8 @@ pub fn resolve_channel_filters(
                     *ch,
                     ChannelFilter {
                         kinds: Some(kinds.clone()),
-                        require_mention,
+                        require_mention: require_mention
+                            && !(config.airhop_route_gate && config.flat_channel_ids.contains(ch)),
                     },
                 );
             }
@@ -1479,7 +1489,8 @@ pub fn resolve_dynamic_channel_filter(
                     KIND_STREAM_REMINDER,
                 ]
             })),
-            require_mention: !config.no_mention_filter,
+            require_mention: !(config.no_mention_filter
+                || config.airhop_route_gate && config.flat_channel_ids.contains(&channel_id)),
         }),
         SubscribeMode::All => Some(ChannelFilter {
             kinds: config.kinds_override.clone(),
@@ -1613,6 +1624,34 @@ mod tests {
             compiled_filter: None,
             consecutive_timeouts: Arc::new(AtomicU32::new(0)),
         }
+    }
+
+    #[test]
+    fn welcome_mentions_exception_is_scoped_and_preserves_allowlist() {
+        let mut config = test_config(SubscribeMode::Mentions);
+        let welcome = Uuid::new_v4();
+        let ordinary = Uuid::new_v4();
+        config.flat_channel_ids.insert(welcome);
+        for enabled in [false, true] {
+            config.airhop_route_gate = enabled;
+            let filters = resolve_channel_filters(&config, &[welcome, ordinary], &[]);
+            assert_eq!(filters[&welcome].require_mention, !enabled);
+            assert!(filters[&ordinary].require_mention);
+            assert_eq!(
+                resolve_dynamic_channel_filter(&config, welcome, &[])
+                    .unwrap()
+                    .require_mention,
+                !enabled
+            );
+            assert!(
+                resolve_dynamic_channel_filter(&config, ordinary, &[])
+                    .unwrap()
+                    .require_mention
+            );
+        }
+        config.channels_override = Some(vec![ordinary.to_string()]);
+        assert!(resolve_dynamic_channel_filter(&config, welcome, &[]).is_none());
+        assert!(!resolve_channel_filters(&config, &[welcome, ordinary], &[]).contains_key(&welcome));
     }
 
     #[test]

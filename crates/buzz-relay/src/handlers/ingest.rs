@@ -277,6 +277,7 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         // Ingest persists them to `moderation_reports` and suppresses public
         // storage/fanout; reports are signals, never enforcement triggers.
         KIND_REPORT | KIND_PRODUCT_FEEDBACK => Ok(Scope::MessagesWrite),
+        buzz_core::kind::KIND_AIRHOP_KNOWLEDGE_COMMAND | buzz_core::kind::KIND_AIRHOP_CLIENT_COMMAND => Ok(Scope::MessagesWrite),
         // Community moderation commands are direct, mod-authz-gated writes.
         // Scope only proves the transport can submit message writes; the
         // command handler owns role/capability authorization.
@@ -449,7 +450,9 @@ pub(crate) async fn derive_reaction_channel(
 pub(crate) fn is_global_only_kind(kind: u32) -> bool {
     matches!(
         kind,
-        KIND_PROFILE
+        buzz_core::kind::KIND_AIRHOP_KNOWLEDGE_COMMAND
+            | buzz_core::kind::KIND_AIRHOP_CLIENT_COMMAND
+            | KIND_PROFILE
             | KIND_TEXT_NOTE
             | KIND_CONTACT_LIST
             | KIND_LONG_FORM
@@ -1919,6 +1922,35 @@ async fn ingest_event_inner(
     }
     let event = std::sync::Arc::try_unwrap(event).unwrap_or_else(|arc| (*arc).clone());
 
+    let has_guest_marker = event.tags.iter().any(|tag| {
+        let values = tag.as_slice();
+        values
+            .first()
+            .is_some_and(|name| name == "airhop-guest-invitation")
+            || (values
+                .first()
+                .is_some_and(|name| name == "airhop-kickoff-stage")
+                && values
+                    .get(1)
+                    .is_some_and(|stage| stage == buzz_core::welcome_guest::HERMES_GUEST_STAGE))
+    });
+    let authorized_guest_reply = if has_guest_marker {
+        let allowed = event.pubkey == *auth.pubkey()
+            && state
+                .db
+                .is_authorized_airhop_guest_reply(tenant, &event)
+                .await
+                .map_err(|error| IngestError::Internal(format!("guest authorization: {error}")))?;
+        if !allowed {
+            return Err(IngestError::AuthFailed(
+                "restricted: invalid Welcome guest introduction".into(),
+            ));
+        }
+        true
+    } else {
+        false
+    };
+
     const MAX_TIMESTAMP_DRIFT_SECS: i64 = 900; // ±15 minutes
     let now = chrono::Utc::now().timestamp();
     let event_ts = event.created_at.as_secs() as i64;
@@ -2213,6 +2245,7 @@ async fn ingest_event_inner(
         // without being a member (OQ1 decision; see validate_edit_ownership /
         // validate_admin_event for per-kind enforcement).
         let skip_membership = kind_u32 == KIND_NIP29_JOIN_REQUEST
+            || authorized_guest_reply
             || kind_u32 == KIND_NIP29_CREATE_GROUP
             || kind_u32 == KIND_STREAM_MESSAGE_EDIT
             || kind_u32 == KIND_NIP29_EDIT_METADATA
@@ -2289,6 +2322,35 @@ async fn ingest_event_inner(
             event_id: event_id_hex,
             accepted: true,
             message: String::new(),
+        });
+    }
+
+    if kind_u32 == buzz_core::kind::KIND_AIRHOP_KNOWLEDGE_COMMAND {
+        if auth.channel_ids().is_some() {
+            return Err(IngestError::AuthFailed(
+                "restricted: knowledge requires a global owner/admin credential".into(),
+            ));
+        }
+        let result = crate::api::airhop_knowledge::apply_command(state, tenant, &event).await?;
+        emit_product_feedback_success(tracer, tenant, &event, &auth);
+        return Ok(IngestResult {
+            event_id: event_id_hex,
+            accepted: true,
+            message: result.to_string(),
+        });
+    }
+
+    if kind_u32 == buzz_core::kind::KIND_AIRHOP_CLIENT_COMMAND {
+        if auth.channel_ids().is_some() {
+            return Err(IngestError::AuthFailed(
+                "restricted: client commands require an unscoped staff credential".into(),
+            ));
+        }
+        let result = crate::api::airhop_clients::apply_command(state, tenant, &event).await?;
+        return Ok(IngestResult {
+            event_id: event_id_hex,
+            accepted: true,
+            message: result.to_string(),
         });
     }
 

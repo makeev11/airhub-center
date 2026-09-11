@@ -43,10 +43,75 @@ test("top-level message (no e-tags) notifies", () => {
   assert.equal(shouldNotifyForEvent(makeEvent([]), PUBKEY, opts()), true);
 });
 
+test("client inbound does not alert every common-channel member; assignment mentions do", () => {
+  const inbound = makeEvent([
+    ["airhop-direction", "inbound"],
+    rootTag(ROOT_ID),
+    replyTag(ROOT_ID),
+  ]);
+  assert.equal(
+    shouldNotifyForEvent(
+      inbound,
+      PUBKEY,
+      opts({ participatedRootIds: new Set([ROOT_ID]) }),
+    ),
+    false,
+  );
+  const notice = makeEvent([
+    ["airhop-internal", "client-routing"],
+    pTag(PUBKEY),
+    rootTag(ROOT_ID),
+    replyTag(ROOT_ID),
+  ]);
+  assert.equal(shouldNotifyForEvent(notice, PUBKEY, opts()), true);
+  assert.equal(
+    shouldNotifyForEvent(
+      notice,
+      OTHER_PUBKEY,
+      opts({ participatedRootIds: new Set([ROOT_ID]) }),
+    ),
+    false,
+  );
+});
+
 test("top-level message with unrelated p-tag notifies", () => {
   assert.equal(
     shouldNotifyForEvent(makeEvent([pTag(OTHER_PUBKEY)]), PUBKEY, opts()),
     true,
+  );
+});
+
+test("client inbound notifies explicit followers and respects mute", () => {
+  const inbound = makeEvent([
+    ["airhop-direction", "inbound"],
+    rootTag(ROOT_ID),
+    replyTag(ROOT_ID),
+  ]);
+  const following = opts({ followedRootIds: new Set([ROOT_ID]) });
+  assert.equal(shouldNotifyForEvent(inbound, PUBKEY, following), true);
+  assert.equal(shouldNotifyForEvent(inbound, PUBKEY, opts()), false);
+  assert.equal(
+    shouldNotifyForEvent(inbound, PUBKEY, {
+      ...following,
+      mutedRootIds: new Set([ROOT_ID]),
+    }),
+    false,
+  );
+  assert.equal(
+    shouldNotifyForEvent(inbound, PUBKEY, {
+      ...following,
+      channelId: "clients",
+      mutedChannelIds: new Set(["clients"]),
+    }),
+    false,
+  );
+  assert.equal(
+    shouldNotifyForEvent(
+      makeEvent([["airhop-direction", "inbound"]]),
+      PUBKEY,
+      following,
+    ),
+    false,
   );
 });
 

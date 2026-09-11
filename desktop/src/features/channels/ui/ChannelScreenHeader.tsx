@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { LogIn } from "lucide-react";
 import type * as React from "react";
 
@@ -63,6 +64,7 @@ export function ChannelScreenHeader({
   onManageChannel,
   onToggleMembers,
 }: ChannelScreenHeaderProps) {
+  useMessengerCopy();
   const isGroupDm =
     activeChannel?.channelType === "dm" &&
     activeDmHeaderParticipants.length > 1;
@@ -83,7 +85,7 @@ export function ChannelScreenHeader({
         variant="default"
       >
         <LogIn className="mr-1.5 h-4 w-4" />
-        {isJoining ? "Joining…" : "Join"}
+        {isJoining ? messageText("Joining…") : messageText("Join")}
       </Button>
     ) : (
       <ChannelMembersBar
@@ -118,7 +120,9 @@ export function ChannelScreenHeader({
           ) : activeDmParticipant ? (
             <UserProfilePopover
               pubkey={activeDmParticipant.pubkey}
-              triggerAriaLabel={`Open profile for ${activeChannelTitle}`}
+              triggerAriaLabel={messageText("Open profile for {name}", {
+                name: activeChannelTitle,
+              })}
               triggerElement="span"
             >
               <ProfileAvatarWithStatus
@@ -167,6 +171,7 @@ function DmHeaderParticipantStack({
 }: {
   participants: ActiveDmHeaderParticipant[];
 }) {
+  useMessengerCopy();
   const { hiddenCount, visibleParticipants } =
     getDmParticipantPreview(participants);
   const stackItemCount = visibleParticipants.length + (hiddenCount > 0 ? 1 : 0);
@@ -180,7 +185,9 @@ function DmHeaderParticipantStack({
         <UserProfilePopover
           key={participant.pubkey}
           pubkey={participant.pubkey}
-          triggerAriaLabel={`Open profile for ${participant.displayName}`}
+          triggerAriaLabel={messageText("Open profile for {name}", {
+            name: participant.displayName,
+          })}
           triggerElement="span"
         >
           <span

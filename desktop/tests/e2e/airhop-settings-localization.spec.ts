@@ -10,6 +10,12 @@ test.beforeEach(async ({ page }) => {
   await installMockBridge(page, {
     relayRequiresMembership: true,
     relayRole: "owner",
+    principalDirectory: {
+      communityId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      agents: [],
+      principals: [],
+    },
   });
   await page.goto("/");
 });

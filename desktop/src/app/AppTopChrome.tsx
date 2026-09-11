@@ -28,9 +28,9 @@ type AppTopChromeProps = {
 // the row must not grow or shrink with the rem scale. Deliberate exception
 // to the rem-first rule.
 const TOP_CHROME_ICON_BUTTON_CLASS =
-  "h-[28px] w-[28px] cursor-pointer rounded-[4px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[16px]";
+  "h-[28px] w-[28px] cursor-pointer rounded-[4px] [&_svg]:size-[16px]";
 const HISTORY_ICON_BUTTON_CLASS =
-  "h-[28px] w-[24px] cursor-pointer rounded-[4px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[16px]";
+  "h-[28px] w-[24px] cursor-pointer rounded-[4px] [&_svg]:size-[16px]";
 
 function TopChromeControlTooltip({
   children,
@@ -107,7 +107,7 @@ function TopChromeSidebarTrigger() {
         }}
         size="icon"
         type="button"
-        variant="ghost"
+        variant="chrome"
       >
         {sidebar?.open ? <PanelLeftClose /> : <PanelLeftOpen />}
         <span className="sr-only">{label}</span>
@@ -182,7 +182,7 @@ export function AppTopChrome({
             disabled={!canGoBack}
             onClick={onGoBack}
             size="icon"
-            variant="ghost"
+            variant="chrome"
           >
             <ChevronLeft />
           </Button>
@@ -199,7 +199,7 @@ export function AppTopChrome({
             disabled={!canGoForward}
             onClick={onGoForward}
             size="icon"
-            variant="ghost"
+            variant="chrome"
           >
             <ChevronRight />
           </Button>

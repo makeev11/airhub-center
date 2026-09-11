@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { FileText, Lock, Pencil, Send, Trash2 } from "lucide-react";
 import * as React from "react";
 
@@ -47,7 +48,7 @@ const THREAD_DRAFT_PREFIX = "thread:";
 function unknownChannelLabel() {
   return resolveActivationLocale() === "ru-RU"
     ? "Неизвестный канал"
-    : "Unknown channel";
+    : messageText("Unknown channel");
 }
 
 export type DraftListEntry = {
@@ -94,9 +95,7 @@ export function formatDraftCreatedAt(draft: DraftState): string {
   const isRussian = resolveActivationLocale() === "ru-RU";
   const time = parseDraftTime(draft.createdAt);
   return time === 0
-    ? isRussian
-      ? "Время неизвестно"
-      : "Unknown time"
+    ? messageText("Unknown time")
     : (isRussian ? draftTimeFormatters.ru : draftTimeFormatters.en).format(
         new Date(time),
       );
@@ -146,7 +145,7 @@ export function getDraftPreview(draft: DraftState): string {
       ? `${attachmentCount} вложений`
       : `${attachmentCount} attachments`;
   }
-  return isRussian ? "Пустой черновик" : "Empty draft";
+  return messageText("Empty draft");
 }
 
 function resolveDraftSources({
@@ -189,6 +188,7 @@ function DraftRowActionButton({
   label: string;
   onClick: () => void;
 }) {
+  useMessengerCopy();
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -334,9 +334,7 @@ export function SendConfirmDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>
-            {isRussian ? "Отправить сообщение" : "Send message"}
-          </AlertDialogTitle>
+          <AlertDialogTitle>{messageText("Send message")}</AlertDialogTitle>
           <AlertDialogDescription>
             {isRussian
               ? `Отправить это сообщение в ${destination}?`
@@ -345,10 +343,10 @@ export function SendConfirmDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <Button onClick={onCancel} size="sm" type="button" variant="outline">
-            {isRussian ? "Отмена" : "Cancel"}
+            {messageText("Cancel")}
           </Button>
           <Button onClick={onConfirm} size="sm" type="button">
-            {isRussian ? "Отправить" : "Send"}
+            {messageText("Send")}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -429,7 +427,7 @@ function DraftRow({
                 className="shrink-0 rounded px-1 py-0.5 text-2xs font-medium text-destructive/70 ring-1 ring-destructive/30"
                 data-testid={`home-draft-orphaned-label-${entry.key}`}
               >
-                {isRussian ? "обсуждение удалено" : "thread deleted"}
+                {messageText("thread deleted")}
               </span>
             ) : null}
           </div>
@@ -451,16 +449,10 @@ function DraftRow({
               disabled={!canOpen}
               label={
                 canOpen
-                  ? isRussian
-                    ? "Открыть черновик"
-                    : "Open draft"
+                  ? messageText("Open draft")
                   : isOrphaned
-                    ? isRussian
-                      ? "Обсуждение удалено"
-                      : "Thread deleted"
-                    : isRussian
-                      ? "Канал недоступен"
-                      : "No channel link"
+                    ? messageText("Thread deleted")
+                    : messageText("No channel link")
               }
               onClick={() => onOpen(entry)}
             >
@@ -470,16 +462,10 @@ function DraftRow({
               disabled={!canSend}
               label={
                 canSend
-                  ? isRussian
-                    ? "Отправить сообщение"
-                    : "Send message"
+                  ? messageText("Send message")
                   : isOrphaned
-                    ? isRussian
-                      ? "Обсуждение удалено"
-                      : "Thread deleted"
-                    : isRussian
-                      ? "Канал недоступен"
-                      : "No channel link"
+                    ? messageText("Thread deleted")
+                    : messageText("No channel link")
               }
               onClick={() => onSend(entry)}
             >
@@ -488,7 +474,7 @@ function DraftRow({
           </>
         )}
         <DraftRowActionButton
-          label={isRussian ? "Удалить черновик" : "Delete draft"}
+          label={messageText("Delete draft")}
           onClick={() => onDelete(entry.key)}
         >
           <Trash2 className="h-4 w-4" />
@@ -631,7 +617,7 @@ export function DraftsPanel({
   onSelectDraft,
   selectedDraftKey,
 }: DraftsPanelProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useAirHopLocale();
   const { goChannel } = useAppNavigation();
 
   // Send confirmation dialog state.
@@ -681,7 +667,7 @@ export function DraftsPanel({
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
         <FileText className="h-8 w-8 text-muted-foreground/50" />
         <p className="text-sm text-muted-foreground">
-          {isRussian ? "Черновиков нет" : "No drafts"}
+          {messageText("No drafts")}
         </p>
       </div>
     );
@@ -694,7 +680,7 @@ export function DraftsPanel({
         data-testid="home-inbox-drafts-list"
       >
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {isRussian ? "Черновики" : "Drafts"}
+          {messageText("Drafts")}
         </h3>
         {items.map(({ entry, rootStatus, source }) => (
           <DraftRow

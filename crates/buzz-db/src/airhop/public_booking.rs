@@ -17,6 +17,9 @@ use uuid::Uuid;
 use super::booking::{
     get_booking_by_id, reserve_booking, BookingRecord, BookingVisitKind, NewBooking,
 };
+use super::site_analytics::{
+    record_booking_created, BookingAnalyticsAttribution, BookingCreatedAnalyticsInput,
+};
 use super::{
     append_domain_event, commit_command, enqueue_outbox, insert_pending_command, ActorKind,
     AirhopActor, CommandInsertOutcome, CommandStatus, NewAirhopCommand, NewDomainEvent,
@@ -111,6 +114,8 @@ pub struct CreatePublicBookingInput {
     pub surface: PublicBookingSurface,
     /// Optional active branch used for source attribution.
     pub attribution_branch_id: Option<Uuid>,
+    /// Privacy-safe browser journey attribution for the site funnel.
+    pub analytics_attribution: Option<BookingAnalyticsAttribution>,
     /// Keyed digest of the caller idempotency key.
     pub idempotency_digest: [u8; 32],
     /// Keyed digest used to locate exact phone matches without indexing raw PII.
@@ -204,7 +209,7 @@ impl Db {
     /// Organization scope is derived only from `tenant`. An untrusted caller
     /// cannot provide either `community_id` or `organization_id`. Identity
     /// matching is serialized per keyed phone digest, and the occurrence row
-    /// is locked before the final policy, age, and capacity checks.
+    /// is locked before the final policy and capacity checks.
     pub async fn create_public_booking(
         &self,
         tenant: &TenantContext,
@@ -268,6 +273,7 @@ impl Db {
             input.surface,
             input.attribution_branch_id,
             organization.purpose,
+            input.analytics_attribution.as_ref(),
         );
         // A typed phone number can match existing records, but does not prove
         // ownership of that family's history when a messenger is connected.
@@ -343,6 +349,19 @@ impl Db {
                     "status": "pending_confirmation"
                 }),
                 not_before: organization.current_instant,
+            },
+        )
+        .await?;
+        record_booking_created(
+            &mut transaction,
+            tenant,
+            BookingCreatedAnalyticsInput {
+                organization_id: organization.id,
+                booking_id: booking.id,
+                recurrence_rule_id: booking.lesson_ref.recurrence_rule_id,
+                original_date: booking.lesson_ref.original_date,
+                occurred_at: organization.current_instant,
+                attribution: input.analytics_attribution.as_ref(),
             },
         )
         .await?;
@@ -642,7 +661,7 @@ pub(super) async fn resolve_identity(
         // typing its phone. Reuse the existing duplicate-review path instead of
         // injecting new children/bookings into a verified family's history.
         // Trusted staff workflows retain their explicit exact-match behavior.
-        if let Some(candidate) = unique_active_representative(&candidates).filter(|_| consent.channel != "web") {
+        if let Some(candidate) = unique_active_representative(&candidates).filter(|_| !matches!(consent.channel, "web" | "hermes")) {
             (candidate.family_id, candidate.id, false)
         } else {
             let family_id = Uuid::new_v4();
@@ -655,7 +674,7 @@ pub(super) async fn resolve_identity(
             .bind(tenant.community().as_uuid())
             .bind(organization_id)
             .bind(family_id)
-            .bind(format!("Семья {}", applicant.parent_name))
+            .bind(format!("Семья {}", applicant.parent_last_name.as_deref().unwrap_or(&applicant.parent_name)))
             .bind(representative_id)
             .execute(&mut **transaction)
             .await?;
@@ -734,7 +753,7 @@ fn unique_active_representative(
     active.next().is_none().then_some(result)
 }
 
-async fn resolve_child(
+pub(super) async fn resolve_child(
     transaction: &mut Transaction<'_, Postgres>,
     tenant: &TenantContext,
     organization_id: Uuid,
@@ -850,7 +869,7 @@ pub(super) fn applicant_snapshot(
     applicant: &NormalizedApplicant,
     accepted_at: DateTime<Utc>,
 ) -> Value {
-    json!({
+    let mut snapshot = json!({
         "parentName": applicant.parent_name,
         "phoneNormalized": applicant.phone_normalized,
         "phoneDisplay": applicant.phone_display,
@@ -859,21 +878,37 @@ pub(super) fn applicant_snapshot(
         "preferredContactChannel": applicant.preferred_contact_channel.as_db_str(),
         "consentPolicyVersion": applicant.consent_policy_version,
         "consentAcceptedAt": accepted_at
-    })
+    });
+    if let (Some(first), Some(last)) = (&applicant.parent_first_name, &applicant.parent_last_name) {
+        snapshot["parentFirstName"] = json!(first);
+        snapshot["parentLastName"] = json!(last);
+    }
+    snapshot
 }
 
 fn booking_source(
     surface: PublicBookingSurface,
     attribution_branch_id: Option<Uuid>,
     purpose: PublicBookingPurpose,
+    analytics: Option<&BookingAnalyticsAttribution>,
 ) -> Value {
-    json!({
+    let mut source = json!({
         "surface": surface.as_str(),
         "attributionBranchId": attribution_branch_id,
         "purpose": purpose_str(purpose),
         "channel": "website",
         "workflow": "request"
-    })
+    });
+    if let Some(analytics) = analytics {
+        source["analytics"] = json!({
+            "journeyId": analytics.journey_id,
+            "trackingLinkId": analytics.tracking_link_id,
+            "source": analytics.source,
+            "campaign": analytics.campaign,
+            "referrerHost": analytics.referrer_host,
+        });
+    }
+    source
 }
 
 const fn purpose_str(purpose: PublicBookingPurpose) -> &'static str {
@@ -1019,8 +1054,8 @@ mod tests {
         .expect("insert branch");
         sqlx::query(
             "INSERT INTO airhop_groups ( \
-                 community_id, organization_id, id, branch_id, name, capacity \
-             ) VALUES ($1, $2, $3, $4, 'Football 6-7', 1)",
+                 community_id, organization_id, id, branch_id, name, capacity, min_age_months, max_age_months \
+             ) VALUES ($1, $2, $3, $4, 'Football 6-7', 1, 72, 95)",
         )
         .bind(community_id)
         .bind(organization_id)
@@ -1102,6 +1137,15 @@ mod tests {
             },
             surface: PublicBookingSurface::Standalone,
             attribution_branch_id: Some(branch_id),
+            analytics_attribution: Some(BookingAnalyticsAttribution {
+                visitor_digest: [30; 32],
+                session_digest: [31; 32],
+                journey_id: Uuid::new_v4(),
+                tracking_link_id: None,
+                source: Some("yandex_maps".to_owned()),
+                campaign: None,
+                referrer_host: None,
+            }),
             idempotency_digest: [1; 32],
             phone_match_digest: [2; 32],
             request_hash: [3; 32],
@@ -1109,6 +1153,33 @@ mod tests {
             management_key_version: 1,
             consent_evidence: json!({"accepted": true}),
         };
+        let analytics = base
+            .analytics_attribution
+            .as_ref()
+            .expect("analytics fixture");
+        db.record_airhop_site_analytics_events(
+            &tenant,
+            &[
+                super::super::site_analytics::RecordSiteAnalyticsEventInput {
+                    event_id: Uuid::new_v4(),
+                    event_type: super::super::site_analytics::SiteAnalyticsEventType::BookingOpened,
+                    occurred_at: Utc::now(),
+                    visitor_digest: Some(analytics.visitor_digest),
+                    session_digest: Some(analytics.session_digest),
+                    journey_id: Some(analytics.journey_id),
+                    tracking_link_id: None,
+                    branch_id: Some(branch_id),
+                    path: Some("/booking".to_owned()),
+                    referrer_host: None,
+                    source: analytics.source.clone(),
+                    campaign: None,
+                    step: None,
+                    target: None,
+                },
+            ],
+        )
+        .await
+        .expect("opened booking event");
         let created = db
             .create_public_booking(&tenant, &base)
             .await
@@ -1122,6 +1193,14 @@ mod tests {
         assert_eq!(created.booking, replayed.booking);
 
         let mut second = base.clone();
+        second
+            .analytics_attribution
+            .as_mut()
+            .expect("second attribution")
+            .journey_id = Uuid::new_v4();
+        // Age limits are recommendations: even a much older child can reserve a seat.
+        second.applicant.child_birth_date =
+            NaiveDate::from_ymd_opt(2010, 1, 1).expect("valid date");
         second.lesson_ref.original_date = second_date;
         second.idempotency_digest = [5; 32];
         second.request_hash = [6; 32];
@@ -1158,6 +1237,15 @@ mod tests {
             .await
             .expect_err("full occurrence must reject another child");
         assert!(matches!(error, DbError::AirhopCapacityFull));
+
+        let report = db
+            .get_airhop_staff_site_analytics(&tenant, 7)
+            .await
+            .expect("authoritative booking analytics");
+        assert_eq!(report.totals.bookings_created, 2); // Replay and rejected booking add no rows.
+        assert_eq!(report.funnel.opened, 1);
+        assert_eq!(report.funnel.created, 1); // Unobserved second journey is outside the cohort.
+        assert_eq!(report.totals.booking_conversion_bps, Some(10_000));
 
         let counts = sqlx::query(
             "SELECT \

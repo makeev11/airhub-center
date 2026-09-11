@@ -54,11 +54,27 @@ async function expectFooterAtScrollableEnd(
   await expect(footer).toBeInViewport();
 }
 
-async function expectScrollableActions(
-  flow: Locator,
-  back: Locator,
-  forward: Locator,
+async function expectPersistentOccurrenceActions(
+  root: Locator,
+  occurrence: Locator,
 ): Promise<void> {
+  const flow = root.getByTestId("airhop-public-flow");
+  const dock = root.getByTestId("airhop-public-occurrence-actions");
+  await expect(
+    dock.getByRole("button", { name: "Продолжить", exact: true }),
+  ).toBeDisabled();
+  await occurrence.click();
+  const forward = dock.getByRole("button", { name: "Продолжить", exact: true });
+  const back = root.getByRole("button", { name: "Назад", exact: true });
+  await expect(forward).toBeInViewport();
+  expect(
+    await dock.evaluate(
+      (element) =>
+        element.closest('[data-testid="airhop-public-flow"]') === null,
+    ),
+  ).toBe(true);
+  const buttonBefore = await forward.boundingBox();
+  expect(buttonBefore).not.toBeNull();
   const dimensions = await flow.evaluate((element) => ({
     clientHeight: element.clientHeight,
     scrollHeight: element.scrollHeight,
@@ -76,6 +92,9 @@ async function expectScrollableActions(
   await expect(forward).toBeInViewport();
   await expectTouchTarget(back);
   await expectTouchTarget(forward);
+  const buttonAfter = await forward.boundingBox();
+  expect(buttonAfter).not.toBeNull();
+  expect(buttonAfter?.y).toBe(buttonBefore?.y);
 }
 
 async function chooseBasics(
@@ -120,7 +139,11 @@ async function fillApplicant(
   page: Page,
   childBirthDate: string,
 ): Promise<void> {
-  await page.getByLabel("Имя родителя").fill("Мария Соколова");
+  await expect(
+    page.getByText("Укажите фамилию родителя.", { exact: true }),
+  ).toHaveCount(0);
+  await page.getByLabel("Имя родителя", { exact: true }).fill("Мария");
+  await page.getByLabel("Фамилия родителя").fill("Соколова");
   await page.getByLabel("Телефон").fill("+7 999 123-45-67");
   await page.getByLabel("Имя ребёнка").fill("Лев");
   await page.getByLabel("Точная дата рождения ребёнка").fill(childBirthDate);
@@ -139,7 +162,7 @@ async function createLimitedBooking(page: Page): Promise<string> {
   const success = page.getByTestId("airhop-public-success");
   await expect(success).toBeVisible();
   const managementLink = success.getByRole("link", {
-    name: "Открыть персональную карточку",
+    name: "Посмотреть мою запись",
   });
   const href = await managementLink.getAttribute("href");
   expect(href).toBeTruthy();
@@ -224,19 +247,25 @@ test("standalone public booking completes without employee shell or onboarding",
   await expect(preview).toContainText("Бесплатно");
   await page.getByTestId("airhop-public-submit").click();
   const success = page.getByTestId("airhop-public-success");
-  await expect(success).toContainText("Заявка ожидает подтверждения");
+  await expect(success).toContainText("Подтвердите запись в мессенджере");
 
-  await page.getByTestId("airhop-contact-channel-telegram").click();
-  await expect(success).toContainText("Предпочтительный канал: Telegram");
-  await expect(success).toContainText(
-    "сообщение в мессенджер ещё не отправлено",
+  await expect(
+    success.getByTestId("airhop-contact-channel-telegram"),
+  ).toBeVisible();
+  await expect(success.getByTestId("airhop-contact-channel-phone")).toHaveCount(
+    0,
   );
 
   const managementHref = await success
-    .getByRole("link", { name: "Открыть персональную карточку" })
+    .getByRole("link", { name: "Посмотреть мою запись" })
     .getAttribute("href");
   expect(managementHref).toBeTruthy();
-  await success.getByRole("link", { name: "Подобрать другое занятие" }).click();
+  await page.goto(PUBLIC_BOOKING_PATH);
+  await expect(page.getByTestId("airhop-public-success")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Посмотреть мою запись" }),
+  ).toHaveAttribute("href", managementHref ?? "");
+  await page.getByRole("button", { name: "Новая запись", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Выберите филиал и возраст" }),
   ).toBeVisible();
@@ -293,13 +322,10 @@ test("embedded widget is preselected, closes with Escape and returns focus", asy
   );
   await page.getByTestId("airhop-public-submit").click();
   await expect(page.getByTestId("airhop-public-success")).toContainText(
-    "Заявка ожидает подтверждения",
+    "Подтвердите запись в мессенджере",
   );
   const hostUrl = page.url();
-  await page
-    .getByTestId("airhop-public-success")
-    .getByRole("button", { name: "Подобрать другое занятие" })
-    .click();
+  await widget.getByRole("button", { name: "Новая запись" }).click();
   await expect(page).toHaveURL(hostUrl);
   await expect(widget).toBeVisible();
   await expect(
@@ -371,23 +397,23 @@ test("paid and free offers are both explicit and Back preserves criteria", async
   ).toContainText("Бесплатно");
 });
 
-test("exact birth date is revalidated before a booking is created", async ({
+test("age recommendations do not hide groups or block booking", async ({
   page,
 }) => {
   await page.goto(PUBLIC_BOOKING_PATH);
-  await chooseBasics(page, 8, "akademicheskaya");
+  await chooseBasics(page, 3, "akademicheskaya");
   await chooseGroup(page, "animation");
   await chooseOccurrence(page, "animation-weekly", "2026-08-10");
-  await fillApplicant(page, "2018-08-11");
+  await fillApplicant(page, "2023-08-01");
+  await expect(page.getByTestId("airhop-public-age-notice")).toContainText(
+    "другого возраста",
+  );
   await page.getByTestId("airhop-public-submit").click();
-
+  await expect(page.getByTestId("airhop-public-success")).toBeVisible();
+  await expect(page.getByTestId("airhop-public-age-notice")).toHaveCount(0);
   await expect(
-    page.getByText("Точная дата не подходит по возрасту"),
+    page.getByTestId("airhop-contact-channel-telegram"),
   ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Выберите дату и время" }),
-  ).toBeVisible();
-  await expect(page.getByTestId("airhop-public-success")).toHaveCount(0);
 });
 
 test("last place stays held during transfer request and is freed by cancellation", async ({
@@ -537,11 +563,18 @@ test("widget purpose and appearance are controlled by AirHop settings", async ({
   await page
     .getByTestId("airhop-settings-public-purpose")
     .selectOption("lesson");
-  await page.getByTestId("airhop-settings-public-appearance-dark").click();
+  await expect(
+    page.getByTestId("airhop-settings-public-appearance-dark"),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Сохранить" }).click();
+  await expect(page.getByTestId("airhop-settings-saved")).toBeVisible();
+  await page.getByTestId("airhop-public-appearance-link").click();
+  await page.getByTestId("appearance-target-widget").click();
+  await page.getByTestId("appearance-widget-dark").click();
 
   // The full preview lives in the actual public widget, not inside Settings.
-  const dark = page.getByTestId("airhop-settings-public-appearance-dark");
-  const light = page.getByTestId("airhop-settings-public-appearance-light");
+  const dark = page.getByTestId("appearance-widget-dark");
+  const light = page.getByTestId("appearance-widget-light");
   await expect(dark).toHaveAttribute("aria-pressed", "true");
 
   await light.click();
@@ -550,8 +583,8 @@ test("widget purpose and appearance are controlled by AirHop settings", async ({
   await dark.click();
   await expect(light).toHaveAttribute("aria-pressed", "false");
 
-  await page.getByRole("button", { name: "Сохранить" }).click();
-  await expect(page.getByTestId("airhop-settings-saved")).toBeVisible();
+  await page.getByTestId("appearance-widget-save").click();
+  await expect(page.getByTestId("appearance-widget-save")).toBeDisabled();
 
   await page.goto(PUBLIC_BOOKING_PATH);
   const flow = page.getByTestId("airhop-public-standalone");
@@ -673,15 +706,21 @@ for (const viewport of [
         standalone.getByTestId("airhop-public-flow"),
         standalone.getByTestId("airhop-public-footer"),
       );
-      await expectScrollableActions(
-        standalone.getByTestId("airhop-public-flow"),
-        standalone.getByRole("button", { name: "Назад" }),
-        standalone.getByRole("button", { name: "Продолжить" }),
-      );
+      await expectPersistentOccurrenceActions(standalone, standaloneOccurrence);
       await expect(
         standalone.getByTestId("airhop-public-footer"),
       ).toBeInViewport();
       await expect(standaloneBranchContext).toBeInViewport();
+      await standalone
+        .getByTestId("airhop-public-occurrence-actions")
+        .getByRole("button", { name: "Продолжить", exact: true })
+        .click();
+      await expect(
+        standalone.getByRole("heading", { name: "Контакты для заявки" }),
+      ).toBeVisible();
+      await expect(
+        standalone.getByTestId("airhop-public-occurrence-actions"),
+      ).toHaveCount(0);
 
       await page.goto("/#/booking/demo-host");
       await page.getByTestId("airhop-public-widget-launcher").click();
@@ -743,13 +782,19 @@ for (const viewport of [
         widget.getByTestId("airhop-public-flow"),
         widget.getByTestId("airhop-public-footer"),
       );
-      await expectScrollableActions(
-        widget.getByTestId("airhop-public-flow"),
-        widget.getByRole("button", { name: "Назад" }),
-        widget.getByRole("button", { name: "Продолжить" }),
-      );
+      await expectPersistentOccurrenceActions(widget, widgetOccurrence);
       await expect(widget.getByTestId("airhop-public-footer")).toBeInViewport();
       await expect(widgetBranchContext).toBeInViewport();
+      await widget
+        .getByTestId("airhop-public-occurrence-actions")
+        .getByRole("button", { name: "Продолжить", exact: true })
+        .click();
+      await expect(
+        widget.getByRole("heading", { name: "Контакты для заявки" }),
+      ).toBeVisible();
+      await expect(
+        widget.getByTestId("airhop-public-occurrence-actions"),
+      ).toHaveCount(0);
     });
   }
 }

@@ -713,6 +713,11 @@ async fn run_prompt(app: Arc<App>, id: Value, params: Value, wire_tx: WireSender
         usage_baseline,
     };
     let result = ctx.run(p.prompt).await;
+    tracing::info!(
+        session_id = sid,
+        success = result.is_ok(),
+        "agent turn finished"
+    );
     if let Some(s) = app.sessions.lock().await.get_mut(&sid) {
         s.busy = false;
         // Clear run state so a late steer can't queue into a finished turn.

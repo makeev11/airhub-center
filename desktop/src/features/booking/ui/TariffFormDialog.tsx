@@ -124,7 +124,7 @@ export function TariffFormDialog({
     ? (workspace?.tariffs.find((candidate) => candidate.id === tariff.id) ??
       null)
     : null;
-  const defaultCurrency = workspace?.tariffs[0]?.currency ?? "RUB";
+  const defaultCurrency = workspace?.organization.currency ?? "RUB";
   const centerPaymentDay = workspace?.organization.paymentDayOfMonth ?? 5;
   const [form, setForm] = React.useState<TariffForm>(() =>
     formFromTariff(tariff, defaultCurrency, centerPaymentDay),
@@ -173,7 +173,7 @@ export function TariffFormDialog({
     if (
       !Number.isInteger(weeklyScheduleLimit) ||
       weeklyScheduleLimit < 1 ||
-      weeklyScheduleLimit > 7
+      weeklyScheduleLimit > 21
     ) {
       nextErrors.weeklyScheduleLimit = messages.invalidWeeklyScheduleLimit;
     }
@@ -273,8 +273,11 @@ export function TariffFormDialog({
               value={form.description}
             />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem]">
-            <Field error={errors.price} label={messages.tariffPrice}>
+          <div className="grid gap-4">
+            <Field
+              error={errors.price}
+              label={`${messages.tariffPrice}, ${form.currency}`}
+            >
               <Input
                 aria-label={messages.tariffPrice}
                 data-testid="airhop-tariff-price"
@@ -286,19 +289,6 @@ export function TariffFormDialog({
                   }))
                 }
                 value={form.price}
-              />
-            </Field>
-            <Field error={errors.currency} label={messages.tariffCurrency}>
-              <Input
-                aria-label={messages.tariffCurrency}
-                maxLength={3}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    currency: event.target.value.toUpperCase(),
-                  }))
-                }
-                value={form.currency}
               />
             </Field>
           </div>
@@ -318,11 +308,13 @@ export function TariffFormDialog({
               }
               value={form.weeklyScheduleLimit}
             >
-              {[1, 2, 3, 4, 5, 6, 7].map((count) => (
-                <option key={count} value={count}>
-                  {messages.tariffPerWeek(count)}
-                </option>
-              ))}
+              {Array.from({ length: 21 }, (_, index) => index + 1).map(
+                (count) => (
+                  <option key={count} value={count}>
+                    {messages.tariffPerWeek(count)}
+                  </option>
+                ),
+              )}
             </BookingSelect>
           </Field>
           <Field

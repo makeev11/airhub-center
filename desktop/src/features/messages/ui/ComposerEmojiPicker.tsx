@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import { SmilePlus } from "lucide-react";
 import * as React from "react";
 
@@ -26,14 +27,14 @@ export const ComposerEmojiPicker = React.memo(function ComposerEmojiPicker({
   onTriggerMouseDown,
   open,
 }: ComposerEmojiPickerProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useAirHopLocale();
   return (
     <Popover onOpenChange={onOpenChange} open={open}>
       <Tooltip disableHoverableContent>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
             <Button
-              aria-label={isRussian ? "Добавить эмодзи" : "Insert emoji"}
+              aria-label={messageText("Insert emoji")}
               data-testid="composer-emoji-button"
               disabled={disabled}
               onMouseDown={onTriggerMouseDown}
@@ -45,9 +46,7 @@ export const ComposerEmojiPicker = React.memo(function ComposerEmojiPicker({
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent>
-          {isRussian ? "Добавить эмодзи" : "Insert emoji"}
-        </TooltipContent>
+        <TooltipContent>{messageText("Insert emoji")}</TooltipContent>
       </Tooltip>
       <PopoverContent
         align="start"

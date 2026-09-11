@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use airhop_core::conversation_booking::ConversationBookingData;
 use airhop_core::{BookingStatus, PublicBookingPurpose};
 use axum::body::Bytes;
 use axum::extract::{Path, State};
@@ -13,6 +14,7 @@ use buzz_db::airhop::agent_runtime::{
     FinishHermesTurn, LeaseParentAgentTurnInput, ParentAgentDeployment,
     PutParentAgentDeploymentInput, ValidateParentAgentTurnLeaseInput,
 };
+use buzz_db::airhop::conversation_booking::CommitConversationBookingInput;
 use buzz_db::airhop::external_conversation::{
     is_hermes_handoff_event, CommitHermesReplyInput, ExternalConversation,
     RegisterExternalConversationInput,
@@ -20,7 +22,9 @@ use buzz_db::airhop::external_conversation::{
 use buzz_db::airhop::family_detail::StaffFamilyDetail;
 use buzz_db::airhop::knowledge::ParentKnowledgeScope;
 use buzz_db::airhop::public_management::{AgentFamilyManagementCommand, PublicManagementAction};
-use buzz_db::airhop::public_read::{PublicBookingAgeFilter, PublicBookingOccurrenceFilters};
+use buzz_db::airhop::public_read::{
+    PublicBookingAgeFilter, PublicBookingOccurrence, PublicBookingOccurrenceFilters,
+};
 use chrono::{DateTime, Duration, Utc};
 use nostr::{Event, EventBuilder, Kind, PublicKey, Tag};
 use serde::{Deserialize, Serialize};
@@ -76,6 +80,7 @@ enum AgentCapability {
     ListBookingOptions,
     SearchKnowledge,
     ManageBooking,
+    CreateBooking,
 }
 
 impl AgentCapability {
@@ -86,6 +91,7 @@ impl AgentCapability {
             Self::ListBookingOptions => "list_booking_options",
             Self::SearchKnowledge => "search_knowledge",
             Self::ManageBooking => "manage_booking",
+            Self::CreateBooking => "create_booking",
         }
     }
 }
@@ -117,6 +123,18 @@ pub(crate) struct ClaimParentEventBody {
     lease_seconds: u32,
     #[serde(default = "default_grant_ttl_seconds")]
     ttl_seconds: u32,
+    #[serde(default)]
+    staff_control: Option<StaffControlDecision>,
+    #[serde(default)]
+    classify_staff_control: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StaffControlDecision {
+    event_id: String,
+    control_version: i64,
+    intent: buzz_db::airhop::external_conversation::StaffControlIntent,
 }
 
 const fn default_grant_ttl_seconds() -> u32 {
@@ -213,6 +231,10 @@ pub(crate) async fn register_conversation(
 #[derive(Debug, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum FinishTurnBody {
+    Check {
+        #[serde(rename = "leaseToken")]
+        lease_token: Uuid,
+    },
     Completed {
         #[serde(rename = "leaseToken")]
         lease_token: Uuid,
@@ -242,6 +264,8 @@ pub(crate) struct CommitReplyBody {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AgentContextClaims {
+    #[serde(default)]
+    root_event_id: Option<String>,
     schema_version: String,
     tenant_id: Uuid,
     organization_id: Uuid,
@@ -277,6 +301,22 @@ struct ResolvedAgentContext {
     deny_unknown_fields
 )]
 enum AgentBackendRequest {
+    AssignConversationBranch {
+        branch_id: Uuid,
+        expected_version: i64,
+        idempotency_key: Uuid,
+        parent_quote: String,
+    },
+    SaveBookingDraft {
+        expected_version: i64,
+        data: ConversationBookingData,
+    },
+    CancelBookingDraft {
+        version: i64,
+    },
+    CommitBookingDraft {
+        version: i64,
+    },
     GetTurnContext,
     GetFamily,
     ListBookingOptions {
@@ -288,6 +328,8 @@ enum AgentBackendRequest {
     SearchKnowledge {
         query: String,
         locale: Option<String>,
+        branch_id: Option<Uuid>,
+        group_id: Option<Uuid>,
         #[serde(default = "default_knowledge_limit")]
         limit: u8,
     },
@@ -300,11 +342,15 @@ enum AgentBackendRequest {
 impl AgentBackendRequest {
     const fn read_operation(&self) -> Option<&'static str> {
         match self {
+            Self::AssignConversationBranch { .. } => None,
             Self::GetTurnContext => Some("get_turn_context"),
             Self::GetFamily => Some("get_family"),
             Self::ListBookingOptions { .. } => Some("list_booking_options"),
             Self::SearchKnowledge { .. } => Some("search_knowledge"),
             Self::ManageBooking { .. } => None,
+            Self::SaveBookingDraft { .. }
+            | Self::CancelBookingDraft { .. }
+            | Self::CommitBookingDraft { .. } => None,
         }
     }
 }
@@ -438,6 +484,19 @@ pub(crate) async fn finish_turn(
         )
     })?;
     let (lease_token, completion) = match request {
+        FinishTurnBody::Check { lease_token } => {
+            let needs_reply = state
+                .db
+                .airhop_parent_turn_needs_reply(
+                    &principal.tenant,
+                    turn_id,
+                    lease_token,
+                    principal.pubkey.to_bytes(),
+                )
+                .await
+                .map_err(map_db_error)?;
+            return Ok(Json(json!({"needsReply": needs_reply})));
+        }
         FinishTurnBody::Completed {
             lease_token,
             outcome,
@@ -586,6 +645,11 @@ pub(crate) async fn issue_context_grant(
         deployment_version: leased.deployment.version,
         role: AgentBackendRole::ParentAdministrator,
         agent_pubkey: agent_pubkey.to_hex(),
+        root_event_id: state
+            .db
+            .client_thread_root(&issuer.tenant, leased.turn.conversation_id)
+            .await
+            .map_err(map_db_error)?,
         channel_id: leased.turn.channel_id,
         conversation_id: leased.turn.conversation_id,
         family_id: leased.turn.family_id,
@@ -655,6 +719,48 @@ pub(crate) async fn claim_parent_event(
         }
         ids
     };
+    if let Some(decision) = request.staff_control.as_ref() {
+        if !request.classify_staff_control {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "staff classification is not enabled for this request",
+            ));
+        }
+        let decision_event = parse_event_id(&decision.event_id)?;
+        if !source_event_ids.contains(&decision_event) {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "staff control event is outside the input batch",
+            ));
+        }
+        state
+            .db
+            .resolve_airhop_staff_control_batch(
+                &principal.tenant,
+                &source_event_ids,
+                principal.pubkey.to_bytes(),
+                Some((decision_event, decision.control_version, decision.intent)),
+            )
+            .await
+            .map_err(map_db_error)?;
+    }
+    // Parent inputs coalesced after a command must not hide that command.
+    // The database rejects an older command after any newer staff message.
+    if request.classify_staff_control {
+        if let Some(candidate) = state
+            .db
+            .resolve_airhop_staff_control_batch(
+                &principal.tenant,
+                &source_event_ids,
+                principal.pubkey.to_bytes(),
+                None,
+            )
+            .await
+            .map_err(map_db_error)?
+        {
+            return Ok(Json(json!({"controlCandidate": candidate})));
+        }
+    }
     let route = state
         .db
         .get_airhop_hermes_parent_batch_route(
@@ -666,7 +772,7 @@ pub(crate) async fn claim_parent_event(
         .map_err(map_db_error)?
         .ok_or_else(|| {
             api_error(
-                StatusCode::CONFLICT,
+                StatusCode::GONE,
                 "parent event is no longer owned by Hermes",
             )
         })?;
@@ -687,7 +793,12 @@ pub(crate) async fn claim_parent_event(
             },
         )
         .await
-        .map_err(map_db_error)?;
+        .map_err(|error| match error {
+            buzz_db::DbError::AirhopVersionConflict => {
+                api_error(StatusCode::GONE, "Hermes input batch already finished")
+            }
+            other => map_db_error(other),
+        })?;
     let agent_pubkey = PublicKey::from_slice(&leased.deployment.agent_pubkey).map_err(|error| {
         internal_error(&format!("persisted Hermes principal is invalid: {error}"))
     })?;
@@ -702,6 +813,11 @@ pub(crate) async fn claim_parent_event(
         deployment_version: leased.deployment.version,
         role: AgentBackendRole::ParentAdministrator,
         agent_pubkey: agent_pubkey.to_hex(),
+        root_event_id: state
+            .db
+            .client_thread_root(&principal.tenant, leased.turn.conversation_id)
+            .await
+            .map_err(map_db_error)?,
         channel_id: leased.turn.channel_id,
         conversation_id: leased.turn.conversation_id,
         family_id: leased.turn.family_id,
@@ -745,6 +861,130 @@ pub(crate) async fn call_backend(
         .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid AirHop Agent Backend JSON"))?;
     let read_operation = request.read_operation();
     let data = match request {
+        AgentBackendRequest::SaveBookingDraft {
+            expected_version,
+            mut data,
+        } => {
+            require_capability(&context, AgentCapability::CreateBooking)?;
+            if let Some(phone) = &data.phone {
+                data.phone = Some(
+                    super::airhop_public::normalize_airhop_phone(phone).ok_or_else(|| {
+                        api_error(StatusCode::UNPROCESSABLE_ENTITY, "invalid phone number")
+                    })?,
+                );
+            }
+            let draft = state
+                .db
+                .save_airhop_booking_draft(
+                    &context.principal.tenant,
+                    &booking_lease(&context),
+                    expected_version,
+                    data,
+                )
+                .await
+                .map_err(map_db_error)?;
+            read_envelope(
+                &context.claims,
+                draft.version.to_string(),
+                json!({"bookingDraft":draft}),
+            )
+        }
+        AgentBackendRequest::CancelBookingDraft { version } => {
+            require_capability(&context, AgentCapability::CreateBooking)?;
+            let draft = state
+                .db
+                .cancel_airhop_booking_draft(
+                    &context.principal.tenant,
+                    &booking_lease(&context),
+                    version,
+                )
+                .await
+                .map_err(map_db_error)?;
+            read_envelope(
+                &context.claims,
+                draft.version.to_string(),
+                json!({"bookingDraft":draft}),
+            )
+        }
+        AgentBackendRequest::CommitBookingDraft { version } => {
+            require_capability(&context, AgentCapability::CreateBooking)?;
+            let draft = state
+                .db
+                .get_airhop_booking_draft(&context.principal.tenant, context.claims.conversation_id)
+                .await
+                .map_err(map_db_error)?
+                .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "booking draft not found"))?;
+            let index_key = state
+                .config
+                .airhop_public_booking
+                .as_ref()
+                .map(|config| config.index_key())
+                .ok_or_else(|| {
+                    api_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Customer identity matching is not configured",
+                    )
+                })?;
+            let command_digest = scoped_digest(
+                &agent_command_key(&state),
+                b"airhop.conversation-booking.v1",
+                &[
+                    context.principal.tenant.community().as_uuid().as_bytes(),
+                    context.claims.conversation_id.as_bytes(),
+                    &version.to_be_bytes(),
+                ],
+            );
+            let result = state
+                .db
+                .commit_airhop_booking_draft(
+                    &context.principal.tenant,
+                    &CommitConversationBookingInput {
+                        lease: booking_lease(&context),
+                        version,
+                        phone_match_digest: super::airhop_public::airhop_phone_match_digest(
+                            index_key,
+                            context.principal.tenant.community().as_uuid(),
+                            draft.data.phone.as_deref().unwrap_or(""),
+                        ),
+                        command_digest,
+                        management_token_digest: scoped_digest(
+                            &agent_command_key(&state),
+                            b"airhop.conversation-booking.management.v1",
+                            &[&command_digest],
+                        ),
+                    },
+                )
+                .await
+                .map_err(map_db_error)?;
+            json!({"schemaVersion":ACTION_SCHEMA,"status":"committed",
+                "actionId":hex::encode(command_digest),"resultType":"booking_created",
+                "authoritativeResult":result,"scope":scope_json(&context.claims)})
+        }
+        AgentBackendRequest::AssignConversationBranch {
+            branch_id,
+            expected_version,
+            idempotency_key,
+            parent_quote,
+        } => {
+            let command = airhop_core::client_conversations::ClientCommand {
+                conversation_id: context.claims.conversation_id,
+                idempotency_key,
+                expected_version,
+                action: airhop_core::client_conversations::ClientAction::AssignBranch { branch_id },
+            };
+            let result = state
+                .db
+                .assign_client_branch_from_parent(
+                    &context.principal.tenant,
+                    &booking_lease(&context),
+                    &command,
+                    &parent_quote,
+                    &state.relay_keypair,
+                )
+                .await
+                .map_err(map_db_error)?;
+            json!({"schemaVersion":ACTION_SCHEMA,"status":"committed","authoritativeResult":result})
+        }
         AgentBackendRequest::GetTurnContext => get_turn_context(&state, &context).await?,
         AgentBackendRequest::GetFamily => get_family(&state, &context).await?,
         AgentBackendRequest::ListBookingOptions {
@@ -758,8 +998,10 @@ pub(crate) async fn call_backend(
         AgentBackendRequest::SearchKnowledge {
             query,
             locale,
+            branch_id,
+            group_id,
             limit,
-        } => search_knowledge(&state, &context, &query, locale, limit).await?,
+        } => search_knowledge(&state, &context, &query, locale, branch_id, group_id, limit).await?,
         AgentBackendRequest::ManageBooking { booking_id, action } => {
             manage_booking(&state, &context, booking_id, action, &body).await?
         }
@@ -790,7 +1032,7 @@ async fn get_turn_context(
         .db
         .get_airhop_conversation_handoff_targets(
             &context.principal.tenant,
-            context.claims.channel_id,
+            context.claims.conversation_id,
         )
         .await
         .map_err(map_db_error)?;
@@ -800,21 +1042,6 @@ async fn get_turn_context(
         .await
         .map_err(map_db_error)?
         .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "AirHop organization not found"))?;
-    let family = match context.claims.family_id {
-        Some(family_id) => {
-            let detail = load_scoped_family(state, context, family_id).await?;
-            Some(json!({
-                "id": detail.family.id,
-                "displayName": detail.family.display_name,
-                "version": detail.family.version,
-                "children": detail.children.iter().filter(|child| child.status == "active").map(|child| json!({
-                    "id": child.id,
-                    "displayName": child.display_name,
-                })).collect::<Vec<_>>(),
-            }))
-        }
-        None => None,
-    };
     let booking_id = match context.claims.family_id {
         Some(id) => state
             .db
@@ -827,6 +1054,22 @@ async fn get_turn_context(
             .map_err(map_db_error)?,
         None => None,
     };
+    let family = match (context.claims.family_id, context.claims.representative_id) {
+        (Some(family_id), Some(representative_id)) => Some(
+            state
+                .db
+                .get_airhop_parent_family_context(
+                    &context.principal.tenant,
+                    family_id,
+                    representative_id,
+                    booking_id,
+                )
+                .await
+                .map_err(map_db_error)?,
+        ),
+        (None, None) => None,
+        _ => return Err(invalid_context()),
+    };
     let auto_confirm = state
         .db
         .get_airhop_parent_agent_deployment(&context.principal.tenant, context.claims.deployment_id)
@@ -835,6 +1078,13 @@ async fn get_turn_context(
         .is_some_and(|deployment| {
             deployment.auto_confirm_online_bookings && deployment.manage_bookings
         });
+    let conversation_routing = super::airhop_locations::enrich_conversation_routing(
+        state
+            .db
+            .client_turn_routing(&context.principal.tenant, context.claims.conversation_id)
+            .await
+            .map_err(map_db_error)?,
+    );
     Ok(read_envelope(
         &context.claims,
         organization.version.to_string(),
@@ -843,6 +1093,7 @@ async fn get_turn_context(
             "conversation": {
                 "id": context.claims.conversation_id,
                 "channelId": context.claims.channel_id,
+                "rootEventId": context.claims.root_event_id,
                 "cycleId": context.claims.cycle_id,
                 "inputBatchId": context.claims.input_batch_id,
                 "sourceMessageId": context.claims.source_message_id,
@@ -855,9 +1106,16 @@ async fn get_turn_context(
                 "locale": organization.locale,
                 "timeZone": organization.time_zone,
             },
+            "customer": { "status": if family.is_some() { "verified_family" } else { "unlinked_contact" } },
             "family": family,
+            "history": state.db.get_airhop_parent_turn_history(
+                &context.principal.tenant, context.claims.turn_id,
+                context.claims.turn_lease_token, context.principal.pubkey.to_bytes(),
+            ).await.map_err(map_db_error)?,
+            "bookingDraft": state.db.get_airhop_booking_draft(&context.principal.tenant, context.claims.conversation_id).await.map_err(map_db_error)?,
             "handoffTargets": handoff_targets,
-            "policy": { "autoConfirmOnlineBookings": auto_confirm },
+            "conversationRouting": conversation_routing,
+            "policy": { "autoConfirmOnlineBookings": auto_confirm, "autoConfirmConversationBookings": auto_confirm },
             "capabilities": capability_names(&context.claims.capabilities),
         }),
     ))
@@ -922,26 +1180,34 @@ async fn list_booking_options(
                 "id": branch.id,
                 "name": branch.name,
                 "address": branch.address,
+                "mapLinks": super::airhop_locations::branch_map_links(&branch.address),
             })).collect::<Vec<_>>(),
-            "occurrences": occurrences.iter().map(|occurrence| json!({
-                "lessonRef": occurrence.lesson_ref,
-                "groupId": occurrence.group_id,
-                "groupName": occurrence.group_name,
-                "groupDescription": occurrence.group_description,
-                "branchId": occurrence.branch_id,
-                "branchName": occurrence.branch_name,
-                "branchAddress": occurrence.branch_address,
-                "roomName": occurrence.room_name,
-                "teacherNames": occurrence.teacher_names,
-                "date": occurrence.date,
-                "startTime": occurrence.start_time.format("%H:%M").to_string(),
-                "endTime": occurrence.end_time.format("%H:%M").to_string(),
-                "trialPolicy": occurrence.trial_policy,
-                "remaining": occurrence.remaining,
-                "available": occurrence.available,
-            })).collect::<Vec<_>>(),
+            "occurrences": occurrences.iter().map(parent_booking_option).collect::<Vec<_>>(),
         }),
     ))
+}
+
+fn parent_booking_option(occurrence: &PublicBookingOccurrence) -> Value {
+    json!({
+        "lessonRef": occurrence.lesson_ref,
+        "groupId": occurrence.group_id,
+        "groupName": occurrence.group_name,
+        "groupDescription": occurrence.group_description,
+        "branchId": occurrence.branch_id,
+        "branchName": occurrence.branch_name,
+        "branchAddress": occurrence.branch_address,
+        "mapLinks": super::airhop_locations::branch_map_links(&occurrence.branch_address),
+        "roomName": occurrence.room_name,
+        "teacherNames": occurrence.teacher_names,
+        "date": occurrence.date,
+        "startTime": occurrence.start_time.format("%H:%M").to_string(),
+        "endTime": occurrence.end_time.format("%H:%M").to_string(),
+        "trialPolicy": occurrence.trial_policy,
+        "capacity": occurrence.capacity,
+        "occupied": occurrence.occupied,
+        "remaining": occurrence.remaining,
+        "available": occurrence.available,
+    })
 }
 
 async fn search_knowledge(
@@ -949,6 +1215,8 @@ async fn search_knowledge(
     context: &ResolvedAgentContext,
     query: &str,
     locale: Option<String>,
+    branch_id: Option<Uuid>,
+    group_id: Option<Uuid>,
     limit: u8,
 ) -> Result<Value, (StatusCode, Json<Value>)> {
     require_capability(context, AgentCapability::SearchKnowledge)?;
@@ -958,8 +1226,13 @@ async fn search_knowledge(
         .await
         .map_err(map_db_error)?
         .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "AirHop organization not found"))?;
-    let mut branch_ids = BTreeSet::new();
-    let mut group_ids = BTreeSet::new();
+    let (branches, groups) = state
+        .db
+        .resolve_parent_knowledge_selection(&context.principal.tenant, branch_id, group_id)
+        .await
+        .map_err(map_db_error)?;
+    let mut branch_ids: BTreeSet<_> = branches.into_iter().collect();
+    let mut group_ids: BTreeSet<_> = groups.into_iter().collect();
     if let Some(family_id) = context.claims.family_id {
         let family = load_scoped_family(state, context, family_id).await?;
         for booking in &family.bookings {
@@ -990,6 +1263,17 @@ async fn search_knowledge(
         organization.version.to_string(),
         json!({ "documents": documents }),
     ))
+}
+
+fn booking_lease(context: &ResolvedAgentContext) -> ValidateParentAgentTurnLeaseInput {
+    ValidateParentAgentTurnLeaseInput {
+        organization_id: context.claims.organization_id,
+        deployment_id: context.claims.deployment_id,
+        deployment_version: context.claims.deployment_version,
+        turn_id: context.claims.turn_id,
+        lease_token: context.claims.turn_lease_token,
+        agent_pubkey: context.principal.pubkey.to_bytes(),
+    }
 }
 
 async fn manage_booking(
@@ -1105,6 +1389,15 @@ async fn validate_live_context(
         )
         .await
         .map_err(map_db_error)?;
+    if state
+        .db
+        .client_thread_root(&principal.tenant, claims.conversation_id)
+        .await
+        .map_err(map_db_error)?
+        != claims.root_event_id
+    {
+        return Err(invalid_context());
+    }
     let source_id = parse_event_id(&claims.source_message_id)?;
     if turn.channel_id != claims.channel_id
         || turn.conversation_id != claims.conversation_id
@@ -1157,16 +1450,16 @@ async fn validate_family_binding(
     match (family_id, representative_id) {
         (None, None) => Ok(()),
         (Some(family_id), Some(representative_id)) => {
-            let detail = state
+            let active = state
                 .db
-                .get_airhop_staff_family_detail(&principal.tenant, family_id)
+                .airhop_parent_family_binding_is_active(
+                    &principal.tenant,
+                    family_id,
+                    representative_id,
+                )
                 .await
                 .map_err(map_db_error)?;
-            if detail.family.status != "active"
-                || !detail.representatives.iter().any(|representative| {
-                    representative.id == representative_id && representative.status == "active"
-                })
-            {
+            if !active {
                 return Err(api_error(
                     StatusCode::FORBIDDEN,
                     "AirHop Family binding is not active",
@@ -1303,6 +1596,9 @@ fn parent_capabilities(verified_family: bool, manage_bookings: bool) -> BTreeSet
     if verified_family && manage_bookings {
         capabilities.insert(AgentCapability::ManageBooking);
     }
+    if manage_bookings {
+        capabilities.insert(AgentCapability::CreateBooking);
+    }
     capabilities
 }
 
@@ -1316,9 +1612,25 @@ fn parse_backend_request_value(value: Value) -> Result<AgentBackendRequest, ()> 
     let operation = object.get("operation").and_then(Value::as_str).ok_or(())?;
     let allowed = match operation {
         "get_turn_context" | "get_family" => &["operation"][..],
+        "assign_conversation_branch" => &[
+            "operation",
+            "branchId",
+            "expectedVersion",
+            "idempotencyKey",
+            "parentQuote",
+        ][..],
         "list_booking_options" => &["operation", "branchId", "groupId", "purpose", "ageYears"][..],
-        "search_knowledge" => &["operation", "query", "locale", "limit"][..],
+        "search_knowledge" => &[
+            "operation",
+            "query",
+            "locale",
+            "branchId",
+            "groupId",
+            "limit",
+        ][..],
         "manage_booking" => &["operation", "bookingId", "action"][..],
+        "save_booking_draft" => &["operation", "expectedVersion", "data"][..],
+        "cancel_booking_draft" | "commit_booking_draft" => &["operation", "version"][..],
         _ => return Err(()),
     };
     if object.keys().any(|key| !allowed.contains(&key.as_str())) {
@@ -1381,6 +1693,7 @@ fn scope_json(claims: &AgentContextClaims) -> Value {
 
 fn context_summary(claims: &AgentContextClaims) -> Value {
     json!({
+        "threaded": claims.root_event_id.is_some(),
         "deploymentId": claims.deployment_id,
         "deploymentVersion": claims.deployment_version,
         "role": claims.role.as_str(),
@@ -1547,6 +1860,16 @@ fn map_db_error(error: buzz_db::DbError) -> (StatusCode, Json<Value>) {
             StatusCode::CONFLICT,
             "AirHop booking can no longer be changed",
         ),
+        buzz_db::DbError::AirhopCapacityFull => api_error(StatusCode::CONFLICT,
+            "The lesson is full. Offer current booking options; no booking was created."),
+        buzz_db::DbError::AirhopOccurrenceUnavailable | buzz_db::DbError::AirhopVisitDisabled =>
+            api_error(StatusCode::CONFLICT, "This lesson or visit type is no longer available. Reload booking options."),
+        buzz_db::DbError::AirhopAgeMismatch => api_error(StatusCode::UNPROCESSABLE_ENTITY,
+            "The child does not meet this lesson's age limits. Offer age-appropriate booking options."),
+        buzz_db::DbError::AirhopIdentityMismatch => api_error(StatusCode::CONFLICT,
+            "Family verification is required. Do not expose or link matching customer records; hand off to staff."),
+        buzz_db::DbError::AirhopBookingConflict => api_error(StatusCode::CONFLICT,
+            "An active booking already exists for this child and lesson. Reload the current booking."),
         buzz_db::DbError::AirhopCommandInProgress => {
             api_error(StatusCode::CONFLICT, "AirHop action is already in progress")
         }
@@ -1583,12 +1906,59 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parent_booking_option_preserves_authoritative_seat_counts() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 9, 12).expect("date");
+        let mut occurrence = PublicBookingOccurrence {
+            lesson_ref: airhop_core::StableLessonReference {
+                recurrence_rule_id: Uuid::nil(),
+                original_date: date,
+            },
+            group_id: Uuid::nil(),
+            group_name: "Art".into(),
+            group_description: None,
+            min_age_months: None,
+            max_age_months: None,
+            branch_id: Uuid::nil(),
+            branch_name: "Workshop".into(),
+            branch_address: "Address".into(),
+            room_name: None,
+            teacher_names: vec![],
+            date,
+            start_time: chrono::NaiveTime::from_hms_opt(11, 0, 0).expect("time"),
+            end_time: chrono::NaiveTime::from_hms_opt(12, 0, 0).expect("time"),
+            trial_policy: airhop_core::TrialPolicy::Free,
+            capacity: Some(10),
+            occupied: 6,
+            remaining: Some(4),
+            available: true,
+        };
+        for (capacity, occupied, remaining, available) in [
+            (Some(10), 6, Some(4), true),
+            (Some(10), 10, Some(0), false),
+            (Some(10), 12, Some(0), false),
+            (None, 6, None, true),
+        ] {
+            occurrence.capacity = capacity;
+            occurrence.occupied = occupied;
+            occurrence.remaining = remaining;
+            occurrence.available = available;
+            let result = parent_booking_option(&occurrence);
+            assert_eq!(result["capacity"], json!(capacity));
+            assert_eq!(result["occupied"], json!(occupied));
+            assert_eq!(result["remaining"], json!(remaining));
+            assert_eq!(result["available"], json!(available));
+            assert_eq!(result["lessonRef"]["originalDate"], "2026-09-12");
+        }
+    }
+
+    #[test]
     fn unverified_parent_has_no_family_capabilities() {
         let capabilities = parent_capabilities(false, true);
         assert!(capabilities.contains(&AgentCapability::ReadOrganizationPublic));
         assert!(capabilities.contains(&AgentCapability::ListBookingOptions));
         assert!(!capabilities.contains(&AgentCapability::ReadFamily));
         assert!(!capabilities.contains(&AgentCapability::ManageBooking));
+        assert!(capabilities.contains(&AgentCapability::CreateBooking));
     }
 
     #[test]
@@ -1603,6 +1973,30 @@ mod tests {
         let capabilities = parent_capabilities(true, false);
         assert!(capabilities.contains(&AgentCapability::ReadFamily));
         assert!(!capabilities.contains(&AgentCapability::ManageBooking));
+        assert!(!capabilities.contains(&AgentCapability::CreateBooking));
+        assert!(!parent_capabilities(false, false).contains(&AgentCapability::CreateBooking));
+    }
+
+    #[test]
+    fn conversation_booking_contract_does_not_accept_agent_supplied_authority() {
+        for operation in ["commit_booking_draft", "cancel_booking_draft"] {
+            assert!(
+                parse_backend_request_value(json!({"operation":operation,"version":1})).is_ok()
+            );
+            for field in [
+                "familyId",
+                "conversationId",
+                "consent",
+                "autoConfirmOnlineBookings",
+                "sourceMessageId",
+            ] {
+                let mut request = json!({"operation":operation,"version":1});
+                request[field] = json!(true);
+                assert!(parse_backend_request_value(request).is_err(), "{field}");
+            }
+        }
+        assert!(parse_backend_request_value(json!({"operation":"save_booking_draft","expectedVersion":0,"data":{"parentName":"Anna"}})).is_ok());
+        assert!(parse_backend_request_value(json!({"operation":"save_booking_draft","expectedVersion":0,"data":{"familyId":Uuid::new_v4()}})).is_err());
     }
 
     #[test]

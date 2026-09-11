@@ -1650,6 +1650,15 @@ async fn run_usage_metrics_tick(
                 warn!(error = %error, "failed to reap expired relay invites");
             }
         }
+        match state.db.reap_airhop_site_analytics_events().await {
+            Ok(deleted) if deleted > 0 => {
+                info!(deleted, "reaped expired AirHub site analytics events");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                warn!(error = %error, "failed to reap expired AirHub site analytics events");
+            }
+        }
         run_storage_sweep_tick(state, emission_scope, &host_map).await;
     }
 

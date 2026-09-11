@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery, useOpenDmMutation } from "@/features/channels/hooks";
+import { AIRHOP_PRODUCT } from "@/shared/product/airhopProduct";
 import {
   useProfileQuery,
   useUserProfileQuery,
@@ -480,7 +481,7 @@ export function UserProfilePopover({
             />
           ) : null}
         </div>
-        {isBotProfile && ownerLabel ? (
+        {AIRHOP_PRODUCT.showAgentOwnerLabels && isBotProfile && ownerLabel ? (
           <p
             className="mt-0.5 truncate text-xs leading-4 text-muted-foreground"
             data-testid={`user-profile-popover-owner-${pubkey}`}

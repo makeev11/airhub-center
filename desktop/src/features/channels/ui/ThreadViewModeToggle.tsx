@@ -1,6 +1,6 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { Columns2, PanelRightOpen } from "lucide-react";
 
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import {
   type ThreadViewMode,
   useThreadViewMode,
@@ -29,13 +29,13 @@ const THREAD_VIEW_MODE_TOGGLE = {
   focus: {
     // Viewing the drawer → offer the pane.
     icon: Columns2,
-    label: "Show thread beside channel",
+    labelKey: "Show thread beside channel",
     target: "split",
   },
   split: {
     // Viewing the pane → offer the drawer.
     icon: PanelRightOpen,
-    label: "Expand thread",
+    labelKey: "Expand thread",
     target: "focus",
   },
 } as const;
@@ -58,14 +58,10 @@ export function ThreadViewModeToggle({
 }: {
   onChange: (mode: ThreadViewMode, restoreFocus: boolean) => void;
 }) {
+  useMessengerCopy();
   const viewMode = useThreadViewMode();
-  const isRussian = useAirHopLocale() === "ru-RU";
   const { icon: Icon, target } = THREAD_VIEW_MODE_TOGGLE[viewMode];
-  const label = isRussian
-    ? viewMode === "focus"
-      ? "Показать обсуждение рядом с каналом"
-      : "Развернуть обсуждение"
-    : THREAD_VIEW_MODE_TOGGLE[viewMode].label;
+  const label = messageText(THREAD_VIEW_MODE_TOGGLE[viewMode].labelKey);
 
   return (
     <Tooltip disableHoverableContent>

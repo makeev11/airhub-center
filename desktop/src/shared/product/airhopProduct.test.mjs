@@ -12,6 +12,7 @@ import {
 } from "./airhopProduct.ts";
 
 test("Airhop exposes the focused Center surface and fails closed", () => {
+  assert.equal(AIRHOP_PRODUCT.showAgentOwnerLabels, false);
   for (const route of [
     "booking.schedule",
     "booking.analytics",

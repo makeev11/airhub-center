@@ -1,3 +1,4 @@
+import { useMessengerCopy } from "@/shared/locale/messengerCopy";
 import { Toaster as Sonner } from "sonner";
 
 import { useTheme } from "@/shared/theme/ThemeProvider";
@@ -6,9 +7,11 @@ type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { isDark } = useTheme();
+  const m = useMessengerCopy();
 
   return (
     <Sonner
+      containerAriaLabel={m("Notifications")}
       theme={isDark ? "dark" : "light"}
       className="toaster group"
       toastOptions={{

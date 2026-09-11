@@ -1,6 +1,31 @@
 use super::*;
 
 #[test]
+fn airhop_seeded_uploads_refresh_without_replacing_custom_avatars() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("managed-agents.json");
+    let old = "http://localhost:3030/media/4a64f32d2375ccfe44c0880416bc72b809b055f0fb7d9dddeb8bb3dd6b80c297.png";
+    let custom = "https://example.com/my-avatar.png";
+    let records = serde_json::json!([
+        {"pubkey":"test-editor", "persona_id":"builtin:airhop-content-marketer", "avatar_url":old},
+        {"pubkey":"custom-editor", "persona_id":"builtin:airhop-content-marketer", "avatar_url":custom}
+    ]);
+    std::fs::write(&path, serde_json::to_vec(&records).unwrap()).unwrap();
+    refresh_builtin_agent_avatars_in_file(&path, LEGACY_BUILTIN_AVATARS, "after");
+    let refreshed: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        refreshed[0]["avatar_url"],
+        crate::managed_agents::built_in_persona_avatar_url("builtin:airhop-content-marketer")
+            .unwrap()
+    );
+    assert_eq!(refreshed[1]["avatar_url"], custom);
+    let first = std::fs::read(&path).unwrap();
+    refresh_builtin_agent_avatars_in_file(&path, LEGACY_BUILTIN_AVATARS, "later");
+    assert_eq!(std::fs::read(&path).unwrap(), first);
+}
+
+#[test]
 fn refresh_builtin_agent_avatars_updates_seeded_values_and_preserves_customizations() {
     use sha2::{Digest as _, Sha256};
 

@@ -371,11 +371,11 @@ export function MobilePairingCard({
   return (
     <section className="min-w-0" data-testid="settings-mobile">
       <SettingsSectionHeader
-        title={isRussian ? "Мобильное приложение" : "Mobile app"}
+        title={isRussian ? "Мобильное приложение Buzz" : "Buzz mobile app"}
         description={
           isRussian
-            ? "Подключите мобильное приложение AirHop, отсканировав QR-код. Соединение защищено сквозным шифрованием и проверочным кодом."
-            : "Connect the AirHop mobile app by scanning a QR code. The connection is secured with end-to-end encryption and a verification code."
+            ? "Для доступа к AirHop Center с телефона используется приложение Buzz. Откройте Buzz, выберите сканирование QR-кода и отсканируйте код ниже. Затем сверьте проверочный код на обоих устройствах и подтвердите подключение. Данные входа передаются в зашифрованном виде."
+            : "Use the Buzz mobile app to access AirHop Center from your phone. Open Buzz, choose Scan a QR code, and scan the code below. Then compare the verification code on both devices and confirm the connection. Sign-in data is transferred encrypted."
         }
       />
 

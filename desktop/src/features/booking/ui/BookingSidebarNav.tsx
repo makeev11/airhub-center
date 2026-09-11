@@ -1,7 +1,10 @@
+import * as React from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   CalendarDays,
+  BookOpen,
   ChartNoAxesCombined,
+  ChevronDown,
   Inbox,
   WalletCards,
   Settings2,
@@ -14,6 +17,7 @@ import { getBookingAdminMessages } from "@/features/booking/lib/bookingAdminLoca
 import { paymentQueueRows } from "@/features/booking/lib/bookingCommerceReadModels";
 import { organizationLocalDateTime } from "@/features/booking/lib/bookingDateTime";
 import { PRIMARY_BOOKING_DESTINATIONS } from "@/features/booking/lib/bookingNavigation";
+import { cn } from "@/shared/lib/cn";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -33,7 +37,16 @@ type BookingNavItem = {
   badge?: number;
 };
 
+// Preserve the Airhop section interaction recovered from e924c6a while using
+// the current navigation catalog (including analytics and settings catalogs).
+const SECTION_LABEL_BUTTON_CLASS =
+  "group/section-label flex w-fit max-w-[calc(100%-3rem)] cursor-pointer appearance-none items-center gap-1 text-left transition-colors hover:text-sidebar-foreground focus-visible:text-sidebar-foreground";
+const SECTION_LABEL_CHEVRON_CLASS =
+  "relative size-2.5 shrink-0 text-current opacity-0 transition-[color,opacity] group-hover/sidebar-section:opacity-100 group-hover/section-label:opacity-100 group-focus-within/sidebar-section:opacity-100 group-focus-visible/section-label:opacity-100";
+
 export function BookingSidebarNav({ isActive }: { isActive: boolean }) {
+  const [isCollapsed, setIsCollapsed] = React.useState(false);
+  const contentId = React.useId();
   const booking = useBookingWorkspace();
   const navigate = useNavigate();
   const pathname = useRouterState({
@@ -63,6 +76,10 @@ export function BookingSidebarNav({ isActive }: { isActive: boolean }) {
       ).length
     : 0;
   const presentation = {
+    inbox: {
+      label: messages.navInbox,
+      icon: Inbox,
+    },
     schedule: { label: messages.navSchedule, icon: CalendarDays },
     requests: {
       label: messages.navRequests,
@@ -79,6 +96,7 @@ export function BookingSidebarNav({ isActive }: { isActive: boolean }) {
       label: messages.navAnalytics,
       icon: ChartNoAxesCombined,
     },
+    knowledge: { label: messages.navKnowledge, icon: BookOpen },
     settings: { label: messages.navSettings, icon: Settings2 },
   } satisfies Record<
     (typeof PRIMARY_BOOKING_DESTINATIONS)[number]["id"],
@@ -92,11 +110,31 @@ export function BookingSidebarNav({ isActive }: { isActive: boolean }) {
   );
 
   return (
-    <SidebarGroup className="px-0 pb-2 pt-1" data-testid="airhop-sidebar-nav">
-      <SidebarGroupLabel className="font-semibold text-sidebar-foreground">
-        {messages.productName}
+    <SidebarGroup
+      className="group/sidebar-section select-none px-0 pb-2 pt-1"
+      data-testid="airhop-sidebar-nav"
+    >
+      <SidebarGroupLabel asChild>
+        <button
+          aria-controls={contentId}
+          aria-expanded={!isCollapsed}
+          className={SECTION_LABEL_BUTTON_CLASS}
+          data-testid="airhop-section-label"
+          onClick={() => setIsCollapsed((current) => !current)}
+          type="button"
+        >
+          <span data-sidebar-section-title>{messages.productName}</span>
+          <span aria-hidden="true" className={SECTION_LABEL_CHEVRON_CLASS}>
+            <ChevronDown
+              className={cn(
+                "absolute left-1/2 top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2",
+                isCollapsed ? "-rotate-90" : "rotate-0",
+              )}
+            />
+          </span>
+        </button>
       </SidebarGroupLabel>
-      <SidebarGroupContent>
+      <SidebarGroupContent hidden={isCollapsed} id={contentId}>
         <SidebarMenu>
           {items.map((item) => {
             const Icon = item.icon;

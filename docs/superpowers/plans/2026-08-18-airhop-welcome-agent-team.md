@@ -19,7 +19,10 @@
 - Exactly one agent receives each human Welcome event; route creation is atomic and replay-safe.
 - Физ/Fizz coordinates and delegates but has no Booking Core mutation capability.
 - Administrator owns operational setup and administration; Analyst owns authoritative analytics; Content Marketer owns content discussion but has no site-publishing tool in this slice.
-- Hermes is not provisioned into Welcome and is not referenced by any Welcome runtime manifest.
+- Hermes is not an internal Welcome team member. The approved guest introduction
+  is a separate least-privilege stage under his own identity, without Welcome
+  history or internal tools. The 2026-09-10 source-of-truth amendment supersedes
+  older four-only examples and cancellation behavior in this historical plan.
 - Facts come from Welcome history and authoritative Booking Core read models; do not create an extracted organization brief or shared knowledge-base table.
 - Mutations require a relay-signed preview card and a human `✅`; stale, fake, replayed, expired, or agent-authored confirmations do not mutate state.
 - Locale controls names, roles, prompts, kickoff, normal replies, preview/errors, dates, time, and money. Russian starts with friendly «вы»; direct user language changes are respected.

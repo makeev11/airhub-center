@@ -17,6 +17,7 @@ function isWelcomeKickoffStageMessage(event: RelayEvent) {
 export function useWelcomeKickoffEntrance(
   activeChannel: Channel | null,
   resolvedMessages: readonly RelayEvent[],
+  historyReady: boolean,
 ) {
   const [entranceMessageId, setEntranceMessageId] = React.useState<
     string | null
@@ -53,7 +54,17 @@ export function useWelcomeKickoffEntrance(
     setEntranceMessageId((current) => (current === eventId ? null : current));
   }, []);
 
-  useWelcomeKickoff(activeChannel, resolvedMessages);
+  const { guestStatus, guestPubkey, retryGuest } = useWelcomeKickoff(
+    activeChannel,
+    resolvedMessages,
+    historyReady,
+  );
 
-  return { entranceMessageId, handleEntranceComplete };
+  return {
+    entranceMessageId,
+    handleEntranceComplete,
+    guestStatus,
+    guestPubkey,
+    retryGuest,
+  };
 }

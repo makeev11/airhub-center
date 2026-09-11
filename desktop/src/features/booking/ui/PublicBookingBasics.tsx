@@ -37,7 +37,7 @@ export function PublicBookingBranchSelector({
       <legend className="text-sm font-medium">{messages.chooseBranch}</legend>
       {!open && selectedBranch ? (
         <button
-          className="flex min-h-16 w-full min-w-0 items-center gap-3 rounded-2xl border border-primary bg-primary/10 p-4 text-left transition-colors hover:bg-primary/15 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          className="grid min-h-16 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-2xl border border-primary bg-primary/10 p-4 text-left transition-colors hover:bg-primary/15 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           data-testid="airhop-public-selected-branch"
           onClick={() => onOpenChange(true)}
           type="button"
@@ -53,10 +53,10 @@ export function PublicBookingBranchSelector({
               {selectedBranch.address}
             </span>
           </span>
-          <span className="shrink-0 text-xs font-medium text-primary">
+          <span className="col-start-2 row-start-2 text-xs font-medium text-primary">
             {messages.changeBranch}
           </span>
-          <ChevronDown className="h-4 w-4 shrink-0" />
+          <ChevronDown className="col-start-3 row-span-2 row-start-1 h-4 w-4" />
         </button>
       ) : (
         <div className="grid gap-2">
@@ -71,7 +71,7 @@ export function PublicBookingBranchSelector({
               <button
                 aria-pressed={branchId === branch.id}
                 className={cn(
-                  "flex min-h-16 w-full min-w-0 items-center gap-3 rounded-2xl border p-4 text-left transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                  "grid min-h-16 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-2xl border p-4 text-left transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                   branchId === branch.id
                     ? "border-primary bg-primary/10"
                     : "border-border/70 bg-background/70 hover:bg-muted/60",
@@ -103,7 +103,7 @@ export function PublicBookingBranchSelector({
                 </span>
                 <span
                   className={cn(
-                    "inline-flex max-w-32 shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-right text-2xs font-semibold leading-4",
+                    "col-start-2 inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-2xs font-semibold leading-4",
                     isLoading
                       ? "bg-muted text-muted-foreground"
                       : available
@@ -143,7 +143,7 @@ export function PublicBookingAgeSelector({
   return (
     <fieldset className="min-w-0 space-y-3">
       <legend className="text-sm font-medium">{messages.childAge}</legend>
-      <div className="grid grid-cols-3 gap-2 min-[320px]:grid-cols-4 sm:grid-cols-8">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(2.75rem,1fr))] gap-2 sm:grid-cols-8">
         {Array.from({ length: 18 }, (_, age) => age).map((age) => (
           <button
             aria-label={messages.ageYears(age)}

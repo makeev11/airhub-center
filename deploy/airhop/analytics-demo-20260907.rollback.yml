@@ -1,0 +1,8 @@
+# Migration 0053 is additive. Keep its data; old SQLx must skip unknown versions.
+services:
+  relay:
+    image: airhub-center-relay:f9730f5-booking-cta-20260907
+    environment:
+      BUZZ_AUTO_MIGRATE: "false"
+    labels:
+      ru.airhop.release: f9730f5f8e526fcc51a068a862b3e79e737ae92e

@@ -3,6 +3,7 @@ import { useAppShell } from "@/app/AppShellContext";
 import { cacheSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useActiveChannelHeader } from "@/features/channels/useActiveChannelHeader";
+import { useChannelAgentLabels } from "@/features/channels/useChannelAgentLabels";
 import { useChannelPaneHandlers } from "@/features/channels/useChannelPaneHandlers";
 import { useMessageEventProfilePubkeys } from "@/features/channels/useMessageEventProfilePubkeys";
 import { useMessageOwnerProfiles } from "@/features/channels/useMessageOwnerProfiles";
@@ -23,13 +24,13 @@ import { ForumChannelContent } from "@/features/channels/ui/ForumChannelContent"
 import { MembersSidebar } from "@/features/channels/ui/MembersSidebar";
 import {
   useManagedAgentsQuery,
-  usePersonasQuery,
   useRelayAgentsQuery,
 } from "@/features/agents/hooks";
 import { mergeChannelKnownAgentPubkeys } from "@/features/agents/knownAgentPubkeys";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { pickWelcomeGuideAgent } from "@/features/onboarding/welcomeGuide";
 import { useWelcomeKickoffEntrance } from "@/features/onboarding/useWelcomeKickoffEntrance";
+import { WelcomeGuestStatus } from "@/features/onboarding/ui/WelcomeGuestStatus";
 import { useWelcomeKickoffStagePresence } from "@/features/onboarding/useWelcomeKickoffStagePresence";
 import { useWelcomeAgentCreate } from "@/features/channels/useWelcomeAgentCreate";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -43,7 +44,7 @@ import {
   useToggleReactionMutation,
 } from "@/features/messages/hooks";
 import { formatTimelineMessages } from "@/features/messages/lib/formatTimelineMessages";
-import { DeleteMessageConfirmDialog } from "@/features/messages/ui/DeleteMessageConfirmDialog";
+import { EmptyMessageDeleteDialog } from "@/features/channels/ui/EmptyMessageDeleteDialog";
 import { imetaMediaFromTags } from "@/features/messages/lib/imetaMediaMarkdown";
 import { getThreadReference } from "@/features/messages/lib/threading";
 import {
@@ -57,7 +58,7 @@ import { useChannelTyping } from "@/features/messages/useChannelTyping";
 import type { TimelineMessage } from "@/features/messages/types";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { useRelaySelfQuery } from "@/features/moderation/hooks";
-import type { RelayEvent, RespondToMode, SearchHit } from "@/shared/api/types";
+import type { RelayEvent, SearchHit } from "@/shared/api/types";
 import { useChannelFind } from "@/features/search/useChannelFind";
 import { ChannelScreenLoadingFallback } from "@/features/channels/ui/ChannelScreenLoadingFallback";
 import {
@@ -267,7 +268,14 @@ export function ChannelScreen({
   const {
     entranceMessageId: welcomeEntranceMessageId,
     handleEntranceComplete: handleWelcomeEntranceComplete,
-  } = useWelcomeKickoffEntrance(activeChannel, resolvedMessages);
+    guestStatus: welcomeGuestStatus,
+    guestPubkey: welcomeGuestPubkey,
+    retryGuest: retryWelcomeGuest,
+  } = useWelcomeKickoffEntrance(
+    activeChannel,
+    resolvedMessages,
+    messagesQuery.isSuccess && !messagesQuery.isFetching,
+  );
   const messageEventProfilePubkeys = useMessageEventProfilePubkeys(
     resolvedMessages,
     threadReplyEvents,
@@ -360,6 +368,7 @@ export function ChannelScreen({
     typingEntries,
   });
   const messageProfiles = useMessageProfiles({
+    welcomeGuestPubkey,
     channelMembers,
     currentProfile,
     currentPubkey,
@@ -378,22 +387,8 @@ export function ChannelScreen({
     }
     return pubkeys;
   }, [knownAgentPubkeys, messageProfiles, communityAgentPubkeys]);
-  const personasQuery = usePersonasQuery();
-  const { personaLookup, respondToLookup } = React.useMemo(() => {
-    const agents = managedAgentsQuery.data ?? [];
-    const personaById = new Map(
-      (personasQuery.data ?? []).map((p) => [p.id, p.displayName]),
-    );
-    const pLookup = new Map<string, string>();
-    const rLookup = new Map<string, RespondToMode>();
-    for (const agent of agents) {
-      const key = agent.pubkey.toLowerCase();
-      rLookup.set(key, agent.respondTo);
-      const pName = agent.personaId ? personaById.get(agent.personaId) : null;
-      if (pName) pLookup.set(key, pName);
-    }
-    return { personaLookup: pLookup, respondToLookup: rLookup };
-  }, [managedAgentsQuery.data, personasQuery.data]);
+  const { personaLookup, respondToLookup } =
+    useChannelAgentLabels(managedAgents);
   const timelineMessages = React.useMemo(
     () =>
       formatTimelineMessages(
@@ -803,18 +798,11 @@ export function ChannelScreen({
           open={welcomeAgentCreate.isOpen}
           sendError={welcomeAgentCreate.error}
         />
-        <DeleteMessageConfirmDialog
-          onConfirm={() => {
-            if (emptyDeleteId) {
-              setEditTargetId(null);
-              void handleDelete({ id: emptyDeleteId });
-            }
-            setEmptyDeleteId(null);
-          }}
-          onOpenChange={(open) => {
-            if (!open) setEmptyDeleteId(null);
-          }}
-          open={emptyDeleteId !== null}
+        <EmptyMessageDeleteDialog
+          messageId={emptyDeleteId}
+          onDelete={handleDelete}
+          onClearEdit={setEditTargetId}
+          onDismiss={setEmptyDeleteId}
         />
         <div
           className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
@@ -865,7 +853,17 @@ export function ChannelScreen({
                   currentPubkey={currentPubkey}
                   canResetThreadPanelWidth={canResetThreadPanelWidth}
                   fetchOlder={fetchOlder}
-                  header={channelHeader}
+                  header={
+                    <>
+                      {channelHeader}
+                      <WelcomeGuestStatus
+                        status={welcomeGuestStatus}
+                        onRetry={() => {
+                          void retryWelcomeGuest();
+                        }}
+                      />
+                    </>
+                  }
                   hasOlderMessages={hasOlderMessages}
                   historyExhausted={historyExhausted}
                   onAddAgent={handleOpenAddBot}

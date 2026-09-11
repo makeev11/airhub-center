@@ -190,10 +190,10 @@ pub(crate) async fn prepare_agent_action(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let principal =
         authenticate_airhop_agent(&state, &headers, "POST", PREPARE_PATH, Some(&body)).await?;
-    let request: PrepareAgentActionBody = serde_json::from_slice(&body).map_err(|_| {
+    let request: PrepareAgentActionBody = serde_json::from_slice(&body).map_err(|error| {
         api_error(
             StatusCode::BAD_REQUEST,
-            "invalid typed Airhop agent action JSON",
+            &format!("invalid typed Airhop agent action JSON: {error}"),
         )
     })?;
     request

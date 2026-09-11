@@ -10,6 +10,7 @@ test("CI relay artifacts contain the matching embedded migrator", () => {
   assert.equal((ci.match(/\.\/target\/ci\/buzz-admin migrate/g) ?? []).length, 2);
   assert.doesNotMatch(ci, /pgschema apply --file schema\/schema\.sql/);
   assert.match(ci, /airhop::external_conversation::integration_tests/);
+  assert.match(ci, /test\(staff_queue_is_tenant_scoped_prioritized_and_cursor_safe\)/);
 });
 
 test("shared test relay applies migrations instead of the incomplete snapshot", () => {

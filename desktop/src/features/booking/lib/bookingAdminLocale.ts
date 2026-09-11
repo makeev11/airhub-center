@@ -1,443 +1,11 @@
-import type { Weekday } from "@/features/booking/model/bookingCore";
-import {
-  type BookingPaymentMessages,
-  ruPaymentMessages,
-} from "@/features/booking/lib/bookingPaymentLocale";
+import { ruPaymentMessages } from "@/features/booking/lib/bookingPaymentLocale";
 import { EN_BOOKING_ADMIN_MESSAGES } from "@/features/booking/lib/bookingAdminLocale.en";
 import { loadAirHopLocale } from "@/shared/locale/airhopLocale";
-import type { BookingEnrollmentManagementMessages } from "@/features/booking/lib/bookingEnrollmentLocale";
-export type BookingAdminMessages = BookingPaymentMessages &
-  BookingEnrollmentManagementMessages & {
-    productName: string;
-    navSchedule: string;
-    navRequests: string;
-    navClients: string;
-    navBranches: string;
-    navGroups: string;
-    navTariffs: string;
-    navPayments: string;
-    navAnalytics: string;
-    navTeachers: string;
-    navSettings: string;
-    loadingTitle: string;
-    loadingDescription: string;
-    unavailableTitle: string;
-    unavailableDescription: string;
-    loadErrorTitle: string;
-    loadErrorDescription: string;
-    saveErrorTitle: string;
-    saveErrorDescription: string;
-    retry: string;
-    revisionConflictTitle: string;
-    revisionConflictDescription: string;
-    recoveredDataTitle: string;
-    recoveredDataDescription: string;
-    dismiss: string;
-    unsavedChangesConfirm: string;
-    save: string;
-    saving: string;
-    cancel: string;
-    edit: string;
-    archive: string;
-    restore: string;
-    active: string;
-    archived: string;
-    nextStage: string;
-    settingsTitle: string;
-    settingsDescription: string;
-    settingsSectionsLabel: string;
-    organizationCardTitle: string;
-    organizationName: string;
-    locale: string;
-    localeRussian: string;
-    localeEnglish: string;
-    timeZone: string;
-    timeZoneAutomatic: (timeZone: string) => string;
-    timeZoneHint: string;
-    staffWorkingHours: string;
-    staffWorkingHoursHint: string;
-    trialPolicy: string;
-    trialDisabled: string;
-    trialFree: string;
-    trialPaid: string;
-    currency: string;
-    trialPrice: string;
-    centerPaymentDay: string;
-    centerPaymentDayHint: string;
-    attendanceDefault: string;
-    attendanceHint: string;
-    singleVisitsDefault: string;
-    singleVisitsHint: string;
-    publicBookingCardTitle: string;
-    publicBookingCardDescription: string;
-    publicBookingPurpose: string;
-    publicBookingPurposeTrial: string;
-    publicBookingPurposeLesson: string;
-    publicBookingPurposeHint: string;
-    publicBookingAppearance: string;
-    publicBookingAppearanceAutomatic: string;
-    publicBookingAppearanceLight: string;
-    publicBookingAppearanceDark: string;
-    publicBookingAppearanceHint: string;
-    settingsSaved: string;
-    requiredField: string;
-    invalidTimeZone: string;
-    invalidCurrency: string;
-    invalidPrice: string;
-    branchesTitle: string;
-    branchesDescription: string;
-    addBranch: string;
-    noBranchesTitle: string;
-    noBranchesDescription: string;
-    branchName: string;
-    branchAddress: string;
-    buzzChannel: string;
-    buzzChannelHint: string;
-    buzzChannelPlaceholder: string;
-    buzzChannelSearching: string;
-    buzzChannelFound: (name: string) => string;
-    buzzChannelWillCreate: (name: string) => string;
-    buzzChannelSuggestions: string;
-    buzzChannelLookupError: string;
-    buzzChannelUnavailable: string;
-    buzzChannelDescription: (branchName: string) => string;
-    workingHours: string;
-    workingDay: string;
-    dayOff: string;
-    workingPeriodStart: string;
-    workingPeriodEnd: string;
-    addPeriod: string;
-    removePeriod: string;
-    createBranchTitle: string;
-    editBranchTitle: string;
-    createBranchDescription: string;
-    editBranchDescription: string;
-    branchCreated: string;
-    branchUpdated: string;
-    branchArchived: string;
-    branchRestored: string;
-    archiveBranchTitle: (name: string) => string;
-    archiveBranchDescription: string;
-    branchUsage: (groups: number, rooms: number, rules: number) => string;
-    copyBookingLink: string;
-    bookingLinkCopied: (name: string) => string;
-    bookingLinkCopyFailed: string;
-    manageRooms: string;
-    roomsForBranch: (name: string) => string;
-    roomsDescription: string;
-    addRoom: string;
-    noRoomsTitle: string;
-    noRoomsDescription: string;
-    roomName: string;
-    createRoomTitle: string;
-    editRoomTitle: string;
-    createRoomDescription: string;
-    editRoomDescription: string;
-    roomCreated: string;
-    roomUpdated: string;
-    roomArchived: string;
-    roomRestored: string;
-    archiveRoomTitle: (name: string) => string;
-    archiveRoomDescription: string;
-    roomUsage: (active: number, historical: number) => string;
-    restoreRoomBlocked: string;
-    invalidWorkingPeriod: string;
-    overlapWarningTitle: string;
-    overlapWarningDescription: string;
-    overlapConfirmation: string;
-    workingDaysSummary: (days: number, periods: number) => string;
-    groupsTitle: string;
-    groupsDescription: string;
-    addGroup: string;
-    noGroupsTitle: string;
-    noGroupsDescription: string;
-    groupName: string;
-    groupDescription: string;
-    groupDescriptionHint: string;
-    groupBranch: string;
-    groupRoom: string;
-    noRoom: string;
-    groupTeachers: string;
-    noTeachers: string;
-    groupMinAge: string;
-    groupMaxAge: string;
-    ageMonthsHint: string;
-    groupCapacity: string;
-    capacityHint: string;
-    groupTrialPolicy: string;
-    inheritCenterSetting: string;
-    groupAttendance: string;
-    groupSingleVisits: string;
-    attendanceEnabled: string;
-    attendanceDisabled: string;
-    singleVisitsEnabled: string;
-    singleVisitsDisabled: string;
-    inheritGroupSetting: string;
-    lessonChangeSingleVisits: (from: string, to: string) => string;
-    weeklySchedule: string;
-    scheduleHint: string;
-    scheduleWeekday: string;
-    scheduleStartsOn: string;
-    scheduleEndsOn: string;
-    scheduleStartTime: string;
-    scheduleEndTime: string;
-    addScheduleTemplate: string;
-    removeScheduleTemplate: string;
-    createGroupTitle: string;
-    editGroupTitle: string;
-    createGroupDescription: string;
-    editGroupDescription: string;
-    groupCreated: string;
-    groupUpdated: string;
-    groupArchived: string;
-    groupRestored: string;
-    archiveGroupTitle: (name: string) => string;
-    archiveGroupDescription: string;
-    groupUsage: (rules: number, exceptions: number) => string;
-    groupScheduleSummary: (templates: number) => string;
-    groupTeachersSummary: (teachers: number) => string;
-    groupEnrollStudent: string;
-    groupActiveStudents: (count: number) => string;
-    groupAgeSummary: (minimum: string, maximum: string) => string;
-    groupCapacityUnlimited: string;
-    trialEffective: (value: string) => string;
-    attendanceEffective: (value: string) => string;
-    archivedBranchOption: (name: string) => string;
-    archivedTeacherOption: (name: string) => string;
-    archivedRoomOption: (name: string) => string;
-    restoreGroupBlocked: string;
-    invalidAge: string;
-    invalidAgeRange: string;
-    invalidCapacity: string;
-    invalidScheduleRange: string;
-    invalidScheduleTime: string;
-    scheduleWeekdayRequired: string;
-    scheduleRequired: string;
-    scheduleConflictTitle: string;
-    scheduleConflictDescription: string;
-    scheduleConflictWorkingHours: string;
-    scheduleConflictRoom: string;
-    scheduleConflictTeacher: string;
-    scheduleConflictWithGroup: (name: string) => string;
-    scheduleConflictConfirmation: string;
-    bookedOccurrenceRuleErrorTitle: string;
-    bookedOccurrenceRuleErrorDescription: string;
-    teachersTitle: string;
-    teachersDescription: string;
-    addTeacher: string;
-    noTeachersTitle: string;
-    noTeachersDescription: string;
-    teacherName: string;
-    teacherBuzzUsername: string;
-    teacherBuzzUsernameHint: string;
-    createTeacherTitle: string;
-    editTeacherTitle: string;
-    createTeacherDescription: string;
-    editTeacherDescription: string;
-    teacherCreated: string;
-    teacherUpdated: string;
-    teacherArchived: string;
-    teacherRestored: string;
-    archiveTeacherTitle: (name: string) => string;
-    archiveTeacherDescription: string;
-    teacherUsage: (groups: number, rules: number) => string;
-    teacherGroupsSummary: (groups: number) => string;
-    tariffsTitle: string;
-    tariffsDescription: string;
-    addTariff: string;
-    noTariffsTitle: string;
-    noTariffsDescription: string;
-    tariffName: string;
-    tariffDescription: string;
-    tariffDescriptionHint: string;
-    tariffPrice: string;
-    tariffCurrency: string;
-    tariffWeeklyScheduleLimit: string;
-    tariffWeeklyScheduleLimitHint: string;
-    tariffPaymentDay: string;
-    tariffPaymentDayInherited: (day: number) => string;
-    tariffPaymentDayCustom: string;
-    tariffPaymentDayCustomLabel: string;
-    tariffPaymentDayHint: string;
-    createTariffTitle: string;
-    editTariffTitle: string;
-    createTariffDescription: string;
-    editTariffDescription: string;
-    tariffCreated: string;
-    tariffUpdated: string;
-    tariffArchived: string;
-    tariffRestored: string;
-    showArchivedTariffs: (count: number) => string;
-    hideArchivedTariffs: string;
-    archivedTariffsTitle: string;
-    archiveTariffTitle: (name: string) => string;
-    archiveTariffDescription: string;
-    tariffEnrollmentUsage: (count: number) => string;
-    tariffPerWeek: (count: number) => string;
-    tariffPaymentDaySummary: (day: number) => string;
-    tariffPaymentDayCenterSummary: (day: number) => string;
-    invalidWeeklyScheduleLimit: string;
-    invalidPaymentDay: string;
-    enrollChildTitle: string;
-    enrollChildDescription: string;
-    enrollmentClientSectionTitle: string;
-    enrollmentClientSectionDescription: string;
-    enrollmentTermsSectionTitle: string;
-    enrollmentTermsSectionDescription: string;
-    enrollmentExistingChild: string;
-    enrollmentGroup: string;
-    enrollmentTariff: string;
-    enrollmentTariffPlaceholder: string;
-    enrollmentSchedule: string;
-    enrollmentStartDate: string;
-    enrollmentAgeWarningTitle: string;
-    enrollmentAgeWarningDescription: (ageRange: string) => string;
-    enrollmentReviewTitle: string;
-    enrollmentReviewDescription: string;
-    enrollmentSelectedSlots: (selected: number, maximum: number) => string;
-    enrollmentSlotLimitReached: (maximum: number) => string;
-    enrollmentNoWeeklySlots: string;
-    enrollmentNoGroups: string;
-    enrollmentNoTariffs: string;
-    enrollmentFirstPayment: string;
-    enrollmentBack: string;
-    enrollmentContinue: string;
-    enrollmentConfirm: string;
-    enrollmentCreated: string;
-    enrollmentActionFailed: string;
-    familyEnrollments: string;
-    familyEnrollChild: string;
-    enrollmentNeedsAssignment: string;
-    enrollmentStarts: (date: string) => string;
-    enrollmentManage: string;
-    enrollmentManagementTitle: string;
-    enrollmentManagementDescription: (group: string) => string;
-    enrollmentManagementFailed: string;
-    enrollmentUpdated: string;
-    enrollmentCurrentTariff: string;
-    enrollmentChangeTariff: string;
-    enrollmentSelectTariff: string;
-    enrollmentNoCompatibleTariffs: string;
-    enrollmentTariffFutureOnly: string;
-    enrollmentPause: string;
-    enrollmentResume: string;
-    enrollmentEnd: string;
-    enrollmentEndDescription: string;
-    enrollmentEndWarning: string;
-    requestsTitle: string;
-    requestsDescription: string;
-    requestSearch: string;
-    requestFilterAll: string;
-    requestFilterAttention: string;
-    requestFilterPending: string;
-    requestFilterConfirmed: string;
-    requestFilterProcessed: string;
-    noRequestsTitle: string;
-    noRequestsDescription: string;
-    requestStatusPending: string;
-    requestStatusConfirmed: string;
-    requestStatusRejected: string;
-    requestStatusCancelledByParent: string;
-    requestStatusCancelledByCenter: string;
-    requestStatusIntakeNew: string;
-    requestStatusIntakeConverted: string;
-    requestStatusIntakeClosed: string;
-    requestNeedsLesson: string;
-    requestTransferPending: string;
-    requestPossibleDuplicate: string;
-    requestConfirm: string;
-    requestReject: string;
-    requestConfirmed: string;
-    requestRejected: string;
-    requestMessengerQueued: string;
-    requestStaffCallQueued: string;
-    requestSourceBookingCore: string;
-    requestLoadMore: string;
-    requestLoadingMore: string;
-    requestOpenFamily: string;
-    clientsTitle: string;
-    clientsDescription: string;
-    clientSearch: string;
-    clientAddFamily: string;
-    clientsServerReadOnly: string;
-    noClientsTitle: string;
-    noClientsDescription: string;
-    family: string;
-    familyRepresentatives: string;
-    familyChildren: string;
-    familyHistory: string;
-    familyPrimaryContact: string;
-    familyBookingsCount: (count: number) => string;
-    familyActiveEnrollmentsCount: (count: number) => string;
-    familyLastActivity: string;
-    familyPossibleDuplicate: string;
-    familyNotFoundTitle: string;
-    familyNotFoundDescription: string;
-    familySourceBookingCore: string;
-    familyServerReadOnly: string;
-    familyVerifiedMessenger: string;
-    familyNoEnrollments: string;
-    familyEnrollmentPaused: string;
-    familyEnrollmentEnded: string;
-    familyHistoryTruncated: string;
-    createFamilyTitle: string;
-    createFamilyDescription: string;
-    familyCreated: string;
-    editRepresentativeTitle: string;
-    addRepresentativeTitle: string;
-    representativeSaved: string;
-    editChildTitle: string;
-    addChildTitle: string;
-    childSaved: string;
-    invalidPhone: string;
-    invalidBirthDate: string;
-    familyArchiveTitle: (name: string) => string;
-    familyArchiveDescription: string;
-    familyArchived: string;
-    familyRestored: string;
-    familyName: string;
-    editFamilyNameTitle: string;
-    editFamilyNameDescription: string;
-    representativeName: string;
-    representativeFirstName: string;
-    representativeLastName: string;
-    representativePhone: string;
-    representativeChannel: string;
-    childName: string;
-    childFirstName: string;
-    childLastName: string;
-    childBirthDate: string;
-    childNote: string;
-    addRepresentative: string;
-    addChild: string;
-    lessonRosterTitle: string;
-    lessonRosterExpected: (count: number) => string;
-    lessonRosterEmpty: string;
-    lessonRosterPending: string;
-    lessonRosterConfirmed: string;
-    lessonRosterPermanent: string;
-    lessonRosterTrial: string;
-    lessonRosterSingle: string;
-    lessonAddParticipant: string;
-    lessonAddParticipantTitle: string;
-    lessonAddParticipantDescription: string;
-    participantExistingClient: string;
-    participantNewClient: string;
-    participantSearch: string;
-    participantSearchEmpty: string;
-    participantVisitKind: string;
-    participantVisitTrial: string;
-    participantVisitSingle: string;
-    participantNoVisitKinds: string;
-    participantAdd: string;
-    participantAdded: string;
-    participantAttendancePresent: string;
-    participantAttendanceAbsent: string;
-    participantActionFailed: string;
-    weekdayNames: Record<Weekday, string>;
-  };
+import type { BookingAdminMessages } from "./bookingAdminMessages";
+export type { BookingAdminMessages } from "./bookingAdminMessages";
 const ru: BookingAdminMessages = {
   productName: "Airhop",
+  navInbox: "Обращения",
   navSchedule: "Расписание",
   navRequests: "Заявки",
   navClients: "Клиенты",
@@ -446,6 +14,7 @@ const ru: BookingAdminMessages = {
   navTariffs: "Тарифы",
   navPayments: "Оплаты",
   navAnalytics: "Аналитика",
+  navKnowledge: "База знаний",
   navTeachers: "Преподаватели",
   navSettings: "Настройки",
   loadingTitle: "Загружаем Airhop",
@@ -530,7 +99,8 @@ const ru: BookingAdminMessages = {
   invalidPrice:
     "Укажите неотрицательную стоимость с точностью выбранной валюты.",
   branchesTitle: "Филиалы",
-  branchesDescription: "Адреса, рабочее время и маршрутизация рабочих каналов.",
+  branchesDescription:
+    "Адреса, ответственные за обращения, ссылки для карт и рабочие каналы.",
   addBranch: "Добавить филиал",
   noBranchesTitle: "Филиалов пока нет",
   noBranchesDescription:
@@ -541,14 +111,14 @@ const ru: BookingAdminMessages = {
   buzzChannelHint:
     "Здесь команда будет получать новые записи, задачи и уведомления Airhop. Если канал уже есть, мы привяжем его; если нет — создадим при сохранении.",
   buzzChannelPlaceholder: "например, курская",
-  buzzChannelSearching: "Ищем канал в Buzz…",
+  buzzChannelSearching: "Ищем канал…",
   buzzChannelFound: (name) =>
     `Найден канал #${name}. Филиал будет привязан к нему.`,
   buzzChannelWillCreate: (name) =>
     `Канала #${name} пока нет. Он будет создан при сохранении филиала.`,
   buzzChannelSuggestions: "Похожие каналы:",
   buzzChannelLookupError:
-    "Не удалось проверить или создать канал. Проверьте подключение к Buzz и повторите.",
+    "Не удалось проверить или создать канал. Проверьте подключение к Центру и повторите.",
   buzzChannelUnavailable: "Привязанный канал недоступен",
   buzzChannelDescription: (branchName) =>
     `Рабочий канал филиала «${branchName}» в AirHop.`,
@@ -623,9 +193,10 @@ const ru: BookingAdminMessages = {
   noRoom: "Не выбран",
   groupTeachers: "Преподаватели",
   noTeachers: "Без преподавателя",
-  groupMinAge: "Минимальный возраст, месяцев",
-  groupMaxAge: "Максимальный возраст, месяцев",
-  ageMonthsHint: "Необязательно. Каждая граница задаётся независимо.",
+  groupMinAge: "Минимальный возраст, лет",
+  groupMaxAge: "Максимальный возраст, лет включительно",
+  ageMonthsHint:
+    "Необязательно. Укажите полные годы. Например, максимум 6 — до седьмого дня рождения.",
   groupCapacity: "Вместимость",
   capacityHint: "Оставьте пустым, если ограничения нет.",
   groupTrialPolicy: "Пробное занятие",
@@ -704,7 +275,7 @@ const ru: BookingAdminMessages = {
   noTeachersDescription:
     "Можно работать без преподавателей или добавить первого в справочник.",
   teacherName: "Имя преподавателя",
-  teacherBuzzUsername: "Имя в Buzz",
+  teacherBuzzUsername: "Имя пользователя в Центре",
   teacherBuzzUsernameHint: "Необязательно. Укажите имя без символа @.",
   createTeacherTitle: "Новый преподаватель",
   editTeacherTitle: "Редактирование преподавателя",
@@ -736,7 +307,7 @@ const ru: BookingAdminMessages = {
   tariffCurrency: "Валюта",
   tariffWeeklyScheduleLimit: "Занятий в неделю",
   tariffWeeklyScheduleLimitHint:
-    "При зачислении сотрудник выберет не больше этого числа дней.",
+    "До 21 занятия в неделю. Можно выбрать несколько занятий в один день.",
   tariffPaymentDay: "День оплаты",
   tariffPaymentDayInherited: (day) => `Как у центра — ${day}-го числа`,
   tariffPaymentDayCustom: "Другой день",
@@ -763,7 +334,7 @@ const ru: BookingAdminMessages = {
   tariffPerWeek: (count) => `${count} в неделю`,
   tariffPaymentDaySummary: (day) => `Оплата ${day}-го числа`,
   tariffPaymentDayCenterSummary: (day) => `Оплата как у центра: ${day}-го`,
-  invalidWeeklyScheduleLimit: "Выберите от 1 до 7 занятий в неделю.",
+  invalidWeeklyScheduleLimit: "Выберите от 1 до 21 занятия в неделю.",
   invalidPaymentDay: "Укажите число от 1 до 28.",
   enrollChildTitle: "Зачислить в группу",
   enrollChildDescription:
@@ -870,7 +441,8 @@ const ru: BookingAdminMessages = {
   requestStatusIntakeClosed: "Закрыта",
   requestNeedsLesson: "Нужно подобрать занятие",
   requestTransferPending: "Запрошен перенос",
-  requestPossibleDuplicate: "Возможный дубль клиента",
+  requestPossibleDuplicate:
+    "Возможно, у этой семьи уже есть карточка. Сверьте имя и телефон в разделе «Клиенты», прежде чем создавать новую запись. Карточки не объединяются автоматически.",
   requestConfirm: "Подтвердить",
   requestReject: "Отклонить",
   requestConfirmed: "Заявка подтверждена",

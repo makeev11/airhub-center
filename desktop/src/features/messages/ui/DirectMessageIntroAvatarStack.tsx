@@ -1,3 +1,4 @@
+import { messageText } from "@/shared/locale/messengerCopy";
 import { getDmParticipantPreview } from "@/features/channels/lib/dmParticipantDisplay";
 import { UserProfilePopover } from "@/features/profile/ui/UserProfilePopover";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
@@ -26,7 +27,9 @@ export function DirectMessageIntroAvatarStack({
         <UserProfilePopover
           key={participant.pubkey}
           pubkey={participant.pubkey}
-          triggerAriaLabel={`Open profile for ${participant.displayName}`}
+          triggerAriaLabel={messageText("Open profile for {name}", {
+            name: participant.displayName,
+          })}
           triggerElement="span"
         >
           <span

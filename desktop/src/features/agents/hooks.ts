@@ -1,3 +1,4 @@
+import { useCommunities } from "@/features/communities/useCommunities";
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -285,9 +286,15 @@ export function useBackendProvidersQuery(options?: { enabled?: boolean }) {
 }
 
 export function usePersonasQuery(options?: { enabled?: boolean }) {
+  const { activeCommunity } = useCommunities();
   return useQuery({
     enabled: options?.enabled ?? true,
-    queryKey: personasQueryKey,
+    queryKey: [
+      ...personasQueryKey,
+      activeCommunity?.id,
+      activeCommunity?.relayUrl,
+      activeCommunity?.pubkey,
+    ],
     queryFn: listPersonas,
     staleTime: 30_000,
     // No refetchInterval: inbound relay changes to personas emit

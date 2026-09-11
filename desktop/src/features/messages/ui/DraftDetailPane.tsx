@@ -1,3 +1,4 @@
+import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -53,12 +54,12 @@ export function DraftDetailPane({
             <FileText className="h-6 w-6" />
           </div>
           <p className="mt-4 text-base font-semibold">
-            {isRussian ? "Выберите черновик" : "Select a draft"}
+            {messageText("Select a draft")}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isRussian
-              ? "Откройте черновик, чтобы посмотреть его и выбрать действие."
-              : "Pick a draft to preview it and choose what to do next."}
+            {messageText(
+              "Pick a draft to preview it and choose what to do next.",
+            )}
           </p>
         </div>
       </section>
@@ -73,9 +74,7 @@ export function DraftDetailPane({
     ? isDm
       ? source.label
       : `#${source.label}`
-    : isRussian
-      ? "Неизвестный канал"
-      : "Unknown channel";
+    : messageText("Unknown channel");
   const openEnabled = canOpenDraft(entry.draft, source) && !isOrphaned;
   const sendEnabled = canSendDraft(entry.draft, source, rootStatus);
   const content = entry.draft.content.trim();
@@ -92,11 +91,7 @@ export function DraftDetailPane({
             <div className="flex min-w-0 items-center gap-1">
               {onBack ? (
                 <Button
-                  aria-label={
-                    isRussian
-                      ? "Назад к списку черновиков"
-                      : "Back to drafts list"
-                  }
+                  aria-label={messageText("Back to drafts list")}
                   className="rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                   onClick={onBack}
                   size="icon"
@@ -127,9 +122,9 @@ export function DraftDetailPane({
           >
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              {isRussian
-                ? "Исходное обсуждение удалено. Этот черновик больше нельзя открыть или отправить."
-                : "The original thread was deleted. This draft can no longer be opened or sent."}
+              {messageText(
+                "The original thread was deleted. This draft can no longer be opened or sent.",
+              )}
             </span>
           </div>
         ) : null}
@@ -139,7 +134,6 @@ export function DraftDetailPane({
             <DraftActionBar
               canOpen={openEnabled}
               canSend={sendEnabled}
-              isRussian={isRussian}
               onDelete={() => onDelete(entry.key)}
               onOpen={() => void openDraftEntry(entry, goChannel)}
               onSend={() => setSendDialogOpen(true)}
@@ -148,17 +142,17 @@ export function DraftDetailPane({
             <UserAvatar
               avatarUrl={null}
               className="h-9 w-9 shrink-0"
-              displayName={isRussian ? "Вы" : "You"}
+              displayName={messageText("You")}
               size="md"
             />
 
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0">
                 <span className="text-sm font-semibold text-foreground">
-                  {isRussian ? "Вы" : "You"}
+                  {messageText("You")}
                 </span>
                 <span className="text-xs font-medium text-muted-foreground">
-                  {isRussian ? "Черновик" : "Draft"}
+                  {messageText("Draft")}
                 </span>
                 <span className="shrink-0 text-xs font-normal tabular-nums text-muted-foreground/55">
                   {formatDraftCreatedAt(entry.draft)}
@@ -203,18 +197,17 @@ export function DraftDetailPane({
 function DraftActionBar({
   canOpen,
   canSend,
-  isRussian,
   onDelete,
   onOpen,
   onSend,
 }: {
   canOpen: boolean;
   canSend: boolean;
-  isRussian: boolean;
   onDelete: () => void;
   onOpen: () => void;
   onSend: () => void;
 }) {
+  useMessengerCopy();
   return (
     <div className="absolute right-2 top-1 z-10">
       <div
@@ -225,21 +218,21 @@ function DraftActionBar({
           <div className="flex items-center gap-0.5 p-1">
             <DraftActionButton
               disabled={!canOpen}
-              label={isRussian ? "Открыть черновик" : "Open draft"}
+              label={messageText("Open draft")}
               onClick={onOpen}
             >
               <Pencil className="h-4 w-4" />
             </DraftActionButton>
             <DraftActionButton
               disabled={!canSend}
-              label={isRussian ? "Отправить" : "Send"}
+              label={messageText("Send")}
               onClick={onSend}
             >
               <Send className="h-4 w-4" />
             </DraftActionButton>
             <DraftActionButton
               destructive
-              label={isRussian ? "Удалить" : "Delete"}
+              label={messageText("Delete")}
               onClick={onDelete}
             >
               <Trash2 className="h-4 w-4" />
@@ -264,6 +257,7 @@ function DraftActionButton({
   label: string;
   onClick: () => void;
 }) {
+  useMessengerCopy();
   return (
     <Tooltip>
       <TooltipTrigger asChild>

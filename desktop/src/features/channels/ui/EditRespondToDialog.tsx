@@ -1,3 +1,4 @@
+import { messageError, messageText } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 
 import { useUpdateManagedAgentMutation } from "@/features/agents/hooks";
@@ -57,13 +58,11 @@ export function EditRespondToDialog({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>
-            {isRussian ? "Доступ к AI-агенту" : "Manage agent access"}
-          </DialogTitle>
+          <DialogTitle>{messageText("Manage agent access")}</DialogTitle>
           <DialogDescription>
             {isRussian
               ? `Выберите, кто может давать задания агенту ${agent?.name ?? ""}.`
-              : `Choose who can send instructions to ${agent?.name ?? "this agent"}.`}
+              : `Choose who can send instructions to ${agent?.name ?? messageText("this agent")}.`}
           </DialogDescription>
         </DialogHeader>
         <CreateAgentRespondToField
@@ -77,7 +76,7 @@ export function EditRespondToDialog({
         />
         {updateMutation.error instanceof Error ? (
           <p className="text-sm text-destructive">
-            {updateMutation.error.message}
+            {messageError(updateMutation.error.message)}
           </p>
         ) : null}
         <div className="flex justify-end gap-2">
@@ -87,7 +86,7 @@ export function EditRespondToDialog({
             type="button"
             variant="outline"
           >
-            {isRussian ? "Отмена" : "Cancel"}
+            {messageText("Cancel")}
           </Button>
           <Button
             disabled={!respondToValid || updateMutation.isPending}
@@ -96,12 +95,8 @@ export function EditRespondToDialog({
             type="button"
           >
             {updateMutation.isPending
-              ? isRussian
-                ? "Сохраняем…"
-                : "Saving..."
-              : isRussian
-                ? "Сохранить доступ"
-                : "Save access"}
+              ? messageText("Saving...")
+              : messageText("Save access")}
           </Button>
         </div>
       </DialogContent>
