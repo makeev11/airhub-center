@@ -1,0 +1,29 @@
+{
+	admin off
+}
+
+{$AIRHOP_WHATSAPP_PUBLIC_HOST} {
+	encode zstd gzip
+
+	@health path /healthz
+	handle @health {
+		reverse_proxy channel-gateway:8443
+	}
+
+	@whatsapp path /webhooks/whatsapp/*
+	handle @whatsapp {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy channel-gateway:8443
+	}
+
+	handle {
+		respond "not found" 404
+	}
+
+	# Intentionally omit Caddy access logging. Meta's callback verification
+	# places the Verify Token in the query string, so ordinary URI logging would
+	# persist a credential. Container/runtime logs remain available without raw
+	# webhook targets or bodies.
+}

@@ -1,0 +1,74 @@
+name: ${AIRHOP_EDGE_COMPOSE_PROJECT_NAME:-airhop-channel-edge-br}
+
+services:
+  channel-gateway:
+    image: ${AIRHOP_CHANNEL_GATEWAY_IMAGE:?set AIRHOP_CHANNEL_GATEWAY_IMAGE to an immutable image tag or digest}
+    environment:
+      AIRHOP_RELAY_URL: ${AIRHOP_GATEWAY_RELAY_URL:?set AIRHOP_GATEWAY_RELAY_URL}
+      AIRHOP_CONNECTOR_SECRET_KEY: ${AIRHOP_CONNECTOR_SECRET_KEY:?set AIRHOP_CONNECTOR_SECRET_KEY}
+      AIRHOP_GATEWAY_STATE_ROOT: /var/lib/airhop-channel-gateway/connections
+      AIRHOP_WHATSAPP_WEBHOOK_HOST: 0.0.0.0
+      AIRHOP_WHATSAPP_WEBHOOK_PORT: "8443"
+      AIRHOP_WHATSAPP_WEBHOOK_MAX_BODY_BYTES: "1048576"
+      AIRHOP_GATEWAY_LOG_LEVEL: ${AIRHOP_GATEWAY_LOG_LEVEL:-INFO}
+      TELEGRAM_WEBHOOK_URL: ""
+      TELEGRAM_WEBHOOK_SECRET: ""
+      TELEGRAM_BOT_TOKEN: ""
+    expose:
+      - "8443"
+    volumes:
+      - airhop-channel-gateway-state:/var/lib/airhop-channel-gateway
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8443/healthz', timeout=3).read() == b'ok'",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    networks: [edge]
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      channel-gateway:
+        condition: service_healthy
+    environment:
+      AIRHOP_WHATSAPP_PUBLIC_HOST: ${AIRHOP_WHATSAPP_PUBLIC_HOST:?set AIRHOP_WHATSAPP_PUBLIC_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - airhop-channel-edge-caddy-data:/data
+      - airhop-channel-edge-caddy-config:/config
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    networks: [edge]
+
+volumes:
+  airhop-channel-gateway-state:
+  airhop-channel-edge-caddy-data:
+  airhop-channel-edge-caddy-config:
+
+networks:
+  edge:
