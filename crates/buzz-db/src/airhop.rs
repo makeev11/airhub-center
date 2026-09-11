@@ -18,6 +18,12 @@ use crate::{Db, DbError, Result};
 
 /// Pending setup actions prepared by registered Welcome specialists.
 pub mod agent_actions;
+pub mod agent_learning;
+pub mod agent_notices;
+/// Role-specific desired duties, schedules and learning policies.
+pub mod agent_policy;
+#[cfg(test)]
+mod agent_policy_tests;
 /// Persistent desired state and replay-safe leases for external AirHop agents.
 pub mod agent_runtime;
 /// Retry-stable monthly analytics reports for a dedicated Buzz stream.

@@ -354,6 +354,8 @@ type MockBridgeOptions = {
    */
   relayRole?: "owner" | "admin" | "member" | null;
   principalDirectory?: unknown;
+  agentPolicies?: import("../../src/features/airhop-agents/model/agentPolicy").AgentPolicies;
+  agentPolicyErrors?: string[];
   relayMembers?: Array<{ pubkey: string; role: "owner" | "admin" | "member" }>;
   emptyChannelHistory?: boolean;
   /**

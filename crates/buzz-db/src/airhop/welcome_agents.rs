@@ -155,6 +155,9 @@ pub struct WelcomeRouteDecision {
     pub reason: WelcomeRouteReason,
     /// True when another caller had already persisted the winner.
     pub replayed: bool,
+    /// True only for a verified ephemeral assignment with no ordinary history row.
+    #[serde(default)]
+    pub ephemeral: bool,
 }
 
 /// Current server-owned routing hints for one flat Welcome channel.
@@ -581,6 +584,12 @@ impl Db {
             update,
         )
         .await?;
+        if let Some(role) = state.handoff_role {
+            if let Some(target) = team.members.get(&role) {
+                sqlx::query("INSERT INTO airhop_agent_task_sources(community_id,event_id,channel_id,target_role,target_pubkey) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING")
+                    .bind(community_id).bind(event.id.as_bytes().as_slice()).bind(channel_id).bind(role.as_str()).bind(target.as_slice()).execute(tx.as_mut()).await?;
+            }
+        }
         tx.commit().await?;
         Ok(Some(state))
     }
@@ -617,6 +626,13 @@ impl Db {
             ));
         }
 
+        if let Some(task) = sqlx::query("SELECT channel_id,target_role,target_pubkey FROM airhop_agent_task_sources WHERE community_id=$1 AND event_id=$2 AND created_at>now()-interval '1 day'")
+            .bind(community_id).bind(event_id.as_slice()).fetch_optional(tx.as_mut()).await? {
+            let role=AirhopWelcomeRole::parse(task.try_get("target_role")?)?;
+            let target=vec_to_pubkey(task.try_get("target_pubkey")?,"task target")?;
+            if task.try_get::<Uuid,_>("channel_id")?!=team.channel_id || team.members.get(&role)!=Some(&target) {return Err(DbError::AccessDenied("stale internal handoff".into()));}
+            return Ok(WelcomeRouteDecision {event_id,channel_id:team.channel_id,target_role:role,target_pubkey:target,reason:WelcomeRouteReason::Handoff,replayed:true,ephemeral:true});
+        }
         let event_row = sqlx::query(
             "SELECT pubkey, kind, tags, content, channel_id
              FROM events
@@ -644,6 +660,19 @@ impl Db {
         if team.members.values().any(|pubkey| *pubkey == source_author) {
             return Err(DbError::AccessDenied(
                 "agent-authored events do not use the human route claim".to_owned(),
+            ));
+        }
+
+        // Shared product agents serve admitted staff, never arbitrary historical
+        // authors or provider identities. Re-evaluate membership on every claim.
+        // Admission does not require a published user profile; a missing profile
+        // must not turn an admitted new staff member into an outsider.
+        let staff: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM relay_members r JOIN channel_members m ON m.community_id=r.community_id AND encode(m.pubkey,'hex')=r.pubkey LEFT JOIN users u ON u.community_id=m.community_id AND u.pubkey=m.pubkey WHERE r.community_id=$1 AND r.pubkey=$2 AND r.role IN ('owner','admin','member') AND m.channel_id=$3 AND m.removed_at IS NULL AND m.role<>'bot' AND u.deactivated_at IS NULL AND u.agent_owner_pubkey IS NULL AND NOT EXISTS(SELECT 1 FROM airhop_registered_principals p WHERE p.community_id=r.community_id AND p.pubkey=m.pubkey))",
+        ).bind(community_id).bind(hex::encode(source_author)).bind(team.channel_id).fetch_one(tx.as_mut()).await?;
+        if !staff {
+            return Err(DbError::AccessDenied(
+                "only active staff in this working channel may address the team".into(),
             ));
         }
 
@@ -725,6 +754,7 @@ impl Db {
             target_pubkey: vec_to_pubkey(winner.try_get("target_pubkey")?, "target agent")?,
             reason: WelcomeRouteReason::parse(winner.try_get("reason")?)?,
             replayed: !inserted,
+            ephemeral: false,
         };
         tx.commit().await?;
         Ok(decision)
@@ -1387,6 +1417,104 @@ mod tests {
             .await
             .is_err());
 
+        // Ordinary admitted staff can address the team; a historical message
+        // does not preserve access after channel membership is revoked.
+        let staff_keys = Keys::generate();
+        let staff = staff_keys.public_key().to_bytes();
+        sqlx::query("INSERT INTO users(community_id,pubkey) VALUES($1,$2)")
+            .bind(community_id)
+            .bind(staff.as_slice())
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO relay_members(community_id,pubkey,role) VALUES($1,$2,'member')")
+            .bind(community_id)
+            .bind(hex::encode(staff))
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO channel_members(community_id,channel_id,pubkey,role) VALUES($1,$2,$3,'member')").bind(community_id).bind(channel.id).bind(staff.as_slice()).execute(&db.pool).await.unwrap();
+        let staff_event = EventBuilder::new(Kind::Custom(9), "Физ, помоги сотруднику")
+            .tags([Tag::parse(["h", &channel.id.to_string()]).unwrap()])
+            .sign_with_keys(&staff_keys)
+            .unwrap();
+        db.insert_event(tenant.community(), &staff_event, Some(channel.id))
+            .await
+            .unwrap();
+        let staff_route = db
+            .claim_airhop_welcome_route(
+                &tenant,
+                *staff_event.id.as_bytes(),
+                members[&AirhopWelcomeRole::Fizz],
+            )
+            .await
+            .unwrap();
+        assert_eq!(staff_route.target_role, AirhopWelcomeRole::Fizz);
+        assert!(!staff_route.ephemeral);
+        sqlx::query("UPDATE users SET deactivated_at=now() WHERE community_id=$1 AND pubkey=$2")
+            .bind(community_id)
+            .bind(staff.as_slice())
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        assert!(db
+            .claim_airhop_welcome_route(
+                &tenant,
+                *staff_event.id.as_bytes(),
+                members[&AirhopWelcomeRole::Fizz]
+            )
+            .await
+            .is_err());
+        sqlx::query("UPDATE users SET deactivated_at=NULL WHERE community_id=$1 AND pubkey=$2")
+            .bind(community_id)
+            .bind(staff.as_slice())
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        let response = |text: &str| {
+            EventBuilder::new(Kind::Custom(9), text)
+                .tags([
+                    Tag::parse(["h", &channel.id.to_string()]).unwrap(),
+                    Tag::parse(["airhop-responds-to", &staff_event.id.to_hex()]).unwrap(),
+                ])
+                .sign_with_keys(&agent_keys[0])
+                .unwrap()
+        };
+        let first_response = response("Первый ответ");
+        let competing_response = response("Повторный ответ");
+        let (first, second) = tokio::join!(
+            db.insert_event(tenant.community(), &first_response, Some(channel.id)),
+            db.insert_event(tenant.community(), &competing_response, Some(channel.id))
+        );
+        assert_ne!(
+            first.is_ok(),
+            second.is_ok(),
+            "only one concurrent response may commit"
+        );
+        let committed = if first.is_ok() {
+            &first_response
+        } else {
+            &competing_response
+        };
+        assert!(
+            !db.insert_event(tenant.community(), committed, Some(channel.id))
+                .await
+                .unwrap()
+                .1,
+            "exact event replay is safe"
+        );
+        let receipt_count:i64=sqlx::query_scalar("SELECT count(*) FROM airhop_agent_reply_receipts WHERE community_id=$1 AND source_event_id=$2").bind(community_id).bind(staff_event.id.as_bytes().as_slice()).fetch_one(&db.pool).await.unwrap();
+        assert_eq!(receipt_count, 1);
+        sqlx::query("UPDATE channel_members SET removed_at=now() WHERE community_id=$1 AND channel_id=$2 AND pubkey=$3").bind(community_id).bind(channel.id).bind(staff.as_slice()).execute(&db.pool).await.unwrap();
+        assert!(db
+            .claim_airhop_welcome_route(
+                &tenant,
+                *staff_event.id.as_bytes(),
+                members[&AirhopWelcomeRole::Fizz]
+            )
+            .await
+            .is_err());
+
         let analyst_question = EventBuilder::new(Kind::Custom(9), "Уточните период")
             .tags([
                 Tag::parse(["h", &channel.id.to_string()]).unwrap(),
@@ -1479,6 +1607,13 @@ mod tests {
             handoff_state.handoff_role,
             Some(AirhopWelcomeRole::Administrator)
         );
+
+        let assignment_route = db
+            .claim_airhop_welcome_route(&tenant, *handoff.id.as_bytes(), administrator_pubkey)
+            .await
+            .unwrap();
+        assert!(assignment_route.ephemeral);
+        assert_eq!(assignment_route.target_pubkey, administrator_pubkey);
 
         let handoff_reply = EventBuilder::new(Kind::Custom(9), "Хорошо")
             .tags([Tag::parse(["h", &channel.id.to_string()]).unwrap()])

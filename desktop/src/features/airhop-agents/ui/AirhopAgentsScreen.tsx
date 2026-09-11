@@ -1,3 +1,5 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { AirhopControlPlaneClient } from "../data/airhopControlPlane";
 import { useAirhopPrincipalDirectory } from "../data/principalDirectory";
 import { useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
@@ -15,6 +17,7 @@ import {
   type AirhopAgentCardModel,
 } from "@/features/airhop-agents/model/airhopAgentCatalog";
 import { HermesAgentCard } from "@/features/airhop-agents/ui/HermesAgentCard";
+import { AgentDutySettings } from "./AgentDutySettings";
 import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import { useCommunities } from "@/features/communities/useCommunities";
 import type { AirHopLocale } from "@/shared/locale/airhopLocale";
@@ -38,6 +41,8 @@ const COPY: Record<
     accessLabel: string;
     modelLabel: string;
     managedModel: string;
+    chatStopped: string;
+    startChat: string;
   }
 > = {
   "ru-RU": {
@@ -66,6 +71,8 @@ const COPY: Record<
     accessLabel: "Кто может обращаться",
     modelLabel: "Модель",
     managedModel: "Управляется Airhop",
+    chatStopped: "Чат ожидает запуска",
+    startChat: "Запустить чат",
   },
   "en-US": {
     title: "Airhop team",
@@ -93,6 +100,8 @@ const COPY: Record<
     accessLabel: "Who can ask",
     modelLabel: "Model",
     managedModel: "Managed by Airhop",
+    chatStopped: "Chat is waiting to start",
+    startChat: "Start chat",
   },
   "tr-TR": {
     title: "Airhop ekibi",
@@ -120,6 +129,8 @@ const COPY: Record<
     accessLabel: "Kimler yazabilir",
     modelLabel: "Model",
     managedModel: "Airhop tarafından yönetilir",
+    chatStopped: "Sohbet başlatılmayı bekliyor",
+    startChat: "Sohbeti başlat",
   },
   "pt-BR": {
     title: "Equipe Airhop",
@@ -147,6 +158,8 @@ const COPY: Record<
     accessLabel: "Quem pode solicitar",
     modelLabel: "Modelo",
     managedModel: "Gerenciado pela Airhop",
+    chatStopped: "Conversa aguardando início",
+    startChat: "Iniciar conversa",
   },
 };
 
@@ -158,6 +171,7 @@ export function AirhopAgentsScreen({
   const locale = useAirHopLocale();
   const m = useMessengerCopy();
   const directory = useAirhopPrincipalDirectory();
+  const queryClient = useQueryClient();
   const copy = COPY[locale];
   const managedAgents = useManagedAgentsQuery();
   const { activeCommunity } = useCommunities();
@@ -178,16 +192,50 @@ export function AirhopAgentsScreen({
       ),
     [locale, managedAgents.data, relayUrl, directory.data],
   );
-  const available = cards.filter((card) => card.controllable);
+  const policies = directory.data?.agentPolicies;
+  const policyFor = (card: AirhopAgentCardModel) =>
+    policies?.policies.find((entry) => entry.role === card.role);
+  const available = cards.filter((card) =>
+    policies
+      ? policies.canManage && Boolean(policyFor(card))
+      : card.controllable,
+  );
   const allRunning =
-    available.length > 0 && available.every((card) => card.state === "running");
+    available.length > 0 &&
+    available.every(
+      (card) => policyFor(card)?.policy.enabled ?? card.state === "running",
+    );
 
   const toggle = React.useCallback(
-    async (card: AirhopAgentCardModel, enable: boolean) => {
-      if (!card.pubkey || !card.controllable) return false;
-      const pubkey = card.pubkey;
+    async (card: AirhopAgentCardModel, enable: boolean, launchOnly = false) => {
+      const entry = directory.data?.agentPolicies?.policies.find(
+        (entry) => entry.role === card.role,
+      );
+      if (entry && !directory.data?.agentPolicies?.canManage) return false;
+      if (!entry && (!card.pubkey || !card.controllable)) return false;
+      const pubkey = card.pubkey ?? card.role;
       setPending((current) => new Set(current).add(pubkey));
       try {
+        if (entry && !launchOnly && relayUrl && directory.data) {
+          const origin = new URL(relayUrl);
+          origin.protocol =
+            origin.protocol === "wss:"
+              ? "https:"
+              : origin.protocol === "ws:"
+                ? "http:"
+                : origin.protocol;
+          const client = new AirhopControlPlaneClient({
+            relayHttpUrl: async () => origin.origin,
+          });
+          await client.saveAgentPolicy(directory.data.communityId, {
+            ...entry,
+            policy: { ...entry.policy, enabled: enable },
+          });
+          await queryClient.invalidateQueries({
+            queryKey: ["airhop-principal-directory"],
+          });
+        }
+        if (!card.pubkey || !card.controllable) return true;
         if (enable) {
           // The simple Airhop switch represents an enabled service, not a
           // one-off process launch. Persist the choice before spawning so the
@@ -222,7 +270,15 @@ export function AirhopAgentsScreen({
         });
       }
     },
-    [copy.actionError, setStartOnLaunch, startAgent, stopAgent],
+    [
+      copy.actionError,
+      directory.data,
+      queryClient,
+      relayUrl,
+      setStartOnLaunch,
+      startAgent,
+      stopAgent,
+    ],
   );
 
   const toggleAll = React.useCallback(async () => {
@@ -263,6 +319,26 @@ export function AirhopAgentsScreen({
 
         <div className="grid gap-4">
           <HermesAgentCard serverEnabled={serverEnabled} />
+          {activeCommunity &&
+            relayUrl &&
+            directory.data?.agentPolicies?.policies
+              .filter((entry) => entry.role === "parent_administrator")
+              .map((entry) => (
+                <div
+                  className="rounded-2xl border border-border/70 bg-card p-5"
+                  key={entry.role}
+                >
+                  <AgentDutySettings
+                    entry={entry}
+                    canManage={
+                      directory.data?.agentPolicies?.canManage === true
+                    }
+                    communityId={directory.data.communityId}
+                    relayUrl={relayUrl}
+                    timeZone={directory.data?.timeZone ?? null}
+                  />
+                </div>
+              ))}
           {managedAgents.isLoading || directory.isLoading ? (
             <p className="py-10 text-sm text-muted-foreground">
               {copy.loading}
@@ -288,8 +364,19 @@ export function AirhopAgentsScreen({
             </p>
           ) : (
             cards.map((card) => {
+              const entry = policyFor(card);
               const enabled =
-                card.state === "running" || card.state === "attention";
+                entry?.policy.enabled ??
+                (card.state === "running" || card.state === "attention");
+              const controllable = entry
+                ? policies?.canManage === true
+                : card.controllable;
+              const stateLabel =
+                entry && !enabled
+                  ? copy.state.stopped
+                  : entry && card.state === "stopped"
+                    ? copy.chatStopped
+                    : copy.state[card.state];
               const access = card.respondTo ?? "unknown";
               return (
                 <article
@@ -309,7 +396,7 @@ export function AirhopAgentsScreen({
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-lg font-semibold">{card.name}</h2>
                       <span className="rounded-md border border-border/70 bg-muted/45 px-2 py-0.5 text-xs text-muted-foreground">
-                        {copy.state[card.state]}
+                        {stateLabel}
                       </span>
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
@@ -331,18 +418,49 @@ export function AirhopAgentsScreen({
                         </dd>
                       </div>
                     </dl>
+                    {activeCommunity &&
+                      relayUrl &&
+                      directory.data?.agentPolicies?.policies
+                        .filter((entry) => entry.role === card.role)
+                        .map((entry) => (
+                          <AgentDutySettings
+                            key={`${activeCommunity.id}:${entry.role}`}
+                            entry={entry}
+                            canManage={
+                              directory.data?.agentPolicies?.canManage === true
+                            }
+                            communityId={directory.data.communityId}
+                            relayUrl={relayUrl}
+                            timeZone={directory.data?.timeZone ?? null}
+                            showMaster={false}
+                          />
+                        ))}
                   </div>
-                  <div className="flex items-start justify-end">
+                  <div className="flex flex-col items-end gap-3">
                     <Switch
                       aria-label={`${card.name}: ${copy.state[enabled ? "running" : "stopped"]}`}
                       checked={enabled}
                       disabled={
-                        !card.controllable ||
-                        !card.pubkey ||
-                        pending.has(card.pubkey)
+                        !controllable || pending.has(card.pubkey ?? card.role)
                       }
                       onCheckedChange={(checked) => void toggle(card, checked)}
                     />
+                    {entry &&
+                      enabled &&
+                      card.state === "stopped" &&
+                      card.controllable && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            !controllable ||
+                            pending.has(card.pubkey ?? card.role)
+                          }
+                          onClick={() => void toggle(card, true, true)}
+                        >
+                          {copy.startChat}
+                        </Button>
+                      )}
                   </div>
                 </article>
               );

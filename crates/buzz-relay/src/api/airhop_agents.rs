@@ -163,6 +163,24 @@ pub(crate) async fn get_site_content_context(
             "only the registered content marketer may use the site-content bridge",
         ));
     }
+    let (policy, _) = state
+        .db
+        .airhop_agent_policy(
+            &principal.tenant,
+            airhop_core::agent_policy::AgentRole::ContentMarketer,
+        )
+        .await
+        .map_err(map_db_error)?;
+    if !policy.enabled
+        || !policy
+            .content
+            .is_some_and(|content| content.website_editing)
+    {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            "website editing is disabled in agent settings",
+        ));
+    }
     let installation = state
         .db
         .get_active_airhop_center_installation_for_organization(
@@ -254,6 +272,7 @@ fn route_decision_json(decision: &WelcomeRouteDecision) -> Value {
         "targetPubkey": hex::encode(decision.target_pubkey),
         "reason": decision.reason.as_str(),
         "replayed": decision.replayed,
+        "ephemeral": decision.ephemeral,
     })
 }
 
@@ -337,6 +356,7 @@ mod tests {
             target_pubkey: [0xcd; 32],
             reason: buzz_db::airhop::welcome_agents::WelcomeRouteReason::NaturalRole,
             replayed: true,
+            ephemeral: false,
         };
         let body = route_decision_json(&decision);
         assert_eq!(body["eventId"], "ab".repeat(32));

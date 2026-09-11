@@ -506,6 +506,8 @@ pub fn spawn_agent_child(
             })?;
     let effective_command = &descriptor.command;
     let agent_args = &descriptor.args;
+    let product_agent = airhop::is_builtin_welcome_agent(record);
+    airhop::require_product_runtime(record, effective_command)?;
 
     let log_path = super::managed_agent_runtime_log_path(app, &runtime_key)?;
     append_log_marker(
@@ -524,20 +526,7 @@ pub fn spawn_agent_child(
         .map_err(|error| format!("failed to clone log handle: {error}"))?;
     let resolved_acp_command = resolve_command(&record.acp_command)
         .ok_or_else(|| missing_command_message(&record.acp_command, "ACP harness command"))?;
-    let effective_mcp_command = effective_mcp_command(record, effective_command);
-    let resolved_mcp_command: Option<std::path::PathBuf> = if effective_mcp_command.is_empty() {
-        None
-    } else {
-        match resolve_command(effective_mcp_command) {
-            Some(path) => Some(path),
-            None => {
-                eprintln!(
-                    "buzz-desktop: mcp_command {effective_mcp_command:?} not found, skipping"
-                );
-                None
-            }
-        }
-    };
+    let resolved_mcp_command = airhop::resolve_mcp_command(record, effective_command)?;
     // Resolve agent command to a full path (DMG launches have minimal PATH).
     let resolved_agent_command = resolve_command(effective_command)
         .map(|p| p.display().to_string())
@@ -855,6 +844,14 @@ pub fn spawn_agent_child(
         command.env(key, value);
     }
     configure_runtime_cli(&mut command, runtime_meta);
+    if product_agent && effective_command == "airhop-hermes-acp" {
+        airhop::configure_hermes_profile(
+            &mut command,
+            &super::managed_agents_base_dir(app)?,
+            &runtime_key,
+            effective_provider.as_deref(),
+        );
+    }
 
     // Buzz shared compute is stored as a native provider; derive the OpenAI-compatible
     // transport at spawn time and scrub any unrelated ambient OpenAI key.

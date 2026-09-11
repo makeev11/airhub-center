@@ -603,6 +603,8 @@ type E2eConfig = {
     relayRole?: "owner" | "admin" | "member" | null;
     /** Authoritative directory returned by the isolated AirHop fixture. */
     principalDirectory?: unknown;
+    agentPolicies?: import("@/features/airhop-agents/model/agentPolicy").AgentPolicies;
+    agentPolicyErrors?: string[];
     relayMembers?: Array<{
       pubkey: string;
       role: "owner" | "admin" | "member";
@@ -10080,6 +10082,8 @@ function installMockAirhopWelcomeApi() {
         return new Response(
           JSON.stringify({
             principalDirectory: config.mock.principalDirectory,
+            agentPolicies: config.mock.agentPolicies,
+            organization: { timeZone: "Europe/Moscow" },
           }),
           { headers: { "Content-Type": "application/json" } },
         );
@@ -10087,6 +10091,24 @@ function installMockAirhopWelcomeApi() {
         status: 404,
         headers: { "Content-Type": "application/json" },
       });
+    }
+    if (
+      method === "POST" &&
+      url.pathname === "/events" &&
+      config.mock?.agentPolicies
+    ) {
+      const event =
+        typeof init?.body === "string" ? JSON.parse(init.body) : null;
+      if (event?.kind === 9052 || event?.kind === 9053) {
+        const { applyMockAgentPolicyCommand } = await import(
+          "./airhopAgentPolicyMock"
+        );
+        return applyMockAgentPolicyCommand(
+          config.mock.agentPolicies,
+          event,
+          config.mock.agentPolicyErrors?.shift(),
+        );
+      }
     }
     if (
       method === "PUT" &&

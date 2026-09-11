@@ -3,6 +3,34 @@ use crate::{client::BuzzClient, error::CliError, AirhopCmd};
 /// Uses the authenticated Airhop surface appropriate to the requested role.
 pub async fn dispatch(cmd: AirhopCmd, client: &BuzzClient) -> Result<(), CliError> {
     let path = match cmd {
+        AirhopCmd::AgentSettings => "/api/airhop/staff/v1/settings".to_owned(),
+        AirhopCmd::AgentCommand {
+            community_id,
+            learning,
+            request,
+        } => {
+            let _: serde_json::Value = serde_json::from_str(&request)
+                .map_err(|e| CliError::Other(format!("invalid agent command JSON: {e}")))?;
+            let kind = if learning {
+                buzz_core::kind::KIND_AIRHOP_AGENT_LEARNING_COMMAND
+            } else {
+                buzz_core::kind::KIND_AIRHOP_AGENT_POLICY_COMMAND
+            };
+            let tags = [
+                ["airhop-community".to_owned(), community_id.to_string()].to_vec(),
+                vec!["-".into()],
+                vec!["nonce".into(), uuid::Uuid::new_v4().to_string()],
+            ]
+            .into_iter()
+            .map(nostr::Tag::parse)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| CliError::Other(e.to_string()))?;
+            let event = client.sign_event(
+                nostr::EventBuilder::new(nostr::Kind::Custom(kind as u16), request).tags(tags),
+            )?;
+            println!("{}", client.submit_event(event).await?);
+            return Ok(());
+        }
         AirhopCmd::Clients {
             branch_id,
             unassigned,

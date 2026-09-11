@@ -194,3 +194,103 @@ test("Hermes toggle preserves pinned deployment identity and revisions", async (
     autoConfirmOnlineBookings: true,
   });
 });
+
+function fizzPolicy() {
+  return {
+    role: "fizz",
+    version: 4,
+    policy: {
+      enabled: true,
+      birthdays: null,
+      analytics: null,
+      content: null,
+      learning: "observe",
+    },
+  };
+}
+
+test("settings retry preserves the exact signed command and its community binding", async () => {
+  const signed = [];
+  const bodies = [];
+  const client = createAirhopControlPlaneClient({
+    relayHttpUrl: async () => "https://center.example",
+    nonceFactory: () => "policy-nonce",
+    signEvent: async (input) => {
+      signed.push(input);
+      return { ...input, id: `signed-${signed.length}` };
+    },
+    fetch: async (_url, init) => {
+      bodies.push(init.body);
+      if (bodies.length === 1)
+        throw new TypeError("connection closed after commit");
+      return Response.json({
+        accepted: true,
+        message: JSON.stringify({ ...fizzPolicy(), version: 5 }),
+      });
+    },
+  });
+  const saved = await client.saveAgentPolicy(ORGANIZATION_ID, fizzPolicy());
+  assert.equal(saved.version, 5);
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[0], bodies[1]);
+  assert.equal(signed.filter((event) => event.kind === 9052).length, 1);
+  assert.deepEqual(signed[0].tags, [
+    ["airhop-community", ORGANIZATION_ID],
+    ["-"],
+    ["nonce", "policy-nonce"],
+  ]);
+  assert.equal(JSON.parse(signed[0].content).expectedVersion, 4);
+});
+
+test("settings rejection is not retried and wrong-role duties are never signed", async () => {
+  let commands = 0;
+  let requests = 0;
+  const client = createAirhopControlPlaneClient({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (input) => {
+      if (input.kind === 9052) commands += 1;
+      return input;
+    },
+    fetch: async () => {
+      requests += 1;
+      return Response.json({ accepted: false, message: "version conflict" });
+    },
+  });
+  await assert.rejects(
+    client.saveAgentPolicy(ORGANIZATION_ID, fizzPolicy()),
+    /version conflict/,
+  );
+  assert.equal(requests, 1);
+  await assert.rejects(
+    client.saveAgentPolicy(ORGANIZATION_ID, {
+      ...fizzPolicy(),
+      policy: { ...fizzPolicy().policy, content: { websiteEditing: true } },
+    }),
+    /duties do not match/,
+  );
+  assert.equal(commands, 1);
+});
+
+test("procedure rollback signs a separate private versioned command", async () => {
+  const signed = [];
+  const client = createAirhopControlPlaneClient({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (input) => {
+      signed.push(input);
+      return input;
+    },
+    fetch: async () => Response.json({ accepted: true, message: "{}" }),
+  });
+  await client.activateAgentProcedure(ORGANIZATION_ID, "fizz", null, 6);
+  assert.equal(signed[0].kind, 9053);
+  assert.deepEqual(JSON.parse(signed[0].content), {
+    operation: "activate",
+    role: "fizz",
+    procedureId: null,
+    expectedVersion: 6,
+  });
+  assert.deepEqual(signed[0].tags.slice(0, 2), [
+    ["airhop-community", ORGANIZATION_ID],
+    ["-"],
+  ]);
+});

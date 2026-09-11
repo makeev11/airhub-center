@@ -2,6 +2,11 @@ import { z } from "zod";
 
 import { getRelayHttpUrl, signRelayEvent } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
+import {
+  agentPolicyEntrySchema,
+  validateAgentPolicy,
+  type AgentPolicyEntry,
+} from "../model/agentPolicy";
 
 const NIP98_KIND = 27235;
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -196,7 +201,96 @@ export class AirhopControlPlaneClient {
 
   async getPrincipalDirectory(): Promise<unknown> {
     const payload = await this.request("GET", "/api/airhop/staff/v1/settings");
-    return (payload as { principalDirectory?: unknown }).principalDirectory;
+    const data = payload as {
+      principalDirectory?: Record<string, unknown>;
+      agentPolicies?: unknown;
+      organization?: { timeZone?: string };
+    };
+    return {
+      ...data.principalDirectory,
+      agentPolicies: data.agentPolicies ?? null,
+      timeZone: data.organization?.timeZone ?? null,
+    };
+  }
+
+  async saveAgentPolicy(
+    communityId: string,
+    entry: AgentPolicyEntry,
+  ): Promise<AgentPolicyEntry> {
+    const policy = validateAgentPolicy(entry.role, entry.policy);
+    const event = await this.signEvent({
+      kind: 9052,
+      content: JSON.stringify({
+        role: entry.role,
+        expectedVersion: entry.version,
+        policy,
+      }),
+      tags: [
+        ["airhop-community", communityId],
+        ["-"],
+        ["nonce", this.nonceFactory()],
+      ],
+    });
+    const send = () => this.request("POST", "/events", event);
+    let payload: unknown;
+    try {
+      payload = await send();
+    } catch (error) {
+      // Keep the command identity on an uncertain network result; regenerate only NIP-98 auth.
+      if (
+        !(
+          error instanceof TypeError ||
+          (error instanceof DOMException && error.name === "TimeoutError")
+        )
+      )
+        throw error;
+      payload = await send();
+    }
+    const receipt = z
+      .object({ accepted: z.boolean(), message: z.string() })
+      .parse(payload);
+    if (!receipt.accepted) throw new Error(receipt.message);
+    return agentPolicyEntrySchema.parse(JSON.parse(receipt.message));
+  }
+
+  async activateAgentProcedure(
+    communityId: string,
+    role: AgentPolicyEntry["role"],
+    procedureId: string | null,
+    expectedVersion: number,
+  ): Promise<void> {
+    const event = await this.signEvent({
+      kind: 9053,
+      content: JSON.stringify({
+        operation: "activate",
+        role,
+        procedureId,
+        expectedVersion,
+      }),
+      tags: [
+        ["airhop-community", communityId],
+        ["-"],
+        ["nonce", this.nonceFactory()],
+      ],
+    });
+    const send = () => this.request("POST", "/events", event);
+    let response: unknown;
+    try {
+      response = await send();
+    } catch (error) {
+      if (
+        !(
+          error instanceof TypeError ||
+          (error instanceof DOMException && error.name === "TimeoutError")
+        )
+      )
+        throw error;
+      response = await send();
+    }
+    const receipt = z
+      .object({ accepted: z.boolean(), message: z.string() })
+      .parse(response);
+    if (!receipt.accepted) throw new Error(receipt.message);
   }
 
   async listConnections(): Promise<AirhopChannelConnection[]> {
