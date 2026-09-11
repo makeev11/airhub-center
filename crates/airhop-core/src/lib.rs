@@ -7,6 +7,7 @@
 //! projections, imports, and contract tests.
 
 pub mod age;
+pub mod agent_access;
 pub mod agent_graph;
 pub mod agent_learning;
 pub mod agent_policy;

@@ -18,6 +18,9 @@ use crate::{Db, DbError, Result};
 
 /// Pending setup actions prepared by registered Welcome specialists.
 pub mod agent_actions;
+#[cfg(test)]
+mod agent_conversation_tests;
+mod agent_conversations;
 pub mod agent_learning;
 pub mod agent_notices;
 /// Role-specific desired duties, schedules and learning policies.

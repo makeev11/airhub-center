@@ -11,10 +11,11 @@ import {
   type AgentPolicyEntry,
 } from "../model/agentPolicy";
 import { agentProcedureCopy } from "./agentProcedureCopy";
+import { AgentCommunicationFields } from "./AgentCommunicationFields";
 
 const COPY = {
   "ru-RU": {
-    title: "Обязанности и расписание",
+    title: "Доступ, обязанности и расписание",
     save: "Сохранить",
     saved: "Сохранено",
     reset: "Загрузить актуальные настройки",
@@ -37,7 +38,7 @@ const COPY = {
     confirmation:
       "Агент готовит предложение. Публикация требует подтверждения сотрудником с соответствующими правами.",
     readonly:
-      "Сотрудники могут обращаться к агенту. Менять обязанности могут владелец и администраторы.",
+      "Здесь показаны действующие права и обязанности. Менять настройки могут владелец и администраторы.",
     sections: {
       bookings: "Записи и результаты обращений",
       payments: "Оплаты и задолженность",
@@ -56,7 +57,7 @@ const COPY = {
       "Версии навыков и результаты проверок сохраняются. Обучение не изменяет права доступа и настройки центра.",
   },
   "en-US": {
-    title: "Duties and schedule",
+    title: "Access, duties and schedule",
     save: "Save",
     saved: "Saved",
     reset: "Load current settings",
@@ -78,7 +79,7 @@ const COPY = {
     confirmation:
       "The agent prepares a proposal. Publication requires confirmation by authorized staff.",
     readonly:
-      "Staff can talk to the agent. Owners and administrators manage its duties.",
+      "Current access and duties are shown here. Owners and administrators can change these settings.",
     sections: {
       bookings: "Bookings and enquiry outcomes",
       payments: "Payments and outstanding balances",
@@ -97,7 +98,7 @@ const COPY = {
       "Skill versions and evaluations are retained. Learning cannot change permissions or center settings.",
   },
   "pt-BR": {
-    title: "Funções e horários",
+    title: "Acesso, funções e horários",
     save: "Salvar",
     saved: "Salvo",
     reset: "Carregar configurações atuais",
@@ -120,7 +121,7 @@ const COPY = {
     confirmation:
       "O agente prepara uma proposta. A publicação exige confirmação de um funcionário autorizado.",
     readonly:
-      "A equipe pode conversar com o agente. Proprietários e administradores gerenciam suas funções.",
+      "Aqui estão as permissões e funções atuais. Proprietários e administradores podem alterá-las.",
     sections: {
       bookings: "Reservas e resultados dos contatos",
       payments: "Pagamentos e valores em aberto",
@@ -139,7 +140,7 @@ const COPY = {
       "Versões e avaliações são preservadas. O aprendizado não altera permissões nem configurações do centro.",
   },
   "tr-TR": {
-    title: "Görevler ve zamanlama",
+    title: "Erişim, görevler ve zamanlama",
     save: "Kaydet",
     saved: "Kaydedildi",
     reset: "Güncel ayarları yükle",
@@ -161,7 +162,7 @@ const COPY = {
     confirmation:
       "Temsilci bir öneri hazırlar. Yayın için yetkili personelin onayı gerekir.",
     readonly:
-      "Personel temsilciyle konuşabilir. Görevleri sahip ve yöneticiler düzenler.",
+      "Geçerli erişim ve görevler burada gösterilir. Ayarları sahip ve yöneticiler değiştirebilir.",
     sections: {
       bookings: "Kayıtlar ve başvuru sonuçları",
       payments: "Ödemeler ve borçlar",
@@ -323,6 +324,13 @@ export function AgentDutySettings({
         {copy.title}
       </summary>
       <fieldset disabled={!canManage || pending} className="mt-4 space-y-4">
+        {entry.role !== "parent_administrator" && (
+          <AgentCommunicationFields
+            value={draft.communication}
+            onChange={(communication) => change({ ...draft, communication })}
+            canManage={canManage}
+          />
+        )}
         {showMaster && (
           <Toggle
             label={copy.enabled}
@@ -571,7 +579,12 @@ export function AgentDutySettings({
         {canManage && (
           <Button
             size="sm"
-            disabled={!dirty || pending}
+            disabled={
+              !dirty ||
+              pending ||
+              (draft.communication?.audience.mode === "selected" &&
+                draft.communication.audience.pubkeys.length === 0)
+            }
             onClick={() => void save()}
           >
             {copy.save}

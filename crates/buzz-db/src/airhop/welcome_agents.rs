@@ -158,6 +158,8 @@ pub struct WelcomeRouteDecision {
     /// True only for a verified ephemeral assignment with no ordinary history row.
     #[serde(default)]
     pub ephemeral: bool,
+    /// An explicit organization access policy supersedes local owner-only gates.
+    pub communication_configured: bool,
 }
 
 /// Current server-owned routing hints for one flat Welcome channel.
@@ -586,8 +588,34 @@ impl Db {
         .await?;
         if let Some(role) = state.handoff_role {
             if let Some(target) = team.members.get(&role) {
-                sqlx::query("INSERT INTO airhop_agent_task_sources(community_id,event_id,channel_id,target_role,target_pubkey) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING")
-                    .bind(community_id).bind(event.id.as_bytes().as_slice()).bind(channel_id).bind(role.as_str()).bind(target.as_slice()).execute(tx.as_mut()).await?;
+                let source = event
+                    .tags
+                    .iter()
+                    .find(|tag| {
+                        tag.as_slice()
+                            .first()
+                            .is_some_and(|name| name == "airhop-human-source")
+                    })
+                    .map(|tag| {
+                        tag.as_slice()
+                            .get(1)
+                            .and_then(|id| hex::decode(id).ok())
+                            .filter(|id| id.len() == 32)
+                            .ok_or_else(|| {
+                                DbError::InvalidData("invalid handoff human source".into())
+                            })
+                    })
+                    .transpose()?;
+                super::agent_conversations::authorize_handoff(
+                    tx.as_mut(),
+                    community_id,
+                    &team,
+                    role,
+                    source.as_deref(),
+                )
+                .await?;
+                sqlx::query("INSERT INTO airhop_agent_task_sources(community_id,event_id,channel_id,target_role,target_pubkey,source_human_event_id) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
+                    .bind(community_id).bind(event.id.as_bytes().as_slice()).bind(channel_id).bind(role.as_str()).bind(target.as_slice()).bind(source).execute(tx.as_mut()).await?;
             }
         }
         tx.commit().await?;
@@ -626,12 +654,14 @@ impl Db {
             ));
         }
 
-        if let Some(task) = sqlx::query("SELECT channel_id,target_role,target_pubkey FROM airhop_agent_task_sources WHERE community_id=$1 AND event_id=$2 AND created_at>now()-interval '1 day'")
+        if let Some(task) = sqlx::query("SELECT channel_id,target_role,target_pubkey,source_human_event_id FROM airhop_agent_task_sources WHERE community_id=$1 AND event_id=$2 AND created_at>now()-interval '1 day'")
             .bind(community_id).bind(event_id.as_slice()).fetch_optional(tx.as_mut()).await? {
             let role=AirhopWelcomeRole::parse(task.try_get("target_role")?)?;
             let target=vec_to_pubkey(task.try_get("target_pubkey")?,"task target")?;
             if task.try_get::<Uuid,_>("channel_id")?!=team.channel_id || team.members.get(&role)!=Some(&target) {return Err(DbError::AccessDenied("stale internal handoff".into()));}
-            return Ok(WelcomeRouteDecision {event_id,channel_id:team.channel_id,target_role:role,target_pubkey:target,reason:WelcomeRouteReason::Handoff,replayed:true,ephemeral:true});
+            let source: Option<Vec<u8>> = task.try_get("source_human_event_id")?;
+            let communication_configured = super::agent_conversations::authorize_handoff(tx.as_mut(), community_id, &team, role, source.as_deref()).await?;
+            return Ok(WelcomeRouteDecision {event_id,channel_id:team.channel_id,target_role:role,target_pubkey:target,reason:WelcomeRouteReason::Handoff,replayed:true,ephemeral:true,communication_configured});
         }
         let event_row = sqlx::query(
             "SELECT pubkey, kind, tags, content, channel_id
@@ -645,13 +675,13 @@ impl Db {
         .await?
         .ok_or_else(|| DbError::NotFound("live Welcome source event".to_owned()))?;
         let channel_id: Option<Uuid> = event_row.try_get("channel_id")?;
-        if channel_id != Some(team.channel_id) {
-            return Err(DbError::AccessDenied(
-                "source event is outside the registered Welcome channel".to_owned(),
-            ));
-        }
+        let channel_id =
+            channel_id.ok_or_else(|| DbError::AccessDenied("source has no channel".into()))?;
         let kind: i32 = event_row.try_get("kind")?;
-        if kind != i32::from(buzz_core::kind::KIND_STREAM_MESSAGE as u16) {
+        if !matches!(
+            kind as u32,
+            buzz_core::kind::KIND_STREAM_MESSAGE | buzz_core::kind::KIND_STREAM_MESSAGE_V2
+        ) {
             return Err(DbError::InvalidData(
                 "only human stream messages may be claimed".to_owned(),
             ));
@@ -661,6 +691,21 @@ impl Db {
             return Err(DbError::AccessDenied(
                 "agent-authored events do not use the human route claim".to_owned(),
             ));
+        }
+        if channel_id != team.channel_id {
+            let tags = event_row.try_get("tags")?;
+            let decision = super::agent_conversations::claim_conversation(
+                tx.as_mut(),
+                tenant,
+                &team,
+                event_id,
+                channel_id,
+                source_author,
+                &tags,
+            )
+            .await?;
+            tx.commit().await?;
+            return Ok(decision);
         }
 
         // Shared product agents serve admitted staff, never arbitrary historical
@@ -747,7 +792,7 @@ impl Db {
         .bind(event_id.as_slice())
         .fetch_one(&mut *tx)
         .await?;
-        let decision = WelcomeRouteDecision {
+        let mut decision = WelcomeRouteDecision {
             event_id,
             channel_id: winner.try_get("channel_id")?,
             target_role: AirhopWelcomeRole::parse(winner.try_get("target_role")?)?,
@@ -755,7 +800,22 @@ impl Db {
             reason: WelcomeRouteReason::parse(winner.try_get("reason")?)?,
             replayed: !inserted,
             ephemeral: false,
+            communication_configured: false,
         };
+        if team.members.get(&decision.target_role) != Some(&decision.target_pubkey)
+            || decision.channel_id != channel_id
+        {
+            return Err(DbError::AccessDenied("stale conversation route".into()));
+        }
+        decision.communication_configured = super::agent_conversations::authorize_conversation(
+            tx.as_mut(),
+            community_id,
+            &team,
+            channel_id,
+            decision.target_role,
+            &source_author,
+        )
+        .await?;
         tx.commit().await?;
         Ok(decision)
     }
@@ -949,7 +1009,7 @@ fn welcome_turn_state_from_row(row: &sqlx::postgres::PgRow) -> Result<AirhopWelc
     })
 }
 
-fn p_tag_pubkeys(tags: &serde_json::Value) -> Vec<[u8; 32]> {
+pub(super) fn p_tag_pubkeys(tags: &serde_json::Value) -> Vec<[u8; 32]> {
     tags.as_array()
         .into_iter()
         .flatten()

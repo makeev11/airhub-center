@@ -18,6 +18,7 @@ import {
 } from "@/features/airhop-agents/model/airhopAgentCatalog";
 import { HermesAgentCard } from "@/features/airhop-agents/ui/HermesAgentCard";
 import { AgentDutySettings } from "./AgentDutySettings";
+import { agentCommunicationCopy } from "./agentCommunicationCopy";
 import { currentAirhopStaffDataRuntime } from "@/features/booking/data/staffDataRuntime";
 import { useCommunities } from "@/features/communities/useCommunities";
 import type { AirHopLocale } from "@/shared/locale/airhopLocale";
@@ -407,7 +408,13 @@ export function AirhopAgentsScreen({
                         <dt className="text-muted-foreground">
                           {copy.accessLabel}
                         </dt>
-                        <dd className="font-medium">{copy.access[access]}</dd>
+                        <dd className="font-medium">
+                          {entry?.policy.communication
+                            ? agentCommunicationCopy[locale][
+                                entry.policy.communication.audience.mode
+                              ]
+                            : copy.access[access]}
+                        </dd>
                       </div>
                       <div>
                         <dt className="text-muted-foreground">

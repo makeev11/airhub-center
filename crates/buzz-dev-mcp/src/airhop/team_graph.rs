@@ -5,6 +5,7 @@ use airhop_core::agent_policy::AgentRole;
 
 pub(super) struct TeamGraph {
     pub(super) task: String,
+    pub(super) channel: Option<Uuid>,
     pub(super) settings: Option<Value>,
     execution: ExecutionGraph,
     cache: BTreeMap<String, Value>,
@@ -17,6 +18,7 @@ impl TeamGraph {
         let role = AgentRole::parse(role.as_str()).unwrap_or(AgentRole::Fizz);
         Self {
             task: String::new(),
+            channel: None,
             settings: None,
             execution: ExecutionGraph::new(role),
             cache: BTreeMap::new(),
