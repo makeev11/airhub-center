@@ -106,6 +106,29 @@ included `preflight.sh` fences the expected VPS address, public TLS/health, and
 closed unknown paths without ever sending the Meta Verify Token; its current
 expected result is a DNS mismatch until the `hooks` record is created.
 
+The bundle now also includes an Ubuntu 24.04/Docker bootstrap, checksum-verified
+gateway-image transport, guarded state-volume backup/restore, and a disposable
+state-transfer self-test. The self-test passed on the live host with the accepted
+gateway image, including content, `10001:10001` ownership, and refusal of a
+non-empty restore target. The accepted image was exported without stopping the
+gateway to
+`/opt/airhop/backups/whatsapp-edge-ba9434e6b970/channel-gateway-image.tar.gz`:
+
+```text
+archive_size=150239003
+archive_sha256=879343f9b9eafaec5d70c357b47ac4a5524d5cce21cd14fee3c61fbb1263869f
+image_id=sha256:9b433fe2e7cc85b88d7147b2aeb8280aef6c0cbf98fd971a8a60394edd395032
+```
+
+The checksum and same-host load test passed and reproduced the exact image ID.
+The edge Compose renders with the intended CPU, memory, and PID limits. Its
+multi-architecture Caddy `2.11.4-alpine` image is pinned to
+`sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648`;
+the pinned image was pulled and returned `Valid configuration` for the bundled
+Caddyfile.
+The final state-volume backup is intentionally not taken yet: it must happen
+after the old single supervisor stops during the actual cutover window.
+
 1. Provision a Hostinger VPS in the Brazil/Sao Paulo location. The existing
    Hostinger VPS used by the bridge is in Lithuania, not Brazil. The Chrome
    Hostinger session was logged out at the latest audit, so no plan was bought
