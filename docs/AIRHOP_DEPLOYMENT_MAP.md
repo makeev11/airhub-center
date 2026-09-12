@@ -7,13 +7,13 @@
 Наблюдения: [`runtime-20260912.json`](deployment/runtime-20260912.json).
 Снимок — свидетельство на указанное время, а не автоматически актуальный desired state.
 
-**Уточнение после проверки установленного HQ:** действующий backend находится
-в Cloudflare, `airhub-hq-api-staging.airhub-hq-api.workers.dev`. Старый
-`buzz-prod-relay-1` на домене `hq.airhop.ru` выведен в карантин: остановлен,
-автоперезапуск отключён, данные сохранены. Доказательства и выполненные действия:
-[`проверка связи HQ с доменом`](AIRHOP_HQ_DOMAIN_AUDIT_20260912.md).
-Состав извлечённого полезного, точный allowlist удаления и текущая блокировка
-полного архива: [`план завершения удаления legacy`](AIRHOP_LEGACY_RETIREMENT_20260912.md).
+**Текущее состояние:** действующий HQ находится в Cloudflare,
+`airhub-hq-api-staging.airhub-hq-api.workers.dev`. Старый Docker-контур
+`buzz-prod` удалён 2026-09-12 после проверенного приватного архива.
+`hq.airhop.ru` возвращает HTTP 410; Caddy и ресурсы демо сохранены.
+[Архив, точный состав удаления и проверки](AIRHOP_LEGACY_RETIREMENT_20260912.md),
+[финальный snapshot](deployment/runtime-20260912-after-retirement.json),
+[доказательства адреса HQ](AIRHOP_HQ_DOMAIN_AUDIT_20260912.md).
 
 ## 1. Три продукта и техническое наследие
 
@@ -49,7 +49,7 @@ AirHop. `buzz-prod` — исторический идентификатор Comp
 | --- | --- | --- | --- |
 | `center-demo` | `demo.airhop.ru` | `buzz-demo`, relay `buzz-demo-relay-1` | Демо Center; сюда относятся согласованные проверки сотрудников |
 | `hq-api` | `airhub-hq-api-staging.airhub-hq-api.workers.dev` | Cloudflare Worker + D1; вне этого VPS | Действующий API установленного AirHop HQ и worker публикации сайтов |
-| `hq-legacy-relay` | `hq.airhop.ru` | `buzz-prod`, relay `buzz-prod-relay-1` | Старый relay, не backend текущего HQ; остановлен и сохранён в карантине |
+| `hq-legacy-relay` | `hq.airhop.ru` | Старый `buzz-prod` удалён | HTTP 410 в общем Caddy; данные в закрытом архиве |
 | `site` | `airhop.ru`, `www.airhop.ru` | `airhop-site`, приложение `airhop-site-site-1` | Сайт; `www` перенаправляется на основной домен |
 | Общий HTTPS-вход | Все домены в схеме ниже | `airhop-site-caddy-1` | Общий прокси физически находится в Compose Site; имеет межпродуктовое влияние |
 | Бриф / сообщения | `hermes.airhop.ru` | `airhop-hermes`, `airhop-message-bridge` | Отдельные host-network службы; не путать с Hermes демо Center |
@@ -75,10 +75,9 @@ flowchart TD
     proxy -->|"demo · airhop-demo-relay:3000"| center["buzz-demo-relay-1 · Center"]
     proxy -->|"airhop.ru: страницы сайта"| site["airhop-site-site-1"]
     proxy -->|"airhop.ru и hygge: booking + публичный API"| center
-    proxy -. "hq · legacy route / 502" .-> old["buzz-prod-relay-1 · карантин"]
+    proxy -->|"hq · все пути"| retired["HTTP 410 · адрес снят"]
     proxy -->|"/telegram, ASR, бриф"| runtime["airhop-message-bridge / airhop-hermes"]
     center --> demoDb["Только хранилища buzz-demo"]
-    old --> oldDb["Отдельные legacy-хранилища"]
     center --- agents["buzz-demo: Hermes runtime + channel gateway"]
 ```
 
@@ -86,7 +85,7 @@ flowchart TD
 `/opt/airhop/demo-test/hygge-performance-v1`; разрешённый публичный API, форма
 и короткие ссылки направляются в demo. Staff/admin/WebSocket там не публикуются.
 На `demo.airhop.ru` `/pair` идёт в demo pairing, `/webhooks/whatsapp/*` — в
-demo channel gateway. На HQ `/pair` направлен в отдельный legacy pairing.
+demo channel gateway. На старом `hq.airhop.ru` все пути, включая `/pair`, отвечают 410.
 Временный `airhop.46-173-25-23.sslip.io` публикует один connection-scoped
 WhatsApp webhook; это дополнительный вход в демо, не ещё один Center.
 Маршруты `airhop.ru/deployment-pilot/` и `/deployment-whatsapp-e2e/` обслуживают
@@ -95,19 +94,23 @@ WhatsApp webhook; это дополнительный вход в демо, не
 
 ## 3. Конфигурация, сети и данные
 
+Столбец legacy ниже — **историческая привязка для чтения архива**. Все перечисленные
+legacy-контейнеры, тома и отдельная сеть удалены; `/opt/airhop/buzz-hq` и runtime
+override перенесены в закрытый архив. Не использовать эти пути для выкладки.
+
 | Ресурс | Center demo | Legacy HQ relay |
 | --- | --- | --- |
 | Base Compose | `/opt/airhop/buzz-demo/source/deploy/compose/compose.yml` | `/opt/airhop/buzz-hq/source/deploy/compose/compose.yml` |
 | Файл секретов (не выводить содержимое) | `/opt/airhop/buzz-demo/source/deploy/compose/.env` | `/opt/airhop/buzz-hq/source/deploy/compose/.env` |
-| Host override | `/opt/airhop/buzz-demo/buzz-demo.override.yml` | `/opt/airhop/buzz-hq/buzz-hq.override.yml` содержит действующие routing aliases и восстановленные тома |
+| Host override | `/opt/airhop/buzz-demo/buzz-demo.override.yml` | `/opt/airhop/buzz-hq/buzz-hq.override.yml` содержал routing aliases и восстановленные тома |
 | Закрытая сеть | `buzz-demo_buzz-net` | `buzz-prod_buzz-net` |
 | PostgreSQL volume | `buzz-demo-postgres-data` | `buzz-prod_buzz-postgres-data` |
 | Redis volume | `buzz-demo-redis-data` | `buzz-hq-redis-restored-20260806` |
 | MinIO volume | `buzz-demo-minio-data` | `buzz-hq-minio-restored-20260806-v2` |
-| Git volume | `buzz-demo-git-data` | `buzz-prod_buzz-git-data` по HQ override; ошибочный relay сейчас смонтировал demo Git volume |
+| Git volume | `buzz-demo-git-data` | `buzz-prod_buzz-git-data` по HQ override; ошибочный relay ранее монтировал demo Git volume; том demo сохранён |
 
-Оба контура подключаются к общей `airhop-web` через разные псевдонимы:
-`airhop-demo-relay` и `airhop-hq-relay`. Общая сеть используется для входного
+Ранее оба контура подключались к общей `airhop-web` через разные псевдонимы.
+Теперь действующий demo использует `airhop-demo-relay`; legacy alias `airhop-hq-relay` удалён. Общая сеть используется для входного
 прокси; это не разрешение делить БД, секреты или тома. Общий короткий alias
 `relay` на этой сети не использовать для маршрутизации продуктов.
 
@@ -115,20 +118,19 @@ Site: Compose-файлы `/opt/airhop/site/source/deploy/beget/site/compose.yml`
 `public-hosts.override.yml`; данные приложения `/opt/airhop/site/data`.
 Caddyfile расположен в том же каталоге `deploy/beget/site/`.
 
-**Обнаруженный drift HQ:** `/opt/airhop/runtime/deploy/buzz-hq.override.yml`
-используется частью старых контейнеров, но отличается от
+**Исторический drift удалённого HQ:** `/opt/airhop/runtime/deploy/buzz-hq.override.yml`
+использовался частью старых контейнеров, но отличался от
 `/opt/airhop/buzz-hq/buzz-hq.override.yml`: отсутствуют proxy aliases, MinIO
 указывает на `buzz-prod_buzz-minio-data` вместо фактически работающего
-восстановленного тома. Нельзя считать эти файлы взаимозаменяемыми. Восстановление
-relay требует сохранения сетевого псевдонима и сверки фактических подключений;
-пересоздание всего стека по любому из них сейчас недопустимо.
+восстановленного тома. Оба файла сохранены как история. Пересоздавать
+удалённый стек по ним нельзя; действующий HQ от них не зависит.
 
 Center demo накопил длинную цепочку release overlays (полная последовательность
 есть в снимке). Её нельзя сокращать до base + host, выбирать последний файл по
 дате или копировать из старого runbook. Взять порядок из меток **здорового demo
 relay**, проверить входные файлы и результат `config`, сохранить их хеши.
-У ошибочно пересозданного HQ relay метки уже содержат чужую demo-цепочку:
-автоматическое «восстановление по текущим меткам» закрепит ошибку.
+У ошибочно пересозданного legacy relay метки содержали чужую demo-цепочку;
+они сохранены как свидетельство ошибки, а не шаблон восстановления.
 
 При диагностике обнаружено несовпадение demo service config hash:
 метка запущенного relay `589324aa1c0662753f4d8ea4a21d7bfbae2dff4df0f8dfe25ba43b247be142a7`,
@@ -198,9 +200,9 @@ python3 scripts/airhop-demo-release.py apply /private/path/unique-release-plan.j
 Guard проверяет deployment-конфигурацию, но не доказывает безопасность кода
 внутри образа: diff/Dockerfile, тесты и необходимость миграций проверяются при
 review кандидата до применения. Смена backend с миграциями сюда не относится.
-Legacy relay должен оставаться в зарегистрированном карантине: точные
-container/image IDs, остановленное состояние и `restart=no`. Его случайное
-возобновление или замена блокируют применение; поднимать его ради Center нельзя.
+Legacy-контур помечен `removed`: проверяется отсутствие его контейнеров,
+Compose-проекта, томов, отдельной сети и proxy aliases. Повторное появление
+останавливает релиз для разбора; автоматически удалять или поднимать его нельзя.
 После ошибки применения скрипт останавливается: автоматический откат без
 проверки состояния и миграций намеренно не выполняется. Предыдущая полная
 Compose-цепочка и image ID сохранены в плане для отдельно проверенного отката.
@@ -212,7 +214,7 @@ Compose-цепочка и image ID сохранены в плане для от�
 этап: доступ к выкладке через ограниченный runner, единый lock у всех entrypoints
 и аудит операций. До него нельзя обещать невозможность перезаписи.
 
-## 6. Инцидент 2026-09-12: история и текущий карантин
+## 6. Инцидент 2026-09-12: история и снятие legacy с эксплуатации
 
 Скрипт `/opt/airhop/staff-invite-bae27a94b9a0/deploy.sh` вызвал Compose с
 demo-файлами, но без `--project-name buzz-demo`. Base задаёт `name: buzz-prod`.
@@ -238,42 +240,22 @@ Legacy HQ relay тогда перезапускался с ошибочным
 разрешений из-за отсутствия явного согласования изменения этого контура.
 После проверки установленного приложения выяснилось, что восстанавливать
 legacy relay для HQ не требуется: реальный HQ работает в Cloudflare.
-Relay остановлен с сохранением контейнера/данных; точное состояние и snapshot
-указаны в связанном отчёте. Выкладка сотрудников не является частью этого
-действия. Предыдущая блокировка восстановления больше не является препятствием
-для Center, если сохранён зарегистрированный карантин legacy.
+Relay сначала был остановлен в карантин, затем весь legacy-контур удалён
+после проверенного архива. Состав и доказательства приведены в
+[отчёте удаления](AIRHOP_LEGACY_RETIREMENT_20260912.md).
+Выкладка исправлений сотрудников остаётся отдельной задачей.
 
-Историческая read-only проверка recovery config подтвердила `buzz-prod`,
-`airhub-center-relay:3e36b1c`, `wss://hq.airhop.ru`, alias `airhop-hq-relay`,
-Git volume `buzz-prod_buzz-git-data` и восстановленные storage volumes из
-таблицы выше. Команда ниже сохранена для возможного восстановления **только
-если обнаружится реальный старый потребитель и будет согласовано восстановление**;
-не выполнять её как шаг релиза HQ или Center:
+Исторические команды восстановления `buzz-prod` исключены из действующей карты:
+их пути сняты с эксплуатации. Архив не является разрешением возрождать сервис.
 
-```bash
-docker compose --project-name buzz-prod \
-  --env-file /opt/airhop/buzz-hq/source/deploy/compose/.env \
-  -f /opt/airhop/buzz-hq/source/deploy/compose/compose.yml \
-  -f /opt/airhop/buzz-hq/buzz-hq.override.yml \
-  up -d --no-deps --no-build --pull never --wait --wait-timeout 180 relay
-```
-
-Перед этой аварийной командой удерживать HQ lock
-`/opt/airhop/buzz-hq/deploy.lock`, сохранить приватный snapshot ошибочного relay,
-повторно проверить ошибочный образ как предшественник и зафиксировать ID/start
-соседних контейнеров. После — сверить старый image ID, здоровье, HQ alias/том,
-HTTP `/health` и неизменность соседей. Эта команда не была выполнена в аудите.
-Проверки доменов: demo `/health` — 200, Site `/` — 200, старый домен
-`hq.airhop.ru/health` — 502; фактический Cloudflare HQ readiness — `ready`.
-
-Проверки защитного инструмента после уточнения HQ: 17 локальных regression tests; они включены
-в `.github/workflows/ci.yml`. Финальный live read-only preflight прошёл:
-предшественник `sha256:05aafad2c904288ce9d7b654d43396f533fa45185bf545fc2b9f0b6e1d968d98`,
-кандидат `sha256:73ce2c884826ab032fd4c94e2d0beb2bfdf9609916c6df775324c396aeb63c1d`.
-Live `apply` не выполнялся. Проверка legacy теперь требует сохранения карантина.
+Guard проверен 22 regression tests, включая повторное появление старых контейнеров,
+томов, сети, Compose-проекта или alias, сохранность demo/shared ресурсов и отказ
+до изменения релиза. Текущий legacy lifecycle — `removed`; guard требует отсутствия
+старых ресурсов. При неожиданном ресурсе он останавливает релиз для разбора.
+Проверки включены в `.github/workflows/ci.yml`. Релиз приложения Center в рамках
+удаления legacy не применялся.
 
 Следующие инфраструктурные работы: обследовать остальные хосты, подготовить
-окончательное снятие legacy-контура с backup/проверкой данных, устранить drift
-конфигураций, свернуть demo overlays с доказанным
+устранить drift действующих конфигураций, свернуть demo overlays с доказанным
 равенством итогового config, внедрить ограниченный deploy runner. Всё это
 сохраняет действующие данные и требует отдельных проверенных изменений.

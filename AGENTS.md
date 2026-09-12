@@ -11,8 +11,8 @@ Never infer a deployment target from `buzz-prod`, an image prefix, a repository
 folder, or a prior agent's guess. Employee membership/invitations belong to
 Center; the agreed test target is `center-demo` (`buzz-demo`, `demo.airhop.ru`).
 The installed HQ uses the Cloudflare `airhub-hq-api-staging` Worker. The old
-`buzz-prod` relay at `hq.airhop.ru` is quarantined; do not revive it for a Center
-or HQ release. See `docs/AIRHOP_HQ_DOMAIN_AUDIT_20260912.md` for binary/API evidence.
+`buzz-prod` stack was removed after verified archival; `hq.airhop.ru` returns 410.
+Do not recreate it for a Center or HQ release. Preserve `buzz-demo-git-data`. See `docs/AIRHOP_HQ_DOMAIN_AUDIT_20260912.md` for binary/API evidence.
 
 All mutating Compose commands, including rollback, must name the project
 explicitly. Preserve the complete verified overlay chain, use the shared target

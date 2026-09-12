@@ -16,6 +16,8 @@ release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(release)
 REGISTRY = json.loads((ROOT / "deploy/airhop/environments.json").read_text())
 TARGET = REGISTRY["targets"]["center-demo"]
+QUARANTINE_REGISTRY = copy.deepcopy(REGISTRY)
+QUARANTINE_REGISTRY["targets"]["hq-legacy-relay"]["lifecycle"] = "quarantined"
 
 
 def config():
@@ -170,7 +172,7 @@ class BoundaryTests(unittest.TestCase):
 
     def test_unexpected_legacy_restart_blocks_apply(self):
         with tempfile.TemporaryDirectory() as directory:
-            registry = copy.deepcopy(REGISTRY)
+            registry = copy.deepcopy(QUARANTINE_REGISTRY)
             registry["targets"]["center-demo"]["lock"] = str(Path(directory) / "lock")
             plan = {"release_file": "/candidate.yml"}
             legacy = quarantined()
@@ -188,20 +190,21 @@ class BoundaryTests(unittest.TestCase):
             registry["targets"]["center-demo"]["lock"] = str(Path(directory) / "lock")
             plan = {"release_file": "/candidate.yml", "compose_files": ["/base.yml"],
                     "next_image_id": "sha256:reviewed", "protected": {}}
-            legacy = quarantined()
             deployed = {"Image": "sha256:reviewed", "State": {"Health": {"Status": "healthy"}}}
             with patch.object(release, "make_plan", return_value=plan), \
-                    patch.object(release, "inspect", side_effect=[legacy, deployed]), \
+                    patch.object(release, "check_legacy_boundary") as boundary, \
+                    patch.object(release, "inspect", return_value=deployed), \
                     patch.object(release, "protected_containers", return_value={}), \
                     patch.object(release, "command") as command, patch("builtins.print"):
                 release.apply_plan(registry, plan)
+                boundary.assert_called_once_with(registry)
                 args = command.call_args.args
                 self.assertEqual(args[2:4], ("--project-name", "buzz-demo"))
                 self.assertEqual(args[-10:], ("up", "-d", "--no-deps", "--no-build", "--pull",
                                               "never", "--wait", "--wait-timeout", "180", "relay"))
 
     def test_legacy_quarantine_cannot_silently_change_identity_or_restart_policy(self):
-        release.validate_legacy_boundary(REGISTRY, quarantined())
+        release.validate_legacy_boundary(QUARANTINE_REGISTRY, quarantined())
         for field in ("id", "image", "restart", "project"):
             with self.subTest(field=field):
                 legacy = quarantined()
@@ -210,7 +213,60 @@ class BoundaryTests(unittest.TestCase):
                 elif field == "restart": legacy["HostConfig"]["RestartPolicy"]["Name"] = "always"
                 else: legacy["Config"]["Labels"]["com.docker.compose.project"] = "buzz-demo"
                 with self.assertRaises(release.Refused):
-                    release.validate_legacy_boundary(REGISTRY, legacy)
+                    release.validate_legacy_boundary(QUARANTINE_REGISTRY, legacy)
+
+    def test_retired_inventory_allows_demo_and_shared_resources(self):
+        current = {"Name": "/buzz-demo-relay-1", "Config": {"Labels": {
+            "com.docker.compose.project": "buzz-demo"}}}
+        release.validate_retired_boundary(REGISTRY, [current],
+            list(TARGET["volumes"].values()) + ["airhop-site_caddy_data"],
+            ["buzz-demo_buzz-net", "airhop-web"])
+
+    def test_retired_resource_reappearance_blocks_release(self):
+        resources = REGISTRY["targets"]["hq-legacy-relay"]["removed_resources"]
+        for name in resources["containers"]:
+            with self.subTest(container=name), self.assertRaises(release.Refused):
+                release.validate_retired_boundary(REGISTRY,
+                    [{"Name": "/" + name, "Config": {"Labels": {}}}], [], [])
+        for kind in ("volumes", "networks"):
+            for name in resources[kind]:
+                with self.subTest(resource=name), self.assertRaises(release.Refused):
+                    release.validate_retired_boundary(REGISTRY, [],
+                        [name] if kind == "volumes" else [],
+                        [name] if kind == "networks" else [])
+
+    def test_renamed_legacy_container_and_proxy_alias_are_rejected(self):
+        for mutation in ("project", "alias"):
+            current = {"Name": "/renamed", "Config": {"Labels": {}}}
+            if mutation == "project":
+                current["Config"]["Labels"]["com.docker.compose.project"] = "buzz-prod"
+            else:
+                current["NetworkSettings"] = {"Networks": {"airhop-web": {
+                    "Aliases": ["airhop-hq-relay"]}}}
+            with self.subTest(mutation=mutation), self.assertRaises(release.Refused):
+                release.validate_retired_boundary(REGISTRY, [current], [], [])
+
+    def test_retired_check_does_not_inspect_missing_container_or_mutate(self):
+        with patch.object(release, "command", side_effect=["", "buzz-demo-git-data", "airhop-web"]) as command, \
+                patch.object(release, "inspect") as inspect:
+            release.check_legacy_boundary(REGISTRY)
+            inspect.assert_not_called()
+            self.assertEqual([call.args for call in command.call_args_list], [
+                ("docker", "ps", "-aq"),
+                ("docker", "volume", "ls", "--format", "{{.Name}}"),
+                ("docker", "network", "ls", "--format", "{{.Name}}")])
+
+    def test_reappeared_legacy_blocks_apply_before_up(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry = copy.deepcopy(REGISTRY)
+            registry["targets"]["center-demo"]["lock"] = str(Path(directory) / "lock")
+            plan = {"release_file": "/candidate.yml"}
+            with patch.object(release, "make_plan", return_value=plan), \
+                    patch.object(release, "check_legacy_boundary", side_effect=release.Refused("reappeared")), \
+                    patch.object(release, "command") as command:
+                with self.assertRaisesRegex(release.Refused, "reappeared"):
+                    release.apply_plan(registry, plan)
+                command.assert_not_called()
 
     def test_pilot_helpers_reject_missing_and_legacy_project_before_docker(self):
         for script in ("bootstrap-airhop-hermes.sh", "check-airhop-hermes-pilot.sh", "seed-airhop-demo.sh"):

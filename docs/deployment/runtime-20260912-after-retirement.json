@@ -1,0 +1,572 @@
+{
+  "observed_at": "2026-09-12T21:22:17.723878+00:00",
+  "hostname": "airhop-prod",
+  "docker_id": "dbfb14a9-8404-4f21-ad3e-3481b173ea9a",
+  "containers": [
+    {
+      "container": "airhop-hermes-asr",
+      "id": "9a6163edf80d4736d47a005616b6e5265d30ac37f61fe3abaa23525b5a3d509b",
+      "project": "airhop-hermes",
+      "service": "hermes-asr",
+      "image": "airhop-hermes-hermes-asr",
+      "image_id": "sha256:6655c627b0fd8d5a2f00d7094fc86020fa743d5566f9f79cf63362a5c1ccc563",
+      "status": "running",
+      "health": null,
+      "started_at": "2026-09-11T20:21:48.821401124Z",
+      "compose_files": [
+        "/opt/airhop/runtime/source/airhop-hermes-brief-manager/docker-compose.yml",
+        "/opt/airhop/runtime/source/airhop-hermes-brief-manager/docker-compose.asr.yml"
+      ],
+      "working_dir": "/opt/airhop/runtime/source/airhop-hermes-brief-manager",
+      "mounts": [
+        {
+          "type": "bind",
+          "name": null,
+          "source": "/opt/airhop/runtime/source/airhop-hermes-brief-manager/asr-models",
+          "destination": "/opt/asr-models",
+          "writable": true
+        },
+        {
+          "type": "bind",
+          "name": null,
+          "source": "/opt/airhop/runtime/source/airhop-hermes-brief-manager/data",
+          "destination": "/opt/data",
+          "writable": true
+        }
+      ],
+      "networks": {
+        "host": {
+          "aliases": []
+        }
+      }
+    },
+    {
+      "container": "airhop-hermes-brief-manager",
+      "id": "54c922ddd2791b633eeb7563b155c4f98158661b28f8b75212d0ce0f2b05c8b4",
+      "project": "airhop-hermes",
+      "service": "brief-manager",
+      "image": "airhop-hermes-brief-manager:v2026.8.3-airhop1",
+      "image_id": "sha256:396cd7efb93ee09f3423daf668ca5db57b739e097a9801b5d96245701a1f6cd8",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-09-11T20:00:04.955377407Z",
+      "compose_files": [
+        "/opt/airhop/runtime/source/airhop-hermes-brief-manager/docker-compose.yml",
+        "/opt/airhop/runtime/source/airhop-hermes-brief-manager/docker-compose.asr.yml",
+        "/opt/airhop/runtime/hermes.override.yml"
+      ],
+      "working_dir": "/opt/airhop/runtime/source/airhop-hermes-brief-manager",
+      "mounts": [
+        {
+          "type": "bind",
+          "name": null,
+          "source": "/opt/airhop/runtime/source/airhop-hermes-brief-manager/airhop_briefing_mcp.py",
+          "destination": "/opt/airhop/airhop_briefing_mcp.py",
+          "writable": false
+        },
+        {
+          "type": "bind",
+          "name": null,
+          "source": "/opt/airhop/runtime/source/airhop-hermes-brief-manager/data",
+          "destination": "/opt/data",
+          "writable": true
+        }
+      ],
+      "networks": {
+        "host": {
+          "aliases": []
+        }
+      }
+    },
+    {
+      "container": "airhop-message-bridge",
+      "id": "b69178d43c48923c364dd34f1625a49ccd7a875fb3bdc60f71a066d72cc5ba1c",
+      "project": "airhop-message-bridge",
+      "service": "bridge",
+      "image": "airhop-message-bridge:v2026.9.11-multilingual1",
+      "image_id": "sha256:e2979c1e167cf795e6788f2b35ed00edb67af05dda52472efe02cbd9bbfd8e27",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-09-11T20:00:55.261990666Z",
+      "compose_files": [
+        "/opt/airhop/runtime/source/airhop-message-bridge/docker-compose.yml"
+      ],
+      "working_dir": "/opt/airhop/runtime/source/airhop-message-bridge",
+      "mounts": [],
+      "networks": {
+        "host": {
+          "aliases": []
+        }
+      }
+    },
+    {
+      "container": "airhop-message-bridge-postgres",
+      "id": "e5e2e8ea2986c572d55f05f2d7960123d5c2bf957a1ef83f5237dcbbf441e9fc",
+      "project": "airhop-message-bridge",
+      "service": "postgres",
+      "image": "postgres:17-alpine",
+      "image_id": "sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-08-19T06:16:55.339775585Z",
+      "compose_files": [
+        "/opt/airhop/runtime/source/airhop-message-bridge/docker-compose.yml"
+      ],
+      "working_dir": "/opt/airhop/runtime/source/airhop-message-bridge",
+      "mounts": [
+        {
+          "type": "volume",
+          "name": "airhop-message-bridge_bridge-postgres",
+          "source": "/var/lib/docker/volumes/airhop-message-bridge_bridge-postgres/_data",
+          "destination": "/var/lib/postgresql/data",
+          "writable": true
+        }
+      ],
+      "networks": {
+        "airhop-message-bridge_default": {
+          "aliases": [
+            "airhop-message-bridge-postgres",
+            "postgres"
+          ]
+        }
+      }
+    },
+    {
+      "container": "airhop-site-caddy-1",
+      "id": "3cefbff3f55b4e592d531cc53541c401011e717b1d57b2cfe0e4a3c1581f56ab",
+      "project": "airhop-site",
+      "service": "caddy",
+      "image": "caddy:2.10.2-alpine",
+      "image_id": "sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-09-11T20:38:58.658270438Z",
+      "compose_files": [
+        "/opt/airhop/site/source/deploy/beget/site/compose.yml",
+        "/opt/airhop/site/source/deploy/beget/site/public-hosts.override.yml"
+      ],
+      "working_dir": "/opt/airhop/site/source/deploy/beget/site",
+      "mounts": [
+        {
+          "type": "bind",
+          "name": null,
+          "source": "/var/www/airhop-hq-pilot",
+          "destination": "/srv/deployment-pilot",
+          "writable": false
+        },
+        {
+          "type": "bind",
+          "name": null,
+          "source": "/var/www/airhop-hq-whatsapp-e2e",
+          "destination": "/srv/deployment-whatsapp-e2e",
+          "writable": false
+        },
+        {
+          "type": "volume",
+          "name": "airhop-site_caddy_data",
+          "source": "/var/lib/docker/volumes/airhop-site_caddy_data/_data",
+          "destination": "/data",
+          "writable": true
+        },
+        {
+          "type": "volume",
+          "name": "airhop-site_caddy_config",
+          "source": "/var/lib/docker/volumes/airhop-site_caddy_config/_data",
+          "destination": "/config",
+          "writable": true
+        },
+        {
+          "type": "bind",
+          "name": null,
+          "source": "/opt/airhop/site/source/deploy/beget/site/Caddyfile",
+          "destination": "/etc/caddy/Caddyfile",
+          "writable": false
+        },
+        {
+          "type": "bind",
+          "name": null,
+          "source": "/opt/airhop/site/source/public/legal-kit",
+          "destination": "/srv/legal-kit",
+          "writable": false
+        },
+        {
+          "type": "bind",
+          "name": null,
+          "source": "/opt/airhop/demo-test",
+          "destination": "/srv/demo-test",
+          "writable": false
+        }
+      ],
+      "networks": {
+        "airhop-web": {
+          "aliases": [
+            "airhop-site-caddy-1",
+            "caddy"
+          ]
+        }
+      }
+    },
+    {
+      "container": "airhop-site-site-1",
+      "id": "bd6893d84ed9a348d77ac0539c0a68187d497b38895c95685dc819746ecbdc8c",
+      "project": "airhop-site",
+      "service": "site",
+      "image": "airhop-site:site-c8c2ab3",
+      "image_id": "sha256:74051cca61506fd02ae889fa050c3ba1954f0cd71599b1ba4ca30fadbbc28ecb",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-09-11T23:08:53.717068059Z",
+      "compose_files": [
+        "/opt/airhop/site/source/deploy/beget/site/compose.yml",
+        "/opt/airhop/site/source/deploy/beget/site/public-hosts.override.yml"
+      ],
+      "working_dir": "/opt/airhop/site/source/deploy/beget/site",
+      "mounts": [
+        {
+          "type": "bind",
+          "name": null,
+          "source": "/opt/airhop/site/data",
+          "destination": "/var/lib/airhop",
+          "writable": true
+        }
+      ],
+      "networks": {
+        "airhop-web": {
+          "aliases": [
+            "airhop-site-site-1",
+            "site"
+          ]
+        }
+      }
+    },
+    {
+      "container": "buzz-demo-hermes-parent-runtime-1",
+      "id": "12cfc7d4894990adf8e5fe4a825bdbe6baed52301e17d27ccd0d39b05e08e182",
+      "project": "buzz-demo",
+      "service": "hermes-parent-runtime",
+      "image": "airhop-hermes-parent-runtime:airhop-center-0.5.14-07c69b222797-packaging1",
+      "image_id": "sha256:a035dc012f014bf7af17fb887f94f9ee94429af9b6ddd24d1118de40c39faa9e",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-09-11T19:13:17.63667218Z",
+      "compose_files": [
+        "/opt/airhop/buzz-demo/source/deploy/compose/compose.yml",
+        "/opt/airhop/buzz-demo/buzz-demo.override.yml",
+        "/opt/airhop/relay-build-f9730f5/deploy/airhop/compose.existing.yml",
+        "/opt/airhop/buzz-demo/releases/f9730f5.compose.yml",
+        "/opt/airhop/buzz-demo/releases/analytics-demo-20260907.compose.yml",
+        "/opt/airhop/relay-build-0.5.6-4322563f72a7/demo-0.5.6.compose.yml",
+        "/opt/airhop/hermes-booking-097799a4fd61/rollout.compose.json",
+        "/opt/airhop/hermes-booking-da09388809b1/rollout.compose.json",
+        "/opt/airhop/hermes-booking-f50d431f31c0/rollout.compose.json",
+        "/opt/airhop/center-057-900ffb2224d3/rollout.compose.json",
+        "/opt/airhop/widget-85ff4192c947/rollout.compose.json",
+        "/opt/airhop/center-058-cec9af30c129/rollout.compose.json",
+        "/opt/airhop/center-059-2cb9fc1b3923/rollout.compose.json",
+        "/opt/airhop/consultations-ca857b59108e/rollout.compose.json",
+        "/opt/airhop/welcome-a87459d2c302/rollout.compose.json",
+        "/opt/airhop/welcome-daf769533b05/rollout.compose.json",
+        "/opt/airhop/hermes-dialogue-00489edf8334/rollout.compose.json",
+        "/opt/airhop/center-0513-52e6acae5075/rollout.compose.json",
+        "/opt/airhop/center-0514-07c69b222797/rollout.compose.json"
+      ],
+      "working_dir": "/opt/airhop/buzz-demo/source/deploy/compose",
+      "mounts": [
+        {
+          "type": "volume",
+          "name": "buzz-demo_airhop-hermes-runtime-data",
+          "source": "/var/lib/docker/volumes/buzz-demo_airhop-hermes-runtime-data/_data",
+          "destination": "/var/lib/airhop-hermes-runtime",
+          "writable": true
+        }
+      ],
+      "networks": {
+        "buzz-demo_buzz-net": {
+          "aliases": [
+            "buzz-demo-hermes-parent-runtime-1",
+            "hermes-parent-runtime"
+          ]
+        }
+      }
+    },
+    {
+      "container": "buzz-demo-minio-1",
+      "id": "0dd256d29754e3e69c7a3a005e011b35099f734368a92e357d287b70c361ff52",
+      "project": "buzz-demo",
+      "service": "minio",
+      "image": "minio/minio:RELEASE.2025-09-07T16-13-09Z",
+      "image_id": "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-08-19T06:16:55.340706511Z",
+      "compose_files": [
+        "/opt/airhop/buzz-demo/source/deploy/compose/compose.yml",
+        "/opt/airhop/buzz-demo/buzz-demo.override.yml"
+      ],
+      "working_dir": "/opt/airhop/buzz-demo/source/deploy/compose",
+      "mounts": [
+        {
+          "type": "volume",
+          "name": "buzz-demo-minio-data",
+          "source": "/var/lib/docker/volumes/buzz-demo-minio-data/_data",
+          "destination": "/data",
+          "writable": true
+        }
+      ],
+      "networks": {
+        "buzz-demo_buzz-net": {
+          "aliases": [
+            "buzz-demo-minio-1",
+            "minio"
+          ]
+        }
+      }
+    },
+    {
+      "container": "buzz-demo-minio-init-1",
+      "id": "0c8ed14ac29754e2dce75fd9d99adbcc3ed6668767a2e271df79643ca21c8d46",
+      "project": "buzz-demo",
+      "service": "minio-init",
+      "image": "minio/mc:RELEASE.2025-08-13T08-35-41Z",
+      "image_id": "sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
+      "status": "exited",
+      "health": null,
+      "started_at": "2026-09-04T19:17:41.374214428Z",
+      "compose_files": [
+        "/opt/airhop/buzz-demo/source/deploy/compose/compose.yml",
+        "/opt/airhop/buzz-demo/buzz-demo.override.yml"
+      ],
+      "working_dir": "/opt/airhop/buzz-demo/source/deploy/compose",
+      "mounts": [],
+      "networks": {
+        "buzz-demo_buzz-net": {
+          "aliases": [
+            "buzz-demo-minio-init-1",
+            "minio-init"
+          ]
+        }
+      }
+    },
+    {
+      "container": "buzz-demo-pairing-relay-1",
+      "id": "e11061e9c910443bd884e91ae84b10a6cd98c10ec5abad8b4cbf8b9d3d9ecafd",
+      "project": "buzz-demo",
+      "service": "pairing-relay",
+      "image": "airhub-center-relay:3d6c3287",
+      "image_id": "sha256:1cac620f17c6524d65fe6b8ba6451e938f4dc8ad1a1f50c4b1b205f554c5f95f",
+      "status": "running",
+      "health": null,
+      "started_at": "2026-08-19T07:17:21.908011957Z",
+      "compose_files": [
+        "/opt/airhop/buzz-demo/source/deploy/compose/compose.yml",
+        "/opt/airhop/buzz-demo/buzz-demo.override.yml"
+      ],
+      "working_dir": "/opt/airhop/buzz-demo/source/deploy/compose",
+      "mounts": [],
+      "networks": {
+        "airhop-web": {
+          "aliases": [
+            "buzz-demo-pairing-relay-1",
+            "pairing-relay",
+            "airhop-demo-pairing"
+          ]
+        },
+        "buzz-demo_buzz-net": {
+          "aliases": [
+            "buzz-demo-pairing-relay-1",
+            "pairing-relay"
+          ]
+        }
+      }
+    },
+    {
+      "container": "buzz-demo-postgres-1",
+      "id": "f43b57755475ff9a2e9c5f5c2149cc1cf74c28e66b5c5c6db70feb8e4b6e1157",
+      "project": "buzz-demo",
+      "service": "postgres",
+      "image": "postgres:17-alpine",
+      "image_id": "sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-08-19T06:16:55.33702082Z",
+      "compose_files": [
+        "/opt/airhop/buzz-demo/source/deploy/compose/compose.yml",
+        "/opt/airhop/buzz-demo/buzz-demo.override.yml"
+      ],
+      "working_dir": "/opt/airhop/buzz-demo/source/deploy/compose",
+      "mounts": [
+        {
+          "type": "volume",
+          "name": "buzz-demo-postgres-data",
+          "source": "/var/lib/docker/volumes/buzz-demo-postgres-data/_data",
+          "destination": "/var/lib/postgresql/data",
+          "writable": true
+        }
+      ],
+      "networks": {
+        "buzz-demo_buzz-net": {
+          "aliases": [
+            "buzz-demo-postgres-1",
+            "postgres"
+          ]
+        }
+      }
+    },
+    {
+      "container": "buzz-demo-redis-1",
+      "id": "3bcbe3db9a832f9c4e40481150caaf9184678169ef082366de4ff046e4f16db8",
+      "project": "buzz-demo",
+      "service": "redis",
+      "image": "redis:7-alpine",
+      "image_id": "sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-08-19T06:16:55.35255603Z",
+      "compose_files": [
+        "/opt/airhop/buzz-demo/source/deploy/compose/compose.yml",
+        "/opt/airhop/buzz-demo/buzz-demo.override.yml"
+      ],
+      "working_dir": "/opt/airhop/buzz-demo/source/deploy/compose",
+      "mounts": [
+        {
+          "type": "volume",
+          "name": "buzz-demo-redis-data",
+          "source": "/var/lib/docker/volumes/buzz-demo-redis-data/_data",
+          "destination": "/data",
+          "writable": true
+        }
+      ],
+      "networks": {
+        "buzz-demo_buzz-net": {
+          "aliases": [
+            "buzz-demo-redis-1",
+            "redis"
+          ]
+        }
+      }
+    },
+    {
+      "container": "buzz-demo-relay-1",
+      "id": "e71c05f0d0a49ae926c6aa284e1ae3676fff607b9e19c852c725c6cad997eee5",
+      "project": "buzz-demo",
+      "service": "relay",
+      "image": "airhub-center-relay:whatsapp-credential-rotation-df472bd",
+      "image_id": "sha256:05aafad2c904288ce9d7b654d43396f533fa45185bf545fc2b9f0b6e1d968d98",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-09-12T07:10:32.98330421Z",
+      "compose_files": [
+        "/opt/airhop/buzz-demo/source/deploy/compose/compose.yml",
+        "/opt/airhop/buzz-demo/buzz-demo.override.yml",
+        "/opt/airhop/relay-build-f9730f5/deploy/airhop/compose.existing.yml",
+        "/opt/airhop/buzz-demo/releases/f9730f5.compose.yml",
+        "/opt/airhop/buzz-demo/releases/analytics-demo-20260907.compose.yml",
+        "/opt/airhop/relay-build-0.5.6-4322563f72a7/demo-0.5.6.compose.yml",
+        "/opt/airhop/hermes-booking-097799a4fd61/rollout.compose.json",
+        "/opt/airhop/hermes-booking-da09388809b1/rollout.compose.json",
+        "/opt/airhop/hermes-booking-f50d431f31c0/rollout.compose.json",
+        "/opt/airhop/center-057-900ffb2224d3/rollout.compose.json",
+        "/opt/airhop/widget-85ff4192c947/rollout.compose.json",
+        "/opt/airhop/center-058-cec9af30c129/rollout.compose.json",
+        "/opt/airhop/center-059-2cb9fc1b3923/rollout.compose.json",
+        "/opt/airhop/consultations-ca857b59108e/rollout.compose.json",
+        "/opt/airhop/welcome-a87459d2c302/rollout.compose.json",
+        "/opt/airhop/welcome-daf769533b05/rollout.compose.json",
+        "/opt/airhop/hermes-dialogue-00489edf8334/rollout.compose.json",
+        "/opt/airhop/center-0513-52e6acae5075/rollout.compose.json",
+        "/opt/airhop/center-0514-07c69b222797/rollout.compose.json",
+        "/opt/airhop/whatsapp-e2e-f5581f40f461/rollout.compose.yml",
+        "/opt/airhop/whatsapp-e2e-f5581f40f461/rollout.compose.yml",
+        "/opt/airhop/whatsapp-e2e-ba9434e6b970/gateway-redacted.compose.yml",
+        "/opt/airhop/whatsapp-credential-rotation-df472bd/rollout.compose.yml",
+        "/opt/airhop/whatsapp-credential-rotation-relay-df472bd/rollout.compose.yml"
+      ],
+      "working_dir": "/opt/airhop/buzz-demo/source/deploy/compose",
+      "mounts": [
+        {
+          "type": "volume",
+          "name": "buzz-demo-git-data",
+          "source": "/var/lib/docker/volumes/buzz-demo-git-data/_data",
+          "destination": "/data/git",
+          "writable": true
+        }
+      ],
+      "networks": {
+        "airhop-web": {
+          "aliases": [
+            "buzz-demo-relay-1",
+            "relay",
+            "airhop-demo-relay"
+          ]
+        },
+        "buzz-demo_buzz-net": {
+          "aliases": [
+            "buzz-demo-relay-1",
+            "relay"
+          ]
+        }
+      }
+    },
+    {
+      "container": "buzz-demo-telegram-gateway-1",
+      "id": "54bb9d5b62389b4db5eba4fb51b591872f337593302a5f347e06e33373662c2e",
+      "project": "buzz-demo",
+      "service": "telegram-gateway",
+      "image": "airhop-hermes-channel-gateway:credential-rotation-df472bd",
+      "image_id": "sha256:95493c6902e902811e668acddb46e0d039da758ca4552f40e804efee9ba4fd76",
+      "status": "running",
+      "health": null,
+      "started_at": "2026-09-12T02:22:25.93243266Z",
+      "compose_files": [
+        "/opt/airhop/buzz-demo/source/deploy/compose/compose.yml",
+        "/opt/airhop/buzz-demo/buzz-demo.override.yml",
+        "/opt/airhop/relay-build-f9730f5/deploy/airhop/compose.existing.yml",
+        "/opt/airhop/buzz-demo/releases/f9730f5.compose.yml",
+        "/opt/airhop/buzz-demo/releases/analytics-demo-20260907.compose.yml",
+        "/opt/airhop/relay-build-0.5.6-4322563f72a7/demo-0.5.6.compose.yml",
+        "/opt/airhop/hermes-booking-097799a4fd61/rollout.compose.json",
+        "/opt/airhop/hermes-booking-da09388809b1/rollout.compose.json",
+        "/opt/airhop/hermes-booking-f50d431f31c0/rollout.compose.json",
+        "/opt/airhop/center-057-900ffb2224d3/rollout.compose.json",
+        "/opt/airhop/widget-85ff4192c947/rollout.compose.json",
+        "/opt/airhop/center-058-cec9af30c129/rollout.compose.json",
+        "/opt/airhop/center-059-2cb9fc1b3923/rollout.compose.json",
+        "/opt/airhop/consultations-ca857b59108e/rollout.compose.json",
+        "/opt/airhop/welcome-a87459d2c302/rollout.compose.json",
+        "/opt/airhop/welcome-daf769533b05/rollout.compose.json",
+        "/opt/airhop/hermes-dialogue-00489edf8334/rollout.compose.json",
+        "/opt/airhop/center-0513-52e6acae5075/rollout.compose.json",
+        "/opt/airhop/center-0514-07c69b222797/rollout.compose.json",
+        "/opt/airhop/whatsapp-e2e-f5581f40f461/rollout.compose.yml",
+        "/opt/airhop/whatsapp-e2e-f5581f40f461/rollout.compose.yml",
+        "/opt/airhop/whatsapp-e2e-ba9434e6b970/gateway-redacted.compose.yml",
+        "/opt/airhop/whatsapp-credential-rotation-df472bd/rollout.compose.yml"
+      ],
+      "working_dir": "/opt/airhop/buzz-demo/source/deploy/compose",
+      "mounts": [
+        {
+          "type": "volume",
+          "name": "buzz-demo_airhop-telegram-gateway-data",
+          "source": "/var/lib/docker/volumes/buzz-demo_airhop-telegram-gateway-data/_data",
+          "destination": "/var/lib/airhop-channel-gateway",
+          "writable": true
+        }
+      ],
+      "networks": {
+        "airhop-web": {
+          "aliases": [
+            "buzz-demo-telegram-gateway-1",
+            "telegram-gateway",
+            "airhop-demo-channel-gateway"
+          ]
+        },
+        "buzz-demo_buzz-net": {
+          "aliases": [
+            "buzz-demo-telegram-gateway-1",
+            "telegram-gateway"
+          ]
+        }
+      }
+    }
+  ]
+}

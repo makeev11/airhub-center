@@ -167,11 +167,48 @@ def validate_legacy_boundary(registry, current):
             "Legacy relay is not in the audited quarantine; do not restart it for demo")
 
 
+def validate_retired_boundary(registry, containers, volumes, networks):
+    """Reject resurrected legacy resources before any Center deployment."""
+    target = registry["targets"]["hq-legacy-relay"]
+    require(target.get("lifecycle") == "removed" and
+            target.get("deployment_enabled") is False, "Legacy lifecycle needs review")
+    retired = target["removed_resources"]
+    require(all(retired.get(key) for key in ("containers", "volumes", "networks")),
+            "Retired resource inventory is incomplete")
+    for container in containers:
+        name = container["Name"].lstrip("/")
+        project = (container["Config"].get("Labels") or {}).get("com.docker.compose.project")
+        require(name not in retired["containers"] and project != target["project"],
+                "Retired legacy container/project reappeared; review the inventory")
+        aliases = {alias for network in container.get("NetworkSettings", {}).get(
+            "Networks", {}).values() for alias in network.get("Aliases") or []}
+        require(not aliases.intersection({"airhop-hq-relay", "airhop-hq-pairing"}),
+                "Retired legacy proxy alias reappeared")
+    require(not set(volumes).intersection(retired["volumes"]),
+            "Retired legacy volume reappeared; do not delete it automatically")
+    require(not set(networks).intersection(retired["networks"]),
+            "Retired legacy network reappeared")
+
+
+def check_legacy_boundary(registry):
+    """Read current resources and enforce the recorded lifecycle without mutation."""
+    target = registry["targets"]["hq-legacy-relay"]
+    if target.get("lifecycle") == "quarantined":
+        validate_legacy_boundary(registry, inspect(target["container"]))
+        return
+    require(target.get("lifecycle") == "removed", "Legacy lifecycle needs review")
+    ids = command("docker", "ps", "-aq").split()
+    containers = json.loads(command("docker", "inspect", *ids)) if ids else []
+    volumes = command("docker", "volume", "ls", "--format", "{{.Name}}").splitlines()
+    networks = command("docker", "network", "ls", "--format", "{{.Name}}").splitlines()
+    validate_retired_boundary(registry, containers, volumes, networks)
+
+
 def make_plan(registry, release_file):
     target = registry["targets"]["center-demo"]
     require(command("docker", "info", "--format", "{{.ID}}") == registry["host"]["docker_id"],
             "Wrong Docker daemon")
-    validate_legacy_boundary(registry, inspect(registry["targets"]["hq-legacy-relay"]["container"]))
+    check_legacy_boundary(registry)
     current = inspect(target["container"])
     labels = current["Config"].get("Labels") or {}
     require(labels.get("com.docker.compose.project") == target["project"],
@@ -223,9 +260,8 @@ def apply_plan(registry, expected):
             raise Refused("Another demo release holds the deployment lock") from exc
         actual = make_plan(registry, expected["release_file"])
         require(actual == expected, "Plan is stale; inspect and prepare a new plan")
-        # The actual HQ runs on Cloudflare. Preserve the legacy relay quarantine.
-        legacy = inspect(registry["targets"]["hq-legacy-relay"]["container"])
-        validate_legacy_boundary(registry, legacy)
+        # The actual HQ runs on Cloudflare. Never resurrect the retired relay.
+        check_legacy_boundary(registry)
         # Pull/build/dependencies are explicitly disabled. Only the reviewed relay changes.
         args = compose_args(target, actual["compose_files"] + [actual["release_file"]])
         command(*args, "up", "-d", "--no-deps", "--no-build", "--pull", "never",

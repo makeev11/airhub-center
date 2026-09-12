@@ -27,25 +27,54 @@
       }
     },
     "hq-legacy-relay": {
-      "product": "Unused by current HQ; legacy relay retained in quarantine",
+      "product": "Retired legacy relay; not the current AirHop HQ",
       "project": "buzz-prod",
       "host": "hq.airhop.ru",
       "container": "buzz-prod-relay-1",
-      "env_file": "/opt/airhop/buzz-hq/source/deploy/compose/.env",
-      "base_file": "/opt/airhop/buzz-hq/source/deploy/compose/compose.yml",
-      "routing_override": "/opt/airhop/buzz-hq/buzz-hq.override.yml",
-      "drifted_override": "/opt/airhop/runtime/deploy/buzz-hq.override.yml",
-      "expected_proxy_alias": "airhop-hq-relay",
-      "observed_storage": {
-        "postgres": "buzz-prod_buzz-postgres-data",
-        "redis": "buzz-hq-redis-restored-20260806",
-        "minio": "buzz-hq-minio-restored-20260806-v2"
-      },
       "deployment_enabled": false,
-      "lifecycle": "quarantined",
+      "lifecycle": "removed",
       "quarantine_container_id": "1a4ed1cca10a872a4c83d7d9ae58e56e4499ec35ee0833dbf40f19b0f68cdf6e",
       "quarantine_image_id": "sha256:73ce2c884826ab032fd4c94e2d0beb2bfdf9609916c6df775324c396aeb63c1d",
-      "quarantine_backup": "/opt/airhop/backups/legacy-hq-relay-quarantine-20260912T205006Z"
+      "quarantine_backup": "/opt/airhop/backups/legacy-hq-relay-quarantine-20260912T205006Z",
+      "historical_config": {
+        "env_file": "/opt/airhop/buzz-hq/source/deploy/compose/.env",
+        "base_file": "/opt/airhop/buzz-hq/source/deploy/compose/compose.yml",
+        "routing_override": "/opt/airhop/buzz-hq/buzz-hq.override.yml",
+        "drifted_override": "/opt/airhop/runtime/deploy/buzz-hq.override.yml",
+        "expected_proxy_alias": "airhop-hq-relay",
+        "observed_storage": {
+          "postgres": "buzz-prod_buzz-postgres-data",
+          "redis": "buzz-hq-redis-restored-20260806",
+          "minio": "buzz-hq-minio-restored-20260806-v2"
+        }
+      },
+      "removed_resources": {
+        "containers": [
+          "buzz-prod-relay-1",
+          "buzz-prod-pairing-relay-1",
+          "buzz-prod-minio-1",
+          "buzz-prod-redis-1",
+          "buzz-prod-minio-init-1",
+          "buzz-prod-postgres-1"
+        ],
+        "volumes": [
+          "buzz-hq-minio-restored-20260806-v2",
+          "buzz-hq-redis-restored-20260806",
+          "buzz-prod_buzz-git-data",
+          "buzz-prod_buzz-minio-data",
+          "buzz-prod_buzz-postgres-data",
+          "buzz-prod_buzz-redis-data"
+        ],
+        "networks": [
+          "buzz-prod_buzz-net"
+        ]
+      },
+      "retired_at": "2026-09-12T21:21:56.624539+00:00",
+      "retirement_record": "docs/deployment/legacy-retirement-20260912.json",
+      "recovery_archive": "/opt/airhop/backups/legacy-hq-export-20260912T211758Z.tar.gz.cms",
+      "recovery_archive_sha256": "c6ae2d051443d506a11d95123e05b0f6fc7536d521ee23a52ccfcabcb93d9e48",
+      "retired_source_private": "/opt/airhop/backups/legacy-hq-retired-source-20260912T211758Z",
+      "domain_response": 410
     },
     "site": {
       "product": "AirHop Site",

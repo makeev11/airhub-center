@@ -1,0 +1,50 @@
+{
+  "completed_at": "2026-09-12T21:21:56.624539+00:00",
+  "removed_containers": {
+    "buzz-prod-relay-1": "1a4ed1cca10a872a4c83d7d9ae58e56e4499ec35ee0833dbf40f19b0f68cdf6e",
+    "buzz-prod-pairing-relay-1": "2f57ec844dd5221c207be1f454e07b9dbcd11affda02655cbc0b66f2961981a0",
+    "buzz-prod-minio-1": "78e1ae008e09f8197daaf1298e7f1501060571677f70fb08bfee377de4511616",
+    "buzz-prod-redis-1": "4c2b25748fb67537a76a3b27f814dbb128eac740a55f24d9b9ed1b2bda9bac46",
+    "buzz-prod-minio-init-1": "c644b27df33f8fadfdcdc706dde9a1130567cce77b33babb0c902e584b01c3c6",
+    "buzz-prod-postgres-1": "a2b4afb2576cb7ae8f6a31b188f0e6bcd90a9006dda08d6d532df6f48f685014"
+  },
+  "removed_volumes": [
+    "buzz-hq-minio-restored-20260806-v2",
+    "buzz-hq-redis-restored-20260806",
+    "buzz-prod_buzz-git-data",
+    "buzz-prod_buzz-minio-data",
+    "buzz-prod_buzz-postgres-data",
+    "buzz-prod_buzz-redis-data"
+  ],
+  "removed_network": "buzz-prod_buzz-net",
+  "retired_source_private": "/opt/airhop/backups/legacy-hq-retired-source-20260912T211758Z",
+  "archive": "/opt/airhop/backups/legacy-hq-export-20260912T211758Z.tar.gz.cms",
+  "archive_sha256": "c6ae2d051443d506a11d95123e05b0f6fc7536d521ee23a52ccfcabcb93d9e48",
+  "offhost_decryption_and_147_checksums": "passed",
+  "caddy_before_sha256": "2d75b4b4b5323ad2f84c2cdcd4caae4dac6b79f739fa970df628c7d6f27573b5",
+  "caddy_after_sha256": "de0c5f43292db20a63b01683cec7fa1590907258dfb91568d51e0a80d7119795",
+  "caddy_action": "reload; same container",
+  "protected_containers_unchanged": true,
+  "preflight": {
+    "actual_hq": "200",
+    "center_demo": "200",
+    "site": "200",
+    "hermes": "200",
+    "hygge": "200",
+    "site_booking": "200",
+    "demo_booking": "200",
+    "hygge_booking": "200"
+  },
+  "postflight": {
+    "actual_hq": "200",
+    "center_demo": "200",
+    "site": "200",
+    "hermes": "200",
+    "hygge": "200",
+    "site_booking": "200",
+    "demo_booking": "200",
+    "hygge_booking": "200"
+  },
+  "retired_domain_http_status": 410,
+  "preserved_demo_git_volume": "buzz-demo-git-data"
+}
