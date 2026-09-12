@@ -1,0 +1,92 @@
+{
+  "observed_at": "2026-09-12T21:14:34.367490+00:00",
+  "docker_id": "dbfb14a9-8404-4f21-ad3e-3481b173ea9a",
+  "legacy_containers": [
+    {
+      "name": "buzz-prod-relay-1",
+      "id": "1a4ed1cca10a872a4c83d7d9ae58e56e4499ec35ee0833dbf40f19b0f68cdf6e",
+      "state": "exited",
+      "published_ports": {}
+    },
+    {
+      "name": "buzz-prod-pairing-relay-1",
+      "id": "2f57ec844dd5221c207be1f454e07b9dbcd11affda02655cbc0b66f2961981a0",
+      "state": "running",
+      "published_ports": {}
+    },
+    {
+      "name": "buzz-prod-minio-1",
+      "id": "78e1ae008e09f8197daaf1298e7f1501060571677f70fb08bfee377de4511616",
+      "state": "running",
+      "published_ports": {}
+    },
+    {
+      "name": "buzz-prod-redis-1",
+      "id": "4c2b25748fb67537a76a3b27f814dbb128eac740a55f24d9b9ed1b2bda9bac46",
+      "state": "running",
+      "published_ports": {}
+    },
+    {
+      "name": "buzz-prod-minio-init-1",
+      "id": "c644b27df33f8fadfdcdc706dde9a1130567cce77b33babb0c902e584b01c3c6",
+      "state": "exited",
+      "published_ports": {}
+    },
+    {
+      "name": "buzz-prod-postgres-1",
+      "id": "a2b4afb2576cb7ae8f6a31b188f0e6bcd90a9006dda08d6d532df6f48f685014",
+      "state": "running",
+      "published_ports": {}
+    }
+  ],
+  "volume_consumers": {
+    "buzz-hq-minio-restored-20260806-v2": [
+      "buzz-prod-minio-1"
+    ],
+    "buzz-hq-redis-restored-20260806": [
+      "buzz-prod-redis-1"
+    ],
+    "buzz-prod_buzz-git-data": [],
+    "buzz-prod_buzz-minio-data": [],
+    "buzz-prod_buzz-postgres-data": [
+      "buzz-prod-postgres-1"
+    ],
+    "buzz-prod_buzz-redis-data": [],
+    "buzz-demo-git-data": [
+      "buzz-prod-relay-1",
+      "buzz-demo-relay-1"
+    ]
+  },
+  "legacy_network_consumers": [
+    "buzz-prod-minio-1",
+    "buzz-prod-pairing-relay-1",
+    "buzz-prod-postgres-1",
+    "buzz-prod-redis-1"
+  ],
+  "other_container_config_references": [
+    {
+      "container": "airhop-site-caddy-1",
+      "field": "env:AIRHOP_HQ_ADDRESS",
+      "matches": [
+        "hq.airhop.ru"
+      ]
+    }
+  ],
+  "legacy_postgres_connections": {
+    "external_client_connections": 0,
+    "other_client_connections": 0
+  },
+  "active_product_http_status": {
+    "actual_hq": "check_failed",
+    "center_demo": 200,
+    "site": 200,
+    "hermes": 200
+  },
+  "actual_hq_followup": {
+    "method": "curl readiness from both VPS and developer computer after urllib check failed",
+    "http_status_from_vps": 200,
+    "http_status_from_developer_computer": 200,
+    "response": {"status": "ready", "database": "ready", "schemaVersion": 15}
+  },
+  "limitations": "Point-in-time inspection; no connections or references does not prove absence of future or external consumers. Shared Caddy configuration retains legacy routes. Private backup and deletion have not been performed."
+}
