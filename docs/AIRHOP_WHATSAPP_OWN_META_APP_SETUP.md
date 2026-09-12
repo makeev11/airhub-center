@@ -1,5 +1,7 @@
 # Подключение собственного WhatsApp Cloud API к AirHop Center
 
+[Português (Brasil)](AIRHOP_WHATSAPP_OWN_META_APP_SETUP.pt-BR.md)
+
 Статус: инструкция, мастер подключения и hosted WhatsApp Cloud adapter готовы.
 Ввод реквизитов включается только в окружении, где запущен Channel Gateway и
 задан публичный HTTPS Callback URL; до этого мастер остаётся доступен как

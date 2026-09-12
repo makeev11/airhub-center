@@ -203,6 +203,13 @@ public `/webhooks/whatsapp/{connectionId}` route. Configure
 `AIRHOP_WHATSAPP_WEBHOOK_BASE_URL=https://<center-host>/webhooks/whatsapp` and
 enable the reverse-proxy labels before allowing WhatsApp credential intake.
 
+Partner onboarding instructions are available in
+[Russian](../../docs/AIRHOP_WHATSAPP_OWN_META_APP_SETUP.md) and
+[Brazilian Portuguese](../../docs/AIRHOP_WHATSAPP_OWN_META_APP_SETUP.pt-BR.md).
+They cover the required separate Meta application, number registration,
+permanent System User Token, webhook verification, billing, acceptance and
+credential rotation without replacing the AirHop conversation history.
+
 For a regional production ingress where Relay remains on another host, use the
 standalone [Brazilian Channel Gateway edge](whatsapp-edge/README.md). Its
 cutover runbook preserves the gateway state volume, enforces one active
