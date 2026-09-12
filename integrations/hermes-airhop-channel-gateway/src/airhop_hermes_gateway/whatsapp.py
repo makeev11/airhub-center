@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 _SERVICE_WINDOW_SECONDS = 24 * 60 * 60
 _MAX_MESSAGES_PER_WEBHOOK = 100
 _WEBHOOK_VERIFIED_KEY = "whatsapp_webhook_verified"
+_WEBHOOK_VERIFIED_VERSION_KEY = "whatsapp_webhook_verified_version"
 _UNSUPPORTED_NOTICE = (
     "[WhatsApp: получено неподдерживаемое вложение. "
     "Содержимое и оригинал файла недоступны в AirHop Center.]"
@@ -244,9 +245,13 @@ class WhatsAppGatewayRuntime:
         router: WhatsAppWebhookRouter,
         spool: InboundSpool | None = None,
         graph: WhatsAppGraphClient | None = None,
+        credential_version: int = 1,
     ):
+        if isinstance(credential_version, bool) or credential_version <= 0:
+            raise ValueError("credential_version must be a positive integer")
         self.settings = settings
         self.credential = credential
+        self.credential_version = credential_version
         self.client = client
         self.signer = signer
         self.router = router
@@ -276,9 +281,7 @@ class WhatsAppGatewayRuntime:
 
     async def run(self, stop_event: asyncio.Event) -> None:
         await self.spool.initialize()
-        self._webhook_verified = (
-            await self.spool.get_runtime_state(_WEBHOOK_VERIFIED_KEY) == "true"
-        )
+        await self._restore_webhook_verification()
         await self.router.register(self.settings.connection_id, self)
         await self._safe_heartbeat("connecting", None)
         try:
@@ -312,9 +315,31 @@ class WhatsAppGatewayRuntime:
         ):
             return WebhookResponse(403, b"forbidden")
         await self.spool.set_runtime_state(_WEBHOOK_VERIFIED_KEY, "true")
+        await self.spool.set_runtime_state(
+            _WEBHOOK_VERIFIED_VERSION_KEY, str(self.credential_version)
+        )
         self._webhook_verified = True
         await self._report_current_health()
         return WebhookResponse(200, challenge.encode("utf-8"))
+
+    async def _restore_webhook_verification(self) -> None:
+        verified = (
+            await self.spool.get_runtime_state(_WEBHOOK_VERIFIED_KEY) == "true"
+        )
+        verified_version = await self.spool.get_runtime_state(
+            _WEBHOOK_VERIFIED_VERSION_KEY
+        )
+        # Existing installations predate versioned assignments. Preserve their
+        # verified state exactly once at credential revision 1. Every later
+        # revision must complete Meta's verification GET with its new token.
+        if verified and verified_version is None and self.credential_version == 1:
+            verified_version = "1"
+            await self.spool.set_runtime_state(
+                _WEBHOOK_VERIFIED_VERSION_KEY, verified_version
+            )
+        self._webhook_verified = verified and verified_version == str(
+            self.credential_version
+        )
 
     async def accept_webhook(
         self, *, signature: str, body: bytes

@@ -22,6 +22,7 @@ use buzz_db::airhop::channel_gateway::{
     ChannelConnection, ExternalDeliveryAckState, ExternalDeliveryCompletion,
     ObserveChannelConnectionInput, ProvisionChannelConnectionInput,
     ProvisionExternalConversationRouteInput, PutChannelConnectionInput, PutConversationRouteInput,
+    RotateChannelCredentialInput,
 };
 
 use crate::handlers::ingest::{IngestAuth, IngestError};
@@ -78,6 +79,22 @@ pub(crate) struct ConnectWhatsAppBody {
 }
 
 impl Drop for ConnectWhatsAppBody {
+    fn drop(&mut self) {
+        self.app_secret.zeroize();
+        self.access_token.zeroize();
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RotateWhatsAppCredentialBody {
+    app_id: String,
+    app_secret: String,
+    access_token: String,
+    expected_version: i64,
+}
+
+impl Drop for RotateWhatsAppCredentialBody {
     fn drop(&mut self) {
         self.app_secret.zeroize();
         self.access_token.zeroize();
@@ -633,6 +650,165 @@ pub(crate) async fn activate_whatsapp_cloud(
         "subscribed": true,
         "status": "connecting",
     })))
+}
+
+/// Replaces Meta secrets and Verify Token without replacing the connection.
+pub(crate) async fn rotate_whatsapp_cloud_credential(
+    State(state): State<Arc<AppState>>,
+    Path(connection_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<(HeaderMap, Json<Value>), (StatusCode, Json<Value>)> {
+    let path = format!("{CONNECTION_PREFIX}/{connection_id}/whatsapp-cloud/credential");
+    let principal = authenticate_airhop(&state, &headers, "PUT", &path, Some(&body)).await?;
+    require_owner_or_admin(&principal.member_role)?;
+    let mut request: RotateWhatsAppCredentialBody =
+        parse_body(&body, "invalid WhatsApp credential rotation JSON")?;
+    let app_id = std::mem::take(&mut request.app_id).trim().to_owned();
+    let app_secret = Zeroizing::new(std::mem::take(&mut request.app_secret).trim().to_owned());
+    let access_token = Zeroizing::new(std::mem::take(&mut request.access_token).trim().to_owned());
+    if !valid_meta_id(&app_id)
+        || !valid_meta_app_secret(&app_secret)
+        || !valid_meta_access_token(&access_token)
+        || request.expected_version <= 0
+    {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid WhatsApp Cloud credentials",
+        ));
+    }
+    let gateway = state
+        .config
+        .airhop_channel_gateway
+        .as_ref()
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "WhatsApp Cloud self-service is not configured",
+            )
+        })?;
+    let webhook_base_url = gateway.whatsapp_webhook_base_url().ok_or_else(|| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "WhatsApp Cloud self-service is not configured",
+        )
+    })?;
+    let encrypted = state
+        .db
+        .get_airhop_channel_credential_for_connector(
+            &principal.tenant,
+            connection_id,
+            gateway.telegram_connector_pubkey(),
+        )
+        .await
+        .map_err(map_db_error)?;
+    if encrypted.provider != "whatsapp_cloud" {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "channel connection is not WhatsApp Cloud",
+        ));
+    }
+    let old_key = gateway
+        .credential_key(encrypted.key_version)
+        .ok_or_else(|| internal_error("AirHop channel credential key is unavailable"))?;
+    let aad = credential_aad(
+        *principal.tenant.community().as_uuid(),
+        encrypted.connection_id,
+        &encrypted.provider,
+    );
+    let old_plaintext = decrypt_credential(
+        old_key,
+        &encrypted.nonce,
+        aad.as_bytes(),
+        &encrypted.ciphertext,
+    )?;
+    let old_credential: StoredWhatsAppCredential = serde_json::from_slice(&old_plaintext)
+        .map_err(|_| internal_error("stored WhatsApp credential is invalid"))?;
+    if old_credential.schema_version != "airhop.whatsapp-cloud-credential.v1"
+        || !valid_meta_id(&old_credential.app_id)
+        || !valid_meta_id(&old_credential.waba_id)
+        || !valid_meta_id(&old_credential.phone_number_id)
+        || !valid_meta_app_secret(&old_credential.app_secret)
+        || !valid_meta_access_token(&old_credential.access_token)
+        || old_credential.verify_token.len() != 64
+    {
+        return Err(internal_error("stored WhatsApp credential is invalid"));
+    }
+    if old_credential.app_id != app_id {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "WhatsApp Meta application identity is immutable",
+        ));
+    }
+    verify_whatsapp_phone(
+        META_GRAPH_ORIGIN,
+        &old_credential.waba_id,
+        &old_credential.phone_number_id,
+        &access_token,
+    )
+    .await?;
+
+    let verify_token = Zeroizing::new(hex::encode(rand::random::<[u8; 32]>()));
+    let replacement = Zeroizing::new(
+        serde_json::to_vec(&WhatsAppCredentialEnvelope {
+            schema_version: "airhop.whatsapp-cloud-credential.v1",
+            app_id: &old_credential.app_id,
+            app_secret: &app_secret,
+            waba_id: &old_credential.waba_id,
+            phone_number_id: &old_credential.phone_number_id,
+            access_token: &access_token,
+            verify_token: &verify_token,
+        })
+        .map_err(|_| internal_error("WhatsApp credential serialization failed"))?,
+    );
+    let key_version = gateway.current_credential_key_version();
+    let new_key = gateway
+        .credential_key(key_version)
+        .ok_or_else(|| internal_error("current AirHop channel credential key is unavailable"))?;
+    let nonce: [u8; 12] = rand::random();
+    let ciphertext = encrypt_credential(new_key, &nonce, aad.as_bytes(), &replacement)?;
+    let callback_url = format!("{webhook_base_url}/{connection_id}");
+    let connection = state
+        .db
+        .rotate_airhop_channel_credential(
+            &principal.tenant,
+            &RotateChannelCredentialInput {
+                connection_id,
+                provider: "whatsapp_cloud".to_owned(),
+                credential_ciphertext: ciphertext,
+                credential_nonce: nonce,
+                credential_key_version: key_version,
+                expected_connection_version: request.expected_version,
+                expected_credential_version: encrypted.version,
+                webhook_callback_url: callback_url.clone(),
+                updated_by_pubkey: principal.pubkey.to_bytes(),
+            },
+        )
+        .await
+        .map_err(map_db_error)?;
+    state.invalidate_all_accessible_channels(&principal.tenant);
+    notify_connection_channel(
+        &state,
+        &principal.tenant,
+        &connection,
+        &principal.pubkey.to_bytes(),
+    )
+    .await;
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response_headers.insert(PRAGMA, HeaderValue::from_static("no-cache"));
+    Ok((
+        response_headers,
+        Json(json!({
+            "schemaVersion": "airhop.whatsapp-cloud-credential-rotation.v1",
+            "connection": connection_json(&connection),
+            "webhook": {
+                "callbackUrl": callback_url,
+                "verifyToken": verify_token.as_str(),
+                "field": "messages",
+            },
+        })),
+    ))
 }
 
 /// Lists self-service assignments for the exact hosted gateway principal.
@@ -1590,6 +1766,15 @@ mod tests {
             "verifyToken": "must-be-generated-by-server",
         });
         assert!(serde_json::from_value::<ConnectWhatsAppBody>(whatsapp).is_err());
+
+        let rotation = json!({
+            "appId": "123456789012345",
+            "appSecret": "app-secret-1234567890",
+            "accessToken": "system-user-token-1234567890",
+            "expectedVersion": 1,
+            "phoneNumberId": "must-remain-server-owned",
+        });
+        assert!(serde_json::from_value::<RotateWhatsAppCredentialBody>(rotation).is_err());
 
         let connection = json!({
             "provider": "telegram",

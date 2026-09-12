@@ -364,6 +364,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(api::airhop_channel_gateway::activate_whatsapp_cloud),
         )
         .route(
+            "/api/airhop/integrations/v1/channel-connections/{connection_id}/whatsapp-cloud/credential",
+            put(api::airhop_channel_gateway::rotate_whatsapp_cloud_credential),
+        )
+        .route(
             "/api/airhop/integrations/v1/channel-connections/{connection_id}",
             put(api::airhop_channel_gateway::put_connection),
         )

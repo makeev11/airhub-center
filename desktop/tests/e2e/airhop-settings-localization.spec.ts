@@ -65,6 +65,40 @@ test("Russian appearance settings expose center and booking-widget targets", asy
   );
 });
 
+test("Brazilian partner sees the complete WhatsApp setup guide in Portuguese", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    window.localStorage.setItem("airhop.locale.v1", "pt-BR");
+    window.dispatchEvent(
+      new CustomEvent("airhop:locale-change", { detail: "pt-BR" }),
+    );
+  });
+  await page.goto("/#/booking/settings?section=channels");
+
+  await expect(
+    page.getByRole("heading", {
+      name: "Canais de comunicação",
+      exact: true,
+      level: 1,
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Adicionar WhatsApp" }).click();
+
+  const dialog = page.getByTestId("airhop-add-whatsapp-dialog");
+  await expect(
+    dialog.getByRole("heading", { name: "Conectar WhatsApp" }),
+  ).toBeVisible();
+  await expect(dialog).toContainText("Crie um aplicativo na Meta");
+  await expect(dialog).toContainText("Adicione e confirme o número");
+  await expect(dialog).toContainText("cada centro parceiro");
+  await expect(dialog).toContainText("AirHub HQ");
+  await expect(dialog).toContainText("janela de 24 horas");
+  await expect(dialog).toContainText(
+    "O recebimento de credenciais ainda não está ativo neste servidor",
+  );
+});
+
 test("New Slack is selectable as an opaque Airhop theme", async ({ page }) => {
   await openSettings(page, "appearance");
   await page.getByTestId("appearance-mode-light").click();

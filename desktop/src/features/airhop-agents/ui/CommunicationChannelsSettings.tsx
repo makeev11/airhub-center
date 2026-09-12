@@ -40,6 +40,7 @@ import { Input } from "@/shared/ui/input";
 import { Switch } from "@/shared/ui/switch";
 
 import { WhatsAppOwnMetaSetupDialog } from "./WhatsAppOwnMetaSetupDialog";
+import { WhatsAppCredentialRotationDialog } from "./WhatsAppCredentialRotationDialog";
 
 export const airhopConnectionsQueryKey = [
   "airhop",
@@ -77,6 +78,7 @@ type Copy = {
   connecting: string;
   invalidToken: string;
   connected: string;
+  rotateAccess: string;
   status: Record<AirhopChannelConnection["observedStatus"], string>;
 };
 
@@ -119,6 +121,7 @@ const COPY: Record<AirHopLocale, Copy> = {
     connecting: "Подключаем…",
     invalidToken: "Проверьте токен, полученный у BotFather.",
     connected: "Telegram-бот подключён.",
+    rotateAccess: "Обновить доступ",
     status: {
       offline: "Не в сети",
       connecting: "Подключается",
@@ -163,6 +166,7 @@ const COPY: Record<AirHopLocale, Copy> = {
     connecting: "Connecting…",
     invalidToken: "Check the token issued by BotFather.",
     connected: "Telegram bot connected.",
+    rotateAccess: "Update access",
     status: {
       offline: "Offline",
       connecting: "Connecting",
@@ -208,6 +212,7 @@ const COPY: Record<AirHopLocale, Copy> = {
     connecting: "Conectando…",
     invalidToken: "Verifique o token fornecido pelo BotFather.",
     connected: "Bot do Telegram conectado.",
+    rotateAccess: "Atualizar acesso",
     status: {
       offline: "Offline",
       connecting: "Conectando",
@@ -253,6 +258,7 @@ const COPY: Record<AirHopLocale, Copy> = {
     connecting: "Bağlanıyor…",
     invalidToken: "BotFather tarafından verilen tokenı kontrol edin.",
     connected: "Telegram botu bağlandı.",
+    rotateAccess: "Erişimi güncelle",
     status: {
       offline: "Çevrimdışı",
       connecting: "Bağlanıyor",
@@ -274,6 +280,7 @@ function ConnectionCard({
   copy,
   locale,
   onUpdate,
+  onRotate,
   pending,
 }: {
   canManage: boolean;
@@ -286,6 +293,7 @@ function ConnectionCard({
       Pick<AirhopChannelConnection, "hermesEnabled" | "status">
     > & { routing?: ConnectionRouting },
   ) => void;
+  onRotate?: () => void;
   pending: boolean;
 }) {
   const [routing, setRouting] = React.useState<ConnectionRouting>({
@@ -371,10 +379,10 @@ function ConnectionCard({
           />
         </div>
         <ConnectionRoutingFields
-          value={routing}
-          onChange={setRouting}
           disabled={!canManage || pending}
-          ru={locale.startsWith("ru")}
+          locale={locale}
+          onChange={setRouting}
+          value={routing}
         />
         {canManage && (
           <div className="space-y-2">
@@ -395,7 +403,19 @@ function ConnectionCard({
           </div>
         )}
         {canManage ? (
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            {connection.provider === "whatsapp_cloud" && onRotate ? (
+              <Button
+                disabled={pending || connection.status === "disabled"}
+                onClick={onRotate}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <KeyRound />
+                {copy.rotateAccess}
+              </Button>
+            ) : null}
             <Button
               disabled={pending || connection.status === "disabled"}
               onClick={() =>
@@ -472,10 +492,10 @@ function AddTelegramDialog({
         </DialogHeader>
         <form className="space-y-5" onSubmit={submit}>
           <ConnectionRoutingFields
-            value={routing}
-            onChange={setRouting}
             disabled={pending}
-            ru={locale.startsWith("ru")}
+            locale={locale}
+            onChange={setRouting}
+            value={routing}
           />
           <a
             className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
@@ -547,6 +567,8 @@ export function CommunicationChannelsSettings({
   const [client] = React.useState(() => createAirhopControlPlaneClient());
   const [telegramDialogOpen, setTelegramDialogOpen] = React.useState(false);
   const [whatsAppDialogOpen, setWhatsAppDialogOpen] = React.useState(false);
+  const [whatsAppRotationConnection, setWhatsAppRotationConnection] =
+    React.useState<AirhopChannelConnection | null>(null);
   const [pendingIds, setPendingIds] = React.useState<Set<string>>(
     () => new Set(),
   );
@@ -668,17 +690,47 @@ export function CommunicationChannelsSettings({
     [client, queryClient],
   );
 
+  const rotateWhatsAppCredential = React.useCallback(
+    async (
+      input: Parameters<typeof client.rotateWhatsAppCloudCredential>[0],
+    ) => {
+      const result = await client.rotateWhatsAppCloudCredential(input);
+      await queryClient.invalidateQueries({
+        queryKey: airhopConnectionsQueryKey,
+      });
+      return result;
+    },
+    [client, queryClient],
+  );
+
   if (!serverEnabled) {
     return (
-      <Card data-testid="airhop-channels-preview">
-        <CardContent className="py-10 text-center">
-          <Send className="mx-auto size-8 text-muted-foreground" />
-          <h2 className="mt-4 text-lg font-semibold">{copy.title}</h2>
-          <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-            {copy.previewDescription}
-          </p>
-        </CardContent>
-      </Card>
+      <>
+        <Card data-testid="airhop-channels-preview">
+          <CardContent className="py-10 text-center">
+            <Send className="mx-auto size-8 text-muted-foreground" />
+            <h2 className="mt-4 text-lg font-semibold">{copy.title}</h2>
+            <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+              {copy.previewDescription}
+            </p>
+            <Button
+              className="mt-4"
+              onClick={() => setWhatsAppDialogOpen(true)}
+              type="button"
+            >
+              <MessageCircle />
+              {copy.addWhatsApp}
+            </Button>
+          </CardContent>
+        </Card>
+        <WhatsAppOwnMetaSetupDialog
+          available={false}
+          onActivate={activateWhatsAppConnection}
+          onConnect={addWhatsAppConnection}
+          onOpenChange={setWhatsAppDialogOpen}
+          open={whatsAppDialogOpen}
+        />
+      </>
     );
   }
 
@@ -748,6 +800,11 @@ export function CommunicationChannelsSettings({
               onUpdate={(current, patch) =>
                 void updateConnection(current, patch)
               }
+              onRotate={
+                connection.provider === "whatsapp_cloud"
+                  ? () => setWhatsAppRotationConnection(connection)
+                  : undefined
+              }
               pending={pendingIds.has(connection.id)}
             />
           ))}
@@ -779,6 +836,14 @@ export function CommunicationChannelsSettings({
         onConnect={addWhatsAppConnection}
         onOpenChange={setWhatsAppDialogOpen}
         open={whatsAppDialogOpen}
+      />
+      <WhatsAppCredentialRotationDialog
+        connection={whatsAppRotationConnection}
+        onOpenChange={(open) => {
+          if (!open) setWhatsAppRotationConnection(null);
+        }}
+        onRotate={rotateWhatsAppCredential}
+        open={whatsAppRotationConnection !== null}
       />
     </section>
   );

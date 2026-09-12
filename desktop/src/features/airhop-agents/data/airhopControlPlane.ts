@@ -88,6 +88,16 @@ const whatsappCloudActivationResponseSchema = z.object({
   status: z.literal("connecting"),
 });
 
+const whatsappCloudCredentialRotationResponseSchema = z.object({
+  schemaVersion: z.literal("airhop.whatsapp-cloud-credential-rotation.v1"),
+  connection: channelConnectionSchema,
+  webhook: z.object({
+    callbackUrl: z.string().url(),
+    verifyToken: z.string().regex(/^[0-9a-f]{64}$/),
+    field: z.literal("messages"),
+  }),
+});
+
 const hermesDeploymentSchema = z.object({
   schemaVersion: z.literal("airhop.agent.deployment.v1"),
   id: z.string().uuid(),
@@ -125,6 +135,9 @@ export type AirhopTelegramConnection = z.infer<
 export type AirhopWhatsAppCloudConnection = z.infer<
   typeof whatsappCloudConnectionResponseSchema
 >;
+export type AirhopWhatsAppCloudCredentialRotation = z.infer<
+  typeof whatsappCloudCredentialRotationResponseSchema
+>;
 export type AirhopHermesDeployment = z.infer<typeof hermesDeploymentSchema>;
 
 export type PutAirhopChannelConnection = Readonly<{
@@ -151,6 +164,14 @@ export type ConnectAirhopWhatsAppCloud = Readonly<{
   wabaId: string;
   phoneNumberId: string;
   accessToken: string;
+}>;
+
+export type RotateAirhopWhatsAppCloudCredential = Readonly<{
+  connectionId: string;
+  appId: string;
+  appSecret: string;
+  accessToken: string;
+  expectedVersion: number;
 }>;
 
 type EventSigner = (input: {
@@ -378,6 +399,22 @@ export class AirhopControlPlaneClient {
       {},
     );
     whatsappCloudActivationResponseSchema.parse(payload);
+  }
+
+  async rotateWhatsAppCloudCredential(
+    input: RotateAirhopWhatsAppCloudCredential,
+  ): Promise<AirhopWhatsAppCloudCredentialRotation> {
+    const payload = await this.request(
+      "PUT",
+      `${CONNECTIONS_PATH}/${input.connectionId}/whatsapp-cloud/credential`,
+      {
+        appId: input.appId,
+        appSecret: input.appSecret,
+        accessToken: input.accessToken,
+        expectedVersion: input.expectedVersion,
+      },
+    );
+    return whatsappCloudCredentialRotationResponseSchema.parse(payload);
   }
 
   async putConnection(

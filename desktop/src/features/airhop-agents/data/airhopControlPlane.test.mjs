@@ -240,6 +240,71 @@ test("WhatsApp secrets use one provisioning request and activation is credential
   );
 });
 
+test("WhatsApp credential rotation preserves connection identity and returns only the new webhook proof", async () => {
+  const appSecret = "replacement-meta-app-secret-1234";
+  const accessToken = "replacement-system-user-token-1234";
+  const calls = [];
+  const signed = [];
+  const client = createAirhopControlPlaneClient({
+    relayHttpUrl: async () => "https://center.example",
+    nonceFactory: () => "nonce-whatsapp-rotation",
+    signEvent: async (input) => {
+      signed.push(input);
+      return { id: "event", kind: input.kind };
+    },
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          schemaVersion: "airhop.whatsapp-cloud-credential-rotation.v1",
+          connection: connection({
+            provider: "whatsapp_cloud",
+            observedStatus: "connecting",
+            version: 2,
+          }),
+          webhook: {
+            callbackUrl: `https://hooks.airhop.com.br/webhooks/whatsapp/${CONNECTION_ID}`,
+            verifyToken: "cd".repeat(32),
+            field: "messages",
+          },
+        }),
+        { status: 200 },
+      );
+    },
+  });
+
+  const result = await client.rotateWhatsAppCloudCredential({
+    connectionId: CONNECTION_ID,
+    appId: "123456789012345",
+    appSecret,
+    accessToken,
+    expectedVersion: 1,
+  });
+
+  assert.equal(result.connection.id, CONNECTION_ID);
+  assert.equal(result.connection.version, 2);
+  assert.equal(result.webhook.field, "messages");
+  assert.equal(calls[0].init.method, "PUT");
+  assert.equal(
+    calls[0].url,
+    `https://center.example/api/airhop/integrations/v1/channel-connections/${CONNECTION_ID}/whatsapp-cloud/credential`,
+  );
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    appId: "123456789012345",
+    appSecret,
+    accessToken,
+    expectedVersion: 1,
+  });
+  assert.doesNotMatch(
+    JSON.stringify(signed),
+    /replacement-meta|replacement-system/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /replacement-meta|replacement-system/,
+  );
+});
+
 test("Hermes toggle preserves pinned deployment identity and revisions", async () => {
   const current = deployment();
   const bodies = [];

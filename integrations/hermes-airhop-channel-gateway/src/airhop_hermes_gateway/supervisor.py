@@ -99,7 +99,9 @@ class GatewaySupervisor:
         self.settings = settings
         self.control_client = control_client
         self.runtime_factory = runtime_factory
-        self._tasks: dict[UUID, tuple[asyncio.Event, asyncio.Task[None]]] = {}
+        self._tasks: dict[
+            UUID, tuple[GatewayAssignment, asyncio.Event, asyncio.Task[None]]
+        ] = {}
 
     async def run(self, stop_event: asyncio.Event) -> None:
         try:
@@ -111,7 +113,7 @@ class GatewaySupervisor:
             await self.control_client.close()
 
     async def _reconcile(self) -> None:
-        for connection_id, (_, task) in list(self._tasks.items()):
+        for connection_id, (_, _, task) in list(self._tasks.items()):
             if task.done():
                 self._tasks.pop(connection_id, None)
                 try:
@@ -139,11 +141,15 @@ class GatewaySupervisor:
         for connection_id in set(self._tasks) - set(desired):
             await self._stop(connection_id)
         for connection_id, assignment in desired.items():
-            if connection_id in self._tasks:
-                continue
+            current = self._tasks.get(connection_id)
+            if current is not None:
+                current_assignment, _, _ = current
+                if current_assignment == assignment:
+                    continue
+                await self._stop(connection_id)
             child_stop = asyncio.Event()
             task = asyncio.create_task(self._run_assignment(assignment, child_stop))
-            self._tasks[connection_id] = (child_stop, task)
+            self._tasks[connection_id] = (assignment, child_stop, task)
 
     async def _run_assignment(
         self, assignment: GatewayAssignment, stop_event: asyncio.Event
@@ -155,15 +161,15 @@ class GatewaySupervisor:
         current = self._tasks.pop(connection_id, None)
         if current is None:
             return
-        stop_event, task = current
+        _, stop_event, task = current
         stop_event.set()
         await asyncio.gather(task, return_exceptions=True)
 
     async def _stop_all(self) -> None:
-        for stop_event, _ in self._tasks.values():
+        for _, stop_event, _ in self._tasks.values():
             stop_event.set()
         await asyncio.gather(
-            *(task for _, task in self._tasks.values()), return_exceptions=True
+            *(task for _, _, task in self._tasks.values()), return_exceptions=True
         )
         self._tasks.clear()
 

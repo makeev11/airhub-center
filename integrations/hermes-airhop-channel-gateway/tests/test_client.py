@@ -73,6 +73,7 @@ class AirHopGatewayClientTest(unittest.IsolatedAsyncioTestCase):
                                 "connectionId": str(connection_id),
                                 "provider": "telegram",
                                 "status": "active",
+                                "credentialVersion": 3,
                             }
                         ],
                     },
@@ -98,6 +99,7 @@ class AirHopGatewayClientTest(unittest.IsolatedAsyncioTestCase):
         )
         assignments = await client.list_assignments()
         self.assertEqual(assignments[0].connection_id, connection_id)
+        self.assertEqual(assignments[0].credential_version, 3)
         self.assertEqual(await client.get_credential(connection_id), "telegram-secret")
 
         for request in requests:

@@ -46,6 +46,7 @@ class GatewayAssignment:
     connection_id: UUID
     provider: str
     status: str
+    credential_version: int = 1
 
 
 @dataclass(frozen=True)
@@ -169,11 +170,19 @@ class AirHopGatewayClient:
         for value in assignments:
             if not isinstance(value, dict):
                 raise GatewayHttpError(502, "AirHop gateway returned invalid assignment")
+            credential_version = value.get("credentialVersion", 1)
+            if (
+                not isinstance(credential_version, int)
+                or isinstance(credential_version, bool)
+                or credential_version <= 0
+            ):
+                raise GatewayHttpError(502, "AirHop gateway returned invalid assignment")
             parsed.append(
                 GatewayAssignment(
                     connection_id=UUID(str(value["connectionId"])),
                     provider=str(value["provider"]),
                     status=str(value["status"]),
+                    credential_version=credential_version,
                 )
             )
         return parsed

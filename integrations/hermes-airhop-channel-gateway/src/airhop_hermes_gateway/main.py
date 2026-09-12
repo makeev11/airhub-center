@@ -178,6 +178,7 @@ async def _run() -> None:
             client=client,
             signer=signer,
             router=whatsapp_router,
+            credential_version=assignment.credential_version,
         )
 
     supervisor = GatewaySupervisor(

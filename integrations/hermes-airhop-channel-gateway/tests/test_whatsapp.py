@@ -231,6 +231,77 @@ class WhatsAppGatewayRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(self.credential.app_secret, repr(event))
         self.assertNotIn(self.credential.access_token, repr(event))
 
+    async def test_credential_rotation_requires_fresh_webhook_verification(self):
+        await self.runtime.spool.set_runtime_state(
+            "whatsapp_webhook_verified", "true"
+        )
+        await self.runtime.spool.set_runtime_state(
+            "whatsapp_webhook_verified_version", "1"
+        )
+        rotated = WhatsAppGatewayRuntime(
+            settings=self.settings,
+            credential=self.credential,
+            client=self.client,
+            signer=FakeSigner(),
+            router=self.router,
+            spool=self.runtime.spool,
+            graph=self.graph,
+            credential_version=2,
+        )
+
+        await rotated._restore_webhook_verification()
+        self.assertFalse(rotated.capabilities["webhook_verified"])
+
+        accepted = await rotated.verify_webhook(
+            mode="subscribe",
+            verify_token=self.credential.verify_token,
+            challenge="rotated-challenge",
+        )
+        self.assertEqual(accepted.status, 200)
+        self.assertEqual(
+            await self.runtime.spool.get_runtime_state(
+                "whatsapp_webhook_verified_version"
+            ),
+            "2",
+        )
+
+        restored = WhatsAppGatewayRuntime(
+            settings=self.settings,
+            credential=self.credential,
+            client=self.client,
+            signer=FakeSigner(),
+            router=self.router,
+            spool=self.runtime.spool,
+            graph=self.graph,
+            credential_version=2,
+        )
+        await restored._restore_webhook_verification()
+        self.assertTrue(restored.capabilities["webhook_verified"])
+
+    async def test_legacy_verified_state_is_adopted_only_at_revision_one(self):
+        await self.runtime.spool.set_runtime_state(
+            "whatsapp_webhook_verified", "true"
+        )
+        legacy = WhatsAppGatewayRuntime(
+            settings=self.settings,
+            credential=self.credential,
+            client=self.client,
+            signer=FakeSigner(),
+            router=self.router,
+            spool=self.runtime.spool,
+            graph=self.graph,
+            credential_version=1,
+        )
+
+        await legacy._restore_webhook_verification()
+        self.assertTrue(legacy.capabilities["webhook_verified"])
+        self.assertEqual(
+            await self.runtime.spool.get_runtime_state(
+                "whatsapp_webhook_verified_version"
+            ),
+            "1",
+        )
+
     async def test_payload_is_fenced_to_exact_waba_and_phone(self):
         for payload in (
             webhook_payload(waba_id="999999999999999"),

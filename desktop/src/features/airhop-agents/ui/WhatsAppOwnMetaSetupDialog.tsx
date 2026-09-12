@@ -31,6 +31,7 @@ import { Input } from "@/shared/ui/input";
 import { StepProgress } from "@/shared/ui/step-progress";
 
 import { ConnectionRoutingFields } from "./ConnectionRoutingFields";
+import { getWhatsAppOwnMetaSetupCopy } from "./whatsappOwnMetaSetupCopy";
 
 type Props = {
   available: boolean;
@@ -194,7 +195,7 @@ export function WhatsAppOwnMetaSetupDialog({
   open,
 }: Props) {
   const locale = useAirHopLocale();
-  const ru = locale.startsWith("ru");
+  const copy = getWhatsAppOwnMetaSetupCopy(locale);
   const [step, setStep] = React.useState(1);
   const [fields, setFields] = React.useState<SecretFields>(EMPTY_FIELDS);
   const [routing, setRouting] = React.useState<ConnectionRouting>({
@@ -232,11 +233,7 @@ export function WhatsAppOwnMetaSetupDialog({
       normalized.appSecret.length < 16 ||
       normalized.accessToken.length < 16
     ) {
-      setValidationError(
-        ru
-          ? "Проверьте все пять значений. App ID, WABA ID и Phone Number ID состоят только из цифр."
-          : "Check all five values. App ID, WABA ID, and Phone Number ID contain digits only.",
-      );
+      setValidationError(copy.invalidFields);
       return;
     }
     setValidationError(undefined);
@@ -246,17 +243,9 @@ export function WhatsAppOwnMetaSetupDialog({
       setResult(connected);
       setFields(EMPTY_FIELDS);
       setStep(3);
-      toast.success(
-        ru
-          ? "Meta подтвердила номер. Осталось сохранить webhook."
-          : "Meta confirmed the number. Save the webhook to finish.",
-      );
+      toast.success(copy.credentialsReady);
     } catch {
-      toast.error(
-        ru
-          ? "Не удалось проверить реквизиты в Meta. Проверьте токен, разрешения и ID."
-          : "Meta credentials could not be verified. Check the token, permissions, and IDs.",
-      );
+      toast.error(copy.connectFailed);
     } finally {
       setPending(false);
     }
@@ -268,17 +257,9 @@ export function WhatsAppOwnMetaSetupDialog({
     try {
       await onActivate(result.connection.id);
       setActivated(true);
-      toast.success(
-        ru
-          ? "Приложение подписано. Отправьте тестовое сообщение на номер центра."
-          : "The app is subscribed. Send a test message to the center number.",
-      );
+      toast.success(copy.activated);
     } catch {
-      toast.error(
-        ru
-          ? "Meta не подтвердила подписку. Проверьте, что Callback URL сохранён и поле messages включено."
-          : "Meta did not confirm the subscription. Check the Callback URL and messages field.",
-      );
+      toast.error(copy.subscriptionFailed);
     } finally {
       setPending(false);
     }
@@ -293,15 +274,9 @@ export function WhatsAppOwnMetaSetupDialog({
         <DialogHeader>
           <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
             <MessageCircle className="size-5" />
-            <DialogTitle>
-              {ru ? "Подключить WhatsApp" : "Connect WhatsApp"}
-            </DialogTitle>
+            <DialogTitle>{copy.title}</DialogTitle>
           </div>
-          <DialogDescription>
-            {ru
-              ? "Официальный WhatsApp Cloud API через собственное Meta-приложение центра."
-              : "Official WhatsApp Cloud API through the center's own Meta app."}
-          </DialogDescription>
+          <DialogDescription>{copy.description}</DialogDescription>
           <StepProgress className="pt-2" currentStep={step} totalSteps={3} />
         </DialogHeader>
 
@@ -309,60 +284,27 @@ export function WhatsAppOwnMetaSetupDialog({
           <div className="space-y-5">
             <Alert>
               <ShieldCheck className="mb-2 size-5 text-emerald-600" />
-              <AlertTitle>
-                {ru
-                  ? "Приложение и номер принадлежат вашему центру"
-                  : "The app and number belong to your center"}
-              </AlertTitle>
+              <AlertTitle>{copy.numberOwnership}</AlertTitle>
               <AlertDescription>
-                {ru
-                  ? "Для этого режима не нужен App Review приложения AirHop. Meta всё равно может запросить проверку бизнеса, имени и способ оплаты."
-                  : "This mode does not require AirHop App Review. Meta may still require business, display-name, and billing checks."}
+                {copy.numberOwnershipDescription}
               </AlertDescription>
             </Alert>
 
             <ol className="space-y-4">
-              <NumberedStep
-                number={1}
-                title={ru ? "Создайте приложение Meta" : "Create a Meta app"}
-              >
-                {ru
-                  ? "Выберите сценарий WhatsApp Business Messaging и Business Portfolio этого центра."
-                  : "Choose the WhatsApp Business Messaging use case and this center's Business Portfolio."}
+              <NumberedStep number={1} title={copy.createApp}>
+                {copy.createAppDescription}
                 <div className="mt-1">
-                  <SetupLink href={META_APPS_URL}>
-                    {ru
-                      ? "Открыть Meta for Developers"
-                      : "Open Meta for Developers"}
-                  </SetupLink>
+                  <SetupLink href={META_APPS_URL}>{copy.openMeta}</SetupLink>
                 </div>
               </NumberedStep>
-              <NumberedStep
-                number={2}
-                title={
-                  ru
-                    ? "Добавьте и подтвердите номер"
-                    : "Add and verify the number"
-                }
-              >
-                {ru
-                  ? "В WhatsApp → API Setup создайте или выберите WABA, добавьте номер и пройдите SMS или голосовую проверку. Сохраните WABA ID и Phone Number ID."
-                  : "In WhatsApp → API Setup choose a WABA, add the number, complete SMS or voice verification, and save the WABA ID and Phone Number ID."}
+              <NumberedStep number={2} title={copy.addNumber}>
+                {copy.numberDescription}
               </NumberedStep>
-              <NumberedStep
-                number={3}
-                title={
-                  ru
-                    ? "Создайте постоянный System User Token"
-                    : "Create a permanent System User Token"
-                }
-              >
-                {ru
-                  ? "Назначьте системному пользователю приложение и WABA. Добавьте whatsapp_business_management и whatsapp_business_messaging."
-                  : "Assign the app and WABA to a system user. Add whatsapp_business_management and whatsapp_business_messaging."}
+              <NumberedStep number={3} title={copy.createToken}>
+                {copy.createTokenDescription}
                 <div className="mt-1">
                   <SetupLink href={META_SYSTEM_USERS_URL}>
-                    {ru ? "Открыть System Users" : "Open System Users"}
+                    {copy.openSystemUsers}
                   </SetupLink>
                 </div>
               </NumberedStep>
@@ -370,48 +312,28 @@ export function WhatsAppOwnMetaSetupDialog({
 
             <div className="rounded-xl border p-4 text-xs leading-5 text-muted-foreground">
               <p className="font-medium text-foreground">
-                {ru ? "Важно про номер" : "Important number note"}
+                {copy.importantNumber}
               </p>
-              <p className="mt-1">
-                {ru
-                  ? "Если Meta не предлагает официальный coexistence, номер нужно удалить из мобильного WhatsApp перед регистрацией в Cloud API. Не используйте неофициальное QR-подключение."
-                  : "If Meta does not offer official coexistence, remove the number from mobile WhatsApp before Cloud API registration. Do not use unofficial QR integrations."}
-              </p>
-              <p className="mt-2">
-                {ru
-                  ? "Для каждого номера партнёрского центра создавайте отдельное Meta-приложение. Номер поддержки AirHub HQ остаётся в своём подключении и здесь не меняется."
-                  : "Create a separate Meta app for every partner-center number. The AirHub HQ support number stays in its own connection and is not changed here."}
-              </p>
+              <p className="mt-1">{copy.coexistenceDescription}</p>
+              <p className="mt-2">{copy.partnerNumberDescription}</p>
               <div className="mt-2">
                 <SetupLink href={META_CLOUD_API_URL}>
-                  {ru
-                    ? "Официальная документация Cloud API"
-                    : "Cloud API documentation"}
+                  {copy.cloudApiDocumentation}
                 </SetupLink>
               </div>
-              <p className="mt-3">
-                {ru
-                  ? "У подтверждённого номера нет пробного срока. Service-ответы внутри 24-часового окна бесплатны; остальные сообщения могут тарифицироваться Meta по рынку и категории."
-                  : "A verified number has no trial cutoff. Service replies in the 24-hour window are free; other messages may be charged by Meta based on market and category."}
-              </p>
+              <p className="mt-3">{copy.pricingDescription}</p>
               <div className="mt-1">
                 <SetupLink href={META_PRICING_URL}>
-                  {ru ? "Актуальные тарифы Meta" : "Current Meta pricing"}
+                  {copy.currentPricing}
                 </SetupLink>
               </div>
             </div>
 
             {!available ? (
               <Alert variant="destructive">
-                <AlertTitle>
-                  {ru
-                    ? "Приём реквизитов ещё не включён на этом сервере"
-                    : "Credential intake is not enabled on this server"}
-                </AlertTitle>
+                <AlertTitle>{copy.unavailableTitle}</AlertTitle>
                 <AlertDescription>
-                  {ru
-                    ? "Инструкцию уже можно выполнить до получения ID и токена. Продолжение станет доступно после настройки официального WhatsApp Gateway."
-                    : "You can complete the Meta steps now. The form will unlock when the official WhatsApp Gateway is configured."}
+                  {copy.unavailableDescription}
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -422,14 +344,14 @@ export function WhatsAppOwnMetaSetupDialog({
                 type="button"
                 variant="outline"
               >
-                {ru ? "Закрыть" : "Close"}
+                {copy.close}
               </Button>
               <Button
                 disabled={!available}
                 onClick={() => setStep(2)}
                 type="button"
               >
-                {ru ? "У меня есть реквизиты" : "I have the credentials"}
+                {copy.haveCredentials}
               </Button>
             </DialogFooter>
           </div>
@@ -439,8 +361,8 @@ export function WhatsAppOwnMetaSetupDialog({
           <form className="space-y-5" onSubmit={submit}>
             <ConnectionRoutingFields
               disabled={pending}
+              locale={locale}
               onChange={setRouting}
-              ru={ru}
               value={routing}
             />
             <div className="grid gap-4 sm:grid-cols-2">
@@ -476,11 +398,7 @@ export function WhatsAppOwnMetaSetupDialog({
               />
               <SecretField
                 disabled={pending}
-                hint={
-                  ru
-                    ? "Не сам номер +55…, а цифровой Phone Number ID из API Setup."
-                    : "Use the numeric Phone Number ID from API Setup, not the +55… phone number."
-                }
+                hint={copy.phoneNumberHint}
                 id="airhop-whatsapp-phone-number-id"
                 label="Phone Number ID"
                 maxLength={40}
@@ -492,11 +410,7 @@ export function WhatsAppOwnMetaSetupDialog({
             </div>
             <SecretField
               disabled={pending}
-              hint={
-                ru
-                  ? "Используйте System User Token с двумя WhatsApp-разрешениями, а не временный токен из API Setup."
-                  : "Use a System User Token with both WhatsApp permissions, not the temporary API Setup token."
-              }
+              hint={copy.accessTokenHint}
               id="airhop-whatsapp-access-token"
               label="System User Access Token"
               maxLength={4096}
@@ -506,14 +420,8 @@ export function WhatsAppOwnMetaSetupDialog({
             />
             <Alert>
               <KeyRound className="mb-2 size-5 text-primary" />
-              <AlertTitle>
-                {ru ? "Секреты передаются один раз" : "Secrets are sent once"}
-              </AlertTitle>
-              <AlertDescription>
-                {ru
-                  ? "AirHop проверит номер через Meta и сохранит App Secret и токен в зашифрованном хранилище. Они не появятся в сообщениях, логах или карточке канала."
-                  : "AirHop verifies the number through Meta and stores the App Secret and token encrypted. They do not appear in messages, logs, or the channel card."}
-              </AlertDescription>
+              <AlertTitle>{copy.secretTitle}</AlertTitle>
+              <AlertDescription>{copy.secretDescription}</AlertDescription>
             </Alert>
             {validationError ? (
               <p className="text-xs text-destructive">{validationError}</p>
@@ -526,7 +434,7 @@ export function WhatsAppOwnMetaSetupDialog({
                 variant="outline"
               >
                 <ArrowLeft />
-                {ru ? "Назад" : "Back"}
+                {copy.back}
               </Button>
               <Button disabled={pending} type="submit">
                 {pending ? (
@@ -534,13 +442,7 @@ export function WhatsAppOwnMetaSetupDialog({
                 ) : (
                   <ShieldCheck />
                 )}
-                {pending
-                  ? ru
-                    ? "Проверяем в Meta…"
-                    : "Checking Meta…"
-                  : ru
-                    ? "Проверить и сохранить"
-                    : "Verify and save"}
+                {pending ? copy.checkingCredentials : copy.verifyAndSave}
               </Button>
             </DialogFooter>
           </form>
@@ -550,15 +452,9 @@ export function WhatsAppOwnMetaSetupDialog({
           <div className="space-y-5">
             <Alert>
               <AlertTitle>
-                {ru
-                  ? `Meta подтвердила ${result.meta.displayPhoneNumber}`
-                  : `Meta confirmed ${result.meta.displayPhoneNumber}`}
+                {copy.metaConfirmed(result.meta.displayPhoneNumber)}
               </AlertTitle>
-              <AlertDescription>
-                {ru
-                  ? "Теперь сохраните webhook в WhatsApp → Configuration этого же Meta-приложения."
-                  : "Now save the webhook under WhatsApp → Configuration in the same Meta app."}
-              </AlertDescription>
+              <AlertDescription>{copy.webhookDescription}</AlertDescription>
             </Alert>
             <CopyValue
               label="Callback URL"
@@ -569,37 +465,16 @@ export function WhatsAppOwnMetaSetupDialog({
               value={result.webhook.verifyToken}
             />
             <ol className="list-decimal space-y-2 pl-5 text-sm leading-6 text-muted-foreground">
-              <li>
-                {ru
-                  ? "Откройте WhatsApp → Configuration и нажмите Edit в блоке webhook."
-                  : "Open WhatsApp → Configuration and click Edit in the webhook block."}
-              </li>
-              <li>
-                {ru
-                  ? "Вставьте оба значения, нажмите Verify and save."
-                  : "Paste both values and click Verify and save."}
-              </li>
-              <li>
-                {ru
-                  ? "В Manage включите поле messages."
-                  : "Enable the messages field under Manage."}
-              </li>
-              <li>
-                {ru
-                  ? "Вернитесь сюда и подтвердите сохранение."
-                  : "Return here and confirm that you saved it."}
-              </li>
+              {copy.webhookSteps.map((instruction) => (
+                <li key={instruction}>{instruction}</li>
+              ))}
             </ol>
             {activated ? (
               <Alert>
                 <Check className="mb-2 size-5 text-emerald-600" />
-                <AlertTitle>
-                  {ru ? "Подключение создано" : "Connection created"}
-                </AlertTitle>
+                <AlertTitle>{copy.connectionCreated}</AlertTitle>
                 <AlertDescription>
-                  {ru
-                    ? "Напишите на номер центра с другого WhatsApp. Карточка станет «Работает» после первого успешного heartbeat адаптера."
-                    : "Message the center number from another WhatsApp account. The card becomes Working after the adapter's first successful heartbeat."}
+                  {copy.connectionCreatedDescription}
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -610,7 +485,7 @@ export function WhatsAppOwnMetaSetupDialog({
                 type="button"
                 variant="outline"
               >
-                {ru ? "Закрыть" : "Close"}
+                {copy.close}
               </Button>
               {!activated ? (
                 <Button
@@ -623,17 +498,11 @@ export function WhatsAppOwnMetaSetupDialog({
                   ) : (
                     <Check />
                   )}
-                  {pending
-                    ? ru
-                      ? "Проверяем подписку…"
-                      : "Checking subscription…"
-                    : ru
-                      ? "Я сохранил webhook"
-                      : "I saved the webhook"}
+                  {pending ? copy.checkingSubscription : copy.webhookSaved}
                 </Button>
               ) : (
                 <Button onClick={() => onOpenChange(false)} type="button">
-                  {ru ? "Готово" : "Done"}
+                  {copy.done}
                 </Button>
               )}
             </DialogFooter>
