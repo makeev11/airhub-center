@@ -1,5 +1,11 @@
 # Buzz Docker Compose deployment
 
+For AirHop deployments, first read the
+[canonical deployment map](../../docs/AIRHOP_DEPLOYMENT_MAP.md).
+This inherited base declares `name: buzz-prod`; that is not an AirHop demo
+default. Do not run these generic bootstrap commands against the existing
+shared AirHop host. Use the product's verified release entrypoint.
+
 This is the single-node/VPS deployment bundle. It is intentionally separate from
 the root `docker-compose.yml`, which remains local development infrastructure.
 

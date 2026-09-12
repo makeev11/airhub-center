@@ -27,6 +27,8 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install ./integrations/hermes-airhop-channel-gateway
       - run: python -m unittest discover -s integrations/hermes-airhop-channel-gateway/tests -v
+      - name: Deployment project boundaries and concurrency guard
+        run: python -m unittest discover -s scripts -p test_airhop_deployment.py -v
       - run: node --test scripts/test-airhop-test-migrations.mjs
       - name: Multilingual staff intent evaluation baseline (offline)
         run: python deploy/airhop/eval-staff-intent.py --check-baseline crates/buzz-acp/src/airhop/staff_intent.rs

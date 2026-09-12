@@ -1,0 +1,279 @@
+# AirHop: продукты, окружения и границы выкладки
+
+Проверено чтением сервера **2026-09-12**. Это каноническая карта инфраструктуры
+для разработчиков и агентов Center, HQ и Site. Название каталога, Docker-образа
+или старый README не определяет продукт и не даёт разрешения на выкладку.
+Конфигурация целей: [`environments.json`](../deploy/airhop/environments.json).
+Наблюдения: [`runtime-20260912.json`](deployment/runtime-20260912.json).
+Снимок — свидетельство на указанное время, а не автоматически актуальный desired state.
+
+**Уточнение после проверки установленного HQ:** действующий backend находится
+в Cloudflare, `airhub-hq-api-staging.airhub-hq-api.workers.dev`. Старый
+`buzz-prod-relay-1` на домене `hq.airhop.ru` выведен в карантин: остановлен,
+автоперезапуск отключён, данные сохранены. Доказательства и выполненные действия:
+[`проверка связи HQ с доменом`](AIRHOP_HQ_DOMAIN_AUDIT_20260912.md).
+Состав извлечённого полезного, точный allowlist удаления и текущая блокировка
+полного архива: [`план завершения удаления legacy`](AIRHOP_LEGACY_RETIREMENT_20260912.md).
+
+## 1. Три продукта и техническое наследие
+
+| Продукт | Репозиторий рядом с Center | Ответственность |
+| --- | --- | --- |
+| AirHop Center | `airhop-center` | Приложение сотрудников, состав команды и приглашения, Booking Core, данные центра, публичная форма записи |
+| AirHop HQ | `airhop-hq` | Внутренняя работа команды AirHop: организации, материалы, агенты, релизы и подключения Center; собственная продуктовая спецификация в `docs/AIRHUB_HQ_SOURCE_OF_TRUTH.md` |
+| AirHop Site | `airhop-site` | Публичный сайт AirHop, бриф и публичные страницы; обращения к публичному API Center |
+
+В разговоре встречались варианты «AskYou» и «HU». Для технических целей
+использовать точные имена **Center**, **HQ**, **Site** и target из реестра.
+Не создавать новые цели или связи на основании расшифровки речи.
+
+Buzz/BAS — унаследованная кодовая база и имена компонентов. Раздел `Ecosystem`
+старой инструкции описывает upstream Buzz/Block, **не** карту развёртываний
+AirHop. `buzz-prod` — исторический идентификатор Compose, а не обозначение
+«production любого текущего продукта». Переименование работающих проектов,
+томов и каталогов не входит в исправление документации: оно требует отдельной
+миграции с проверкой данных.
+
+Список сотрудников и приглашения принадлежат **Center**. Исправление этого
+экрана не требует выкладки HQ или смены его аккаунтов. Серверный web bundle и
+нативное приложение Center выпускаются отдельно: обновление публичной страницы
+приглашения не обновляет уже установленное приложение сотрудников.
+
+## 2. Что действительно работает на сервере
+
+Хост `46.173.25.23`, hostname `airhop-prod`, Docker daemon ID
+`dbfb14a9-8404-4f21-ad3e-3481b173ea9a`. Слово `prod` в hostname не делает
+все размещённые здесь окружения production.
+
+| Цель | Домен | Compose / процесс | Фактическое назначение |
+| --- | --- | --- | --- |
+| `center-demo` | `demo.airhop.ru` | `buzz-demo`, relay `buzz-demo-relay-1` | Демо Center; сюда относятся согласованные проверки сотрудников |
+| `hq-api` | `airhub-hq-api-staging.airhub-hq-api.workers.dev` | Cloudflare Worker + D1; вне этого VPS | Действующий API установленного AirHop HQ и worker публикации сайтов |
+| `hq-legacy-relay` | `hq.airhop.ru` | `buzz-prod`, relay `buzz-prod-relay-1` | Старый relay, не backend текущего HQ; остановлен и сохранён в карантине |
+| `site` | `airhop.ru`, `www.airhop.ru` | `airhop-site`, приложение `airhop-site-site-1` | Сайт; `www` перенаправляется на основной домен |
+| Общий HTTPS-вход | Все домены в схеме ниже | `airhop-site-caddy-1` | Общий прокси физически находится в Compose Site; имеет межпродуктовое влияние |
+| Бриф / сообщения | `hermes.airhop.ru` | `airhop-hermes`, `airhop-message-bridge` | Отдельные host-network службы; не путать с Hermes демо Center |
+| Публикация сайтов | Не установлен отдельный публичный домен | systemd `airhop-site-deploy-worker.service` | `/opt/airhop/site-deploy-worker`; не является relay или HQ API |
+
+Standalone HQ API работает в Cloudflare Workers с D1 `airhub-hq-staging`,
+что подтверждено встроенным frontend установленного приложения, конфигурацией
+deploy worker и публичным readiness API. Он не входит в Docker/systemd этого
+хоста. Региональные серверы, включая WhatsApp edge,
+не обследованы этой инвентаризацией и не являются целями текущей выкладки.
+
+```mermaid
+flowchart TD
+    hqApp["Приложение AirHop HQ"] --> hqApi["Cloudflare · airhub-hq-api-staging…workers.dev"]
+    deployWorker["VPS · site-deploy-worker"] --> hqApi
+    hqApi --> hqDb["D1 · airhub-hq-staging"]
+    staff["Сотрудники · приложение Center"] --> demoHost["demo.airhop.ru"]
+    demoHost --> proxy["Общий Caddy · airhop-site-caddy-1"]
+    public["airhop.ru / www.airhop.ru"] --> proxy
+    legacy["hq.airhop.ru"] --> proxy
+    hygge["hygge.airhop.ru"] --> proxy
+    hermes["hermes.airhop.ru"] --> proxy
+    proxy -->|"demo · airhop-demo-relay:3000"| center["buzz-demo-relay-1 · Center"]
+    proxy -->|"airhop.ru: страницы сайта"| site["airhop-site-site-1"]
+    proxy -->|"airhop.ru и hygge: booking + публичный API"| center
+    proxy -. "hq · legacy route / 502" .-> old["buzz-prod-relay-1 · карантин"]
+    proxy -->|"/telegram, ASR, бриф"| runtime["airhop-message-bridge / airhop-hermes"]
+    center --> demoDb["Только хранилища buzz-demo"]
+    old --> oldDb["Отдельные legacy-хранилища"]
+    center --- agents["buzz-demo: Hermes runtime + channel gateway"]
+```
+
+На `hygge.airhop.ru` главная и ресурсы сайта обслуживаются из
+`/opt/airhop/demo-test/hygge-performance-v1`; разрешённый публичный API, форма
+и короткие ссылки направляются в demo. Staff/admin/WebSocket там не публикуются.
+На `demo.airhop.ru` `/pair` идёт в demo pairing, `/webhooks/whatsapp/*` — в
+demo channel gateway. На HQ `/pair` направлен в отдельный legacy pairing.
+Временный `airhop.46-173-25-23.sslip.io` публикует один connection-scoped
+WhatsApp webhook; это дополнительный вход в демо, не ещё один Center.
+Маршруты `airhop.ru/deployment-pilot/` и `/deployment-whatsapp-e2e/` обслуживают
+статические pilot-артефакты из `/var/www/airhop-hq-*`. Наличие `hq` в имени
+каталога этих артефактов не превращает их в запущенный standalone HQ API.
+
+## 3. Конфигурация, сети и данные
+
+| Ресурс | Center demo | Legacy HQ relay |
+| --- | --- | --- |
+| Base Compose | `/opt/airhop/buzz-demo/source/deploy/compose/compose.yml` | `/opt/airhop/buzz-hq/source/deploy/compose/compose.yml` |
+| Файл секретов (не выводить содержимое) | `/opt/airhop/buzz-demo/source/deploy/compose/.env` | `/opt/airhop/buzz-hq/source/deploy/compose/.env` |
+| Host override | `/opt/airhop/buzz-demo/buzz-demo.override.yml` | `/opt/airhop/buzz-hq/buzz-hq.override.yml` содержит действующие routing aliases и восстановленные тома |
+| Закрытая сеть | `buzz-demo_buzz-net` | `buzz-prod_buzz-net` |
+| PostgreSQL volume | `buzz-demo-postgres-data` | `buzz-prod_buzz-postgres-data` |
+| Redis volume | `buzz-demo-redis-data` | `buzz-hq-redis-restored-20260806` |
+| MinIO volume | `buzz-demo-minio-data` | `buzz-hq-minio-restored-20260806-v2` |
+| Git volume | `buzz-demo-git-data` | `buzz-prod_buzz-git-data` по HQ override; ошибочный relay сейчас смонтировал demo Git volume |
+
+Оба контура подключаются к общей `airhop-web` через разные псевдонимы:
+`airhop-demo-relay` и `airhop-hq-relay`. Общая сеть используется для входного
+прокси; это не разрешение делить БД, секреты или тома. Общий короткий alias
+`relay` на этой сети не использовать для маршрутизации продуктов.
+
+Site: Compose-файлы `/opt/airhop/site/source/deploy/beget/site/compose.yml` и
+`public-hosts.override.yml`; данные приложения `/opt/airhop/site/data`.
+Caddyfile расположен в том же каталоге `deploy/beget/site/`.
+
+**Обнаруженный drift HQ:** `/opt/airhop/runtime/deploy/buzz-hq.override.yml`
+используется частью старых контейнеров, но отличается от
+`/opt/airhop/buzz-hq/buzz-hq.override.yml`: отсутствуют proxy aliases, MinIO
+указывает на `buzz-prod_buzz-minio-data` вместо фактически работающего
+восстановленного тома. Нельзя считать эти файлы взаимозаменяемыми. Восстановление
+relay требует сохранения сетевого псевдонима и сверки фактических подключений;
+пересоздание всего стека по любому из них сейчас недопустимо.
+
+Center demo накопил длинную цепочку release overlays (полная последовательность
+есть в снимке). Её нельзя сокращать до base + host, выбирать последний файл по
+дате или копировать из старого runbook. Взять порядок из меток **здорового demo
+relay**, проверить входные файлы и результат `config`, сохранить их хеши.
+У ошибочно пересозданного HQ relay метки уже содержат чужую demo-цепочку:
+автоматическое «восстановление по текущим меткам» закрепит ошибку.
+
+При диагностике обнаружено несовпадение demo service config hash:
+метка запущенного relay `589324aa1c0662753f4d8ea4a21d7bfbae2dff4df0f8dfe25ba43b247be142a7`,
+результат `docker compose config --hash relay`
+`f68db2a1194f438375735585fb16d66de1bc10a3fb7922881a56b494936e2faf`.
+Сверенные environment, entrypoint, mounts, networks и release labels совпали.
+Дополнительный `docker compose --dry-run up --no-deps --no-build --pull never`
+для **текущей** цепочки выдал только `buzz-demo-relay-1 Running`, без операций
+пересоздания. Поэтому сравнение `config --hash` с runtime label здесь не служит
+доказательством drift. Guard использует решение самого Compose о неизменности
+текущего relay, дополнительно сверяет live-поля и сохраняет хеши полных входов
+и итоговых конфигураций в план. Если dry-run предлагает изменение или его
+формат вывода неизвестен, подготовка останавливается. Проверено на Compose
+2.40.3; точная внутренняя причина различия двух хешей не установлена.
+
+## 4. Обязательный порядок работы
+
+1. Прочитать эту карту и продуктовый источник истины соответствующего repo.
+   Назвать конкретную цель: например, `center-demo`, а не «сервер», «БАЗ» или
+   «прод». Неизвестный target сначала обследовать и внести в реестр.
+2. Снять актуальную инвентаризацию без секретов. Сверить Docker daemon, проект,
+   домен, container ID, image ID, сеть, тома и всю Compose-цепочку. Несовпадение
+   означает остановку изменений и разбор причины, а не подгонку проверки.
+3. Подготовить изолированный релиз из точного предшественника с проверенным
+   diff. Сохранить source commit/archive hash, image ID, состав релиза и тесты.
+   Чужие незакоммиченные изменения не перезаписывать и не включать молча.
+4. Все изменяющие Compose-команды, включая rollback, выполняются с явным
+   `--project-name`. Во время применения удерживать общий для этой цели lock
+   `/opt/airhop/buzz-demo/deploy.lock` и повторять сравнение предшественника под
+   lock. Заблокированное окружение не обходить другим lock-файлом.
+5. Обновлять только согласованные сервисы. Для одного relay использовать
+   `--no-deps`, фиксированные образы, запрет pull/build в момент переключения.
+   Не выполнять `down`, `down -v`, `--remove-orphans`, очистку Docker или
+   массовое `up` ради изменения интерфейса. Caddy — отдельная общая зависимость.
+6. Проверить image ID, здоровье, публичный пользовательский маршрут, неизменность
+   соседних контейнеров. Сохранить результаты и место backup. Для изменения
+   БД заранее подготовить проверенный backup/restore и отдельный план миграции.
+   Откат образа не равен откату БД.
+7. Обновить карту, если изменилась топология; обновить release record, если
+   поменялся только образ. Старый снимок не переписывать как будто его не было.
+
+Полные `docker inspect` и `docker compose config` могут содержать секреты.
+Не публиковать их в чат, репозиторий или общие логи. Для инвентаризации:
+
+```bash
+ssh root@46.173.25.23 python3 - < scripts/airhop-runtime-audit.py > /private/tmp/airhop-runtime.json
+```
+
+## 5. Проверяемый вход для узкого релиза demo relay
+
+[`airhop-demo-release.py`](../scripts/airhop-demo-release.py) предназначен
+только для замены образа и release labels demo relay. На зарегистрированном
+сервере, из проверенной копии Center repo:
+
+```bash
+python3 scripts/airhop-demo-release.py plan \
+  --release-file /absolute/path/to/release/rollout.compose.yml \
+  --out /private/path/unique-release-plan.json
+# После review и в рамках согласованной выкладки:
+python3 scripts/airhop-demo-release.py apply /private/path/unique-release-plan.json
+```
+
+`plan` не меняет контейнеры. `apply` удерживает demo lock, повторно проверяет
+весь план, ID контейнера/образа, хеши входов и соседей, задаёт `buzz-demo` явно.
+Чужой daemon/project/hostname/network/volume, изменение других сервисов,
+секретов или routing labels останавливает релиз. План не перезаписывается.
+Guard проверяет deployment-конфигурацию, но не доказывает безопасность кода
+внутри образа: diff/Dockerfile, тесты и необходимость миграций проверяются при
+review кандидата до применения. Смена backend с миграциями сюда не относится.
+Legacy relay должен оставаться в зарегистрированном карантине: точные
+container/image IDs, остановленное состояние и `restart=no`. Его случайное
+возобновление или замена блокируют применение; поднимать его ради Center нельзя.
+После ошибки применения скрипт останавливается: автоматический откат без
+проверки состояния и миграций намеренно не выполняется. Предыдущая полная
+Compose-цепочка и image ID сохранены в плане для отдельно проверенного отката.
+
+Это не общий deployer для HQ, Site, Hermes или миграций. Такие изменения
+требуют отдельного reviewed runbook с теми же проверками и блокировкой.
+Прямой доступ root/Docker позволяет обойти скрипт: документ и guard не являются
+изоляцией прав. Для принудительной защиты нужен отдельный инфраструктурный
+этап: доступ к выкладке через ограниченный runner, единый lock у всех entrypoints
+и аудит операций. До него нельзя обещать невозможность перезаписи.
+
+## 6. Инцидент 2026-09-12: история и текущий карантин
+
+Скрипт `/opt/airhop/staff-invite-bae27a94b9a0/deploy.sh` вызвал Compose с
+demo-файлами, но без `--project-name buzz-demo`. Base задаёт `name: buzz-prod`.
+В результате пересоздан `buzz-prod-relay-1`, смонтирован demo Git volume и
+потерян HQ proxy alias. Тот же дефект был в функции rollback.
+
+**Повторный запуск заблокирован на сервере:** под demo lock исходный скрипт
+сохранён как `deploy.sh.incident-20260912.original` (доступ 0600), а `deploy.sh`
+заменён остановкой с объяснением и `exit 1`. Проверка нового входа подтвердила
+отказ без вызова Docker. SHA-256 сохранённого оригинала:
+`d88467ada06dae31d4b4e9560cf4437bec2fc5a47d5f118b0ef01cf1db00c45f`.
+Не запускать сохранённый оригинал и не восстанавливать его как deployment entrypoint.
+
+На момент первоначального снимка demo relay здоров и остаётся на
+`airhub-center-relay:whatsapp-credential-rotation-df472bd`; Site здоров.
+Legacy HQ relay тогда перезапускался с ошибочным
+`airhub-center-relay:staff-invite-bae27a94b9a0`. Прежний образ по записи
+инцидента — `airhub-center-relay:3e36b1c`; это ещё не достаточная спецификация
+восстановления без правильного routing override. Состояние/целостность данных
+не проверены этим аудитом; отсутствие изменений БД не заявляется.
+
+Восстановление legacy relay ранее заблокировала автоматическая проверка
+разрешений из-за отсутствия явного согласования изменения этого контура.
+После проверки установленного приложения выяснилось, что восстанавливать
+legacy relay для HQ не требуется: реальный HQ работает в Cloudflare.
+Relay остановлен с сохранением контейнера/данных; точное состояние и snapshot
+указаны в связанном отчёте. Выкладка сотрудников не является частью этого
+действия. Предыдущая блокировка восстановления больше не является препятствием
+для Center, если сохранён зарегистрированный карантин legacy.
+
+Историческая read-only проверка recovery config подтвердила `buzz-prod`,
+`airhub-center-relay:3e36b1c`, `wss://hq.airhop.ru`, alias `airhop-hq-relay`,
+Git volume `buzz-prod_buzz-git-data` и восстановленные storage volumes из
+таблицы выше. Команда ниже сохранена для возможного восстановления **только
+если обнаружится реальный старый потребитель и будет согласовано восстановление**;
+не выполнять её как шаг релиза HQ или Center:
+
+```bash
+docker compose --project-name buzz-prod \
+  --env-file /opt/airhop/buzz-hq/source/deploy/compose/.env \
+  -f /opt/airhop/buzz-hq/source/deploy/compose/compose.yml \
+  -f /opt/airhop/buzz-hq/buzz-hq.override.yml \
+  up -d --no-deps --no-build --pull never --wait --wait-timeout 180 relay
+```
+
+Перед этой аварийной командой удерживать HQ lock
+`/opt/airhop/buzz-hq/deploy.lock`, сохранить приватный snapshot ошибочного relay,
+повторно проверить ошибочный образ как предшественник и зафиксировать ID/start
+соседних контейнеров. После — сверить старый image ID, здоровье, HQ alias/том,
+HTTP `/health` и неизменность соседей. Эта команда не была выполнена в аудите.
+Проверки доменов: demo `/health` — 200, Site `/` — 200, старый домен
+`hq.airhop.ru/health` — 502; фактический Cloudflare HQ readiness — `ready`.
+
+Проверки защитного инструмента после уточнения HQ: 17 локальных regression tests; они включены
+в `.github/workflows/ci.yml`. Финальный live read-only preflight прошёл:
+предшественник `sha256:05aafad2c904288ce9d7b654d43396f533fa45185bf545fc2b9f0b6e1d968d98`,
+кандидат `sha256:73ce2c884826ab032fd4c94e2d0beb2bfdf9609916c6df775324c396aeb63c1d`.
+Live `apply` не выполнялся. Проверка legacy теперь требует сохранения карантина.
+
+Следующие инфраструктурные работы: обследовать остальные хосты, подготовить
+окончательное снятие legacy-контура с backup/проверкой данных, устранить drift
+конфигураций, свернуть demo overlays с доказанным
+равенством итогового config, внедрить ограниченный deploy runner. Всё это
+сохраняет действующие данные и требует отдельных проверенных изменений.

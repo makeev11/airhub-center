@@ -1,3 +1,7 @@
+> **AirHop Center:** product and deployment boundaries are documented in
+> [the AirHop deployment map](docs/AIRHOP_DEPLOYMENT_MAP.md).
+> Read it before server changes. The Buzz material below describes upstream.
+
 <h1 align="center">Buzz 🐝</h1>
 
 <p align="center">

@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-09-12",
+  "host": {
+    "ssh": "root@46.173.25.23",
+    "hostname": "airhop-prod",
+    "docker_id": "dbfb14a9-8404-4f21-ad3e-3481b173ea9a"
+  },
+  "targets": {
+    "center-demo": {
+      "product": "AirHop Center",
+      "project": "buzz-demo",
+      "host": "demo.airhop.ru",
+      "container": "buzz-demo-relay-1",
+      "env_file": "/opt/airhop/buzz-demo/source/deploy/compose/.env",
+      "base_file": "/opt/airhop/buzz-demo/source/deploy/compose/compose.yml",
+      "host_file": "/opt/airhop/buzz-demo/buzz-demo.override.yml",
+      "lock": "/opt/airhop/buzz-demo/deploy.lock",
+      "network": "buzz-demo_buzz-net",
+      "proxy_network": "airhop-web",
+      "proxy_alias": "airhop-demo-relay",
+      "volumes": {
+        "buzz-postgres-data": "buzz-demo-postgres-data",
+        "buzz-redis-data": "buzz-demo-redis-data",
+        "buzz-minio-data": "buzz-demo-minio-data",
+        "buzz-git-data": "buzz-demo-git-data"
+      }
+    },
+    "hq-legacy-relay": {
+      "product": "Unused by current HQ; legacy relay retained in quarantine",
+      "project": "buzz-prod",
+      "host": "hq.airhop.ru",
+      "container": "buzz-prod-relay-1",
+      "env_file": "/opt/airhop/buzz-hq/source/deploy/compose/.env",
+      "base_file": "/opt/airhop/buzz-hq/source/deploy/compose/compose.yml",
+      "routing_override": "/opt/airhop/buzz-hq/buzz-hq.override.yml",
+      "drifted_override": "/opt/airhop/runtime/deploy/buzz-hq.override.yml",
+      "expected_proxy_alias": "airhop-hq-relay",
+      "observed_storage": {
+        "postgres": "buzz-prod_buzz-postgres-data",
+        "redis": "buzz-hq-redis-restored-20260806",
+        "minio": "buzz-hq-minio-restored-20260806-v2"
+      },
+      "deployment_enabled": false,
+      "lifecycle": "quarantined",
+      "quarantine_container_id": "1a4ed1cca10a872a4c83d7d9ae58e56e4499ec35ee0833dbf40f19b0f68cdf6e",
+      "quarantine_image_id": "sha256:73ce2c884826ab032fd4c94e2d0beb2bfdf9609916c6df775324c396aeb63c1d",
+      "quarantine_backup": "/opt/airhop/backups/legacy-hq-relay-quarantine-20260912T205006Z"
+    },
+    "site": {
+      "product": "AirHop Site",
+      "project": "airhop-site",
+      "host": "airhop.ru",
+      "container": "airhop-site-site-1",
+      "source": "/opt/airhop/site/source",
+      "data": "/opt/airhop/site/data",
+      "shared_proxy_container": "airhop-site-caddy-1",
+      "shared_proxy_config": "/opt/airhop/site/source/deploy/beget/site/Caddyfile",
+      "deployment_enabled": false
+    },
+    "hq-api": {
+      "product": "AirHop HQ",
+      "platform": "Cloudflare Workers",
+      "worker": "airhub-hq-api-staging",
+      "host": "airhub-hq-api-staging.airhub-hq-api.workers.dev",
+      "base_url": "https://airhub-hq-api-staging.airhub-hq-api.workers.dev",
+      "readiness_path": "/api/hq/v1/readiness",
+      "configured_database": "airhub-hq-staging",
+      "configured_database_platform": "Cloudflare D1",
+      "installed_app": "/Applications/AirHub HQ.app",
+      "installed_binary_sha256": "ecc121521e73cf51015aa94a7d74622abc5031f319b3827edad2ac7b60b4ac9b",
+      "deployment_enabled": false,
+      "note": "Active HQ endpoint despite historical staging name. Not hosted on the shared Docker daemon."
+    }
+  }
+}

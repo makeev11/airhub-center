@@ -19,9 +19,11 @@ read_env() {
 IFS=':' read -r -a compose_file_paths <<<"${COMPOSE_FILES}"
 compose=(docker compose --env-file "${ENV_FILE}")
 compose_project_name="${AIRHOP_COMPOSE_PROJECT_NAME:-$(read_env AIRHOP_COMPOSE_PROJECT_NAME)}"
-if [[ -n "${compose_project_name}" ]]; then
-  compose+=(--project-name "${compose_project_name}")
+if [[ -z "${compose_project_name}" || "${compose_project_name}" == "buzz-prod" ]]; then
+  echo "Set an explicit Center AIRHOP_COMPOSE_PROJECT_NAME; buzz-prod is not a Center target. See docs/AIRHOP_DEPLOYMENT_MAP.md." >&2
+  exit 1
 fi
+compose+=(--project-name "${compose_project_name}")
 for compose_file_path in "${compose_file_paths[@]}"; do
   if [[ ! -f "${compose_file_path}" ]]; then
     echo "AirHop Compose file not found: ${compose_file_path}" >&2
@@ -31,6 +33,10 @@ for compose_file_path in "${compose_file_paths[@]}"; do
 done
 
 relay_url="$(read_env RELAY_URL)"
+if [[ "${relay_url}" == wss://hq.airhop.ru* || ( "${relay_url}" == wss://demo.airhop.ru* && "${compose_project_name}" != "buzz-demo" ) ]]; then
+  echo "Center hostname and Compose project do not match the deployment map." >&2
+  exit 1
+fi
 case "${relay_url}" in
   wss://*) public_http_url="https://${relay_url#wss://}" ;;
   ws://*) public_http_url="http://${relay_url#ws://}" ;;

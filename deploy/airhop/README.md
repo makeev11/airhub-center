@@ -1,5 +1,13 @@
 # AirHop Center demo deployment
 
+**Before server changes:** read the canonical
+[AirHop deployment map](../../docs/AIRHOP_DEPLOYMENT_MAP.md).
+The fresh-pilot examples below are not the overlay chain of `demo.airhop.ru`.
+Existing demo image-only releases use `scripts/airhop-demo-release.py`.
+Set `AIRHOP_COMPOSE_PROJECT_NAME` explicitly for the intended pilot; every
+Compose operation must pass it as `--project-name`. Never copy a fresh-pilot
+command over the existing demo, HQ, or Site stack.
+
 This stack is isolated from inherited Buzz deployments by its Compose project
 name, network, containers, and dedicated named volumes. It runs the authoritative
 Booking Core, PostgreSQL, Redis, MinIO, and the same React public booking flow
@@ -26,7 +34,7 @@ Provider wildcard hosts are suitable for this first isolated pilot.
 Validate without starting anything:
 
 ```bash
-AIRHOP_ENV_FILE=.env docker compose --env-file deploy/airhop/.env \
+AIRHOP_ENV_FILE=.env docker compose --project-name "${AIRHOP_COMPOSE_PROJECT_NAME:?set explicit target}" --env-file deploy/airhop/.env \
   -f deploy/airhop/compose.yml config --quiet
 ```
 
@@ -48,9 +56,9 @@ booking/channel material unrecoverable.
 Start or update:
 
 ```bash
-AIRHOP_ENV_FILE=.env docker compose --env-file deploy/airhop/.env \
+AIRHOP_ENV_FILE=.env docker compose --project-name "${AIRHOP_COMPOSE_PROJECT_NAME:?set explicit target}" --env-file deploy/airhop/.env \
   -f deploy/airhop/compose.yml pull
-AIRHOP_ENV_FILE=.env docker compose --env-file deploy/airhop/.env \
+AIRHOP_ENV_FILE=.env docker compose --project-name "${AIRHOP_COMPOSE_PROJECT_NAME:?set explicit target}" --env-file deploy/airhop/.env \
   -f deploy/airhop/compose.yml up -d --wait
 ```
 
@@ -87,7 +95,7 @@ it never appears in chat or shell history:
 Start the model runtime and Telegram gateway together:
 
 ```bash
-AIRHOP_ENV_FILE=.env docker compose \
+AIRHOP_ENV_FILE=.env docker compose --project-name "${AIRHOP_COMPOSE_PROJECT_NAME:?set explicit target}" \
   --env-file deploy/airhop/.env -f deploy/airhop/compose.yml \
   --profile hermes --profile telegram \
   up -d --build --wait hermes-parent-runtime telegram-gateway
@@ -154,7 +162,7 @@ private credentials in the relay container.
 Validate the fully merged configuration before changing containers:
 
 ```bash
-docker compose --env-file /absolute/path/to/.env \
+docker compose --project-name "${AIRHOP_COMPOSE_PROJECT_NAME:?set explicit target}" --env-file /absolute/path/to/.env \
   -f /absolute/path/to/base-compose.yml \
   -f /absolute/path/to/host-override.yml \
   -f /absolute/path/to/compose.existing.yml \

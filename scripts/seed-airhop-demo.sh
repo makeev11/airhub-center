@@ -24,12 +24,18 @@ if [[ -z "${DEMO_HOST}" || "${DEMO_HOST}" == *"CHANGE_ME"* ]]; then
 fi
 
 POSTGRES_USER_VALUE="$(sed -n 's/^POSTGRES_USER=//p' "${ENV_FILE}" | tail -n 1)"
+COMPOSE_PROJECT_VALUE="${AIRHOP_COMPOSE_PROJECT_NAME:-$(sed -n 's/^AIRHOP_COMPOSE_PROJECT_NAME=//p' "${ENV_FILE}" | tail -n 1)}"
+if [[ -z "${COMPOSE_PROJECT_VALUE}" || "${COMPOSE_PROJECT_VALUE}" == "buzz-prod" || "${DEMO_HOST}" == "hq.airhop.ru" || ( "${DEMO_HOST}" == "demo.airhop.ru" && "${COMPOSE_PROJECT_VALUE}" != "buzz-demo" ) ]]; then
+  echo "Set an explicit Center Compose project matching the host. See docs/AIRHOP_DEPLOYMENT_MAP.md." >&2
+  exit 1
+fi
 POSTGRES_DB_VALUE="$(sed -n 's/^POSTGRES_DB=//p' "${ENV_FILE}" | tail -n 1)"
 POSTGRES_USER_VALUE="${POSTGRES_USER_VALUE:-airhop}"
 POSTGRES_DB_VALUE="${POSTGRES_DB_VALUE:-airhop}"
 
 echo "Seeding the real Booking Core tables for ${DEMO_HOST}..."
 AIRHOP_ENV_FILE="${ENV_FILE}" docker compose \
+  --project-name "${COMPOSE_PROJECT_VALUE}" \
   --env-file "${ENV_FILE}" \
   -f "${COMPOSE_FILE}" \
   exec -T postgres \

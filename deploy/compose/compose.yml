@@ -1,3 +1,5 @@
+# Historical upstream default, NOT the AirHop Center demo target.
+# AirHop operations must pass --project-name; see docs/AIRHOP_DEPLOYMENT_MAP.md.
 name: buzz-prod
 
 services:

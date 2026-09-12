@@ -1,5 +1,27 @@
 # AGENTS.md — AI Agent Contributor Guide
 
+## AirHop product and deployment boundaries — read first
+
+This checkout is **AirHop Center**. Before any infrastructure, deployment,
+rollback, data seeding, or cross-product work, read
+[`docs/AIRHOP_DEPLOYMENT_MAP.md`](docs/AIRHOP_DEPLOYMENT_MAP.md) and
+[`deploy/airhop/environments.json`](deploy/airhop/environments.json).
+That map is canonical for AirHop; the Buzz ecosystem below is upstream history.
+Never infer a deployment target from `buzz-prod`, an image prefix, a repository
+folder, or a prior agent's guess. Employee membership/invitations belong to
+Center; the agreed test target is `center-demo` (`buzz-demo`, `demo.airhop.ru`).
+The installed HQ uses the Cloudflare `airhub-hq-api-staging` Worker. The old
+`buzz-prod` relay at `hq.airhop.ru` is quarantined; do not revive it for a Center
+or HQ release. See `docs/AIRHOP_HQ_DOMAIN_AUDIT_20260912.md` for binary/API evidence.
+
+All mutating Compose commands, including rollback, must name the project
+explicitly. Preserve the complete verified overlay chain, use the shared target
+lock, and recheck the predecessor under that lock. For image-only demo relay
+updates, use `scripts/airhop-demo-release.py plan/apply`; other releases need
+equivalent reviewed checks. Never bypass a failed guard or an occupied lock.
+Site's Caddy is shared infrastructure; HQ legacy data and services are separate.
+Historical one-shot deploy scripts are not current deployment entrypoints.
+
 This guide is for AI agents contributing to the Buzz codebase. It covers
 agent-specific context and conventions. For general contributor info (setup,
 code style, PR process, architecture), see [CONTRIBUTING.md](CONTRIBUTING.md).
