@@ -29,6 +29,7 @@ export default defineConfig({
       // Keep the upstream projects below for explicit compatibility audits.
       name: "airhop-center",
       testMatch: [
+        "**/airhop-staff-invites.spec.ts",
         "**/airhop-schedule.spec.ts",
         "**/airhop-branch-settings-screenshots.spec.ts",
         "**/airhop-center-analytics.spec.ts",
@@ -54,6 +55,7 @@ export default defineConfig({
     {
       name: "smoke",
       testMatch: [
+        "**/airhop-staff-invites.spec.ts",
         "**/smoke.spec.ts",
         "**/airhop-center-analytics.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
@@ -144,6 +146,7 @@ export default defineConfig({
         "**/reaction-order.spec.ts",
         "**/reaction-names.spec.ts",
         "**/inbox-reactions.spec.ts",
+        "**/inbox-context-availability.spec.ts",
         "**/send-channel-binding.spec.ts",
         "**/project-commit-detail.spec.ts",
         "**/project-inbox.spec.ts",

@@ -68,6 +68,7 @@ export function DirectAddMemberForm({
 }) {
   const isRussian = useAirHopLocale() === "ru-RU";
   const addMutation = useAddRelayMemberMutation();
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
   const membersQuery = useRelayMembersQuery();
   const [query, setQuery] = React.useState("");
   const [selectedUsers, setSelectedUsers] = React.useState<UserSearchResult[]>(
@@ -94,7 +95,7 @@ export function DirectAddMemberForm({
     (membersQuery.data ?? []).some(
       (m) => m.pubkey.toLowerCase() === parsedPubkey.toLowerCase(),
     );
-  const canAdd = selectedUsers.length > 0 && !addMutation.isPending;
+  const canAdd = selectedUsers.length > 0 && !isSubmitting;
   const searchResults = React.useMemo(
     () =>
       (userSearchQuery.data ?? []).filter(
@@ -189,10 +190,14 @@ export function DirectAddMemberForm({
 
   async function handleAdd() {
     if (!canAdd) return;
-
+    setIsSubmitting(true);
     try {
       for (const user of selectedUsers) {
         await addMutation.mutateAsync({ pubkey: user.pubkey, role });
+        // A later failure must leave only the unprocessed recipients to retry.
+        setSelectedUsers((users) =>
+          users.filter((pending) => pending.pubkey !== user.pubkey),
+        );
       }
       toast.success(
         selectedUsers.length === 1
@@ -215,6 +220,8 @@ export function DirectAddMemberForm({
       onAdded?.();
     } catch {
       // The mutation exposes the API error below the field.
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -258,7 +265,7 @@ export function DirectAddMemberForm({
                         transition={actionTransition}
                       >
                         <SelectedRecipientChip
-                          disabled={addMutation.isPending}
+                          disabled={isSubmitting}
                           inspectable={false}
                           label={formatSearchUserName(user)}
                           onRemove={() => removeUser(user.pubkey)}
@@ -278,7 +285,7 @@ export function DirectAddMemberForm({
                       autoCorrect="off"
                       className="h-7 w-auto min-w-16 flex-1 border-0 bg-transparent px-0 py-0.5 text-sm shadow-none outline-hidden placeholder:text-muted-foreground/55 focus-visible:ring-0"
                       data-testid="member-pubkey-input"
-                      disabled={addMutation.isPending}
+                      disabled={isSubmitting}
                       id="member-search"
                       onChange={(event) => {
                         setQuery(event.target.value);
@@ -328,7 +335,7 @@ export function DirectAddMemberForm({
                               }
                               className="inline-flex items-center gap-1.5 bg-transparent text-sm text-muted-foreground outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                               data-testid="member-role"
-                              disabled={addMutation.isPending}
+                              disabled={isSubmitting}
                               type="button"
                             >
                               {selectedRoleLabel}
@@ -424,7 +431,7 @@ export function DirectAddMemberForm({
                   size="sm"
                   type="submit"
                 >
-                  {addMutation.isPending
+                  {isSubmitting
                     ? isRussian
                       ? "Приглашаем…"
                       : "Inviting…"

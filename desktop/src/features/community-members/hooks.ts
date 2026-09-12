@@ -24,6 +24,8 @@ export function useRelayMembersQuery(enabled = true) {
     queryKey: [...relayMembersQueryKey, ...scope],
     queryFn: listRelayMembers,
     staleTime: 30_000,
+    // Invitations are claimed on another device; keep the visible roster fresh.
+    refetchInterval: enabled ? 15_000 : false,
   });
 }
 
