@@ -21,12 +21,13 @@ type WelcomeSetupProps = {
 export function WelcomeSetup({ defaultRelayUrl }: WelcomeSetupProps) {
   const communityOnboarding = useCommunityOnboarding();
   const startOwnerClaim = React.useCallback(
-    (relayUrl: string, code: string) => {
+    (relayUrl: string, code: string, policyReceipt?: string) => {
       communityOnboarding.start({
         source: "first-community",
         firstCommunityPage: "join",
         relayUrl,
         inviteCode: code,
+        policyReceipt,
       });
     },
     [communityOnboarding],

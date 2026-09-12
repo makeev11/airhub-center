@@ -22,7 +22,7 @@ import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
 export type AirHopOwnerSetupProps = {
   defaultRelayUrl: string;
-  onStart: (relayUrl: string, code: string) => void;
+  onStart: (relayUrl: string, code: string, policyReceipt?: string) => void;
   resolveRelayUrl?: (code: string) => Promise<string>;
 };
 
@@ -75,7 +75,11 @@ export function AirHopOwnerSetup({
         setHasInvalidCode(true);
         return;
       }
-      onStart(relayUrl, normalizedCode);
+      onStart(
+        relayUrl,
+        normalizedCode,
+        "policyReceipt" in parsed ? parsed.policyReceipt : undefined,
+      );
     } catch (error) {
       setConnectionError(airHopOwnerError(locale ?? "en-US", error));
     } finally {
@@ -152,7 +156,7 @@ export function AirHopOwnerSetup({
                 {copy.codeLabel}
                 <Input
                   data-testid="airhop-owner-code"
-                  autoCapitalize="characters"
+                  autoCapitalize="none"
                   autoComplete="one-time-code"
                   className="h-12 rounded-xl border-white/20 bg-white/10 font-mono text-base tracking-wide text-white shadow-none placeholder:text-white/35 focus-visible:ring-white/50"
                   id="airhop-owner-code"

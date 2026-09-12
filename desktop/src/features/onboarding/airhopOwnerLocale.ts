@@ -41,7 +41,8 @@ const COPY: Record<AirHopOwnerLocale, AirHopOwnerCopy> = {
     setupTitle: "Настроим ваш центр",
     chooseLanguage: "Выберите язык",
     connectTitle: "Подключите ваш центр",
-    connectHint: "Введите код организации, который вам передал Airhop.",
+    connectHint:
+      "Введите код организации от Airhop или ссылку приглашения от администратора центра.",
     codeLabel: "Код организации",
     codePlaceholder: "XXXX-XXXX-XXXX-XXXX",
     connect: "Подключить центр",
@@ -65,7 +66,8 @@ const COPY: Record<AirHopOwnerLocale, AirHopOwnerCopy> = {
     setupTitle: "Set up your center",
     chooseLanguage: "Choose language",
     connectTitle: "Connect your center",
-    connectHint: "Enter the organization code provided by Airhop.",
+    connectHint:
+      "Enter the organization code from Airhop or the invitation link from your center administrator.",
     codeLabel: "Organization code",
     codePlaceholder: "XXXX-XXXX-XXXX-XXXX",
     connect: "Connect center",

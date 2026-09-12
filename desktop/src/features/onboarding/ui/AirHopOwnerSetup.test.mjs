@@ -121,3 +121,32 @@ test("a universal build resolves a bare code before starting the signed claim", 
   ]);
   cleanup();
 });
+
+test("a pasted employee invitation preserves policy acceptance and bypasses HQ discovery", async () => {
+  const { createElement } = await import("react");
+  const { cleanup, fireEvent, render } = await import("@testing-library/react");
+  const { AirHopOwnerSetup } = await import("./AirHopOwnerSetup.tsx");
+  localStorage.clear();
+  const starts = [];
+  const view = render(
+    createElement(AirHopOwnerSetup, {
+      defaultRelayUrl: "wss://default.example",
+      resolveRelayUrl() {
+        throw new Error("Staff links must not resolve through HQ");
+      },
+      onStart: (...args) => starts.push(args),
+    }),
+  );
+  fireEvent.click(view.getByRole("button", { name: "English" }));
+  fireEvent.change(view.getByLabelText("Organization code"), {
+    target: {
+      value:
+        "https://center.example/invite/v2.staff?policy_receipt=bound-receipt",
+    },
+  });
+  fireEvent.click(view.getByRole("button", { name: "Connect center" }));
+  assert.deepEqual(starts, [
+    ["wss://center.example", "v2.staff", "bound-receipt"],
+  ]);
+  cleanup();
+});

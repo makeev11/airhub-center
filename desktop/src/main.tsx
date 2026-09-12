@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "@/app/App";
 import { isAirhopPublicWebBuild } from "@/app/publicBookingRoute";
+import { PublicStaffInvitePage } from "@/features/community-members/ui/PublicStaffInvitePage";
 import { NostrBindConsentDialog } from "@/features/profile/ui/NostrBindConsentDialog";
 import "@fontsource-variable/inter/wght.css";
 import "@fontsource/jetbrains-mono/400.css";
@@ -83,7 +84,11 @@ function renderApp() {
       <React.StrictMode>
         <ThemeProvider defaultTheme="buzz">
           <TooltipProvider delayDuration={300}>
-            <App />
+            {window.location.pathname.startsWith("/invite/") ? (
+              <PublicStaffInvitePage />
+            ) : (
+              <App />
+            )}
             <Toaster />
           </TooltipProvider>
         </ThemeProvider>

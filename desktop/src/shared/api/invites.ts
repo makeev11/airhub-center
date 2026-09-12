@@ -166,7 +166,12 @@ export async function getJoinPolicy(
     });
   } else {
     const base = relayHttpFromWs(relayWsUrl);
-    const response = await fetch(`${base.replace(/\/+$/, "")}/api/join-policy`);
+    const response = await fetch(
+      `${base.replace(/\/+$/, "")}/api/join-policy`,
+      {
+        signal: AbortSignal.timeout(INVITE_REQUEST_TIMEOUT_MS),
+      },
+    );
     // Relays predating join-policy support have no configured policy.
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -216,6 +221,7 @@ export async function acceptJoinPolicy(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
+    signal: AbortSignal.timeout(INVITE_REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return ((await response.json()) as { receipt: string }).receipt;

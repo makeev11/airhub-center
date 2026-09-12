@@ -30,6 +30,7 @@ export default defineConfig({
       name: "airhop-center",
       testMatch: [
         "**/airhop-updates.spec.ts",
+        "**/airhop-staff-invites.spec.ts",
         "**/airhop-schedule.spec.ts",
         "**/airhop-branch-settings-screenshots.spec.ts",
         "**/airhop-center-analytics.spec.ts",
@@ -55,6 +56,7 @@ export default defineConfig({
     {
       name: "smoke",
       testMatch: [
+        "**/airhop-staff-invites.spec.ts",
         "**/smoke.spec.ts",
         "**/airhop-center-analytics.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",

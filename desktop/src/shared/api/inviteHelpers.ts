@@ -13,7 +13,7 @@ const SUPPORTED_APP_SCHEMES = new Set([CANONICAL_APP_SCHEME, "buzz"]);
  * no slashes) omits it — the caller decides which relay to target.
  */
 export type ParsedInvite =
-  | { relayWsUrl: string; code: string }
+  | { relayWsUrl: string; code: string; policyReceipt?: string }
   | { code: string };
 
 /**
@@ -54,7 +54,12 @@ export function parseInviteInput(input: string): ParsedInvite | null {
       } catch {
         return null;
       }
-      return { relayWsUrl: relay, code };
+      const policyReceipt = url.searchParams.get("policy_receipt");
+      return {
+        relayWsUrl: relay,
+        code,
+        ...(policyReceipt ? { policyReceipt } : {}),
+      };
     }
 
     // https(s)://<relay>/invite/<code>
@@ -67,7 +72,8 @@ export function parseInviteInput(input: string): ParsedInvite | null {
       // Convert scheme: https → wss, http → ws. url.host already includes port.
       const relayWsUrl =
         url.protocol === "https:" ? `wss://${url.host}` : `ws://${url.host}`;
-      return { relayWsUrl, code };
+      const policyReceipt = url.searchParams.get("policy_receipt");
+      return { relayWsUrl, code, ...(policyReceipt ? { policyReceipt } : {}) };
     }
 
     // ws/wss or any other scheme — not an invite URL.

@@ -5,10 +5,10 @@ import { openSettings } from "../helpers/settings";
 
 let invitePayloads: Record<string, unknown>[];
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, baseURL }) => {
   invitePayloads = [];
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: "http://127.0.0.1:4173",
+    origin: baseURL,
   });
   await installMockBridge(page, {
     relayRequiresMembership: true,
@@ -25,6 +25,30 @@ test.beforeEach(async ({ page }) => {
       status: 200,
     });
   });
+});
+
+test("a mint failure is visible and the employee invitation can be retried", async ({
+  page,
+}) => {
+  let fail = true;
+  await page.route("**/api/invites", (route) =>
+    fail
+      ? route.fulfill({ status: 503, json: { error: "Service unavailable" } })
+      : route.fallback(),
+  );
+  await page.goto("/");
+  await openSettings(page, "community-members");
+  await page.getByTestId("community-invite-dialog-trigger").click();
+  await page.getByTestId("copy-invite-link").click();
+  await expect(
+    page.getByTestId("community-invite-link-section").getByRole("alert"),
+  ).toContainText("Couldn’t create the invitation: Service unavailable");
+  fail = false;
+  await page.getByTestId("copy-invite-link").click();
+  await expect(page.getByTestId("copy-invite-link")).toContainText("Copied");
+  await expect(
+    page.getByTestId("community-invite-link-section").getByRole("alert"),
+  ).toHaveCount(0);
 });
 
 test("copies a freshly minted invite link without showing a URL or QR code", async ({

@@ -3,6 +3,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { mintInvite } from "@/shared/api/invites";
+import { inviteErrorMessage } from "@/shared/api/inviteHelpers";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
@@ -52,6 +53,7 @@ export function InviteLinkSection({
 }) {
   const isRussian = useAirHopLocale() === "ru-RU";
   const [copyStatus, setCopyStatus] = React.useState<CopyStatus>("idle");
+  const [error, setError] = React.useState<string | null>(null);
   const [maxUses, setMaxUses] = React.useState<number | null>(null);
   const ttlOptions = isRussian
     ? [
@@ -99,23 +101,33 @@ export function InviteLinkSection({
   async function handleCopy() {
     if (copyStatus === "copying") return;
     setCopyStatus("copying");
+    setError(null);
+    let created = false;
     try {
       const invite = await mintInvite({ ttlSecs, maxUses });
+      created = true;
       await writeTextToClipboard(invite.url);
       setCopyStatus("copied");
       toast.success(isRussian ? "Ссылка скопирована" : "Invite link copied");
-    } catch {
+    } catch (cause) {
       setCopyStatus("idle");
-      toast.error(
-        isRussian
+      const message = created
+        ? isRussian
           ? "Не удалось скопировать ссылку. Попробуйте ещё раз."
-          : "Couldn’t copy the invite link. Try again.",
-      );
+          : "Couldn’t copy the invite link. Try again."
+        : `${isRussian ? "Не удалось создать приглашение" : "Couldn’t create the invitation"}: ${inviteErrorMessage(cause)}`;
+      setError(message);
+      toast.error(message);
     }
   }
 
   return (
     <section data-testid="community-invite-link-section">
+      {error ? (
+        <p role="alert" className="mb-3 text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-4">
           <span className="text-sm font-medium">
