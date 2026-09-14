@@ -1,5 +1,10 @@
 import { messengerWorkflowRu } from "./messengerWorkflow.ru";
 import { messengerStaticRu } from "./messengerStatic.ru";
+import { messengerWorkflowPtBr } from "./messengerWorkflow.pt-BR";
+import { messengerStaticPtBr } from "./messengerStatic.pt-BR";
+import { airhopOperationalPtBr } from "./airhopOperational.pt-BR";
+import { airhopShellPtBr } from "./airhopShell.pt-BR";
+import { translateAirHopDynamicPtBr } from "./airhopDynamic.pt-BR";
 import { useCallback } from "react";
 import { resolveAirHopLocale, type AirHopLocale } from "./airhopLocale";
 import { useAirHopLocale } from "./useAirHopLocale";
@@ -70,6 +75,91 @@ export const MESSENGER_RU: Record<string, string> = {
   "Could not verify employee identities. Refresh to try again.":
     "Не удалось проверить список сотрудников. Обновите данные.",
   "Profile not completed": "Профиль не заполнен",
+  forum: "форум",
+  channel: "канал",
+  "Direct messages": "Личные сообщения",
+  Forum: "Форум",
+  Private: "Закрытый",
+  Open: "Открытый",
+};
+
+export const MESSENGER_PT_BR: Record<string, string> = {
+  ...messengerStaticPtBr,
+  ...messengerWorkflowPtBr,
+  ...airhopOperationalPtBr,
+  ...airhopShellPtBr,
+  agent: "agente",
+  "Add {name}": "Adicionar {name}",
+  "{status}. View activity.": "{status}. Ver atividade.",
+  "Channel type: {label}": "Tipo de canal: {label}",
+  "Copied {label}": "{label} copiado",
+  "Copy {label}": "Copiar {label}",
+  "{names} is not in this channel. Invite them, or send without inviting them.":
+    "{names} não está neste canal. Convide essa pessoa ou envie sem convidar.",
+  "{names} are not in this channel. Invite them, or send without inviting them.":
+    "{names} não estão neste canal. Convide essas pessoas ou envie sem convidar.",
+  "{names} is typing...": "{names} está digitando…",
+  "{names} are typing...": "{names} estão digitando…",
+  "{names}, and {count} others are typing...":
+    "{names} e mais {others} estão digitando…",
+  "{name} is working": "{name} está trabalhando",
+  "Agents working: {count}": "Agentes trabalhando: {count}",
+  "+{count} more": "mais {count}",
+  "1 channel": "1 canal",
+  "Raw ACP activity": "Atividade ACP bruta",
+  Activity: "Atividade",
+  "{color} pen": "Caneta {color}",
+  "View the full diff at the source repository.":
+    "Ver todas as alterações no repositório de origem.",
+  "Agents must already be in a DM to be mentioned in its threads. Start a new conversation that includes the agent.":
+    "O agente precisa participar da conversa direta para ser mencionado. Inicie uma nova conversa que inclua o agente.",
+  "Checking conversation members. Try again in a moment.":
+    "Verificando participantes da conversa. Tente novamente em instantes.",
+  Cancel: "Cancelar",
+  Save: "Salvar",
+  Close: "Fechar",
+  Retry: "Tentar novamente",
+  "Loading…": "Carregando…",
+  "Loading...": "Carregando…",
+  You: "Você",
+  you: "você",
+  "Add agents": "Adicionar agentes de IA",
+  "Add agent": "Adicionar agente",
+  "Your agents": "Seus agentes",
+  "Adding…": "Adicionando…",
+  Add: "Adicionar",
+  "Search agents": "Buscar agentes",
+  "Choose the center’s registered agents. Existing identities and history are preserved.":
+    "Escolha os agentes registrados do centro. As identidades e o histórico existentes serão preservados.",
+  "No registered agents are available.":
+    "Nenhum agente registrado está disponível.",
+  "Connect the AirHop team in AI agent settings.":
+    "Conecte a equipe AirHop nas configurações de agentes de IA.",
+  "Could not load the center’s team.":
+    "Não foi possível carregar a equipe do centro.",
+  "Could not add the agent. Refresh and try again.":
+    "Não foi possível adicionar o agente. Atualize e tente novamente.",
+  "Already in this channel": "Já está neste canal",
+  Hermes: "Hermes",
+  "Parent Administrator": "Administrador de responsáveis",
+  "Only active registered agents are shown. Global personas are not imported.":
+    "Somente agentes registrados e ativos são exibidos. Personas globais não são importadas.",
+  "Cannot remove yourself.": "Você não pode remover a si mesmo.",
+  "The center owner cannot be removed.":
+    "O proprietário do centro não pode ser removido.",
+  "Only the owner can remove an administrator.":
+    "Somente o proprietário pode remover um administrador.",
+  "Wait for the current operation to finish.":
+    "Aguarde a conclusão da operação atual.",
+  "Could not verify employee identities. Refresh to try again.":
+    "Não foi possível verificar as identidades dos funcionários. Atualize e tente novamente.",
+  "Profile not completed": "Perfil não preenchido",
+  forum: "fórum",
+  channel: "canal",
+  "Direct messages": "Conversas diretas",
+  Forum: "Fórum",
+  Private: "Privado",
+  Open: "Aberto",
 };
 
 /** Translate interface copy only. Never pass customer content or identity names here. */
@@ -78,10 +168,56 @@ export function messageText(
   values: Record<string, string | number> = {},
   locale: AirHopLocale = resolveAirHopLocale(),
 ): string {
-  const template = locale === "ru-RU" ? (MESSENGER_RU[key] ?? key) : key;
+  const template =
+    locale === "ru-RU"
+      ? (MESSENGER_RU[key] ?? key)
+      : locale === "pt-BR"
+        ? (MESSENGER_PT_BR[key] ?? translateAirHopDynamicPtBr(key) ?? key)
+        : key;
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
     String(values[name] ?? match),
   );
+}
+
+/** Localizes legacy Russian/English copy pairs while preserving non-text values. */
+export function localePair<T>(
+  russian: T,
+  english: T,
+  locale: AirHopLocale = resolveAirHopLocale(),
+): T {
+  if (locale === "ru-RU") return russian;
+  if (locale === "pt-BR" && typeof english === "string") {
+    return messageText(english, {}, locale) as T;
+  }
+  return english;
+}
+
+/** Localizes a small, plain copy object while leaving application data intact. */
+export function localizeCopyTree<T>(
+  value: T,
+  locale: AirHopLocale = resolveAirHopLocale(),
+): T {
+  if (locale !== "pt-BR") return value;
+  if (typeof value === "string") return messageText(value, {}, locale) as T;
+  if (typeof value === "function") {
+    return ((...args: unknown[]) =>
+      localizeCopyTree(
+        (value as (...functionArgs: unknown[]) => unknown)(...args),
+        locale,
+      )) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => localizeCopyTree(item, locale)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        localizeCopyTree(item, locale),
+      ]),
+    ) as T;
+  }
+  return value;
 }
 
 /** Shared reactive copy source, including memoized messenger components. */
@@ -105,6 +241,10 @@ export function messengerCount(
     member: ["участник", "участника", "участников"],
     reply: ["ответ", "ответа", "ответов"],
   };
+  if (locale === "pt-BR") {
+    const ptBr = { agent: "agente", member: "participante", reply: "resposta" };
+    return `${count} ${ptBr[noun]}${count === 1 ? "" : "s"}`;
+  }
   if (locale !== "ru-RU")
     return `${count} ${count === 1 ? noun : noun === "reply" ? "replies" : `${noun}s`}`;
   const category = new Intl.PluralRules(locale).select(count);
@@ -126,7 +266,8 @@ export function messageError(
     ? raw
     : Object.keys(MESSENGER_RU).find((key) => MESSENGER_RU[key] === raw);
   if (key) return messageText(key);
-  if (resolveAirHopLocale() !== "ru-RU") return raw || fallback;
+  if (resolveAirHopLocale() === "en-US" || resolveAirHopLocale() === "tr-TR")
+    return raw || fallback;
   return messageText(fallback);
 }
 

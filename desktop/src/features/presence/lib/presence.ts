@@ -1,5 +1,5 @@
 import type { PresenceLookup, PresenceStatus } from "@/shared/api/types";
-import { resolveActivationLocale } from "@/features/activation/i18n";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 // Live kind:20001 events are self-signed by their author; the subject is
 // always the event author. A p tag is NOT trusted here — a client could forge
@@ -60,14 +60,13 @@ export function resolveAutomaticPresenceStatus(
 }
 
 export function getPresenceLabel(status: PresenceStatus) {
-  const isRussian = resolveActivationLocale() === "ru-RU";
   switch (status) {
     case "online":
-      return isRussian ? "В сети" : "Online";
+      return localePair("В сети", "Online");
     case "away":
-      return isRussian ? "Отошёл" : "Away";
+      return localePair("Отошёл", "Away");
     case "offline":
-      return isRussian ? "Не в сети" : "Offline";
+      return localePair("Не в сети", "Offline");
   }
 }
 

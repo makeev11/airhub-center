@@ -2,6 +2,7 @@ import * as React from "react";
 import { useBookingWorkspace } from "@/features/booking/data/BookingWorkspaceProvider";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { messageText } from "@/shared/locale/messengerCopy";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +23,8 @@ export function KnowledgePreview({
   ru: boolean;
   onClose: () => void;
 }) {
-  const t = (a: string, b: string) => (ru ? a : b);
+  const t = (russian: string, english: string) =>
+    ru ? russian : messageText(english);
   const workspace = useBookingWorkspace().workspace;
   const [query, setQuery] = React.useState("");
   const [scope, setScope] = React.useState("organization");

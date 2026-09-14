@@ -25,6 +25,7 @@ import { useMyRelayMembershipLookupQuery } from "@/features/community-members/ho
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import type { AirHopLocale } from "@/shared/locale/airhopLocale";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
+import { localePair } from "@/shared/locale/messengerCopy";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -387,18 +388,17 @@ function ConnectionCard({
         {canManage && (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              {locale.startsWith("ru")
-                ? "Изменение канала действует для новых клиентов. Существующие треды остаются на месте; перенос старой истории выполняется отдельно."
-                : "A new channel applies to new clients. Existing threads stay in place; legacy migration is a separate operation."}
+              {localePair(
+                "Изменение канала действует для новых клиентов. Существующие треды остаются на месте; перенос старой истории выполняется отдельно.",
+                "A new channel applies to new clients. Existing threads stay in place; legacy migration is a separate operation.",
+              )}
             </p>
             <Button
               variant="outline"
               disabled={pending}
               onClick={() => onUpdate(connection, { routing })}
             >
-              {locale.startsWith("ru")
-                ? "Сохранить маршрутизацию"
-                : "Save routing"}
+              {localePair("Сохранить маршрутизацию", "Save routing")}
             </Button>
           </div>
         )}

@@ -683,6 +683,11 @@ pub(crate) async fn get_public_management_card(
         .is_airhop_booking_telegram_connected(&tenant, credential)
         .await
         .map_err(map_public_management_error)?);
+    response["connectedChannels"] = json!(state
+        .db
+        .airhop_booking_connected_channels(&tenant, credential)
+        .await
+        .map_err(map_public_management_error)?);
     no_store_json(response)
 }
 
@@ -1115,34 +1120,56 @@ async fn apply_public_management_http_action(
         .is_airhop_booking_telegram_connected(&tenant, credential)
         .await
         .map_err(map_public_management_error)?);
+    response["connectedChannels"] = json!(state
+        .db
+        .airhop_booking_connected_channels(&tenant, credential)
+        .await
+        .map_err(map_public_management_error)?);
+    let selected_channel = response["preferredContactChannel"]
+        .as_str()
+        .unwrap_or("")
+        .to_owned();
     if action_name == "contact_channel"
-        && response["preferredContactChannel"] == "telegram"
-        && response["telegramConnected"] != true
+        && matches!(selected_channel.as_str(), "telegram" | "whatsapp")
+        && !response["connectedChannels"]
+            .as_array()
+            .is_some_and(|channels| channels.iter().any(|c| c == &selected_channel))
     {
         let material = tenant_keyed_digest(
             config.index_key(),
             &community_id,
             b"airhop.booking-messenger-handoff.v1",
-            &[&credential.token_digest, idempotency_key.as_bytes()],
+            &[
+                &credential.token_digest,
+                idempotency_key.as_bytes(),
+                selected_channel.as_bytes(),
+            ],
         );
         let token = format!("ahh_{}", URL_SAFE_NO_PAD.encode(material));
         let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
         if let Some(launch) = state
             .db
-            .issue_airhop_booking_handoff(&tenant, credential, digest)
+            .issue_airhop_booking_handoff_for_channel(
+                &tenant,
+                credential,
+                digest,
+                &selected_channel,
+            )
             .await
             .map_err(map_public_management_error)?
         {
-            if launch
-                .bot_username
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-            {
-                response["messengerHandoff"] = json!({
-                    "url": format!("https://t.me/{}?start={token}", launch.bot_username),
-                    "expiresAt": launch.expires_at,
-                });
-            }
+            let url = if selected_channel == "whatsapp" {
+                let phone: String = launch
+                    .bot_username
+                    .chars()
+                    .filter(char::is_ascii_digit)
+                    .collect();
+                format!("https://wa.me/{phone}?text={token}")
+            } else {
+                format!("https://t.me/{}?start={token}", launch.bot_username)
+            };
+            response["messengerHandoff"] =
+                json!({"url":url,"channel":selected_channel,"expiresAt":launch.expires_at});
         }
     }
     no_store_json(response)

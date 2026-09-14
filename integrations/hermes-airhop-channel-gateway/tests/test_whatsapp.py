@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import time
@@ -43,13 +44,15 @@ class FakeClient:
         self.completed = []
         self.closed = False
 
-    async def resolve_route(self, provider_chat_id):
+    async def resolve_route(self, provider_chat_id, handoff_token_digest=None):
+        self.handoff_token_digest = handoff_token_digest
         self.provider_chat_id = provider_chat_id
         return RouteResolution(
             conversation_id="10000000-0000-0000-0000-000000000001",
             channel_id="20000000-0000-0000-0000-000000000002",
             route_status="active",
             connection_status="active",
+            handoff_status="connected" if handoff_token_digest else None,
         )
 
     async def ingest(self, provider_event_id, event):
@@ -63,8 +66,12 @@ class FakeClient:
     async def claim(self, **_values):
         return []
 
-    async def complete_delivered(self, **values):
-        self.completed.append(("delivered", values))
+    async def whatsapp_status(self, receipt):
+        self.completed.append(("receipt", receipt))
+        return True
+
+    async def complete_accepted(self, **values):
+        self.completed.append(("accepted", values))
         return {}
 
     async def complete_failed(self, **values):
@@ -85,6 +92,13 @@ class FakeGraph:
 
     async def healthcheck(self):
         return GraphHealth(True)
+
+    async def list_templates(self):
+        return getattr(self, "templates", [])
+
+    async def send_template(self, recipient, template, parameters):
+        self.sent.append((recipient, template, parameters))
+        return self.send_result
 
     async def send_text(self, recipient, content):
         self.sent.append((recipient, content))
@@ -115,8 +129,7 @@ def webhook_payload(*, message_type="text", waba_id=None, phone_number_id=None):
                         "field": "messages",
                         "value": {
                             "metadata": {
-                                "phone_number_id": phone_number_id
-                                or "345678901234567"
+                                "phone_number_id": phone_number_id or "345678901234567"
                             },
                             "messages": [message],
                         },
@@ -178,9 +191,12 @@ class WhatsAppGatewayRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.tempdir.cleanup()
 
     def signature(self, body):
-        return "sha256=" + hmac.new(
-            self.credential.app_secret.encode(), body, hashlib.sha256
-        ).hexdigest()
+        return (
+            "sha256="
+            + hmac.new(
+                self.credential.app_secret.encode(), body, hashlib.sha256
+            ).hexdigest()
+        )
 
     async def test_verification_signature_durability_and_relay_ingest(self):
         rejected = await self.router.verification(
@@ -198,9 +214,7 @@ class WhatsAppGatewayRuntimeTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual((accepted.status, accepted.body), (200, b"challenge-value"))
         self.assertEqual(
-            await self.runtime.spool.get_runtime_state(
-                "whatsapp_webhook_verified"
-            ),
+            await self.runtime.spool.get_runtime_state("whatsapp_webhook_verified"),
             "true",
         )
 
@@ -225,81 +239,25 @@ class WhatsAppGatewayRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.client.ingested), 1)
         provider_event_id, event = self.client.ingested[0]
         self.assertEqual(provider_event_id, "whatsapp:message:wamid.inbound.1")
-        self.assertIn(
-            ["airhop-provider", "whatsapp_cloud"], event["tags"]
-        )
+        self.assertIn(["airhop-provider", "whatsapp_cloud"], event["tags"])
         self.assertNotIn(self.credential.app_secret, repr(event))
         self.assertNotIn(self.credential.access_token, repr(event))
 
     async def test_credential_rotation_requires_fresh_webhook_verification(self):
-        await self.runtime.spool.set_runtime_state(
-            "whatsapp_webhook_verified", "true"
-        )
-        await self.runtime.spool.set_runtime_state(
-            "whatsapp_webhook_verified_version", "1"
-        )
-        rotated = WhatsAppGatewayRuntime(
-            settings=self.settings,
-            credential=self.credential,
-            client=self.client,
-            signer=FakeSigner(),
-            router=self.router,
-            spool=self.runtime.spool,
-            graph=self.graph,
-            credential_version=2,
-        )
-
-        await rotated._restore_webhook_verification()
-        self.assertFalse(rotated.capabilities["webhook_verified"])
-
-        accepted = await rotated.verify_webhook(
-            mode="subscribe",
-            verify_token=self.credential.verify_token,
-            challenge="rotated-challenge",
-        )
-        self.assertEqual(accepted.status, 200)
+        await self.runtime.spool.set_runtime_state("whatsapp_webhook_verified", "true")
+        await self.runtime._load_webhook_verification_state()
+        self.assertTrue(self.runtime._webhook_verified)
         self.assertEqual(
-            await self.runtime.spool.get_runtime_state(
-                "whatsapp_webhook_verified_version"
-            ),
-            "2",
-        )
-
-        restored = WhatsAppGatewayRuntime(
-            settings=self.settings,
-            credential=self.credential,
-            client=self.client,
-            signer=FakeSigner(),
-            router=self.router,
-            spool=self.runtime.spool,
-            graph=self.graph,
-            credential_version=2,
-        )
-        await restored._restore_webhook_verification()
-        self.assertTrue(restored.capabilities["webhook_verified"])
-
-    async def test_legacy_verified_state_is_adopted_only_at_revision_one(self):
-        await self.runtime.spool.set_runtime_state(
-            "whatsapp_webhook_verified", "true"
-        )
-        legacy = WhatsAppGatewayRuntime(
-            settings=self.settings,
-            credential=self.credential,
-            client=self.client,
-            signer=FakeSigner(),
-            router=self.router,
-            spool=self.runtime.spool,
-            graph=self.graph,
-            credential_version=1,
-        )
-
-        await legacy._restore_webhook_verification()
-        self.assertTrue(legacy.capabilities["webhook_verified"])
-        self.assertEqual(
-            await self.runtime.spool.get_runtime_state(
-                "whatsapp_webhook_verified_version"
-            ),
+            await self.runtime.spool.get_runtime_state("whatsapp_credential_version"),
             "1",
+        )
+
+        self.runtime.settings = replace(self.settings, credential_version=2)
+        await self.runtime._load_webhook_verification_state()
+        self.assertFalse(self.runtime._webhook_verified)
+        self.assertEqual(
+            await self.runtime.spool.get_runtime_state("whatsapp_webhook_verified"),
+            "false",
         )
 
     async def test_payload_is_fenced_to_exact_waba_and_phone(self):
@@ -319,7 +277,9 @@ class WhatsAppGatewayRuntimeTest(unittest.IsolatedAsyncioTestCase):
     async def test_oversized_message_batch_is_rejected_before_spooling(self):
         payload = webhook_payload()
         messages = payload["entry"][0]["changes"][0]["value"]["messages"]
-        messages.extend(dict(messages[0], id=f"wamid.inbound.{index}") for index in range(101))
+        messages.extend(
+            dict(messages[0], id=f"wamid.inbound.{index}") for index in range(101)
+        )
         body = json.dumps(payload, separators=(",", ":")).encode()
         response = await self.router.notification(
             self.connection_id,
@@ -358,7 +318,7 @@ class WhatsAppGatewayRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.graph.sent), 1)
         self.assertEqual(
             [status for status, _ in self.client.completed],
-            ["delivered", "delivered"],
+            ["accepted", "accepted"],
         )
 
     async def test_outbound_outside_service_window_requires_template(self):
@@ -436,3 +396,245 @@ class WhatsAppGraphClientTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhatsAppReceiptAndTemplateTest(WhatsAppGatewayRuntimeTest):
+    async def push(self, payload):
+        body = json.dumps(payload, separators=(",", ":")).encode()
+        return await self.runtime.accept_webhook(
+            signature=self.signature(body), body=body
+        )
+
+    async def test_status_survives_restart_and_does_not_open_service_window(self):
+        payload = webhook_payload()
+        value = payload["entry"][0]["changes"][0]["value"]
+        value.pop("messages")
+        value["statuses"] = [
+            {
+                "id": "wamid.sent",
+                "status": "failed",
+                "recipient_id": "5511999990000",
+                "timestamp": str(int(time.time())),
+                "errors": [{"code": 131026, "message": "private error"}],
+            }
+        ]
+        self.assertEqual((await self.push(payload)).status, 200)
+        self.assertEqual((await self.push(payload)).status, 200)
+        self.assertIsNone(await self.runtime.spool.last_inbound_at("5511999990000"))
+        from airhop_hermes_gateway.whatsapp_status import WhatsAppStatusSpool
+
+        self.runtime.status_spool = WhatsAppStatusSpool(self.runtime.status_spool.path)
+        self.assertEqual(len(await self.runtime.status_spool.due_statuses()), 1)
+        await self.runtime._flush_statuses()
+        self.assertEqual(self.client.completed[0][1]["errorCode"], "whatsapp_131026")
+        self.assertNotIn("private", json.dumps(self.client.completed))
+        self.assertEqual(await self.runtime.status_spool.due_statuses(), [])
+
+    async def test_early_receipt_waits_for_acceptance(self):
+        receipt = {
+            "providerMessageId": "wamid.early",
+            "recipient": "5511999990000",
+            "status": "read",
+            "timestamp": int(time.time()),
+            "errorCode": None,
+        }
+        await self.runtime.status_spool.put_statuses([receipt])
+
+        async def not_yet(_):
+            return False
+
+        self.client.whatsapp_status = not_yet
+        await self.runtime._flush_statuses()
+        with self.runtime.status_spool._connect() as db:
+            self.assertEqual(
+                db.execute("SELECT done FROM whatsapp_statuses").fetchone()[0], 0
+            )
+            db.execute("UPDATE whatsapp_statuses SET next_attempt_at=0")
+        self.assertEqual(len(await self.runtime.status_spool.due_statuses()), 1)
+
+    async def test_booking_token_is_hashed_and_redacted_before_ack(self):
+        payload = webhook_payload()
+        token = "ahh_" + "a" * 43
+        payload["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"] = (
+            token
+        )
+        self.assertEqual((await self.push(payload)).status, 200)
+        item = await self.runtime.spool.claim()
+        self.assertEqual(
+            item.handoff_token_digest, hashlib.sha256(token.encode()).hexdigest()
+        )
+        self.assertNotIn(token, item.content)
+        await self.runtime._deliver_inbound(item)
+        self.assertEqual(self.client.handoff_token_digest, item.handoff_token_digest)
+        self.assertIn("Чат подтверждён", self.client.ingested[0][1]["content"])
+        self.assertNotIn(token, json.dumps(self.client.ingested))
+
+    async def test_template_outside_window_preserves_exact_reviewed_content(self):
+        template = {
+            "name": "lesson_update",
+            "language": "pt_BR",
+            "body": "Sua aula: {{1}}",
+            "header": "AirHop",
+            "footer": "Obrigado",
+            "parameterCount": 1,
+        }
+        self.graph.templates = [template]
+        job = outbound_job(self.connection_id)
+        job["actorKind"] = "staff"
+        job["event"]["content"] = "AirHop\nSua aula: 10:00\nObrigado"
+        job["event"]["tags"] = [
+            [
+                "airhop-whatsapp-template",
+                json.dumps(
+                    {
+                        "name": "lesson_update",
+                        "language": "pt_BR",
+                        "parameters": ["10:00"],
+                    }
+                ),
+            ]
+        ]
+        await self.runtime._deliver_outbound(job)
+        self.assertEqual(self.graph.sent[0][2], ["10:00"])
+        self.assertEqual(self.client.completed[0][0], "accepted")
+        self.assertIsNone(await self.runtime.spool.last_inbound_at("5511999990000"))
+
+    async def test_changed_or_revoked_template_is_not_sent(self):
+        job = outbound_job(self.connection_id)
+        job["actorKind"] = "staff"
+        job["event"]["tags"] = [
+            [
+                "airhop-whatsapp-template",
+                json.dumps({"name": "revoked", "language": "pt_BR", "parameters": []}),
+            ]
+        ]
+        await self.runtime._deliver_outbound(job)
+        self.assertEqual(self.graph.sent, [])
+        self.assertEqual(
+            self.client.completed[0][1]["error_code"], "whatsapp_template_changed"
+        )
+
+    async def test_uncertain_provider_response_is_never_automatically_resent(self):
+        await self.runtime.spool.put(
+            provider_event_id="activity",
+            provider_chat_id="5511999990000",
+            content="oi",
+            received_at=int(time.time()),
+            touch_inbound_at=int(time.time()),
+        )
+        calls = []
+
+        async def timeout(*args):
+            calls.append(args)
+            raise httpx.ReadTimeout("response lost")
+
+        self.graph.send_text = timeout
+        job = outbound_job(self.connection_id)
+        await self.runtime._deliver_outbound(job)
+        await self.runtime._deliver_outbound(job)
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(
+            all(
+                values["error_code"] == "whatsapp_send_uncertain"
+                and not values["retryable"]
+                for _, values in self.client.completed
+            )
+        )
+
+    async def test_graph_template_catalog_and_send_never_follow_foreign_paging_urls(
+        self,
+    ):
+        requests = []
+
+        def handler(request):
+            requests.append(request)
+            if request.method == "POST":
+                return httpx.Response(
+                    200, json={"messages": [{"id": "wamid.template"}]}
+                )
+            if "after" in request.url.params:
+                return httpx.Response(200, json={"data": []})
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "name": "lesson",
+                            "language": "pt_BR",
+                            "status": "APPROVED",
+                            "category": "UTILITY",
+                            "components": [{"type": "BODY", "text": "Aula {{1}}"}],
+                        }
+                    ],
+                    "paging": {
+                        "next": "https://foreign.invalid/private",
+                        "cursors": {"after": "cursor"},
+                    },
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            graph = WhatsAppGraphClient(
+                credential=self.credential,
+                graph_origin="https://graph.example/v25.0",
+                timeout_seconds=5,
+                http_client=http,
+            )
+            catalog = await graph.list_templates()
+            result = await graph.send_template("5511999990000", catalog[0], ["10:00"])
+        self.assertTrue(result.success)
+        self.assertEqual(len(requests), 3)
+        self.assertTrue(all(r.url.host == "graph.example" for r in requests))
+        payload = json.loads(requests[-1].content)
+        self.assertEqual(payload["type"], "template")
+        self.assertEqual(
+            payload["template"],
+            {
+                "name": "lesson",
+                "language": {"code": "pt_BR"},
+                "components": [
+                    {"type": "body", "parameters": [{"type": "text", "text": "10:00"}]}
+                ],
+            },
+        )
+
+
+class WhatsAppTemplateValidationTest(unittest.TestCase):
+    def test_only_approved_utility_text_with_contiguous_parameters(self):
+        from airhop_hermes_gateway.whatsapp_templates import (
+            normalize_template,
+            render_template,
+        )
+
+        value = {
+            "name": "lesson",
+            "language": "pt_BR",
+            "category": "UTILITY",
+            "status": "APPROVED",
+            "components": [{"type": "BODY", "text": "Aula {{1}}, {{2}}"}],
+        }
+        template = normalize_template(value)
+        self.assertEqual(render_template(template, ["Ana", "10:00"]), "Aula Ana, 10:00")
+        for field, replacement in [
+            ("status", "PAUSED"),
+            ("category", "MARKETING"),
+            ("language", "bad/locale"),
+        ]:
+            self.assertIsNone(normalize_template({**value, field: replacement}))
+        for text in ["{{2}}", "{{name}}", "{{1}} {broken}", "{{11}}"]:
+            self.assertIsNone(
+                normalize_template(
+                    {**value, "components": [{"type": "BODY", "text": text}]}
+                )
+            )
+        with self.assertRaises(ValueError):
+            render_template(template, ["{{2}}", "secret"])
+        self.assertIsNone(
+            normalize_template(
+                {
+                    **value,
+                    "components": value["components"]
+                    + [{"type": "BUTTONS", "buttons": []}],
+                }
+            )
+        )

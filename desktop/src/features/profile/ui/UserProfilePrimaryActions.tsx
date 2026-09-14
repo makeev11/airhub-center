@@ -20,6 +20,7 @@ import { cn } from "@/shared/lib/cn";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Spinner } from "@/shared/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { localePair, messageText } from "@/shared/locale/messengerCopy";
 
 // ── Primary actions ──────────────────────────────────────────────────────────
 
@@ -62,9 +63,10 @@ export function ProfilePrimaryActions({
     followToggleMutation.mutate(pubkey, {
       onError: (error) =>
         toast.error(
-          isRussian
-            ? `Не удалось ${isFollowing ? "отписаться" : "подписаться"}: ${error.message}`
-            : `${isFollowing ? "Unfollow" : "Follow"} failed: ${error.message}`,
+          localePair(
+            `Не удалось ${isFollowing ? "отписаться" : "подписаться"}: ${error.message}`,
+            `${isFollowing ? "Unfollow" : "Follow"} failed: ${error.message}`,
+          ),
         ),
     });
   };
@@ -82,8 +84,8 @@ export function ProfilePrimaryActions({
                 ? "Отписаться"
                 : "Подписаться"
               : isFollowing
-                ? "Unfollow"
-                : "Follow"
+                ? messageText("Unfollow")
+                : messageText("Follow")
           }
           onClick={handleFollowClick}
         />
@@ -93,7 +95,7 @@ export function ProfilePrimaryActions({
           disabled={messagePending}
           icon={MessageSquare}
           isLoading={messagePending}
-          label={isRussian ? "Написать" : "Message"}
+          label={localePair("Написать", "Message")}
           onClick={onMessage}
           testId="user-profile-message"
         />
@@ -101,7 +103,7 @@ export function ProfilePrimaryActions({
       {canEditAgent ? (
         <ProfileQuickAction
           icon={Pencil}
-          label={isRussian ? "Изменить" : "Edit"}
+          label={localePair("Изменить", "Edit")}
           onClick={onEditAgent}
           testId="user-profile-edit-agent"
         />
@@ -120,7 +122,7 @@ export function ProfilePrimaryActions({
         <ProfileQuickAction
           disabled={agentActionDisabled}
           icon={RefreshCw}
-          label={isRussian ? "Перезапустить" : "Restart"}
+          label={localePair("Перезапустить", "Restart")}
           onClick={onAgentRestart}
           testId="user-profile-agent-restart"
         />
@@ -128,7 +130,7 @@ export function ProfilePrimaryActions({
       {onCreateCard ? (
         <ProfileQuickAction
           icon={Sparkles}
-          label={isRussian ? "Создать карточку" : "Create card"}
+          label={localePair("Создать карточку", "Create card")}
           onClick={onCreateCard}
           testId="user-profile-create-card"
         />
@@ -150,13 +152,12 @@ export function ProfilePersonaPrimaryActions({
   onEditAgent: () => void;
   onStartAgent: () => void;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <div className="flex items-center justify-center gap-8">
       <ProfileQuickAction
         disabled={disabled}
         icon={Play}
-        label={isRussian ? "Запустить агента" : "Start agent"}
+        label={localePair("Запустить агента", "Start agent")}
         onClick={onStartAgent}
         testId="user-profile-start-agent"
       />
@@ -164,7 +165,7 @@ export function ProfilePersonaPrimaryActions({
         <ProfileQuickAction
           disabled={disabled}
           icon={Pencil}
-          label={isRussian ? "Изменить" : "Edit"}
+          label={localePair("Изменить", "Edit")}
           onClick={onEditAgent}
           testId="user-profile-edit-agent"
         />
@@ -173,7 +174,7 @@ export function ProfilePersonaPrimaryActions({
         <ProfileQuickAction
           disabled={disabled}
           icon={Sparkles}
-          label={isRussian ? "Создать карточку" : "Create card"}
+          label={localePair("Создать карточку", "Create card")}
           onClick={onCreateCard}
           testId="user-profile-create-card"
         />

@@ -7,8 +7,10 @@ import {
   SettingsOptionRow,
 } from "./ui/SettingsOptionGroup";
 import { SettingsSectionHeader } from "./ui/SettingsSectionHeader";
+import { localizeCopyTree } from "@/shared/locale/messengerCopy";
 export function UpdateChecker() {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   const copy = isRussian
     ? {
         title: "Обновления",
@@ -34,31 +36,34 @@ export function UpdateChecker() {
         failed: (message: string) => `Не удалось обновить: ${message}`,
         retry: "Повторить",
       }
-    : {
-        title: "Software updates",
-        description:
-          "Keep AirHop up to date with the latest features and fixes.",
-        status: "Update status",
-        checkHint: "Check if a new version is available.",
-        check: "Check for updates",
-        checking: "Checking for updates…",
-        latest: "You're on the latest version.",
-        again: "Check again",
-        unavailable:
-          "Automatic updates aren't available on this build. Download the latest release manually.",
-        available: (version: string) => `Update available — v${version}`,
-        linux:
-          "In-app updates aren't supported on this Linux package. Download the new version from the release page.",
-        appImage: "Switch to the AppImage build for automatic updates.",
-        download: "Download update",
-        preparing: "Preparing update…",
-        downloading: "Downloading update…",
-        installing: "Installing update…",
-        ready: "Update downloaded and ready to install.",
-        install: "Update now",
-        failed: (message: string) => `Update failed: ${message}`,
-        retry: "Retry",
-      };
+    : localizeCopyTree(
+        {
+          title: "Software updates",
+          description:
+            "Keep AirHop up to date with the latest features and fixes.",
+          status: "Update status",
+          checkHint: "Check if a new version is available.",
+          check: "Check for updates",
+          checking: "Checking for updates…",
+          latest: "You're on the latest version.",
+          again: "Check again",
+          unavailable:
+            "Automatic updates aren't available on this build. Download the latest release manually.",
+          available: (version: string) => `Update available — v${version}`,
+          linux:
+            "In-app updates aren't supported on this Linux package. Download the new version from the release page.",
+          appImage: "Switch to the AppImage build for automatic updates.",
+          download: "Download update",
+          preparing: "Preparing update…",
+          downloading: "Downloading update…",
+          installing: "Installing update…",
+          ready: "Update downloaded and ready to install.",
+          install: "Update now",
+          failed: (message: string) => `Update failed: ${message}`,
+          retry: "Retry",
+        },
+        locale,
+      );
   const { status, checkForUpdate, installAndRelaunch } = useUpdaterContext();
 
   return (

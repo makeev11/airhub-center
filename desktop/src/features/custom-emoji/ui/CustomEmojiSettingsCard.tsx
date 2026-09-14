@@ -14,11 +14,11 @@ import {
 } from "@/shared/api/customEmoji";
 import { pickAndUploadMedia } from "@/shared/api/tauri";
 import { rewriteRelayUrl } from "@/shared/lib/mediaUrl";
-import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { SettingsOptionGroup } from "@/features/settings/ui/SettingsOptionGroup";
 import { SettingsSectionHeader } from "@/features/settings/ui/SettingsSectionHeader";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 /**
  * Custom emoji management (NIP-30, kind:30030). Each member owns their own set:
@@ -30,7 +30,6 @@ import { SettingsSectionHeader } from "@/features/settings/ui/SettingsSectionHea
  * deterministic winner (see `unionCustomEmoji`).
  */
 export function CustomEmojiSettingsCard() {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const { data: own = [], isLoading: ownLoading } = useOwnCustomEmojiQuery();
   const { data: community = [], isLoading: communityLoading } =
     useCustomEmojiQuery();
@@ -65,9 +64,10 @@ export function CustomEmojiSettingsCard() {
       }
       if (!blob.type.startsWith("image/")) {
         toast.error(
-          isRussian
-            ? "Выберите изображение для эмодзи."
-            : "Choose an image file for custom emoji.",
+          localePair(
+            "Выберите изображение для эмодзи.",
+            "Choose an image file for custom emoji.",
+          ),
         );
         return;
       }
@@ -82,14 +82,15 @@ export function CustomEmojiSettingsCard() {
       toast.error(
         error instanceof Error
           ? error.message
-          : isRussian
-            ? "Не удалось загрузить изображение эмодзи."
-            : "Failed to upload emoji image.",
+          : localePair(
+              "Не удалось загрузить изображение эмодзи.",
+              "Failed to upload emoji image.",
+            ),
       );
     } finally {
       setIsUploading(false);
     }
-  }, [isRussian, name]);
+  }, [name]);
 
   const handleAdd = React.useCallback(async () => {
     if (normalized === null || pendingUpload === null) return;
@@ -101,18 +102,16 @@ export function CustomEmojiSettingsCard() {
       setName("");
       setPendingUpload(null);
       toast.success(
-        isRussian ? `Эмодзи :${stored}: добавлен` : `Added :${stored}:`,
+        localePair(`Эмодзи :${stored}: добавлен`, `Added :${stored}:`),
       );
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : isRussian
-            ? "Не удалось добавить эмодзи."
-            : "Failed to add emoji.",
+          : localePair("Не удалось добавить эмодзи.", "Failed to add emoji."),
       );
     }
-  }, [isRussian, normalized, pendingUpload, setEmoji]);
+  }, [normalized, pendingUpload, setEmoji]);
 
   const handleReset = React.useCallback(() => {
     setName("");
@@ -124,19 +123,20 @@ export function CustomEmojiSettingsCard() {
       try {
         await removeEmoji.mutateAsync(shortcode);
         toast.success(
-          isRussian ? `Эмодзи :${shortcode}: удалён` : `Removed :${shortcode}:`,
+          localePair(`Эмодзи :${shortcode}: удалён`, `Removed :${shortcode}:`),
         );
       } catch (error) {
         toast.error(
           error instanceof Error
             ? error.message
-            : isRussian
-              ? "Не удалось удалить эмодзи."
-              : "Failed to remove emoji.",
+            : localePair(
+                "Не удалось удалить эмодзи.",
+                "Failed to remove emoji.",
+              ),
         );
       }
     },
-    [isRussian, removeEmoji],
+    [removeEmoji],
   );
 
   // Community emoji owned by someone else (so the caller can't remove them).
@@ -146,14 +146,15 @@ export function CustomEmojiSettingsCard() {
   return (
     <section className="min-w-0" data-testid="settings-custom-emoji">
       <SettingsSectionHeader
-        title={isRussian ? "Свои эмодзи" : "Custom emoji"}
+        title={localePair("Свои эмодзи", "Custom emoji")}
         description={
           <>
-            {isRussian
-              ? "Добавляйте эмодзи, которыми сможет пользоваться вся команда. В сообщениях и реакциях вводите "
-              : "Add your own custom emoji for everyone in the center to use. Type "}
+            {localePair(
+              "Добавляйте эмодзи, которыми сможет пользоваться вся команда. В сообщениях и реакциях вводите ",
+              "Add your own custom emoji for everyone in the center to use. Type ",
+            )}
             <code>:name:</code>
-            {isRussian ? "." : " in messages and reactions."}
+            {localePair(".", " in messages and reactions.")}
           </>
         }
       />
@@ -170,23 +171,23 @@ export function CustomEmojiSettingsCard() {
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
               <div className="min-w-0 flex-[1_1_22rem]">
                 <h4 className="text-sm font-medium">
-                  {isRussian ? "Загрузите изображение" : "Upload an image"}
+                  {localePair("Загрузите изображение", "Upload an image")}
                 </h4>
                 <p className="text-sm font-normal text-muted-foreground">
-                  {isRussian
-                    ? "Лучше всего подходят квадратные изображения. Поддерживаются GIF, PNG, JPEG и WebP."
-                    : "Square images work best. GIF, PNG, JPEG, and WebP files are supported."}
+                  {localePair(
+                    "Лучше всего подходят квадратные изображения. Поддерживаются GIF, PNG, JPEG и WebP.",
+                    "Square images work best. GIF, PNG, JPEG, and WebP files are supported.",
+                  )}
                 </p>
               </div>
               <div className="flex min-w-0 flex-[1_1_16rem] items-center gap-3">
                 <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border bg-background">
                   {pendingUpload ? (
                     <img
-                      alt={
-                        isRussian
-                          ? "Предпросмотр выбранного эмодзи"
-                          : "Selected custom emoji preview"
-                      }
+                      alt={localePair(
+                        "Предпросмотр выбранного эмодзи",
+                        "Selected custom emoji preview",
+                      )}
                       src={rewriteRelayUrl(pendingUpload.url)}
                       className="h-14 w-14 object-contain"
                       draggable={false}
@@ -209,16 +210,10 @@ export function CustomEmojiSettingsCard() {
                     variant="outline"
                   >
                     {isUploading
-                      ? isRussian
-                        ? "Загружаем…"
-                        : "Uploading…"
+                      ? localePair("Загружаем…", "Uploading…")
                       : pendingUpload
-                        ? isRussian
-                          ? "Выбрать другое"
-                          : "Choose different image"
-                        : isRussian
-                          ? "Загрузить изображение"
-                          : "Upload image"}
+                        ? localePair("Выбрать другое", "Choose different image")
+                        : localePair("Загрузить изображение", "Upload image")}
                   </Button>
                 </div>
               </div>
@@ -227,12 +222,13 @@ export function CustomEmojiSettingsCard() {
             <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3 text-sm">
               <div className="min-w-0 flex-[1_1_22rem]">
                 <h4 className="text-sm font-medium">
-                  {isRussian ? "Назовите эмодзи" : "Give it a name"}
+                  {localePair("Назовите эмодзи", "Give it a name")}
                 </h4>
                 <p className="text-sm font-normal text-muted-foreground">
-                  {isRussian
-                    ? "Это имя нужно будет вводить в сообщениях и реакциях."
-                    : "This is what you’ll type to add this emoji to messages and reactions."}
+                  {localePair(
+                    "Это имя нужно будет вводить в сообщениях и реакциях.",
+                    "This is what you’ll type to add this emoji to messages and reactions.",
+                  )}
                 </p>
               </div>
               <div className="w-full min-w-0 max-w-sm flex-[1_1_20rem] space-y-2">
@@ -257,21 +253,24 @@ export function CustomEmojiSettingsCard() {
                 </div>
                 {nameInvalid ? (
                   <p className="text-sm text-destructive">
-                    {isRussian
-                      ? "Используйте только буквы, цифры, дефис или подчёркивание."
-                      : "Use only letters, numbers, hyphen, or underscore."}
+                    {localePair(
+                      "Используйте только буквы, цифры, дефис или подчёркивание.",
+                      "Use only letters, numbers, hyphen, or underscore.",
+                    )}
                   </p>
                 ) : pendingUpload === null ? (
                   <p className="text-sm font-normal text-muted-foreground">
-                    {isRussian
-                      ? "Сначала выберите изображение — Airhop предложит имя по названию файла."
-                      : "Choose an image first; Airhop will suggest a name from the filename."}
+                    {localePair(
+                      "Сначала выберите изображение — Airhop предложит имя по названию файла.",
+                      "Choose an image first; Airhop will suggest a name from the filename.",
+                    )}
                   </p>
                 ) : ownDuplicate ? (
                   <p className="text-sm font-normal text-muted-foreground">
-                    {isRussian
-                      ? `Эмодзи :${normalized}: уже существует — новое изображение заменит старое.`
-                      : `You already have :${normalized}: — saving will replace its image.`}
+                    {localePair(
+                      `Эмодзи :${normalized}: уже существует — новое изображение заменит старое.`,
+                      `You already have :${normalized}: — saving will replace its image.`,
+                    )}
                   </p>
                 ) : null}
               </div>
@@ -286,7 +285,7 @@ export function CustomEmojiSettingsCard() {
                   setEmoji.isPending || (name.length === 0 && !pendingUpload)
                 }
               >
-                {isRussian ? "Очистить" : "Clear"}
+                {localePair("Очистить", "Clear")}
               </Button>
               <Button
                 type="submit"
@@ -294,12 +293,8 @@ export function CustomEmojiSettingsCard() {
                 disabled={!canSubmit}
               >
                 {setEmoji.isPending
-                  ? isRussian
-                    ? "Сохраняем…"
-                    : "Saving…"
-                  : isRussian
-                    ? "Сохранить эмодзи"
-                    : "Save emoji"}
+                  ? localePair("Сохраняем…", "Saving…")
+                  : localePair("Сохранить эмодзи", "Save emoji")}
               </Button>
             </div>
           </SettingsOptionGroup>
@@ -307,21 +302,22 @@ export function CustomEmojiSettingsCard() {
 
         <div className="space-y-3" data-testid="custom-emoji-mine">
           <h2 className="text-lg font-semibold tracking-tight">
-            {isRussian ? "Мои эмодзи" : "My emoji"}
+            {localePair("Мои эмодзи", "My emoji")}
             {own.length > 0 ? ` (${own.length})` : ""}
           </h2>
           {ownLoading ? (
             <SettingsOptionGroup>
               <div className="px-4 py-3 text-sm font-normal text-muted-foreground">
-                {isRussian ? "Загружаем…" : "Loading…"}
+                {localePair("Загружаем…", "Loading…")}
               </div>
             </SettingsOptionGroup>
           ) : own.length === 0 ? (
             <SettingsOptionGroup>
               <div className="px-4 py-3 text-sm font-normal text-muted-foreground">
-                {isRussian
-                  ? "Вы пока не добавили ни одного эмодзи."
-                  : "You haven't added any emoji yet. Add one above."}
+                {localePair(
+                  "Вы пока не добавили ни одного эмодзи.",
+                  "You haven't added any emoji yet. Add one above.",
+                )}
               </div>
             </SettingsOptionGroup>
           ) : (
@@ -341,11 +337,10 @@ export function CustomEmojiSettingsCard() {
                     :{e.shortcode}:
                   </span>
                   <Button
-                    aria-label={
-                      isRussian
-                        ? `Удалить :${e.shortcode}:`
-                        : `Remove :${e.shortcode}:`
-                    }
+                    aria-label={localePair(
+                      `Удалить :${e.shortcode}:`,
+                      `Remove :${e.shortcode}:`,
+                    )}
                     size="icon"
                     variant="ghost"
                     onClick={() => void handleRemove(e.shortcode)}
@@ -362,13 +357,14 @@ export function CustomEmojiSettingsCard() {
         {!communityLoading && othersEmoji.length > 0 ? (
           <div className="space-y-3" data-testid="custom-emoji-community">
             <h2 className="text-lg font-semibold tracking-tight">
-              {isRussian ? "Эмодзи команды" : "Community emoji"} (
+              {localePair("Эмодзи команды", "Community emoji")} (
               {othersEmoji.length})
             </h2>
             <p className="text-sm font-normal text-muted-foreground">
-              {isRussian
-                ? "Добавлены другими сотрудниками. Пользоваться ими могут все, а удалить может только владелец."
-                : "Added by other employees. Everyone can use them, but only their owner can remove them."}
+              {localePair(
+                "Добавлены другими сотрудниками. Пользоваться ими могут все, а удалить может только владелец.",
+                "Added by other employees. Everyone can use them, but only their owner can remove them.",
+              )}
             </p>
             <SettingsOptionGroup>
               {othersEmoji.map((e) => (

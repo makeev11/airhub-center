@@ -2,8 +2,8 @@
 
 Статус: server foundation, Telegram self-service, WhatsApp own-Meta
 provisioning, credential rotation и hosted WhatsApp text adapter реализованы;
-реальный Meta E2E и template lifecycle остаются release gates.
-Дата: 2026-09-11
+booking handoff, delivery receipts и approved utility text templates реализованы.
+Реальный Meta E2E остаётся release gate. Дата: 2026-09-12
 
 ## Граница ответственности
 
@@ -423,3 +423,53 @@ parent runtime не допускает flat-channel history. Соседние к
 получает superseded. Уже начавшийся внешний сетевой send нельзя отозвать задним числом:
 перед миграцией именно поэтому требуется завершение всех leases. Rollback приложения
 не является rollback данных: после cutover нельзя включать старый per-contact gateway.
+
+
+## WhatsApp delivery и сервисные шаблоны (2026-09-12)
+
+`POST .../channel-gateway/outbound/{outboxId}/complete` принимает дополнительный
+вариант `{"status":"accepted","leaseToken":"uuid","providerMessageId":"wamid..."}`.
+Он разрешён только для WhatsApp; Telegram сохраняет прежний `delivered` callback.
+WhatsApp не может пометить доставку через синхронный callback. `accepted` не
+выбирается повторно claim-ом. Получатель фиксируется при выдаче lease.
+
+`POST .../channel-gateway/connections/{connectionId}/whatsapp-status` использует
+NIP-98 exact connector auth и body:
+
+```json
+{"providerMessageId":"wamid...","recipient":"5511999990000","status":"read","timestamp":1789228800,"errorCode":null}
+```
+
+Допустимы `sent`, `delivered`, `read`, `failed`. Raw webhook проверяет gateway,
+relay повторно проверяет community/connection/connector и recipient snapshot.
+`{"recorded":false}` означает, что соответствующий acceptance ещё не виден;
+gateway сохраняет квитанцию и повторяет позже. Подтверждённая доставка сильнее
+запоздавшей ошибки, `read` не регрессирует. Квитанции хранятся в
+`airhop_whatsapp_delivery_receipts` без исходного payload. Статус-only webhook
+не открывает service window. После 25 часов без подтверждения claim закрывает
+ожидание с `whatsapp_delivery_unconfirmed` и передаёт текущий диалог сотруднику.
+
+`observedCapabilities.utilityTemplates` содержит не более 50 поддерживаемых
+Meta-approved `UTILITY` шаблонов: `name`, `language`, `header`, `body`, `footer`,
+`parameterCount`. `templatesSyncedAt` — epoch seconds, `templatesError` —
+безопасный код ошибки синхронизации. Сервер принимает каталог не старше 10 минут.
+
+Шаблон отправляется обычным staff kind-9 событием, scoped через `h` и NIP-10
+root/reply, с тегом `airhop-whatsapp-template`; второй элемент — JSON
+`{"name":"lesson_update","language":"pt_BR","parameters":["10:00"]}`.
+`content` обязан точно совпадать с полностью отрендеренным шаблоном. Hermes не
+может пользоваться этим тегом. Повтор /events сохраняет один event/outbox id.
+Gateway повторно читает каталог Meta перед отправкой. Нельзя подменить текст,
+отправить отозванный шаблон или обойти ограничение 20 шаблонов/час/connection.
+Поддерживаются до 10 позиционных текстовых параметров BODY, до 500 символов
+каждый, без переносов, табуляции и фигурных скобок; весь текст — до 4096 символов.
+Media/header variables/buttons/named parameters/marketing/authentication
+намеренно отфильтровываются. Создание и одобрение шаблонов выполняется в Meta.
+
+Публичная management card добавляет `confirmationChannels` и `connectedChannels`
+со значением `whatsapp`, а `messengerHandoff.channel` сообщает выбранный канал.
+Старое `telegramConnected` остаётся только Telegram-флагом. WhatsApp launch —
+`https://wa.me/{verifiedNumber}?text=ahh_{opaqueToken}`. Grant живёт 15 минут;
+сырой код передаётся в launch URL и входящем payload; в spool хранится
+его SHA-256 digest и отредактированный текст. Click не подтверждает ни identity,
+ни Booking; Core подтверждает запись отдельно.

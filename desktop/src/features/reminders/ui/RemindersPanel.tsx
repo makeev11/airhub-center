@@ -2,8 +2,6 @@ import { ArrowLeft, Bell, Check, Clock, ExternalLink, X } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
-import { resolveActivationLocale } from "@/features/activation/i18n";
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
@@ -30,11 +28,10 @@ import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 function unknownChannelLabel() {
-  return resolveActivationLocale() === "ru-RU"
-    ? "Неизвестный канал"
-    : "Unknown channel";
+  return localePair("Неизвестный канал", "Unknown channel");
 }
 
 /** Author identity + source channel resolved for a reminder's target. */
@@ -89,47 +86,53 @@ export function useReminderSources(reminders: readonly Reminder[]) {
 }
 
 function formatRelativeTime(timestamp: number): string {
-  const isRussian = resolveActivationLocale() === "ru-RU";
   const now = Math.floor(Date.now() / 1_000);
   const diff = timestamp - now;
 
   if (diff < 0) {
     const absDiff = Math.abs(diff);
-    if (absDiff < 60) return isRussian ? "только что" : "just now";
+    if (absDiff < 60) return localePair("только что", "just now");
     if (absDiff < 3600)
-      return isRussian
-        ? `просрочено на ${Math.floor(absDiff / 60)} мин`
-        : `${Math.floor(absDiff / 60)}m overdue`;
+      return localePair(
+        `просрочено на ${Math.floor(absDiff / 60)} мин`,
+        `${Math.floor(absDiff / 60)}m overdue`,
+      );
     if (absDiff < 86400)
-      return isRussian
-        ? `просрочено на ${Math.floor(absDiff / 3600)} ч`
-        : `${Math.floor(absDiff / 3600)}h overdue`;
-    return isRussian
-      ? `просрочено на ${Math.floor(absDiff / 86400)} дн`
-      : `${Math.floor(absDiff / 86400)}d overdue`;
+      return localePair(
+        `просрочено на ${Math.floor(absDiff / 3600)} ч`,
+        `${Math.floor(absDiff / 3600)}h overdue`,
+      );
+    return localePair(
+      `просрочено на ${Math.floor(absDiff / 86400)} дн`,
+      `${Math.floor(absDiff / 86400)}d overdue`,
+    );
   }
 
   if (diff < 60)
-    return isRussian ? "меньше чем через минуту" : "in less than a minute";
+    return localePair("меньше чем через минуту", "in less than a minute");
   if (diff < 3600)
-    return isRussian
-      ? `через ${Math.floor(diff / 60)} мин`
-      : `in ${Math.floor(diff / 60)}m`;
+    return localePair(
+      `через ${Math.floor(diff / 60)} мин`,
+      `in ${Math.floor(diff / 60)}m`,
+    );
   if (diff < 86400)
-    return isRussian
-      ? `через ${Math.floor(diff / 3600)} ч`
-      : `in ${Math.floor(diff / 3600)}h`;
-  return isRussian
-    ? `через ${Math.floor(diff / 86400)} дн`
-    : `in ${Math.floor(diff / 86400)}d`;
+    return localePair(
+      `через ${Math.floor(diff / 3600)} ч`,
+      `in ${Math.floor(diff / 3600)}h`,
+    );
+  return localePair(
+    `через ${Math.floor(diff / 86400)} дн`,
+    `in ${Math.floor(diff / 86400)}d`,
+  );
 }
 
 function formatReminderSourceLocation(source: ReminderSource): string {
   if (!source.channel) return source.channelLabel;
   return source.channel.channelType === "dm"
-    ? resolveActivationLocale() === "ru-RU"
-      ? `Личная переписка с ${source.channelLabel}`
-      : `DM with ${source.channelLabel}`
+    ? localePair(
+        `Личная переписка с ${source.channelLabel}`,
+        `DM with ${source.channelLabel}`,
+      )
     : `#${source.channelLabel}`;
 }
 
@@ -150,7 +153,6 @@ function ReminderRow({
   onNavigate: (reminder: Reminder) => void;
   onSelect?: (reminder: Reminder) => void;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const { complete, snooze, cancel } = useReminderMutations(pubkey);
   const isDone = reminder.content.status === "done";
   const isActing = complete.isPending || snooze.isPending || cancel.isPending;
@@ -160,13 +162,14 @@ function ReminderRow({
     complete.mutate(reminder, {
       onSuccess: () =>
         toast.success(
-          isRussian ? "Напоминание завершено" : "Reminder completed",
+          localePair("Напоминание завершено", "Reminder completed"),
         ),
       onError: () =>
         toast.error(
-          isRussian
-            ? "Не удалось завершить напоминание"
-            : "Failed to complete reminder",
+          localePair(
+            "Не удалось завершить напоминание",
+            "Failed to complete reminder",
+          ),
         ),
     });
   };
@@ -176,14 +179,13 @@ function ReminderRow({
       { reminder, notBefore },
       {
         onSuccess: () =>
-          toast.success(
-            isRussian ? "Напоминание отложено" : "Reminder snoozed",
-          ),
+          toast.success(localePair("Напоминание отложено", "Reminder snoozed")),
         onError: () =>
           toast.error(
-            isRussian
-              ? "Не удалось отложить напоминание"
-              : "Failed to snooze reminder",
+            localePair(
+              "Не удалось отложить напоминание",
+              "Failed to snooze reminder",
+            ),
           ),
       },
     );
@@ -192,14 +194,13 @@ function ReminderRow({
   const handleCancel = () => {
     cancel.mutate(reminder, {
       onSuccess: () =>
-        toast.success(
-          isRussian ? "Напоминание отменено" : "Reminder cancelled",
-        ),
+        toast.success(localePair("Напоминание отменено", "Reminder cancelled")),
       onError: () =>
         toast.error(
-          isRussian
-            ? "Не удалось отменить напоминание"
-            : "Failed to cancel reminder",
+          localePair(
+            "Не удалось отменить напоминание",
+            "Failed to cancel reminder",
+          ),
         ),
     });
   };
@@ -246,7 +247,7 @@ function ReminderRow({
             <span className="truncate font-medium text-foreground">
               {source.authorLabel}
             </span>
-            <span className="shrink-0">{isRussian ? "в" : "in"}</span>
+            <span className="shrink-0">{localePair("в", "in")}</span>
             <span className="truncate">
               {formatReminderSourceLocation(source)}
             </span>
@@ -255,7 +256,7 @@ function ReminderRow({
         <p className="max-w-full truncate text-sm font-medium">
           {reminder.content.target?.preview ||
             reminder.content.note ||
-            (isRussian ? "Напоминание" : "Reminder")}
+            localePair("Напоминание", "Reminder")}
         </p>
         {reminder.content.target && reminder.content.note ? (
           <p className="max-w-full truncate text-xs text-muted-foreground">
@@ -278,7 +279,7 @@ function ReminderRow({
             disabled={isActing}
             onClick={handleComplete}
             size="sm"
-            title={isRussian ? "Завершить" : "Complete"}
+            title={localePair("Завершить", "Complete")}
             type="button"
             variant="ghost"
           >
@@ -290,7 +291,7 @@ function ReminderRow({
             disabled={isActing}
             onClick={handleCancel}
             size="sm"
-            title={isRussian ? "Отменить" : "Cancel"}
+            title={localePair("Отменить", "Cancel")}
             type="button"
             variant="ghost"
           >
@@ -319,7 +320,6 @@ export function RemindersPanel({
   presentation?: "inbox-list" | "card";
   selectedReminderId?: string | null;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const remindersQuery = useRemindersQuery(pubkey);
   const reminders = remindersQuery.data;
   const { goChannel } = useAppNavigation();
@@ -354,7 +354,7 @@ export function RemindersPanel({
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-muted-foreground">
-          {isRussian ? "Загружаем напоминания…" : "Loading reminders..."}
+          {localePair("Загружаем напоминания…", "Loading reminders...")}
         </p>
       </div>
     );
@@ -365,12 +365,13 @@ export function RemindersPanel({
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8">
         <Bell className="h-8 w-8 text-muted-foreground/50" />
         <p className="text-sm text-muted-foreground">
-          {isRussian ? "Напоминаний нет" : "No reminders"}
+          {localePair("Напоминаний нет", "No reminders")}
         </p>
         <p className="text-xs text-muted-foreground/70">
-          {isRussian
-            ? "Выберите «Напомнить позже» у любого сообщения, чтобы создать напоминание."
-            : 'Use "Remind me later" on any message to create one.'}
+          {localePair(
+            "Выберите «Напомнить позже» у любого сообщения, чтобы создать напоминание.",
+            'Use "Remind me later" on any message to create one.',
+          )}
         </p>
       </div>
     );
@@ -426,7 +427,6 @@ export function ReminderDetailPane({
   pubkey: string;
   reminder: Reminder | null;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const { goChannel } = useAppNavigation();
   const reminderList = React.useMemo(
     () => (reminder ? [reminder] : []),
@@ -441,12 +441,12 @@ export function ReminderDetailPane({
         <TopChromeInsetHeader flush>
           <div className="flex min-h-9 items-center px-4 py-2">
             <span className="text-sm font-semibold">
-              {isRussian ? "Напоминание" : "Reminder"}
+              {localePair("Напоминание", "Reminder")}
             </span>
           </div>
         </TopChromeInsetHeader>
         <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
-          {isRussian ? "Выберите напоминание" : "Select a reminder"}
+          {localePair("Выберите напоминание", "Select a reminder")}
         </div>
       </section>
     );
@@ -459,7 +459,7 @@ export function ReminderDetailPane({
   const preview =
     reminder.content.target?.preview ||
     reminder.content.note ||
-    (isRussian ? "Напоминание" : "Reminder");
+    localePair("Напоминание", "Reminder");
 
   const handleNavigate = async () => {
     const destination = await resolveReminderDestination(
@@ -481,9 +481,10 @@ export function ReminderDetailPane({
         <div className="flex min-h-9 items-center gap-2 px-4 py-2">
           {onBack ? (
             <Button
-              aria-label={
-                isRussian ? "Назад к напоминаниям" : "Back to reminders"
-              }
+              aria-label={localePair(
+                "Назад к напоминаниям",
+                "Back to reminders",
+              )}
               className="h-8 w-8 p-0"
               onClick={onBack}
               size="icon"
@@ -494,7 +495,7 @@ export function ReminderDetailPane({
             </Button>
           ) : null}
           <span className="text-sm font-semibold">
-            {isRussian ? "Напоминание" : "Reminder"}
+            {localePair("Напоминание", "Reminder")}
           </span>
         </div>
       </TopChromeInsetHeader>
@@ -512,7 +513,7 @@ export function ReminderDetailPane({
               <span className="font-medium text-foreground">
                 {source.authorLabel}
               </span>
-              <span>{isRussian ? "в" : "in"}</span>
+              <span>{localePair("в", "in")}</span>
               <span>{formatReminderSourceLocation(source)}</span>
             </div>
           ) : null}
@@ -523,7 +524,7 @@ export function ReminderDetailPane({
           {reminder.content.target && reminder.content.note ? (
             <div className="mt-5 border-l-2 border-border pl-4">
               <p className="text-xs font-medium uppercase text-muted-foreground">
-                {isRussian ? "Заметка" : "Note"}
+                {localePair("Заметка", "Note")}
               </p>
               <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
                 {reminder.content.note}
@@ -547,7 +548,7 @@ export function ReminderDetailPane({
               variant="outline"
             >
               <ExternalLink className="h-4 w-4" />
-              {isRussian ? "Открыть сообщение" : "Open message"}
+              {localePair("Открыть сообщение", "Open message")}
             </Button>
             {isDone ? null : (
               <>
@@ -557,15 +558,17 @@ export function ReminderDetailPane({
                     complete.mutate(reminder, {
                       onSuccess: () =>
                         toast.success(
-                          isRussian
-                            ? "Напоминание завершено"
-                            : "Reminder completed",
+                          localePair(
+                            "Напоминание завершено",
+                            "Reminder completed",
+                          ),
                         ),
                       onError: () =>
                         toast.error(
-                          isRussian
-                            ? "Не удалось завершить напоминание"
-                            : "Failed to complete reminder",
+                          localePair(
+                            "Не удалось завершить напоминание",
+                            "Failed to complete reminder",
+                          ),
                         ),
                     })
                   }
@@ -573,7 +576,7 @@ export function ReminderDetailPane({
                   type="button"
                 >
                   <Check className="h-4 w-4" />
-                  {isRussian ? "Завершить" : "Complete"}
+                  {localePair("Завершить", "Complete")}
                 </Button>
                 <SnoozeMenu
                   disabled={isActing}
@@ -583,15 +586,17 @@ export function ReminderDetailPane({
                       {
                         onSuccess: () =>
                           toast.success(
-                            isRussian
-                              ? "Напоминание отложено"
-                              : "Reminder snoozed",
+                            localePair(
+                              "Напоминание отложено",
+                              "Reminder snoozed",
+                            ),
                           ),
                         onError: () =>
                           toast.error(
-                            isRussian
-                              ? "Не удалось отложить напоминание"
-                              : "Failed to snooze reminder",
+                            localePair(
+                              "Не удалось отложить напоминание",
+                              "Failed to snooze reminder",
+                            ),
                           ),
                       },
                     )
@@ -603,15 +608,17 @@ export function ReminderDetailPane({
                     cancel.mutate(reminder, {
                       onSuccess: () =>
                         toast.success(
-                          isRussian
-                            ? "Напоминание отменено"
-                            : "Reminder cancelled",
+                          localePair(
+                            "Напоминание отменено",
+                            "Reminder cancelled",
+                          ),
                         ),
                       onError: () =>
                         toast.error(
-                          isRussian
-                            ? "Не удалось отменить напоминание"
-                            : "Failed to cancel reminder",
+                          localePair(
+                            "Не удалось отменить напоминание",
+                            "Failed to cancel reminder",
+                          ),
                         ),
                     })
                   }
@@ -620,7 +627,7 @@ export function ReminderDetailPane({
                   variant="ghost"
                 >
                   <X className="h-4 w-4" />
-                  {isRussian ? "Отменить" : "Cancel"}
+                  {localePair("Отменить", "Cancel")}
                 </Button>
               </>
             )}

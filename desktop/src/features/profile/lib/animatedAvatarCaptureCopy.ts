@@ -1,5 +1,8 @@
-export function getAnimatedAvatarCaptureCopy(isRussian: boolean) {
-  return isRussian
+import type { AirHopLocale } from "@/shared/locale/airhopLocale";
+import { localizeCopyTree } from "@/shared/locale/messengerCopy";
+
+export function getAnimatedAvatarCaptureCopy(locale: AirHopLocale) {
+  return locale === "ru-RU"
     ? {
         iphoneCameraError:
           "Камера iPhone не найдена. Убедитесь, что Continuity Camera доступна, и попробуйте ещё раз.",
@@ -28,35 +31,38 @@ export function getAnimatedAvatarCaptureCopy(isRussian: boolean) {
         uploadError: (_error: unknown) =>
           "Не удалось загрузить анимированный аватар.",
       }
-    : {
-        iphoneCameraError:
-          "Could not find an iPhone camera. Make sure Continuity Camera is available, then try again.",
-        cameraAccessError:
-          "Could not access the camera. Check AirHop's camera permission and try again.",
-        recordingFailed: "Recording failed. Try again.",
-        noFrames: "No frames were recorded.",
-        relayRejected: "The Center rejected the recording. Try again.",
-        uploadFailed: "Could not upload the animated avatar.",
-        reviewWarning:
-          "Background removal model couldn't be loaded, so the background was kept. Retake while online to remove it.",
-        liveHelp: "Line up your shot.",
-        recordingHelp: "Recording... hold still-ish.",
-        processingHelp: "Removing the background...",
-        hoverToPlay: "Hover to play",
-        previewLabel: "Avatar preview — drag or use arrow keys to position",
-        startingCamera: "Starting camera",
-        processingRecording: "Processing recording",
-        personSizeTip: "Adjust your size and position in the frame.",
-        reviewHelp: "Pick the still shown before hover.",
-        uploading: "Uploading animated avatar",
-        useAvatar: "Use as avatar",
-        recordingError: (error: unknown) =>
-          error instanceof Error
-            ? error.message
-            : "Recording failed. Try again.",
-        uploadError: (error: unknown) =>
-          error instanceof Error
-            ? error.message
-            : "Could not upload the animated avatar.",
-      };
+    : localizeCopyTree(
+        {
+          iphoneCameraError:
+            "Could not find an iPhone camera. Make sure Continuity Camera is available, then try again.",
+          cameraAccessError:
+            "Could not access the camera. Check AirHop's camera permission and try again.",
+          recordingFailed: "Recording failed. Try again.",
+          noFrames: "No frames were recorded.",
+          relayRejected: "The Center rejected the recording. Try again.",
+          uploadFailed: "Could not upload the animated avatar.",
+          reviewWarning:
+            "Background removal model couldn't be loaded, so the background was kept. Retake while online to remove it.",
+          liveHelp: "Line up your shot.",
+          recordingHelp: "Recording... hold still-ish.",
+          processingHelp: "Removing the background...",
+          hoverToPlay: "Hover to play",
+          previewLabel: "Avatar preview — drag or use arrow keys to position",
+          startingCamera: "Starting camera",
+          processingRecording: "Processing recording",
+          personSizeTip: "Adjust your size and position in the frame.",
+          reviewHelp: "Pick the still shown before hover.",
+          uploading: "Uploading animated avatar",
+          useAvatar: "Use as avatar",
+          recordingError: (error: unknown) =>
+            error instanceof Error
+              ? error.message
+              : "Recording failed. Try again.",
+          uploadError: (error: unknown) =>
+            error instanceof Error
+              ? error.message
+              : "Could not upload the animated avatar.",
+        },
+        locale,
+      );
 }

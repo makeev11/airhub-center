@@ -1,6 +1,4 @@
 import * as React from "react";
-
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { EmojiPicker } from "@/features/custom-emoji/ui/EmojiPicker";
 import { StatusEmoji } from "@/features/user-status/ui/StatusEmoji";
 import {
@@ -13,6 +11,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 type SetStatusDialogProps = {
   open: boolean;
@@ -33,36 +32,35 @@ export function SetStatusDialog({
   onClear,
   hasExistingStatus,
 }: SetStatusDialogProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const presets = React.useMemo(
     () => [
       {
         id: "teaching-a-class",
-        text: isRussian ? "На занятии" : "Teaching a class",
+        text: localePair("На занятии", "Teaching a class"),
         emoji: "🧑‍🏫",
       },
       {
         id: "in-a-meeting",
-        text: isRussian ? "На встрече" : "In a meeting",
+        text: localePair("На встрече", "In a meeting"),
         emoji: "\uD83D\uDDE3\uFE0F",
       },
       {
         id: "commuting",
-        text: isRussian ? "В дороге" : "Commuting",
+        text: localePair("В дороге", "Commuting"),
         emoji: "\uD83D\uDE8C",
       },
       {
         id: "out-sick",
-        text: isRussian ? "Болею" : "Out sick",
+        text: localePair("Болею", "Out sick"),
         emoji: "\uD83E\uDD12",
       },
       {
         id: "vacationing",
-        text: isRussian ? "В отпуске" : "Vacationing",
+        text: localePair("В отпуске", "Vacationing"),
         emoji: "\uD83C\uDFD6\uFE0F",
       },
     ],
-    [isRussian],
+    [],
   );
   const [text, setText] = React.useState(initialText);
   const [emoji, setEmoji] = React.useState(initialEmoji);
@@ -110,12 +108,13 @@ export function SetStatusDialog({
       >
         <DialogHeader>
           <DialogTitle>
-            {isRussian ? "Установить статус" : "Set a status"}
+            {localePair("Установить статус", "Set a status")}
           </DialogTitle>
           <DialogDescription>
-            {isRussian
-              ? "Расскажите коллегам, чем вы заняты."
-              : "Let others know what you're up to."}
+            {localePair(
+              "Расскажите коллегам, чем вы заняты.",
+              "Let others know what you're up to.",
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -125,11 +124,10 @@ export function SetStatusDialog({
               <div className="relative shrink-0">
                 <PopoverTrigger asChild>
                   <button
-                    aria-label={
-                      isRussian
-                        ? "Выбрать эмодзи статуса"
-                        : "Choose status emoji"
-                    }
+                    aria-label={localePair(
+                      "Выбрать эмодзи статуса",
+                      "Choose status emoji",
+                    )}
                     className="flex h-9 w-9 items-center justify-center rounded-md border border-input text-lg transition-colors hover:bg-accent"
                     type="button"
                   >
@@ -142,9 +140,10 @@ export function SetStatusDialog({
                 </PopoverTrigger>
                 {emoji ? (
                   <button
-                    aria-label={
-                      isRussian ? "Убрать эмодзи статуса" : "Clear status emoji"
-                    }
+                    aria-label={localePair(
+                      "Убрать эмодзи статуса",
+                      "Clear status emoji",
+                    )}
                     className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-background bg-muted text-2xs leading-none text-muted-foreground hover:bg-accent hover:text-foreground"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -169,9 +168,10 @@ export function SetStatusDialog({
               data-testid="set-status-input"
               onChange={(event) => setText(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={
-                isRussian ? "Что у вас сейчас?" : "What's your status?"
-              }
+              placeholder={localePair(
+                "Что у вас сейчас?",
+                "What's your status?",
+              )}
               value={text}
             />
           </div>
@@ -200,7 +200,7 @@ export function SetStatusDialog({
                   type="button"
                   variant="ghost"
                 >
-                  {isRussian ? "Очистить статус" : "Clear status"}
+                  {localePair("Очистить статус", "Clear status")}
                 </Button>
               ) : null}
             </div>
@@ -212,7 +212,7 @@ export function SetStatusDialog({
                 type="button"
                 variant="ghost"
               >
-                {isRussian ? "Отмена" : "Cancel"}
+                {localePair("Отмена", "Cancel")}
               </Button>
               <Button
                 data-testid="set-status-save"
@@ -221,7 +221,7 @@ export function SetStatusDialog({
                 size="sm"
                 type="button"
               >
-                {isRussian ? "Сохранить" : "Save"}
+                {localePair("Сохранить", "Save")}
               </Button>
             </div>
           </div>

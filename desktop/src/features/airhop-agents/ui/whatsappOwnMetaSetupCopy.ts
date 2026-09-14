@@ -184,7 +184,7 @@ const PT_BR: WhatsAppOwnMetaSetupCopy = {
     "Use um System User Token com as duas permissões do WhatsApp, não o token temporário de API Setup.",
   addNumber: "Adicione e confirme o número",
   activated:
-    "O aplicativo foi vinculado. Envie uma mensagem de teste para o número do centro.",
+    "O aplicativo foi assinado. Envie uma mensagem de teste para o número do centro.",
   back: "Voltar",
   checkingCredentials: "Verificando na Meta…",
   checkingSubscription: "Verificando a assinatura…",
@@ -230,7 +230,7 @@ const PT_BR: WhatsAppOwnMetaSetupCopy = {
     "A AirHop verificará o número na Meta e armazenará o App Secret e o token de forma criptografada. Eles não aparecerão nas mensagens, nos logs nem no cartão do canal.",
   secretTitle: "Os segredos são enviados uma única vez",
   subscriptionFailed:
-    "A Meta não confirmou a assinatura. Confira se a Callback URL foi salva e se a assinatura do campo messages está ativa.",
+    "A Meta não confirmou a assinatura. Confira se a Callback URL foi salva e se o campo messages está assinado.",
   title: "Conectar WhatsApp",
   unavailableDescription:
     "Você já pode concluir as etapas na Meta até obter os IDs e o token. O formulário será liberado quando o WhatsApp Gateway oficial estiver configurado.",

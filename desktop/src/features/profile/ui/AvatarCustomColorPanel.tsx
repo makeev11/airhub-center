@@ -1,7 +1,5 @@
 import { motion } from "motion/react";
 import * as React from "react";
-
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import {
@@ -16,6 +14,7 @@ import {
   normalizeHue,
   snapToGrid,
 } from "./ProfileAvatarEditor.utils";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 const PANEL_MOTION_TRANSITION = {
   duration: 0.25,
@@ -56,7 +55,6 @@ export function AvatarCustomColorPanel({
   testIdPrefix,
   className,
 }: AvatarCustomColorPanelProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const hueDragUserSelectRef = React.useRef<string | null>(null);
 
   const unlockHueDragSelection = React.useCallback(() => {
@@ -226,11 +224,10 @@ export function AvatarCustomColorPanel({
       </div>
 
       <div
-        aria-label={
-          isRussian
-            ? "Выбрать оттенок собственного цвета аватара"
-            : "Choose custom avatar color hue"
-        }
+        aria-label={localePair(
+          "Выбрать оттенок собственного цвета аватара",
+          "Choose custom avatar color hue",
+        )}
         aria-valuemax={360}
         aria-valuemin={0}
         aria-valuenow={hue}
@@ -288,7 +285,7 @@ export function AvatarCustomColorPanel({
         tabIndex={visible ? 0 : -1}
         type="button"
       >
-        {isRussian ? "Использовать цвет" : "Use color"}
+        {localePair("Использовать цвет", "Use color")}
       </Button>
     </motion.div>
   );

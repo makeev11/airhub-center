@@ -38,6 +38,19 @@ export const AVATAR_COLOR_SWATCHES = [
 export type AvatarColorSwatch = (typeof AVATAR_COLOR_SWATCHES)[number];
 
 export const DEFAULT_EMOJI_AVATAR_COLOR = "#FFFFFF";
+const INITIAL_EMOJI_AVATAR_COLORS = AVATAR_COLORS.filter(
+  (color) => color !== DEFAULT_EMOJI_AVATAR_COLOR,
+);
+
+export function randomInitialEmojiAvatarColor() {
+  const colors = INITIAL_EMOJI_AVATAR_COLORS.length
+    ? INITIAL_EMOJI_AVATAR_COLORS
+    : AVATAR_COLORS;
+  return (
+    colors[Math.floor(Math.random() * colors.length)] ??
+    DEFAULT_EMOJI_AVATAR_COLOR
+  );
+}
 export const DEFAULT_CUSTOM_HUE = 210;
 export const DEFAULT_CUSTOM_SATURATION = 76;
 export const DEFAULT_CUSTOM_VALUE = 92;

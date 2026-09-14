@@ -49,6 +49,7 @@ export type BookingAdminMessages = BookingPaymentMessages &
     locale: string;
     localeRussian: string;
     localeEnglish: string;
+    localePortuguese: string;
     timeZone: string;
     timeZoneAutomatic: (timeZone: string) => string;
     timeZoneHint: string;

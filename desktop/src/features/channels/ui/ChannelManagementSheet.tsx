@@ -1,4 +1,8 @@
-import { messageError, messageText } from "@/shared/locale/messengerCopy";
+import {
+  messageError,
+  messageText,
+  localePair,
+} from "@/shared/locale/messengerCopy";
 import {
   Archive,
   BookOpenText,
@@ -110,7 +114,6 @@ export function ChannelManagementSheet({
   open,
   transparentChrome = false,
 }: ChannelManagementSheetProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const { isDark } = useTheme();
   const isSplitLayout = layout === "split";
   const auxiliaryPanelMode = getAuxiliaryPanelMode(
@@ -444,9 +447,10 @@ export function ChannelManagementSheet({
             <div className="flex max-h-[85vh] flex-col">
               <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-5 pr-14">
                 <DialogTitle>
-                  {isRussian
-                    ? `Изменить ${currentVisibility === "private" ? "закрытый" : "открытый"} канал`
-                    : `Edit ${currentVisibility === "private" ? "private" : "public"} channel`}
+                  {localePair(
+                    `Изменить ${currentVisibility === "private" ? "закрытый" : "открытый"} канал`,
+                    `Edit ${currentVisibility === "private" ? "private" : "public"} channel`,
+                  )}
                 </DialogTitle>
               </DialogHeader>
 
@@ -851,7 +855,13 @@ function ChannelManagementPanelContent({
                       : resolvedChannel.channelType === "forum"
                         ? "Форум"
                         : "Канал"
-                    : resolvedChannel.channelType
+                    : messageText(
+                        resolvedChannel.channelType === "dm"
+                          ? "Direct messages"
+                          : resolvedChannel.channelType === "forum"
+                            ? "Forum"
+                            : "Channel",
+                      )
                 }
               />
               <InfoFieldRow
@@ -863,7 +873,11 @@ function ChannelManagementPanelContent({
                     ? resolvedChannel.visibility === "private"
                       ? "Закрытый"
                       : "Открытый"
-                    : resolvedChannel.visibility
+                    : messageText(
+                        resolvedChannel.visibility === "private"
+                          ? "Private"
+                          : "Open",
+                      )
                 }
               />
               <InfoFieldRow
@@ -883,7 +897,7 @@ function ChannelManagementPanelContent({
               {resolvedChannel.ttlSeconds !== null ? (
                 <InfoFieldRow
                   icon={Archive}
-                  label={isRussian ? "Временный" : "Ephemeral"}
+                  label={localePair("Временный", "Ephemeral")}
                   testId="channel-management-ephemeral-row"
                   value={formatTtlDuration(resolvedChannel.ttlSeconds)}
                 />

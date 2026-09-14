@@ -57,8 +57,13 @@ export type PublicBookingCatalog = {
 };
 
 export type PublicBookingManagementCard = {
-  confirmationChannels?: Array<"telegram">;
-  messengerHandoff?: { url: string; expiresAt: string };
+  confirmationChannels?: Array<"telegram" | "whatsapp">;
+  connectedChannels?: Array<"telegram" | "whatsapp">;
+  messengerHandoff?: {
+    url: string;
+    expiresAt: string;
+    channel?: "telegram" | "whatsapp";
+  };
   telegramConnected?: boolean;
   status: PublicLessonBooking["status"];
   childName: string;

@@ -218,6 +218,12 @@ pub(crate) struct ObserveConnectionBody {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum CompleteExternalMessageBody {
+    Accepted {
+        #[serde(rename = "leaseToken")]
+        lease_token: Uuid,
+        #[serde(rename = "providerMessageId")]
+        provider_message_id: String,
+    },
     Delivered {
         #[serde(rename = "leaseToken")]
         lease_token: Uuid,
@@ -525,7 +531,7 @@ pub(crate) async fn connect_whatsapp_cloud(
                     capabilities: json!({
                         "setupMode": "customer_meta_app",
                         "text": true,
-                        "templates": false,
+                        "templates": true,
                         "appId": app_id,
                         "wabaId": waba_id,
                         "phoneNumberId": phone_number_id,
@@ -1191,10 +1197,10 @@ pub(crate) async fn ingest_inbound(
         Ok(true) => {
             return Ok(Json(
                 json!({"schemaVersion":"airhop.channel-gateway.inbound.v1","eventId":request.event.id.to_hex(),"accepted":true,"duplicate":true}),
-            ))
+            ));
         }
         Err(buzz_db::DbError::AccessDenied(ref reason)) if reason == "airhop_thread_changed" => {
-            return Err(api_error(StatusCode::CONFLICT, "airhop_thread_changed"))
+            return Err(api_error(StatusCode::CONFLICT, "airhop_thread_changed"));
         }
         Err(error) => return Err(map_db_error(error)),
         Ok(false) => {}
@@ -1233,12 +1239,12 @@ pub(crate) async fn ingest_inbound(
                 Ok(true) => {
                     return Ok(Json(
                         json!({"schemaVersion":"airhop.channel-gateway.inbound.v1","eventId":retry_event.id.to_hex(),"accepted":true,"duplicate":true}),
-                    ))
+                    ));
                 }
                 Err(buzz_db::DbError::AccessDenied(ref reason))
                     if reason == "airhop_thread_changed" =>
                 {
-                    return Err(api_error(StatusCode::CONFLICT, "airhop_thread_changed"))
+                    return Err(api_error(StatusCode::CONFLICT, "airhop_thread_changed"));
                 }
                 _ => {}
             }
@@ -1310,6 +1316,15 @@ pub(crate) async fn complete_external_message(
     let request: CompleteExternalMessageBody =
         parse_body(&body, "invalid gateway completion JSON")?;
     let (lease_token, completion) = match request {
+        CompleteExternalMessageBody::Accepted {
+            lease_token,
+            provider_message_id,
+        } => (
+            lease_token,
+            ExternalDeliveryCompletion::Accepted {
+                provider_message_id,
+            },
+        ),
         CompleteExternalMessageBody::Delivered {
             lease_token,
             provider_message_id,
@@ -1345,6 +1360,7 @@ pub(crate) async fn complete_external_message(
         .await
         .map_err(map_db_error)?
     {
+        ExternalDeliveryAckState::Accepted => "accepted",
         ExternalDeliveryAckState::Delivered => "delivered",
         ExternalDeliveryAckState::RetryScheduled => "retry_scheduled",
         ExternalDeliveryAckState::Failed => "failed",
@@ -1354,6 +1370,43 @@ pub(crate) async fn complete_external_message(
         "outboxId": outbox_id,
         "state": state_name,
     })))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WhatsAppStatusBody {
+    provider_message_id: String,
+    recipient: String,
+    status: String,
+    timestamp: i64,
+    error_code: Option<String>,
+}
+
+/// Accepts an authenticated gateway receipt after Meta webhook verification.
+pub(crate) async fn whatsapp_status(
+    State(state): State<Arc<AppState>>,
+    Path(connection_id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("{GATEWAY_PREFIX}/connections/{connection_id}/whatsapp-status");
+    let principal = authenticate_airhop(&state, &headers, "POST", &path, Some(&body)).await?;
+    let request: WhatsAppStatusBody = parse_body(&body, "invalid WhatsApp status JSON")?;
+    let applied = state
+        .db
+        .record_airhop_whatsapp_status(
+            &principal.tenant,
+            principal.pubkey.to_bytes(),
+            connection_id,
+            &request.provider_message_id,
+            &request.recipient,
+            &request.status,
+            request.timestamp,
+            request.error_code.as_deref(),
+        )
+        .await
+        .map_err(map_db_error)?;
+    Ok(Json(json!({"recorded":applied})))
 }
 
 fn parse_body<T: serde::de::DeserializeOwned>(

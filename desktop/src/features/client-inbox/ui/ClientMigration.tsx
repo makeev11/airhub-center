@@ -4,6 +4,7 @@ import type {
   ClientConversation,
   ClientInboxService,
 } from "../data/clientInboxService";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 /** Preview is read-only; only an explicit second action requests an atomic cutover. */
 export function ClientMigration({
@@ -11,7 +12,7 @@ export function ClientMigration({
   communityId,
   service,
   onSaved,
-  ru,
+  ru: _ru,
 }: {
   item: ClientConversation;
   communityId: string;
@@ -69,27 +70,31 @@ export function ClientMigration({
           disabled={pending}
           onClick={() => void inspect()}
         >
-          {ru
-            ? "Проверить перенос старого разговора"
-            : "Preview legacy migration"}
+          {localePair(
+            "Проверить перенос старого разговора",
+            "Preview legacy migration",
+          )}
         </Button>
       )}
       {preview && (
         <div className="mt-2 max-w-2xl space-y-2 rounded-md border p-3">
           <p>
-            {ru
-              ? "Будет создана новая ветка в настроенном канале подключения. Старая подписанная история останется в архиве со ссылкой из новой ветки. Семья, записи и разговор сохранятся. Это не перенос отдельных сообщений."
-              : "A new thread will be created in the connection’s configured channel. Original signed history remains linked in its archived channel. Family, bookings and conversation identity are preserved; individual messages are not moved."}
+            {localePair(
+              "Будет создана новая ветка в настроенном канале подключения. Старая подписанная история останется в архиве со ссылкой из новой ветки. Семья, записи и разговор сохранятся. Это не перенос отдельных сообщений.",
+              "A new thread will be created in the connection’s configured channel. Original signed history remains linked in its archived channel. Family, bookings and conversation identity are preserved; individual messages are not moved.",
+            )}
           </p>
           <p className="text-xs text-muted-foreground">
-            {ru ? "Канал назначения" : "Destination channel"}:{" "}
-            {preview.targetChannelId ?? (ru ? "не настроен" : "not configured")}
+            {localePair("Канал назначения", "Destination channel")}:{" "}
+            {preview.targetChannelId ??
+              localePair("не настроен", "not configured")}
           </p>
           {blocked && (
             <p role="status">
-              {ru
-                ? "Сначала настройте канал и завершите активную работу. Ожидают доставки / публикации / ходы Гермеса:"
-                : "Configure the destination and drain active work first. Pending deliveries / publications / Hermes turns:"}{" "}
+              {localePair(
+                "Сначала настройте канал и завершите активную работу. Ожидают доставки / публикации / ходы Гермеса:",
+                "Configure the destination and drain active work first. Pending deliveries / publications / Hermes turns:",
+              )}{" "}
               {preview.pendingDeliveries} / {preview.unpublishedReplies} /{" "}
               {preview.liveTurns}
             </p>
@@ -100,9 +105,10 @@ export function ClientMigration({
               disabled={pending || blocked}
               onClick={() => void apply()}
             >
-              {ru
-                ? "Перенести и сохранить архив"
-                : "Migrate and preserve archive"}
+              {localePair(
+                "Перенести и сохранить архив",
+                "Migrate and preserve archive",
+              )}
             </Button>
             <Button
               variant="ghost"
@@ -110,7 +116,7 @@ export function ClientMigration({
               disabled={pending}
               onClick={() => setPreview(null)}
             >
-              {ru ? "Отмена" : "Cancel"}
+              {localePair("Отмена", "Cancel")}
             </Button>
           </div>
         </div>

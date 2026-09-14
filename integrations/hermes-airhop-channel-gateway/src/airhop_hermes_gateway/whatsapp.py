@@ -18,13 +18,15 @@ import httpx
 from .client import GatewayHttpError, WhatsAppCredential
 from .config import WhatsAppSettings
 from .spool import InboundItem, InboundSpool
+from .whatsapp_status import WhatsAppStatusSpool
+from .whatsapp_templates import normalize_template, render_template
 
 logger = logging.getLogger(__name__)
 
 _SERVICE_WINDOW_SECONDS = 24 * 60 * 60
 _MAX_MESSAGES_PER_WEBHOOK = 100
 _WEBHOOK_VERIFIED_KEY = "whatsapp_webhook_verified"
-_WEBHOOK_VERIFIED_VERSION_KEY = "whatsapp_webhook_verified_version"
+_CREDENTIAL_VERSION_KEY = "whatsapp_credential_version"
 _UNSUPPORTED_NOTICE = (
     "[WhatsApp: получено неподдерживаемое вложение. "
     "Содержимое и оригинал файла недоступны в AirHop Center.]"
@@ -99,11 +101,76 @@ class WhatsAppGraphClient:
             value = response.json()
         except (UnicodeDecodeError, json.JSONDecodeError):
             return GraphHealth(False, "whatsapp_graph_invalid_response")
-        if not isinstance(value, dict) or str(value.get("id")) != self.credential.phone_number_id:
+        if (
+            not isinstance(value, dict)
+            or str(value.get("id")) != self.credential.phone_number_id
+        ):
             return GraphHealth(False, "whatsapp_graph_identity_mismatch")
         return GraphHealth(True)
 
+    async def list_templates(self) -> list[dict]:
+        templates: list[dict] = []
+        after = None
+        for _ in range(10):
+            response = await self._http.get(
+                f"{self.graph_origin}/{self.credential.waba_id}/message_templates",
+                headers=self._headers,
+                params={
+                    "fields": "name,language,status,category,components",
+                    "limit": "100",
+                    **({"after": after} if after else {}),
+                },
+            )
+            if not response.is_success:
+                raise ValueError("WhatsApp template catalog unavailable")
+            value = response.json()
+            if not isinstance(value, dict) or not isinstance(value.get("data"), list):
+                raise ValueError("invalid WhatsApp template catalog")
+            for entry in value["data"]:
+                template = normalize_template(entry)
+                if template is not None and len(templates) < 50:
+                    templates.append(template)
+            paging = value.get("paging", {})
+            # Never follow provider-supplied URLs with our bearer token.
+            if not isinstance(paging, dict) or not paging.get("next"):
+                return templates
+            cursors = paging.get("cursors", {})
+            after = cursors.get("after") if isinstance(cursors, dict) else None
+            if not isinstance(after, str) or not 1 <= len(after) <= 2048:
+                raise ValueError("invalid WhatsApp template cursor")
+        raise ValueError("WhatsApp template catalog exceeds page budget")
+
+    async def send_template(
+        self, recipient: str, template: dict, parameters: list[str]
+    ) -> WhatsAppSendResult:
+        components = (
+            [
+                {
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": v} for v in parameters],
+                }
+            ]
+            if parameters
+            else []
+        )
+        return await self._send_message(
+            recipient,
+            {
+                "type": "template",
+                "template": {
+                    "name": template["name"],
+                    "language": {"code": template["language"]},
+                    "components": components,
+                },
+            },
+        )
+
     async def send_text(self, recipient: str, content: str) -> WhatsAppSendResult:
+        return await self._send_message(
+            recipient, {"type": "text", "text": {"preview_url": False, "body": content}}
+        )
+
+    async def _send_message(self, recipient: str, payload: dict) -> WhatsAppSendResult:
         url = f"{self.graph_origin}/{self.credential.phone_number_id}/messages"
         headers = {**self._headers, "content-type": "application/json"}
         response = await self._http.post(
@@ -113,8 +180,7 @@ class WhatsAppGraphClient:
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",
                 "to": recipient,
-                "type": "text",
-                "text": {"preview_url": False, "body": content},
+                **payload,
             },
         )
         if not response.is_success:
@@ -245,22 +311,24 @@ class WhatsAppGatewayRuntime:
         router: WhatsAppWebhookRouter,
         spool: InboundSpool | None = None,
         graph: WhatsAppGraphClient | None = None,
-        credential_version: int = 1,
     ):
-        if isinstance(credential_version, bool) or credential_version <= 0:
-            raise ValueError("credential_version must be a positive integer")
         self.settings = settings
         self.credential = credential
-        self.credential_version = credential_version
         self.client = client
         self.signer = signer
         self.router = router
         self.spool = spool or InboundSpool(settings.state_path)
+        self.status_spool = WhatsAppStatusSpool(
+            settings.state_path.with_suffix(".statuses.sqlite")
+        )
         self.graph = graph or WhatsAppGraphClient(
             credential=credential,
             graph_origin=settings.graph_origin,
             timeout_seconds=settings.http_timeout_seconds,
         )
+        self._templates: list[dict] = []
+        self._templates_synced_at = 0
+        self._template_error: str | None = None
         self._webhook_verified = False
         self._graph_ready = False
         self._last_graph_error: str | None = None
@@ -274,14 +342,17 @@ class WhatsAppGatewayRuntime:
             "webhook_verified": self._webhook_verified,
             "typing": False,
             "media": [],
-            "templates": False,
+            "templates": True,
+            "utilityTemplates": self._templates,
+            "templatesSyncedAt": self._templates_synced_at,
+            "templatesError": self._template_error,
             "unsupported_attachment_notice": True,
             "transport": "meta-whatsapp-cloud-api",
         }
 
     async def run(self, stop_event: asyncio.Event) -> None:
         await self.spool.initialize()
-        await self._restore_webhook_verification()
+        await self._load_webhook_verification_state()
         await self.router.register(self.settings.connection_id, self)
         await self._safe_heartbeat("connecting", None)
         try:
@@ -291,6 +362,7 @@ class WhatsAppGatewayRuntime:
                 asyncio.create_task(self._heartbeat_loop(stop_event)),
                 asyncio.create_task(self._inbound_loop(stop_event)),
                 asyncio.create_task(self._outbound_loop(stop_event)),
+                asyncio.create_task(self._status_loop(stop_event)),
             ]
             try:
                 await stop_event.wait()
@@ -304,6 +376,18 @@ class WhatsAppGatewayRuntime:
             await self.graph.close()
             await self.client.close()
 
+    async def _load_webhook_verification_state(self) -> None:
+        stored_version = await self.spool.get_runtime_state(_CREDENTIAL_VERSION_KEY)
+        current_version = str(self.settings.credential_version)
+        if (stored_version is not None and stored_version != current_version) or (
+            stored_version is None and self.settings.credential_version > 1
+        ):
+            await self.spool.set_runtime_state(_WEBHOOK_VERIFIED_KEY, "false")
+        await self.spool.set_runtime_state(_CREDENTIAL_VERSION_KEY, current_version)
+        self._webhook_verified = (
+            await self.spool.get_runtime_state(_WEBHOOK_VERIFIED_KEY) == "true"
+        )
+
     async def verify_webhook(
         self, *, mode: str, verify_token: str, challenge: str
     ) -> WebhookResponse:
@@ -315,73 +399,68 @@ class WhatsAppGatewayRuntime:
         ):
             return WebhookResponse(403, b"forbidden")
         await self.spool.set_runtime_state(_WEBHOOK_VERIFIED_KEY, "true")
-        await self.spool.set_runtime_state(
-            _WEBHOOK_VERIFIED_VERSION_KEY, str(self.credential_version)
-        )
         self._webhook_verified = True
         await self._report_current_health()
         return WebhookResponse(200, challenge.encode("utf-8"))
 
-    async def _restore_webhook_verification(self) -> None:
-        verified = (
-            await self.spool.get_runtime_state(_WEBHOOK_VERIFIED_KEY) == "true"
+    async def accept_webhook(self, *, signature: str, body: bytes) -> WebhookResponse:
+        expected = (
+            "sha256="
+            + hmac.new(
+                self.credential.app_secret.encode("utf-8"), body, hashlib.sha256
+            ).hexdigest()
         )
-        verified_version = await self.spool.get_runtime_state(
-            _WEBHOOK_VERIFIED_VERSION_KEY
-        )
-        # Existing installations predate versioned assignments. Preserve their
-        # verified state exactly once at credential revision 1. Every later
-        # revision must complete Meta's verification GET with its new token.
-        if verified and verified_version is None and self.credential_version == 1:
-            verified_version = "1"
-            await self.spool.set_runtime_state(
-                _WEBHOOK_VERIFIED_VERSION_KEY, verified_version
-            )
-        self._webhook_verified = verified and verified_version == str(
-            self.credential_version
-        )
-
-    async def accept_webhook(
-        self, *, signature: str, body: bytes
-    ) -> WebhookResponse:
-        expected = "sha256=" + hmac.new(
-            self.credential.app_secret.encode("utf-8"), body, hashlib.sha256
-        ).hexdigest()
-        if not re.fullmatch(r"sha256=[0-9a-f]{64}", signature) or not hmac.compare_digest(
-            signature, expected
-        ):
+        if not re.fullmatch(
+            r"sha256=[0-9a-f]{64}", signature
+        ) or not hmac.compare_digest(signature, expected):
             return WebhookResponse(401, b"invalid signature")
         try:
             payload = json.loads(body)
         except (UnicodeDecodeError, json.JSONDecodeError):
             return WebhookResponse(400, b"invalid payload")
         try:
-            messages = self._normalize_webhook(payload)
+            messages, statuses = self._normalize_webhook(payload)
         except PermissionError:
             return WebhookResponse(403, b"connection mismatch")
         except ValueError:
             return WebhookResponse(400, b"payload is too complex")
+        try:
+            await self.status_spool.put_statuses(statuses)
+        except OverflowError:
+            return WebhookResponse(503, b"receipt backlog")
         for provider_event_id, chat_id, content, received_at in messages:
+            match = re.fullmatch(r"ahh_[A-Za-z0-9_-]{43}", content.strip())
+            digest = (
+                hashlib.sha256(match.group().encode()).hexdigest() if match else None
+            )
+            content = re.sub(
+                r"ahh_[A-Za-z0-9_-]{43}", "[ссылка подключения скрыта]", content
+            )
             await self.spool.put(
                 provider_event_id=provider_event_id,
                 provider_chat_id=chat_id,
                 content=content,
                 received_at=received_at,
                 touch_inbound_at=received_at,
+                handoff_token_digest=digest,
             )
         return WebhookResponse(200, b"ok")
 
     def _normalize_webhook(
         self, payload: Any
-    ) -> list[tuple[str, str, str, int]]:
-        if not isinstance(payload, dict) or payload.get("object") != "whatsapp_business_account":
-            return []
+    ) -> tuple[list[tuple[str, str, str, int]], list[dict]]:
+        if (
+            not isinstance(payload, dict)
+            or payload.get("object") != "whatsapp_business_account"
+        ):
+            return [], []
         entries = payload.get("entry")
         if not isinstance(entries, list):
-            return []
+            return [], []
         if len(entries) > _MAX_MESSAGES_PER_WEBHOOK:
             raise ValueError("too many WhatsApp entries")
         normalized: list[tuple[str, str, str, int]] = []
+        statuses: list[dict] = []
         now = int(time.time())
         for entry in entries:
             if not isinstance(entry, dict):
@@ -400,10 +479,63 @@ class WhatsAppGatewayRuntime:
                 if not isinstance(value, dict):
                     continue
                 metadata = value.get("metadata")
-                if not isinstance(metadata, dict) or str(
-                    metadata.get("phone_number_id", "")
-                ) != self.credential.phone_number_id:
+                if (
+                    not isinstance(metadata, dict)
+                    or str(metadata.get("phone_number_id", ""))
+                    != self.credential.phone_number_id
+                ):
                     raise PermissionError("WhatsApp phone mismatch")
+                raw_statuses = value.get("statuses", [])
+                if (
+                    not isinstance(raw_statuses, list)
+                    or len(raw_statuses) + len(statuses) > _MAX_MESSAGES_PER_WEBHOOK
+                ):
+                    raise ValueError("too many WhatsApp statuses")
+                for raw in raw_statuses:
+                    if not isinstance(raw, dict):
+                        continue
+                    status, message_id, recipient = (
+                        raw.get("status"),
+                        raw.get("id"),
+                        raw.get("recipient_id"),
+                    )
+                    if status not in {"sent", "delivered", "read", "failed"}:
+                        continue
+                    if (
+                        not isinstance(message_id, str)
+                        or not 1 <= len(message_id) <= 200
+                        or not isinstance(recipient, str)
+                        or not re.fullmatch(r"[0-9]{5,20}", recipient)
+                    ):
+                        raise ValueError("invalid WhatsApp status")
+                    try:
+                        timestamp = int(raw.get("timestamp"))
+                    except (ValueError, TypeError, OverflowError):
+                        raise ValueError("invalid WhatsApp status time") from None
+                    if not 0 <= timestamp <= now + 300:
+                        raise ValueError("invalid WhatsApp status time")
+                    errors = raw.get("errors")
+                    code = (
+                        errors[0].get("code")
+                        if isinstance(errors, list)
+                        and errors
+                        and isinstance(errors[0], dict)
+                        else None
+                    )
+                    error_code = (
+                        f"whatsapp_{code}"
+                        if type(code) is int and 0 <= code <= 99999999
+                        else "whatsapp_delivery_failed"
+                    )
+                    statuses.append(
+                        {
+                            "providerMessageId": message_id,
+                            "recipient": recipient,
+                            "status": status,
+                            "timestamp": timestamp,
+                            "errorCode": error_code if status == "failed" else None,
+                        }
+                    )
                 messages = value.get("messages")
                 if not isinstance(messages, list):
                     continue
@@ -416,12 +548,10 @@ class WhatsAppGatewayRuntime:
                     item = self._normalize_message(message, now)
                     if item is not None:
                         normalized.append(item)
-        return normalized
+        return normalized, statuses
 
     @staticmethod
-    def _normalize_message(
-        message: Any, now: int
-    ) -> tuple[str, str, str, int] | None:
+    def _normalize_message(message: Any, now: int) -> tuple[str, str, str, int] | None:
         if not isinstance(message, dict):
             return None
         message_id = message.get("id")
@@ -466,6 +596,14 @@ class WhatsAppGatewayRuntime:
             await self._report_current_health()
 
     async def _refresh_graph_health(self) -> None:
+        if int(time.time()) - self._templates_synced_at >= 300:
+            try:
+                self._templates = await self.graph.list_templates()
+                self._templates_synced_at = int(time.time())
+                self._template_error = None
+            except Exception:
+                self._template_error = "whatsapp_template_sync_unavailable"
+                self._templates = []
         health = await self.graph.healthcheck()
         self._graph_ready = health.ok
         self._last_graph_error = health.error_code
@@ -506,13 +644,31 @@ class WhatsAppGatewayRuntime:
         if age > self.settings.inbound_max_age_seconds:
             await self.spool.dead(item.provider_event_id, "inbound_expired")
             return
-        if item.event is not None and item.attempts > self.settings.inbound_max_attempts:
+        if (
+            item.event is not None
+            and item.attempts > self.settings.inbound_max_attempts
+        ):
             await self.spool.dead(item.provider_event_id, "inbound_attempts_exhausted")
             return
         try:
             event = item.event
             if event is None:
-                route = await self.client.resolve_route(item.provider_chat_id)
+                route = (
+                    await self.client.resolve_route(
+                        item.provider_chat_id, item.handoff_token_digest
+                    )
+                    if item.handoff_token_digest
+                    else await self.client.resolve_route(item.provider_chat_id)
+                )
+                content = item.content
+                if item.handoff_token_digest:
+                    content = (
+                        "[WhatsApp: родитель перешёл после онлайн-записи. Чат подтверждён. Проверьте текущую запись.]"
+                        if route.handoff_status == "connected"
+                        else "[WhatsApp: нужна проверка сотрудника. Не раскрывайте данные семьи; передайте вопрос сотруднику через handoffReason.]"
+                        if route.handoff_status == "conflict"
+                        else "[WhatsApp: ссылка недействительна. Не раскрывайте данные семьи; попросите открыть новую ссылку со страницы записи.]"
+                    )
                 tags = [
                     ["h", route.channel_id],
                     ["airhop-direction", "inbound"],
@@ -529,7 +685,7 @@ class WhatsAppGatewayRuntime:
                     )
                 event = self.signer.sign_event(
                     kind=9,
-                    content=item.content,
+                    content=content,
                     tags=tags,
                 )
                 await self.spool.persist_event(item.provider_event_id, event)
@@ -559,6 +715,23 @@ class WhatsAppGatewayRuntime:
                 "inbound_internal_error",
                 min(300.0, max(1.0, 2 ** min(item.attempts, 8))),
             )
+
+    async def _flush_statuses(self) -> None:
+        for key, receipt in await self.status_spool.due_statuses():
+            try:
+                recorded = await self.client.whatsapp_status(receipt)
+            except Exception:
+                recorded = False
+                logger.warning("WhatsApp receipt awaits relay availability")
+            await self.status_spool.finish_status(key, recorded)
+
+    async def _status_loop(self, stop_event: asyncio.Event) -> None:
+        while not stop_event.is_set():
+            try:
+                await self._flush_statuses()
+            except Exception:
+                logger.exception("WhatsApp receipt queue unavailable")
+            await self._wait(stop_event, self.settings.claim_interval_seconds)
 
     async def _outbound_loop(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
@@ -598,31 +771,79 @@ class WhatsAppGatewayRuntime:
                 raise ValueError("outbound recipient is invalid")
             receipt = await self.spool.outbound_receipt(outbox_id)
             if receipt is not None:
-                await self.client.complete_delivered(
+                await self.client.complete_accepted(
                     outbox_id=outbox_id,
                     lease_token=lease_token,
                     provider_message_id=receipt,
                 )
                 return
-            last_inbound = await self.spool.last_inbound_at(provider_chat_id)
-            if (
-                last_inbound is None
-                or int(time.time()) - last_inbound > _SERVICE_WINDOW_SECONDS
-            ):
-                await self.client.complete_failed(
-                    outbox_id=outbox_id,
-                    lease_token=lease_token,
-                    error_code="whatsapp_template_required",
-                    retry_after_seconds=0,
-                    retryable=False,
+            tags = event.get("tags", [])
+            template_tags = [
+                tag
+                for tag in tags
+                if isinstance(tag, list)
+                and tag
+                and tag[0] == "airhop-whatsapp-template"
+            ]
+            if template_tags:
+                if (
+                    job.get("actorKind") != "staff"
+                    or len(template_tags) != 1
+                    or len(template_tags[0]) != 2
+                ):
+                    raise ValueError("invalid template authority")
+                spec = json.loads(template_tags[0][1])
+                if not isinstance(spec, dict) or set(spec) != {
+                    "name",
+                    "language",
+                    "parameters",
+                }:
+                    raise ValueError("invalid template specification")
+                try:
+                    catalog = await self.graph.list_templates()
+                except (httpx.HTTPError, ValueError):
+                    await self.client.complete_failed(
+                        outbox_id=outbox_id,
+                        lease_token=lease_token,
+                        error_code="whatsapp_template_sync_unavailable",
+                        retry_after_seconds=30,
+                        retryable=True,
+                    )
+                    return
+                template = next(
+                    (
+                        t
+                        for t in catalog
+                        if t["name"] == spec["name"]
+                        and t["language"] == spec["language"]
+                    ),
+                    None,
                 )
-                return
-            result = await self.graph.send_text(provider_chat_id, content.strip())
+                if (
+                    template is None
+                    or render_template(template, spec["parameters"]) != content
+                ):
+                    await self.client.complete_failed(
+                        outbox_id=outbox_id,
+                        lease_token=lease_token,
+                        error_code="whatsapp_template_changed",
+                        retry_after_seconds=0,
+                        retryable=False,
+                    )
+                    return
+                result = await self._send_once(
+                    outbox_id,
+                    lambda: self.graph.send_template(
+                        provider_chat_id, template, spec["parameters"]
+                    ),
+                )
+            else:
+                result = await self._send_session_text(
+                    outbox_id, provider_chat_id, content.strip()
+                )
             if result.success and result.message_id is not None:
-                await self.spool.record_outbound_receipt(
-                    outbox_id, result.message_id
-                )
-                await self.client.complete_delivered(
+                await self.spool.record_outbound_receipt(outbox_id, result.message_id)
+                await self.client.complete_accepted(
                     outbox_id=outbox_id,
                     lease_token=lease_token,
                     provider_message_id=result.message_id,
@@ -635,6 +856,7 @@ class WhatsAppGatewayRuntime:
                 retry_after_seconds=result.retry_after_seconds,
                 retryable=result.retryable,
             )
+
         except (KeyError, TypeError, ValueError):
             logger.exception("Rejecting invalid AirHop WhatsApp outbound job")
             if outbox_id and lease_token:
@@ -650,6 +872,35 @@ class WhatsAppGatewayRuntime:
             # returned success, the durable local receipt closes the later
             # Relay-completion retry without re-sending.
             logger.exception("WhatsApp outbound delivery crashed before completion")
+
+    async def _send_once(self, outbox_id: str, send) -> WhatsAppSendResult:
+        if not await self.status_spool.begin_send(outbox_id):
+            return WhatsAppSendResult(False, error_code="whatsapp_send_uncertain")
+        try:
+            result = await send()
+        except (httpx.TimeoutException, httpx.TransportError):
+            return WhatsAppSendResult(False, error_code="whatsapp_send_uncertain")
+        if (
+            not result.success
+            and result.error_code != "whatsapp_graph_invalid_response"
+        ):
+            await self.status_spool.rejected_send(outbox_id)
+        if result.error_code == "whatsapp_graph_invalid_response":
+            return WhatsAppSendResult(False, error_code="whatsapp_send_uncertain")
+        return result
+
+    async def _send_session_text(
+        self, outbox_id: str, recipient: str, content: str
+    ) -> WhatsAppSendResult:
+        last_inbound = await self.spool.last_inbound_at(recipient)
+        if (
+            last_inbound is None
+            or int(time.time()) - last_inbound >= _SERVICE_WINDOW_SECONDS
+        ):
+            return WhatsAppSendResult(False, error_code="whatsapp_template_required")
+        return await self._send_once(
+            outbox_id, lambda: self.graph.send_text(recipient, content)
+        )
 
     @staticmethod
     async def _wait(stop_event: asyncio.Event, seconds: float) -> None:

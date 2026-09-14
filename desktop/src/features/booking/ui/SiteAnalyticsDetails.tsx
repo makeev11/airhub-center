@@ -1,5 +1,6 @@
 import type { StaffSiteAnalyticsReport } from "@/features/booking/data/staffSiteAnalyticsService";
 import { Card } from "@/shared/ui/card";
+import { localePair, localizeCopyTree } from "@/shared/locale/messengerCopy";
 
 /** Traffic coverage and simple page/contact breakdowns from the server report. */
 export function SiteAnalyticsDetails({
@@ -26,30 +27,33 @@ export function SiteAnalyticsDetails({
         max: "MAX",
         other: "Другие",
       }
-    : {
-        phone: "Phone",
-        email: "Email",
-        telegram: "Telegram",
-        whatsapp: "WhatsApp",
-        max: "MAX",
-        other: "Other",
-      };
+    : localizeCopyTree(
+        {
+          phone: "Phone",
+          email: "Email",
+          telegram: "Telegram",
+          whatsapp: "WhatsApp",
+          max: "MAX",
+          other: "Other",
+        },
+        locale.toLowerCase().startsWith("pt") ? "pt-BR" : "en-US",
+      );
   const counts = [
-    [ru ? "Просмотры страниц" : "Page views", report.totals.pageViews],
+    [localePair("Просмотры страниц", "Page views"), report.totals.pageViews],
     [
-      ru ? "Сессии с просмотром" : "Sessions with a view",
+      localePair("Сессии с просмотром", "Sessions with a view"),
       report.siteFunnel.viewedSessions,
     ],
     [
-      ru ? "Из них открыли запись" : "Of these, opened booking",
+      localePair("Из них открыли запись", "Of these, opened booking"),
       report.siteFunnel.bookingSessions,
     ],
     [
-      ru ? "Из них нажали контакт" : "Of these, clicked contact",
+      localePair("Из них нажали контакт", "Of these, clicked contact"),
       report.siteFunnel.contactSessions,
     ],
     [
-      ru ? "Из них создали запись" : "Of these, booked",
+      localePair("Из них создали запись", "Of these, booked"),
       report.siteFunnel.bookedSessions,
     ],
   ] as const;
@@ -58,23 +62,25 @@ export function SiteAnalyticsDetails({
       <Card className="space-y-2 p-4 sm:p-5">
         <p className="text-sm">
           {report.lastEventAt
-            ? `${ru ? "Последнее событие" : "Latest event"}: ${instant(report.lastEventAt)}`
-            : ru
-              ? "События пока не поступали. Пройдите по сайту и обновите отчёт, чтобы проверить подключение."
-              : "No events received yet. Visit the site and refresh this report to check collection."}
+            ? `${localePair("Последнее событие", "Latest event")}: ${instant(report.lastEventAt)}`
+            : localePair(
+                "События пока не поступали. Пройдите по сайту и обновите отчёт, чтобы проверить подключение.",
+                "No events received yet. Visit the site and refresh this report to check collection.",
+              )}
         </p>
         <p className="text-xs text-muted-foreground">
           {report.firstEventAt
-            ? `${ru ? "Доступная история с" : "Available history since"} ${instant(report.firstEventAt)}. `
+            ? `${localePair("Доступная история с", "Available history since")} ${instant(report.firstEventAt)}. `
             : ""}
-          {ru
-            ? "История хранится 13 месяцев. Отсутствие событий само по себе не означает отсутствие посетителей."
-            : "History is retained for 13 months. No events does not necessarily mean no visitors."}
+          {localePair(
+            "История хранится 13 месяцев. Отсутствие событий само по себе не означает отсутствие посетителей.",
+            "History is retained for 13 months. No events does not necessarily mean no visitors.",
+          )}
         </p>
       </Card>
       <Card className="space-y-3 p-4 sm:p-5">
         <h2 className="text-base font-semibold">
-          {ru ? "Путь с сайта к действию" : "From visit to action"}
+          {localePair("Путь с сайта к действию", "From visit to action")}
         </h2>
         <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           {counts.map(([label, value]) => (
@@ -90,16 +96,18 @@ export function SiteAnalyticsDetails({
       <div className="grid gap-4 xl:grid-cols-2">
         <Card className="space-y-3 p-4 sm:p-5">
           <h2 className="text-base font-semibold">
-            {ru ? "Страницы" : "Pages"}
+            {localePair("Страницы", "Pages")}
           </h2>
           <div className="max-h-80 overflow-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr>
-                  <th>{ru ? "Путь" : "Path"}</th>
-                  <th className="text-right">{ru ? "Просмотры" : "Views"}</th>
+                  <th>{localePair("Путь", "Path")}</th>
                   <th className="text-right">
-                    {ru ? "Контакты: клики" : "Contact clicks"}
+                    {localePair("Просмотры", "Views")}
+                  </th>
+                  <th className="text-right">
+                    {localePair("Контакты: клики", "Contact clicks")}
                   </th>
                 </tr>
               </thead>
@@ -120,15 +128,16 @@ export function SiteAnalyticsDetails({
           </div>
           {report.pagesTruncated ? (
             <p className="text-xs text-muted-foreground">
-              {ru
-                ? "Показаны 100 самых просматриваемых страниц."
-                : "Showing the 100 most viewed pages."}
+              {localePair(
+                "Показаны 100 самых просматриваемых страниц.",
+                "Showing the 100 most viewed pages.",
+              )}
             </p>
           ) : null}
         </Card>
         <Card className="space-y-3 p-4 sm:p-5">
           <h2 className="text-base font-semibold">
-            {ru ? "Куда нажимают для связи" : "Contact destinations"}
+            {localePair("Куда нажимают для связи", "Contact destinations")}
           </h2>
           <dl className="space-y-3">
             {report.contacts.map((contact) => (
@@ -144,9 +153,10 @@ export function SiteAnalyticsDetails({
             ))}
           </dl>
           <p className="text-xs text-muted-foreground">
-            {ru
-              ? "Клик показывает намерение связаться, но не подтверждает звонок или переписку."
-              : "A click indicates intent, not a confirmed call or conversation."}
+            {localePair(
+              "Клик показывает намерение связаться, но не подтверждает звонок или переписку.",
+              "A click indicates intent, not a confirmed call or conversation.",
+            )}
           </p>
         </Card>
       </div>

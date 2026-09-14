@@ -49,7 +49,7 @@ export function runLocationForRunOn(
 export function agentAccessWarningText(
   mode: RespondToMode,
   runLocation?: AgentRunLocation | null,
-  locale: "ru-RU" | "en-US" = "en-US",
+  locale: "ru-RU" | "en-US" | "pt-BR" | "tr-TR" = "en-US",
 ): string | null {
   if (mode !== "anyone" && mode !== "allowlist") return null;
   if (locale === "ru-RU") {
@@ -60,6 +60,16 @@ export function agentAccessWarningText(
         ? "сервер, где он работает, включая доступные там аккаунты и инструменты"
         : "этот компьютер, включая файлы, аккаунты и подключённые инструменты";
     return `${audience} сможет через этого агента получать доступ к: ${target}.`;
+  }
+  if (locale === "pt-BR") {
+    const audience =
+      mode === "anyone" ? "Qualquer funcionário" : "As pessoas selecionadas";
+    const target =
+      runLocation === "remote"
+        ? "o servidor em que ele é executado, incluindo as contas e ferramentas disponíveis nele"
+        : "seu computador, incluindo arquivos, contas e ferramentas conectadas";
+    const can = mode === "anyone" ? "poderá" : "poderão";
+    return `${audience} ${can} usar este agente para acessar ${target}.`;
   }
   const audience = mode === "anyone" ? "Anyone" : "Selected people";
   // The two locations differ in more than the noun: a local agent reaches the

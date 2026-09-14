@@ -31,7 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import { Switch } from "@/shared/ui/switch";
-import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 export function UserProfileAgentSettingsMenu({
   archiveActions,
@@ -54,7 +54,6 @@ export function UserProfileAgentSettingsMenu({
   onToggleAutoStart?: () => void;
   personaActionKey?: string;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const [archiveConfirmOpen, setArchiveConfirmOpen] = React.useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
   const actionKey = managedAgent?.pubkey ?? "persona-draft";
@@ -86,9 +85,10 @@ export function UserProfileAgentSettingsMenu({
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
-            aria-label={
-              isRussian ? "Открыть настройки профиля" : "Open profile settings"
-            }
+            aria-label={localePair(
+              "Открыть настройки профиля",
+              "Open profile settings",
+            )}
             data-testid="user-profile-settings-menu-trigger"
             size="icon"
             type="button"

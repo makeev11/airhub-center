@@ -242,8 +242,8 @@ export function MessageThreadPanel({
   autoSendDraftKey = null,
   onAutoSubmitComplete,
 }: MessageThreadPanelProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
-  const copy = getMessageThreadCopy(isRussian);
+  const locale = useAirHopLocale();
+  const copy = getMessageThreadCopy(locale);
   const { clientHead, clientReply } = useClientThreadPresentation(
     channelId,
     threadHead,

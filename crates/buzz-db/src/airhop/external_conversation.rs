@@ -15,6 +15,7 @@ use super::channel_gateway::GatewayInboundContext;
 
 mod handoff;
 mod staff_control;
+mod whatsapp_templates;
 pub use handoff::{is_hermes_handoff_event, HermesHandoffTarget};
 pub use staff_control::{StaffControlCandidate, StaffControlIntent};
 #[cfg(test)]
@@ -1162,6 +1163,8 @@ async fn enqueue_external_message(
     let disabled = route_status == "disabled" || connection_status == "disabled";
     let connection_id: Uuid = route.try_get("connection_id")?;
     let routing_version: i64 = route.try_get("routing_version")?;
+    whatsapp_templates::validate_template(tx, community_id, connection_id, event, actor_kind)
+        .await?;
     sqlx::query(
         "INSERT INTO airhop_external_message_outbox (
             community_id, organization_id, conversation_id, connection_id,
@@ -1337,6 +1340,15 @@ async fn take_over(
     conversation: &ExternalConversation,
     reason: &str,
 ) -> Result<()> {
+    take_over_conversation(tx, community_id, conversation.id, reason).await
+}
+
+pub(super) async fn take_over_conversation(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    community_id: Uuid,
+    conversation_id: Uuid,
+    reason: &str,
+) -> Result<()> {
     sqlx::query(
         "UPDATE airhop_external_conversations
          SET owner = 'human', hermes_paused = TRUE,
@@ -1344,7 +1356,7 @@ async fn take_over(
          WHERE community_id = $1 AND id = $2",
     )
     .bind(community_id)
-    .bind(conversation.id)
+    .bind(conversation_id)
     .execute(&mut **tx)
     .await?;
     sqlx::query(
@@ -1353,11 +1365,11 @@ async fn take_over(
          WHERE community_id = $1 AND conversation_id = $2 AND ended_at IS NULL",
     )
     .bind(community_id)
-    .bind(conversation.id)
+    .bind(conversation_id)
     .bind(reason)
     .execute(&mut **tx)
     .await?;
-    cancel_active_turns(tx, community_id, conversation.id, reason).await
+    cancel_active_turns(tx, community_id, conversation_id, reason).await
 }
 
 async fn cancel_active_turns(

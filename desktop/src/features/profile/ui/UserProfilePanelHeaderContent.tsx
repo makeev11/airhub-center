@@ -12,6 +12,7 @@ import {
   AuxiliaryPanelHeaderTitleBlock,
 } from "@/shared/layout/AuxiliaryPanel";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 export function useUserProfilePanelHeaderContent({
   agentSettingsMenu,
@@ -30,14 +31,14 @@ export function useUserProfilePanelHeaderContent({
   view: ProfilePanelView;
   viewerIsOwner: boolean;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
-  const title = getProfilePanelViewTitle(view, isRussian);
+  const locale = useAirHopLocale();
+  const title = getProfilePanelViewTitle(view, locale);
   const shouldShowLogDetails =
     (view === "diagnostics" || view === "logs") && Boolean(logSubtitle);
   const headerLeftContent = (
     <AuxiliaryPanelHeaderGroup
       align={shouldShowLogDetails ? "start" : "center"}
-      backButtonAriaLabel={isRussian ? "Назад к профилю" : "Back to profile"}
+      backButtonAriaLabel={localePair("Назад к профилю", "Back to profile")}
       backButtonTestId="user-profile-panel-back"
       onBack={view !== "summary" ? onBack : undefined}
     >
@@ -62,7 +63,7 @@ export function useUserProfilePanelHeaderContent({
         <CopyButton
           className="text-muted-foreground hover:text-foreground"
           iconOnly
-          label={isRussian ? "Копировать журнал" : "Copy log"}
+          label={localePair("Копировать журнал", "Copy log")}
           size="icon"
           value={logCopyValue ?? ""}
           variant="ghost"

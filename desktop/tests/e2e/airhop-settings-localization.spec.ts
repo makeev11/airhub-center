@@ -65,7 +65,7 @@ test("Russian appearance settings expose center and booking-widget targets", asy
   );
 });
 
-test("Brazilian partner sees the complete WhatsApp setup guide in Portuguese", async ({
+test("Brazilian partner sees communication settings in Portuguese", async ({
   page,
 }) => {
   await page.evaluate(() => {
@@ -83,20 +83,19 @@ test("Brazilian partner sees the complete WhatsApp setup guide in Portuguese", a
       level: 1,
     }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Adicionar WhatsApp" }).click();
-
-  const dialog = page.getByTestId("airhop-add-whatsapp-dialog");
-  await expect(
-    dialog.getByRole("heading", { name: "Conectar WhatsApp" }),
-  ).toBeVisible();
-  await expect(dialog).toContainText("Crie um aplicativo na Meta");
-  await expect(dialog).toContainText("Adicione e confirme o número");
-  await expect(dialog).toContainText("cada centro parceiro");
-  await expect(dialog).toContainText("AirHub HQ");
-  await expect(dialog).toContainText("janela de 24 horas");
-  await expect(dialog).toContainText(
-    "O recebimento de credenciais ainda não está ativo neste servidor",
+  await expect(page.getByRole("navigation")).toContainText("Organização");
+  await expect(page.getByRole("navigation")).toContainText("Unidades");
+  await expect(page.getByRole("navigation")).toContainText("Grupos");
+  await expect(page.getByRole("navigation")).toContainText("Planos");
+  await expect(page.getByRole("navigation")).toContainText("Professores");
+  await expect(page.getByRole("navigation")).toContainText("Canais");
+  await expect(page.getByRole("navigation")).toContainText(
+    "Agendamento público",
   );
+  await expect(page.getByText(/As conexões estão disponíveis/)).toContainText(
+    "Segredos e configurações do servidor não aparecem no modo de visualização.",
+  );
+  await expect(page.getByText(/Connections are available/)).toHaveCount(0);
 });
 
 test("New Slack is selectable as an opaque Airhop theme", async ({ page }) => {

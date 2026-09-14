@@ -1,25 +1,23 @@
-import { messageText } from "@/shared/locale/messengerCopy";
+import { messageText, localePair } from "@/shared/locale/messengerCopy";
 import { isEphemeralChannel } from "@/features/channels/lib/ephemeralChannel";
-import { resolveActivationLocale } from "@/features/activation/i18n";
 import type { TimelineMessage } from "@/features/messages/types";
 import type { Channel } from "@/shared/api/types";
 import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
 
 export function getChannelIntroKind(channel: Channel): string {
-  const isRussian = resolveActivationLocale() === "ru-RU";
   const isPrivate = channel.visibility === "private";
   const isEphemeral = isEphemeralChannel(channel);
 
   if (isPrivate && isEphemeral) {
-    return isRussian ? "закрытый временный канал" : "private ephemeral channel";
+    return localePair("закрытый временный канал", "private ephemeral channel");
   }
   if (isPrivate) {
-    return isRussian ? "закрытый канал" : "private channel";
+    return localePair("закрытый канал", "private channel");
   }
   if (isEphemeral) {
-    return isRussian ? "временный канал" : "ephemeral channel";
+    return localePair("временный канал", "ephemeral channel");
   }
-  return isRussian ? "канал" : "regular channel";
+  return localePair("канал", "regular channel");
 }
 
 export function getChannelIntroDescription(channel: Channel): string | null {

@@ -388,6 +388,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(api::airhop_channel_gateway::observe_connection),
         )
         .route(
+            "/api/airhop/integrations/v1/channel-gateway/connections/{connection_id}/whatsapp-status",
+            post(api::airhop_channel_gateway::whatsapp_status),
+        )
+        .route(
             "/api/airhop/integrations/v1/channel-gateway/inbound",
             post(api::airhop_channel_gateway::ingest_inbound),
         )

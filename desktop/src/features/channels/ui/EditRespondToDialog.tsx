@@ -1,4 +1,8 @@
-import { messageError, messageText } from "@/shared/locale/messengerCopy";
+import {
+  messageError,
+  messageText,
+  localePair,
+} from "@/shared/locale/messengerCopy";
 import * as React from "react";
 
 import { useUpdateManagedAgentMutation } from "@/features/agents/hooks";
@@ -13,7 +17,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 export function EditRespondToDialog({
   agent,
@@ -26,7 +29,6 @@ export function EditRespondToDialog({
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const updateMutation = useUpdateManagedAgentMutation();
   const [respondTo, setRespondTo] = React.useState<RespondToMode>("owner-only");
   const [respondToAllowlist, setRespondToAllowlist] = React.useState<string[]>(
@@ -60,9 +62,10 @@ export function EditRespondToDialog({
         <DialogHeader>
           <DialogTitle>{messageText("Manage agent access")}</DialogTitle>
           <DialogDescription>
-            {isRussian
-              ? `Выберите, кто может давать задания агенту ${agent?.name ?? ""}.`
-              : `Choose who can send instructions to ${agent?.name ?? messageText("this agent")}.`}
+            {localePair(
+              `Выберите, кто может давать задания агенту ${agent?.name ?? ""}.`,
+              `Choose who can send instructions to ${agent?.name ?? messageText("this agent")}.`,
+            )}
           </DialogDescription>
         </DialogHeader>
         <CreateAgentRespondToField

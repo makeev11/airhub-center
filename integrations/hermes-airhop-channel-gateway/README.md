@@ -126,8 +126,24 @@ Phone Number ID. Successful provider message IDs are persisted before Relay
 acknowledgement so an ambiguous completion does not resend the same text.
 Free-form outbound text is allowed only inside the durable 24-hour service
 window opened by an inbound message; outside it the job finishes with
-`whatsapp_template_required`. Template sends are intentionally not part of this
-first slice.
+`whatsapp_template_required`. Staff can send a separately reviewed, approved
+UTILITY text template from Client Inbox. The gateway synchronizes the catalog
+and rechecks approval and exact rendered content at dispatch.
+
+Graph success is acknowledged as `accepted`, never `delivered`. Signed status
+webhooks are persisted in the sibling `.statuses.sqlite` file before HTTP 200;
+keep it together with the inbound spool when moving/restoring a gateway. It
+stores pending receipts, seven days of deduplication evidence, and durable send
+reservations. A lost Graph response becomes `whatsapp_send_uncertain`, with no
+automatic resend. Local accepted receipts close relay callback retries. Status
+receipts can arrive before acceptance and retry for seven days; the relay
+escalates missing delivery confirmation after 25 hours. The receipt queue is
+bounded to 10,000 pending entries per connection; overflow returns HTTP 503.
+
+A public booking can launch WhatsApp using a 15-minute `ahh_` grant. Only a
+provider-authenticated inbound redeems it; the raw code is redacted before
+spooling or signing a Buzz event. See the full contract and release checklist
+in `docs/AIRHOP_WHATSAPP_COMPLETION_20260912.md` at the repository root.
 
 Only private Telegram DMs and WhatsApp direct messages are readable in this
 slice. Other content produces a durable, visible unsupported-attachment notice

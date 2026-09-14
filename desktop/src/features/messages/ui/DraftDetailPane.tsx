@@ -1,4 +1,8 @@
-import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
+import {
+  messageText,
+  useMessengerCopy,
+  localePair,
+} from "@/shared/locale/messengerCopy";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -26,7 +30,6 @@ import { Button } from "@/shared/ui/button";
 import { Markdown } from "@/shared/ui/markdown";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 type DraftDetailPaneProps = {
   item: DraftViewItem | null;
@@ -40,7 +43,6 @@ export function DraftDetailPane({
   onDelete,
 }: DraftDetailPaneProps) {
   const { goChannel } = useAppNavigation();
-  const isRussian = useAirHopLocale() === "ru-RU";
   const [sendDialogOpen, setSendDialogOpen] = React.useState(false);
 
   if (!item) {
@@ -167,9 +169,10 @@ export function DraftDetailPane({
                 />
                 {attachmentCount > 0 && content ? (
                   <p className="mt-2 text-sm text-muted-foreground">
-                    {isRussian
-                      ? `${attachmentCount} вложений`
-                      : `${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`}
+                    {localePair(
+                      `${attachmentCount} вложений`,
+                      `${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`,
+                    )}
                   </p>
                 ) : null}
               </div>

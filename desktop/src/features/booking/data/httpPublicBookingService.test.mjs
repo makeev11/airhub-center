@@ -350,3 +350,34 @@ test("malformed management tokens are rejected before any network request", asyn
   assert.equal(await service.cancelByParent("invalid"), null);
   assert.equal(calls, 0);
 });
+
+test("WhatsApp handoff accepts only an exact wa.me launch and exposes verified channels separately", async () => {
+  let url = `https://wa.me/5511999990000?text=ahh_${"a".repeat(43)}`;
+  const service = new HttpPublicBookingService({
+    fetch: async () =>
+      jsonResponse(
+        managementCardResponse({
+          preferredContactChannel: "whatsapp",
+          confirmationChannels: ["whatsapp"],
+          connectedChannels: [],
+          telegramConnected: false,
+          messengerHandoff: {
+            channel: "whatsapp",
+            url,
+            expiresAt: "2026-09-12T20:00:00Z",
+          },
+        }),
+      ),
+  });
+  const card = await service.setPreferredContactChannel(
+    MANAGEMENT_TOKEN,
+    "whatsapp",
+  );
+  assert.equal(card.messengerHandoff.url, url);
+  assert.deepEqual(card.confirmationChannels, ["whatsapp"]);
+  assert.deepEqual(card.connectedChannels, []);
+  url = `https://wa.me.evil.example/5511999990000?text=ahh_${"a".repeat(43)}`;
+  await assert.rejects(
+    service.setPreferredContactChannel(MANAGEMENT_TOKEN, "whatsapp"),
+  );
+});

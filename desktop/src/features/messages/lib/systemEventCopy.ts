@@ -35,7 +35,8 @@ export function describeChannelTextFieldChange(
   value: string | null | undefined,
 ): string {
   const trimmed = value?.trim();
-  if (resolveAirHopLocale() === "ru-RU")
+  const locale = resolveAirHopLocale();
+  if (locale === "ru-RU")
     return messageText(
       trimmed
         ? field === "topic"
@@ -46,6 +47,11 @@ export function describeChannelTextFieldChange(
           : "Purpose cleared",
       { value: trimmed ?? "" },
     );
+  if (locale === "pt-BR") {
+    if (!trimmed)
+      return field === "topic" ? "limpou o tópico" : "limpou a finalidade";
+    return `alterou ${field === "topic" ? "o tópico" : "a finalidade"} para ${OPEN_QUOTE}${trimmed}${CLOSE_QUOTE}`;
+  }
   if (!trimmed) {
     return `cleared the ${field}`;
   }

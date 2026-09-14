@@ -29,7 +29,6 @@ import {
 } from "@/features/profile/ui/UserProfilePanelFields";
 import type { ProfilePanelTab } from "@/features/profile/ui/UserProfilePanelUtils";
 import { cn } from "@/shared/lib/cn";
-import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { useNow } from "@/shared/lib/useNow";
 import { Button } from "@/shared/ui/button";
 import {
@@ -39,6 +38,7 @@ import {
   CarouselItem,
 } from "@/shared/ui/carousel";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 export function ProfileIngressRow({
   disabled,
@@ -224,7 +224,6 @@ export function ProfileTabBar({
     trailing?: React.ReactNode;
   }>;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const { didDragRef, onPointerDown, scrollRef } = useHorizontalDragScroll();
 
   return (
@@ -234,7 +233,7 @@ export function ProfileTabBar({
       ref={scrollRef}
     >
       <div
-        aria-label={isRussian ? "Разделы профиля" : "Profile sections"}
+        aria-label={localePair("Разделы профиля", "Profile sections")}
         className="flex w-max min-w-full justify-center gap-1.5"
         role="tablist"
       >
@@ -304,14 +303,13 @@ export function ProfileInfoTabContent({
   pubkey: string | null;
   showActivityIngress: boolean;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const infoFields: ProfileField[] = isArchived
     ? [
         ...agentInfoFields,
         {
-          displayValue: isRussian ? "В архиве" : "Archived",
+          displayValue: localePair("В архиве", "Archived"),
           icon: Archive,
-          label: isRussian ? "Видимость" : "Visibility",
+          label: localePair("Видимость", "Visibility"),
           testId: "user-profile-archived-flair",
           trailingNode: <ArchiveStatusTooltip />,
         },
@@ -342,10 +340,10 @@ export function ProfileInfoTabContent({
         ) : (
           <ProfileIngressRow
             icon={Wrench}
-            label={isRussian ? "Журнал активности" : "Activity log"}
+            label={localePair("Журнал активности", "Activity log")}
             onClick={() => onOpenActivity(null)}
             testId={`user-profile-view-activity-${pubkey}`}
-            trailing={isRussian ? "Открыть" : "View"}
+            trailing={localePair("Открыть", "View")}
           />
         )
       ) : null}
@@ -370,7 +368,6 @@ function ProfileInstancesSection({
   instances: ManagedAgent[];
   onOpenInstance: (pubkey: string) => void;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const [expanded, setExpanded] = React.useState(false);
 
   return (
@@ -383,7 +380,7 @@ function ProfileInstancesSection({
         type="button"
       >
         <span className="min-w-0 flex-1 text-sm font-medium">
-          {isRussian ? "Экземпляры" : "Instances"}
+          {localePair("Экземпляры", "Instances")}
         </span>
         <span className="text-sm text-muted-foreground">
           {instances.length}
@@ -412,9 +409,7 @@ function ProfileInstancesSection({
                 </span>
                 <span className="text-xs capitalize text-muted-foreground">
                   {isCurrent
-                    ? isRussian
-                      ? "Текущий"
-                      : "Current"
+                    ? localePair("Текущий", "Current")
                     : instance.status.replace("_", " ")}
                 </span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />

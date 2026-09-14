@@ -1,3 +1,5 @@
+import { messageText } from "@/shared/locale/messengerCopy";
+
 const ru: Record<string, string> = {
   "Send feedback": "Отправить отзыв",
   "Sending…": "Отправляем…",
@@ -23,5 +25,5 @@ const ru: Record<string, string> = {
     "Отзыв сохраняется на сервере вашего центра и доступен администраторам сервера. В каналы он не публикуется. Изображения загружаются сразу при добавлении, ещё до отправки отзыва.",
 };
 export function feedbackText(text: string, isRussian: boolean): string {
-  return isRussian ? (ru[text] ?? text) : text;
+  return isRussian ? (ru[text] ?? text) : messageText(text);
 }

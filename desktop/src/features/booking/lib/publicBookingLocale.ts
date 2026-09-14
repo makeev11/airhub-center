@@ -288,7 +288,168 @@ const ruMessages: PublicBookingMessages = {
   widgetDescription: "Та же форма работает внутри фирменного окна сайта.",
 };
 
+const ptBrMessages: PublicBookingMessages = {
+  brand: "AirHop",
+  poweredByBrand: "Desenvolvido com AirHop",
+  standaloneEyebrow: (organizationName) =>
+    `Agendamento on-line · ${organizationName}`,
+  standaloneTitle: "Encontre uma aula experimental",
+  standaloneDescription: "Escolha uma aula e envie sua solicitação ao centro.",
+  bookingTitle: {
+    trial: "Agendar uma aula experimental",
+    lesson: "Agendar uma aula",
+  },
+  bookingDescription: {
+    trial: "Vamos encontrar uma aula experimental adequada.",
+    lesson: "Escolha a aula, a data e o horário mais convenientes.",
+  },
+  loading: "Carregando aulas disponíveis…",
+  unavailableTitle: "O agendamento on-line está temporariamente indisponível",
+  unavailableDescription:
+    "A API pública de agendamento ainda não está conectada a este ambiente.",
+  stepProgress: (current, total) => `Etapa ${current} de ${total}`,
+  back: "Voltar",
+  continue: "Continuar",
+  changeCriteria: "Alterar idade ou unidade",
+  basicsTitle: "Escolha a unidade e a idade",
+  basicsDescription: "",
+  birthMonth: "Mês e ano de nascimento da criança",
+  childAge: "Qual é a idade da criança?",
+  childAgeHint:
+    "Pediremos a data de nascimento completa somente antes do envio.",
+  ageYears: (age) =>
+    age === 0 ? "Menos de 1 ano" : `${age} ${age === 1 ? "ano" : "anos"}`,
+  branch: "Unidade",
+  chooseBranch: "Escolha uma unidade",
+  changeBranch: "Alterar",
+  branchAvailable: "Há vagas",
+  branchUnavailable: "Nenhuma vaga adequada no momento",
+  branchAvailabilityLoading: "Verificando vagas…",
+  basicsError: "Selecione a idade e uma unidade ativa.",
+  contextFallbackNotice:
+    "A opção selecionada anteriormente não está disponível. Revise os dados e continue.",
+  groupsTitle: "Escolha uma atividade",
+  groupsDescription: "",
+  chooseGroup: "Escolher atividade",
+  noOptionsTitle: "Nenhuma opção adequada no momento",
+  noOptionsDescription:
+    "Tente alterar a idade ou a unidade. Em breve você também poderá falar diretamente com o centro.",
+  occurrencesTitle: "Escolha a data e o horário",
+  occurrencesDescription: "As aulas lotadas aparecem como “Sem vagas”.",
+  chooseOccurrence: "Escolher aula",
+  placesUnlimited: "Sem limite de vagas",
+  placesRemaining: (count) => `${count} vagas disponíveis`,
+  placesFull: "Sem vagas",
+  groupFullNotice: "As próximas aulas estão lotadas",
+  contactTitle: "Dados de contato",
+  contactDescription:
+    "A data de nascimento ajuda o professor a se preparar para receber a criança.",
+  parentName: "Nome do responsável",
+  parentNamePlaceholder: "Por exemplo, Mariana",
+  parentLastName: "Sobrenome do responsável",
+  parentLastNamePlaceholder: "Por exemplo, Silva",
+  phone: "Telefone",
+  phonePlaceholder: "+55 11 91234-5678",
+  childName: "Nome da criança",
+  childNamePlaceholder: "Por exemplo, Lucas",
+  exactBirthDate: "Data de nascimento da criança",
+  consent:
+    "Concordo com o tratamento dos dados para encontrar uma aula e entrar em contato sobre esta solicitação",
+  applicantErrors: {
+    parent_name_required: "Informe o nome do responsável.",
+    parent_last_name_required: "Informe o sobrenome do responsável.",
+    phone_invalid: "Informe um telefone válido.",
+    child_name_required: "Informe o nome da criança.",
+    birth_date_invalid: "Informe uma data de nascimento válida.",
+    birth_date_in_future: "A data de nascimento não pode estar no futuro.",
+    consent_required: "É necessário consentir com o tratamento dos dados.",
+  },
+  previewTitle: "Revise a solicitação",
+  previewDescription:
+    "Confira os dados. Depois do envio, mostraremos como confirmar o agendamento e continuar em contato.",
+  center: "Centro",
+  group: "Atividade",
+  dateAndTime: "Data e horário",
+  address: "Endereço",
+  room: "Sala",
+  teachers: "Professores",
+  trial: "Aula experimental",
+  trialFree: "Grátis",
+  trialPaid: (price) => `Valor: ${price}`,
+  trialDisabled: "Aula experimental indisponível",
+  submit: "Enviar solicitação",
+  submitting: "Enviando…",
+  slotUnavailableTitle: "Esta aula não está mais disponível",
+  slotUnavailableDescription:
+    "Outra pessoa pode ter ocupado a vaga. Escolha outra opção.",
+  loadErrorTitle: "O agendamento on-line está indisponível",
+  loadErrorDescription:
+    "Não foi possível carregar as unidades e os horários. Atualize a página mais tarde.",
+  genericErrorTitle: "Não foi possível enviar a solicitação",
+  genericErrorDescription:
+    "Tente novamente — os dados preenchidos foram preservados.",
+  successTitle: "Solicitação aguardando confirmação",
+  successDescription:
+    "A equipe do centro analisará a solicitação. O agendamento só será concluído após a confirmação.",
+  openManagementCard: "Ver meu agendamento",
+  contactChannelTitle: "Confirme pelo aplicativo de mensagens",
+  contactChannelDescription:
+    "Confirme o agendamento e continue em contato com a gente.",
+  contactChannelSaved: (channel) => `Canal preferido: ${channel}`,
+  contactChannelHonesty:
+    "Sua preferência foi salva, mas nenhuma mensagem foi enviada ainda.",
+  contactChannels: {
+    telegram: "Telegram",
+    max: "MAX",
+    whatsapp: "WhatsApp",
+    phone: "Telefone",
+    none: "Não selecionado",
+  },
+  manageTitle: "Detalhes do agendamento",
+  manageDescription:
+    "Este link privado abre somente esta solicitação e não cria uma conta.",
+  invalidLinkTitle: "Agendamento indisponível",
+  invalidLinkDescription:
+    "O link é inválido ou foi revogado. Não podemos exibir os dados desta solicitação.",
+  status: {
+    pending_confirmation: "Aguardando confirmação",
+    confirmed: "Confirmado",
+    rejected: "Recusado",
+    cancelled_by_parent: "Cancelado pelo responsável",
+    cancelled_by_center: "Cancelado pelo centro",
+  },
+  statusLabel: "Status",
+  child: "Criança",
+  maskedPhone: "Telefone para contato",
+  transferRequested: "Alteração solicitada",
+  transferRequestedDescription:
+    "A solicitação permanece na aula original até que a equipe faça a alteração.",
+  cancelBooking: "Cancelar agendamento",
+  cancelTitle: "Cancelar esta solicitação?",
+  cancelDescription:
+    "A vaga será liberada imediatamente. Não será possível desfazer o cancelamento por este link.",
+  cancelConfirm: "Sim, cancelar",
+  requestTransfer: "Solicitar alteração",
+  transferTitle: "Solicitar alteração da aula",
+  transferDescription:
+    "Registraremos o pedido sem alterar a aula nem liberar a vaga automaticamente.",
+  transferComment: "Comentário, opcional",
+  transferCommentPlaceholder: "Por exemplo, prefiro aos fins de semana",
+  transferConfirm: "Enviar solicitação",
+  close: "Fechar",
+  startAnotherBooking: "Escolher outra aula",
+  demoHostEyebrow: "Site de demonstração do centro",
+  demoHostTitle: "Onde a curiosidade se transforma em habilidade",
+  demoHostDescription:
+    "Exemplo de página do centro: unidade, atividade e idade selecionadas já são enviadas ao formulário.",
+  demoHostButton: "Agendar",
+  widgetTitle: "Agendamento com AirHop",
+  widgetDescription:
+    "O mesmo formulário funciona dentro da janela personalizada do site.",
+};
+
 const messagesByLanguage: Partial<Record<string, PublicBookingMessages>> = {
+  pt: ptBrMessages,
   ru: ruMessages,
 };
 

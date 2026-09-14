@@ -55,6 +55,7 @@ export const EN_BOOKING_ADMIN_MESSAGES = {
   locale: "Interface language",
   localeRussian: "Русский",
   localeEnglish: "English",
+  localePortuguese: "Português (Brasil)",
   timeZone: "Time zone",
   timeZoneAutomatic: (timeZone) => `Detect automatically — ${timeZone}`,
   timeZoneHint:

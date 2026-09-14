@@ -13,7 +13,11 @@ test("appearance copy localizes the center and booking widget targets", () => {
   assert.equal(english.widgetTarget, "Booking widget");
 });
 
-test("currently hidden locales fall back to complete English copy", () => {
+test("Turkish falls back to English while Brazilian Portuguese is complete", () => {
   assert.equal(getAppearanceMessages("tr-TR").widgetSave, "Save changes");
-  assert.equal(getAppearanceMessages("pt-BR").widgetSave, "Save changes");
+  assert.equal(getAppearanceMessages("pt-BR").widgetSave, "Salvar alterações");
+  assert.equal(
+    getAppearanceMessages("pt-BR").widgetTarget,
+    "Widget de agendamento",
+  );
 });

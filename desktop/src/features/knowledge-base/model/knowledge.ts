@@ -107,90 +107,151 @@ export function newKnowledgeDraft(locale: string): KnowledgeDraft {
   };
 }
 
-export function knowledgeTopics(ru: boolean) {
+export function knowledgeTopics(locale: boolean | string) {
+  const language =
+    typeof locale === "boolean"
+      ? locale
+        ? "ru"
+        : "en"
+      : locale.toLowerCase().startsWith("pt")
+        ? "pt"
+        : locale.toLowerCase().startsWith("ru")
+          ? "ru"
+          : "en";
+  const text = (ru: string, en: string, pt: string) =>
+    language === "ru" ? ru : language === "pt" ? pt : en;
+  const list = (ru: string[], en: string[], pt: string[]) =>
+    language === "ru" ? ru : language === "pt" ? pt : en;
   return [
     {
       key: "about",
-      title: ru ? "О центре и занятиях" : "About the center",
-      questions: ru
-        ? ["Что особенного в ваших занятиях?", "Как проходит обычное занятие?"]
-        : [
-            "What makes your classes special?",
-            "What happens during a typical class?",
-          ],
+      title: text(
+        "О центре и занятиях",
+        "About the center",
+        "Sobre o centro e as aulas",
+      ),
+      questions: list(
+        ["Что особенного в ваших занятиях?", "Как проходит обычное занятие?"],
+        [
+          "What makes your classes special?",
+          "What happens during a typical class?",
+        ],
+        ["O que torna suas aulas especiais?", "Como é uma aula típica?"],
+      ),
     },
     {
       key: "preparation_and_arrival",
-      title: ru ? "Первое посещение" : "First visit",
-      questions: ru
-        ? [
-            "Что взять с собой?",
-            "Какую одежду и обувь выбрать?",
-            "Как найти вход и где оставить коляску или машину?",
-          ]
-        : [
-            "What should families bring?",
-            "What clothing and shoes are suitable?",
-            "How do families find the entrance and parking?",
-          ],
+      title: text("Первое посещение", "First visit", "Primeira visita"),
+      questions: list(
+        [
+          "Что взять с собой?",
+          "Какую одежду и обувь выбрать?",
+          "Как найти вход и где оставить коляску или машину?",
+        ],
+        [
+          "What should families bring?",
+          "What clothing and shoes are suitable?",
+          "How do families find the entrance and parking?",
+        ],
+        [
+          "O que as famílias devem levar?",
+          "Quais roupas e calçados são adequados?",
+          "Como encontrar a entrada e o estacionamento?",
+        ],
+      ),
     },
     {
       key: "trial",
-      title: ru ? "Пробное занятие" : "Trial class",
-      questions: ru
-        ? [
-            "Как проходит знакомство с преподавателем?",
-            "Может ли родитель присутствовать?",
-          ]
-        : ["How do children meet the teacher?", "Can a parent stay?"],
+      title: text("Пробное занятие", "Trial class", "Aula experimental"),
+      questions: list(
+        [
+          "Как проходит знакомство с преподавателем?",
+          "Может ли родитель присутствовать?",
+        ],
+        ["How do children meet the teacher?", "Can a parent stay?"],
+        [
+          "Como a criança conhece o professor?",
+          "O responsável pode acompanhar?",
+        ],
+      ),
     },
     {
       key: "attendance",
-      title: ru ? "Посещение и отмена" : "Attendance and cancellations",
-      questions: ru
-        ? [
-            "К кому обратиться, если не получается прийти?",
-            "Как сообщить об опоздании?",
-          ]
-        : [
-            "Who should families contact to cancel?",
-            "How should families report a late arrival?",
-          ],
+      title: text(
+        "Посещение и отмена",
+        "Attendance and cancellations",
+        "Presença e cancelamentos",
+      ),
+      questions: list(
+        [
+          "К кому обратиться, если не получается прийти?",
+          "Как сообщить об опоздании?",
+        ],
+        [
+          "Who should families contact to cancel?",
+          "How should families report a late arrival?",
+        ],
+        [
+          "Com quem a família deve falar para cancelar?",
+          "Como avisar sobre um atraso?",
+        ],
+      ),
     },
     {
       key: "payment",
-      title: ru ? "Вопросы об оплате" : "Payment questions",
-      questions: ru
-        ? [
-            "Какие способы оплаты доступны?",
-            "К кому обратиться с вопросом об оплате?",
-          ]
-        : [
-            "Which payment methods are available?",
-            "Who can help with a payment question?",
-          ],
+      title: text(
+        "Вопросы об оплате",
+        "Payment questions",
+        "Dúvidas sobre pagamentos",
+      ),
+      questions: list(
+        [
+          "Какие способы оплаты доступны?",
+          "К кому обратиться с вопросом об оплате?",
+        ],
+        [
+          "Which payment methods are available?",
+          "Who can help with a payment question?",
+        ],
+        [
+          "Quais formas de pagamento estão disponíveis?",
+          "Quem pode ajudar com uma dúvida sobre pagamento?",
+        ],
+      ),
     },
     {
       key: "safety",
-      title: ru ? "Безопасность и родители" : "Safety and parents",
-      questions: ru
-        ? [
-            "Кто может забрать ребёнка?",
-            "Как сообщить об особенностях ребёнка?",
-            "Какие правила фото и видеосъёмки?",
-          ]
-        : [
-            "Who may collect a child?",
-            "How can families share a child's needs?",
-            "What are the photo and video rules?",
-          ],
+      title: text(
+        "Безопасность и родители",
+        "Safety and parents",
+        "Segurança e responsáveis",
+      ),
+      questions: list(
+        [
+          "Кто может забрать ребёнка?",
+          "Как сообщить об особенностях ребёнка?",
+          "Какие правила фото и видеосъёмки?",
+        ],
+        [
+          "Who may collect a child?",
+          "How can families share a child's needs?",
+          "What are the photo and video rules?",
+        ],
+        [
+          "Quem pode buscar a criança?",
+          "Como a família pode informar as necessidades da criança?",
+          "Quais são as regras para fotos e vídeos?",
+        ],
+      ),
     },
     {
       key: "faq",
-      title: ru ? "Другие вопросы" : "Other questions",
-      questions: ru
-        ? ["О чём ещё часто спрашивают родители?"]
-        : ["What else do parents often ask?"],
+      title: text("Другие вопросы", "Other questions", "Outras perguntas"),
+      questions: list(
+        ["О чём ещё часто спрашивают родители?"],
+        ["What else do parents often ask?"],
+        ["O que mais os responsáveis costumam perguntar?"],
+      ),
     },
   ];
 }

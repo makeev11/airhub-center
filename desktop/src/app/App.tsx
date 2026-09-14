@@ -70,6 +70,7 @@ import {
 import { cn } from "@/shared/lib/cn";
 import { AirHopLoadingMark } from "@/shared/ui/airhop-brand/AirHopBrand";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
+import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 
 const LOADING_TEXT = "Airhop is starting...";
 
@@ -692,6 +693,7 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
 }
 
 export function App() {
+  useAirHopLocale();
   useReloadShortcut();
   useInitialRenderReady();
   const isPublicBookingLocation = useIsPublicBookingLocation();

@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  MESSENGER_PT_BR,
   MESSENGER_RU,
+  localizeCopyTree,
   messageText,
   messengerCount,
   messageError,
   messengerTyping,
 } from "./messengerCopy.ts";
+import { unreadCountLabel } from "../ui/UnreadPill.tsx";
 import {
   formatDayHeading,
   formatTime,
@@ -40,7 +43,7 @@ test("copy and grammatical counts remain bilingual", () => {
     [21, "агент"],
     [22, "агента"],
   ])
-    assert.equal(messengerCount(n, "agent", "ru-RU"), n + " " + word);
+    assert.equal(messengerCount(n, "agent", "ru-RU"), `${n} ${word}`);
   assert.equal(messengerCount(2, "reply", "en-US"), "2 replies");
   assert.equal(messageText("Add agents", {}, "ru-RU"), "Добавить AI-агентов");
   assert.equal(messageText("Add agents", {}, "en-US"), "Add agents");
@@ -53,6 +56,41 @@ test("copy and grammatical counts remain bilingual", () => {
   for (const [key, value] of Object.entries(MESSENGER_RU)) {
     assert.equal(typeof value, "string", key);
     assert.ok(/[а-яё]/i.test(value), key);
+  }
+});
+
+test("Portuguese copy covers the Russian catalog and legacy dynamic text", () => {
+  for (const key of Object.keys(MESSENGER_RU)) {
+    assert.ok(key in MESSENGER_PT_BR, `missing Portuguese key: ${key}`);
+  }
+  assert.equal(
+    messageText("Add agents", {}, "pt-BR"),
+    "Adicionar agentes de IA",
+  );
+  assert.equal(messengerCount(2, "member", "pt-BR"), "2 participantes");
+  assert.equal(
+    messageText("3 active drafts", {}, "pt-BR"),
+    "3 rascunhos ativos",
+  );
+  assert.deepEqual(localizeCopyTree({ title: "Software updates" }, "pt-BR"), {
+    title: "Atualizações de software",
+  });
+
+  const descriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "localStorage",
+  );
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: { getItem: () => "pt-BR" },
+  });
+  try {
+    assert.equal(unreadCountLabel(1), "1 nova mensagem");
+    assert.equal(unreadCountLabel(3), "3 novas mensagens");
+  } finally {
+    if (descriptor)
+      Object.defineProperty(globalThis, "localStorage", descriptor);
+    else delete globalThis.localStorage;
   }
 });
 test("dynamic typing and invitations contain whole localized sentences", () => {

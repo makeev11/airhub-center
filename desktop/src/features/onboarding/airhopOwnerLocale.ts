@@ -10,6 +10,7 @@ export type AirHopOwnerLocale = AirHopLocale;
 export const AIRHOP_OWNER_LOCALES = [
   "en-US",
   "ru-RU",
+  "pt-BR",
 ] as const satisfies readonly AirHopOwnerLocale[];
 export const AIRHOP_OWNER_LOCALE_STORAGE_KEY = AIRHOP_LOCALE_STORAGE_KEY;
 

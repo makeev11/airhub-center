@@ -243,3 +243,53 @@ test("legacy fallback failure is surfaced once and the next load probes modern s
   );
   assert.equal(urls[2], urls[0]);
 });
+test("WhatsApp templates are signed as exact reviewed thread replies and network retry preserves identity", async () => {
+  const signed = [],
+    requests = [];
+  const service = new ClientInboxService({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (event) => {
+      signed.push(event);
+      return {
+        ...event,
+        id: "ab".repeat(32),
+        pubkey: "cd".repeat(32),
+        sig: "ef".repeat(64),
+      };
+    },
+    fetch: async (_url, options) => {
+      requests.push(options);
+      if (requests.length === 1) throw new TypeError("lost");
+      return new Response(JSON.stringify({ accepted: true, message: "ok" }));
+    },
+  });
+  await service.sendWhatsAppTemplate(
+    { id, channelId: id, rootEventId: "12".repeat(32) },
+    {
+      name: "lesson",
+      language: "pt_BR",
+      body: "Aula {{1}}",
+      header: "AirHop",
+      footer: "",
+      parameterCount: 1,
+    },
+    ["10:00"],
+  );
+  const messages = signed.filter((e) => e.kind === 9);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].content, "AirHop\nAula 10:00");
+  assert.deepEqual(
+    messages[0].tags.filter((t) => t[0] === "e"),
+    [
+      ["e", "12".repeat(32), "", "root"],
+      ["e", "12".repeat(32), "", "reply"],
+    ],
+  );
+  assert.deepEqual(
+    JSON.parse(
+      messages[0].tags.find((t) => t[0] === "airhop-whatsapp-template")[1],
+    ),
+    { name: "lesson", language: "pt_BR", parameters: ["10:00"] },
+  );
+  assert.equal(requests[0].body, requests[1].body);
+});

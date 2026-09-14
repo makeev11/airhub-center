@@ -1,4 +1,8 @@
-import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
+import {
+  messageText,
+  useMessengerCopy,
+  localePair,
+} from "@/shared/locale/messengerCopy";
 import { FileText, Lock, Pencil, Send, Trash2 } from "lucide-react";
 import * as React from "react";
 
@@ -46,9 +50,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 const SENT_DRAFT_PREFIX = "sent:";
 const THREAD_DRAFT_PREFIX = "thread:";
 function unknownChannelLabel() {
-  return resolveActivationLocale() === "ru-RU"
-    ? "Неизвестный канал"
-    : messageText("Unknown channel");
+  return localePair("Неизвестный канал", "Unknown channel");
 }
 
 export type DraftListEntry = {
@@ -71,20 +73,14 @@ function getUnknownDraftSource(): DraftSource {
   return { channel: null, label: unknownChannelLabel() };
 }
 
-const draftTimeFormatters = {
-  en: new Intl.DateTimeFormat("en-US", {
+function draftTimeFormatter() {
+  return new Intl.DateTimeFormat(resolveActivationLocale(), {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }),
-  ru: new Intl.DateTimeFormat("ru-RU", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }),
-};
+  });
+}
 
 function parseDraftTime(value: string): number {
   const time = new Date(value).getTime();
@@ -92,13 +88,10 @@ function parseDraftTime(value: string): number {
 }
 
 export function formatDraftCreatedAt(draft: DraftState): string {
-  const isRussian = resolveActivationLocale() === "ru-RU";
   const time = parseDraftTime(draft.createdAt);
   return time === 0
     ? messageText("Unknown time")
-    : (isRussian ? draftTimeFormatters.ru : draftTimeFormatters.en).format(
-        new Date(time),
-      );
+    : draftTimeFormatter().format(new Date(time));
 }
 
 function getOriginalDraftKey(draftKey: string): string {
@@ -130,7 +123,6 @@ function isVisibleDraft(entry: DraftListEntry): boolean {
 }
 
 export function getDraftPreview(draft: DraftState): string {
-  const isRussian = resolveActivationLocale() === "ru-RU";
   const content = draft.content.trim();
   if (content.length > 0) {
     return content;
@@ -138,12 +130,13 @@ export function getDraftPreview(draft: DraftState): string {
 
   const attachmentCount = draft.pendingImeta.length;
   if (attachmentCount === 1) {
-    return isRussian ? "1 вложение" : "1 attachment";
+    return localePair("1 вложение", "1 attachment");
   }
   if (attachmentCount > 1) {
-    return isRussian
-      ? `${attachmentCount} вложений`
-      : `${attachmentCount} attachments`;
+    return localePair(
+      `${attachmentCount} вложений`,
+      `${attachmentCount} attachments`,
+    );
   }
   return messageText("Empty draft");
 }
@@ -321,7 +314,6 @@ export function SendConfirmDialog({
   onConfirm,
   open,
 }: SendConfirmDialogProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const destination = isDm ? channelLabel : `#${channelLabel}`;
   return (
     <AlertDialog
@@ -336,9 +328,10 @@ export function SendConfirmDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{messageText("Send message")}</AlertDialogTitle>
           <AlertDialogDescription>
-            {isRussian
-              ? `Отправить это сообщение в ${destination}?`
-              : `Are you sure you want to send this message to ${destination}?`}
+            {localePair(
+              `Отправить это сообщение в ${destination}?`,
+              `Are you sure you want to send this message to ${destination}?`,
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -375,7 +368,6 @@ function DraftRow({
   selected: boolean;
   source: DraftSource;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const isSent = entry.draft.status === "sent";
   const isOrphaned = rootStatus === "deleted";
   const canOpen = canOpenDraft(entry.draft, source) && !isOrphaned;
@@ -398,11 +390,10 @@ function DraftRow({
       data-testid={`home-draft-item-${entry.key}`}
     >
       <button
-        aria-label={
-          isRussian
-            ? `Открыть черновик в ${channelLabel}`
-            : `View draft in ${channelLabel}`
-        }
+        aria-label={localePair(
+          `Открыть черновик в ${channelLabel}`,
+          `View draft in ${channelLabel}`,
+        )}
         className="block w-full min-w-0 px-3 py-3 text-left disabled:cursor-default"
         onClick={onSelect}
         type="button"

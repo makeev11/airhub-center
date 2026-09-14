@@ -201,7 +201,7 @@ owners can then connect Telegram bots and center-owned Meta applications in
 **Settings → Communication channels** without another deployment:
 
 ```bash
-AIRHOP_ENV_FILE=.env docker compose --profile channels \
+AIRHOP_ENV_FILE=.env docker compose --project-name "${AIRHOP_COMPOSE_PROJECT_NAME:?set explicit target}" --profile channels \
   --env-file deploy/airhop/.env -f deploy/airhop/compose.yml \
   up -d --build --wait telegram-gateway
 ```

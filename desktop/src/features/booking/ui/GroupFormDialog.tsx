@@ -681,7 +681,9 @@ export function GroupFormDialog({
                   <p className="text-xs text-muted-foreground">
                     {workspace.organization.locale.startsWith("ru")
                       ? `Точная сохранённая граница: ${Math.floor((freshGroup?.minAgeMonths ?? 0) / 12)} г. ${(freshGroup?.minAgeMonths ?? 0) % 12} мес. Она сохранится, если не менять возраст.`
-                      : `Saved exact limit: ${Math.floor((freshGroup?.minAgeMonths ?? 0) / 12)} years ${(freshGroup?.minAgeMonths ?? 0) % 12} months. Preserved unless the age changes.`}
+                      : workspace.organization.locale.startsWith("pt")
+                        ? `Limite exato salvo: ${Math.floor((freshGroup?.minAgeMonths ?? 0) / 12)} anos e ${(freshGroup?.minAgeMonths ?? 0) % 12} meses. Ele será preservado se a idade não for alterada.`
+                        : `Saved exact limit: ${Math.floor((freshGroup?.minAgeMonths ?? 0) / 12)} years ${(freshGroup?.minAgeMonths ?? 0) % 12} months. Preserved unless the age changes.`}
                   </p>
                 ) : null}
               </Field>
@@ -709,7 +711,9 @@ export function GroupFormDialog({
                   <p className="text-xs text-muted-foreground">
                     {workspace.organization.locale.startsWith("ru")
                       ? `Точная сохранённая граница: ${Math.floor((freshGroup?.maxAgeMonths ?? 0) / 12)} г. ${(freshGroup?.maxAgeMonths ?? 0) % 12} мес. Она сохранится, если не менять возраст.`
-                      : `Saved exact limit: ${Math.floor((freshGroup?.maxAgeMonths ?? 0) / 12)} years ${(freshGroup?.maxAgeMonths ?? 0) % 12} months. Preserved unless the age changes.`}
+                      : workspace.organization.locale.startsWith("pt")
+                        ? `Limite exato salvo: ${Math.floor((freshGroup?.maxAgeMonths ?? 0) / 12)} anos e ${(freshGroup?.maxAgeMonths ?? 0) % 12} meses. Ele será preservado se a idade não for alterada.`
+                        : `Saved exact limit: ${Math.floor((freshGroup?.maxAgeMonths ?? 0) / 12)} years ${(freshGroup?.maxAgeMonths ?? 0) % 12} months. Preserved unless the age changes.`}
                   </p>
                 ) : null}
               </Field>

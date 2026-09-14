@@ -12,6 +12,7 @@ mod consultation_tests;
 mod conversation_booking_tests;
 mod history_snapshot_tests;
 mod runtime_recovery_tests;
+mod whatsapp_tests;
 
 struct Fixture {
     db: Db,

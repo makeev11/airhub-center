@@ -1,5 +1,8 @@
-export function getProfileAvatarEditorCopy(isRussian: boolean) {
-  return isRussian
+import type { AirHopLocale } from "@/shared/locale/airhopLocale";
+import { localizeCopyTree } from "@/shared/locale/messengerCopy";
+
+export function getProfileAvatarEditorCopy(locale: AirHopLocale) {
+  return locale === "ru-RU"
     ? {
         pickerLegend: "Выбор изображения аватара",
         uploading: "Загружаем...",
@@ -18,22 +21,25 @@ export function getProfileAvatarEditorCopy(isRussian: boolean) {
         save: "Сохранить",
         done: "Готово",
       }
-    : {
-        pickerLegend: "Avatar image picker",
-        uploading: "Uploading...",
-        dropHere: "Drop image here",
-        dragOrBrowse: "Drag or browse",
-        dropOr: "Drop or ",
-        browse: "browse",
-        pasteUrl: "Paste a URL",
-        pasteImageUrl: "Paste an image URL",
-        uploadError: "Could not upload the image. Try again.",
-        customColor: "Choose custom avatar color",
-        chooseEmojiFirst: "Choose an emoji before custom avatar color",
-        backgroundLabel: (swatch: string) => `Use ${swatch} background`,
-        savingAvatar: "Saving avatar",
-        saving: "Saving",
-        save: "Save",
-        done: "Done",
-      };
+    : localizeCopyTree(
+        {
+          pickerLegend: "Avatar image picker",
+          uploading: "Uploading...",
+          dropHere: "Drop image here",
+          dragOrBrowse: "Drag or browse",
+          dropOr: "Drop or ",
+          browse: "browse",
+          pasteUrl: "Paste a URL",
+          pasteImageUrl: "Paste an image URL",
+          uploadError: "Could not upload the image. Try again.",
+          customColor: "Choose custom avatar color",
+          chooseEmojiFirst: "Choose an emoji before custom avatar color",
+          backgroundLabel: (swatch: string) => `Use ${swatch} background`,
+          savingAvatar: "Saving avatar",
+          saving: "Saving",
+          save: "Save",
+          done: "Done",
+        },
+        locale,
+      );
 }

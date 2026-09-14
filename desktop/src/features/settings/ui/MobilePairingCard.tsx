@@ -29,6 +29,7 @@ import {
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 type PairingStep =
   | "idle"
@@ -40,7 +41,7 @@ type PairingStep =
   | "done"
   | "error";
 
-function pairingErrorMessage(error: unknown, russian: boolean) {
+function pairingErrorMessage(error: unknown, _russian: boolean) {
   const message =
     error instanceof Error
       ? error.message
@@ -49,16 +50,18 @@ function pairingErrorMessage(error: unknown, russian: boolean) {
         : "";
 
   if (message.toLowerCase().includes("timeout waiting for eose")) {
-    return russian
-      ? "Подключение заняло слишком много времени. Попробуйте ещё раз."
-      : "Pairing took too long. Try again.";
+    return localePair(
+      "Подключение заняло слишком много времени. Попробуйте ещё раз.",
+      "Pairing took too long. Try again.",
+    );
   }
 
   return (
     message ||
-    (russian
-      ? "Не удалось начать подключение. Попробуйте ещё раз."
-      : "We couldn't start pairing. Try again.")
+    localePair(
+      "Не удалось начать подключение. Попробуйте ещё раз.",
+      "We couldn't start pairing. Try again.",
+    )
   );
 }
 
@@ -79,7 +82,6 @@ function PairingStatusDialog({
   sasCode: string | null;
   step: PairingStep;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const open = step === "sas" || step === "transferring" || step === "done";
 
   return (
@@ -96,22 +98,26 @@ function PairingStatusDialog({
         <div className="flex max-h-[85vh] flex-col">
           <DialogHeader className="shrink-0 pb-5 pr-8">
             <DialogTitle>
-              {isRussian
-                ? "Подключить мобильное устройство"
-                : "Pair mobile device"}
+              {localePair(
+                "Подключить мобильное устройство",
+                "Pair mobile device",
+              )}
             </DialogTitle>
             <DialogDescription>
               {step === "sas"
-                ? isRussian
-                  ? "Убедитесь, что код совпадает с кодом на мобильном устройстве."
-                  : "Verify the security code matches your mobile device."
+                ? localePair(
+                    "Убедитесь, что код совпадает с кодом на мобильном устройстве.",
+                    "Verify the security code matches your mobile device.",
+                  )
                 : step === "done"
-                  ? isRussian
-                    ? "Мобильное устройство подключено."
-                    : "Your mobile device is now paired."
-                  : isRussian
-                    ? "Безопасно передаём данные входа в мобильное приложение."
-                    : "Securely sending your identity to the mobile app."}
+                  ? localePair(
+                      "Мобильное устройство подключено.",
+                      "Your mobile device is now paired.",
+                    )
+                  : localePair(
+                      "Безопасно передаём данные входа в мобильное приложение.",
+                      "Securely sending your identity to the mobile app.",
+                    )}
             </DialogDescription>
           </DialogHeader>
 
@@ -121,9 +127,10 @@ function PairingStatusDialog({
                 <div className="flex flex-col items-center gap-3 py-4">
                   <ShieldCheck className="h-10 w-10 text-primary" />
                   <p className="text-sm font-medium">
-                    {isRussian
-                      ? "Сверьте этот код с кодом на мобильном устройстве"
-                      : "Verify this code matches your mobile device"}
+                    {localePair(
+                      "Сверьте этот код с кодом на мобильном устройстве",
+                      "Verify this code matches your mobile device",
+                    )}
                   </p>
                   <div className="rounded-xl border-2 border-primary/30 bg-primary/5 px-8 py-4">
                     <p
@@ -134,9 +141,10 @@ function PairingStatusDialog({
                     </p>
                   </div>
                   <p className="text-center text-xs text-muted-foreground">
-                    {isRussian
-                      ? "Вы передаёте данные входа AirHop на другое устройство. Подтвердите только то подключение, которое начали сами."
-                      : "You are about to transfer your AirHop identity to another device. Only confirm if you initiated this pairing."}
+                    {localePair(
+                      "Вы передаёте данные входа AirHop на другое устройство. Подтвердите только то подключение, которое начали сами.",
+                      "You are about to transfer your AirHop identity to another device. Only confirm if you initiated this pairing.",
+                    )}
                   </p>
                 </div>
 
@@ -148,7 +156,7 @@ function PairingStatusDialog({
                     variant="outline"
                   >
                     <X className="mr-1.5 h-4 w-4" />
-                    {isRussian ? "Отмена" : "Cancel"}
+                    {localePair("Отмена", "Cancel")}
                   </Button>
                   <Button
                     className="flex-1"
@@ -156,7 +164,7 @@ function PairingStatusDialog({
                     onClick={onConfirm}
                   >
                     <Check className="mr-1.5 h-4 w-4" />
-                    {isRussian ? "Коды совпадают" : "Codes match"}
+                    {localePair("Коды совпадают", "Codes match")}
                   </Button>
                 </div>
               </div>
@@ -167,9 +175,10 @@ function PairingStatusDialog({
                   className="h-6 w-6 animate-spin text-muted-foreground"
                 />
                 <p className="text-sm text-muted-foreground">
-                  {isRussian
-                    ? "Передаём данные входа на мобильное устройство…"
-                    : "Sending identity to mobile device…"}
+                  {localePair(
+                    "Передаём данные входа на мобильное устройство…",
+                    "Sending identity to mobile device…",
+                  )}
                 </p>
               </div>
             ) : step === "done" ? (
@@ -181,14 +190,16 @@ function PairingStatusDialog({
                   <Check className="h-6 w-6 text-green-600 dark:text-green-400" />
                 </div>
                 <p className="text-sm font-medium">
-                  {isRussian
-                    ? "Мобильное устройство подключено"
-                    : "Mobile device paired"}
+                  {localePair(
+                    "Мобильное устройство подключено",
+                    "Mobile device paired",
+                  )}
                 </p>
                 <p className="text-center text-xs text-muted-foreground">
-                  {isRussian
-                    ? "Мобильное приложение подключено к вашему центру."
-                    : "Your mobile app is now connected to this center."}
+                  {localePair(
+                    "Мобильное приложение подключено к вашему центру.",
+                    "Your mobile app is now connected to this center.",
+                  )}
                 </p>
               </div>
             ) : null}
@@ -278,9 +289,10 @@ export function MobilePairingCard({
       if (!cancelled && pairingActiveRef.current) {
         pairingActiveRef.current = false;
         setError(
-          isRussian
-            ? `Подключение остановлено: ${event.payload.reason}`
-            : `Pairing stopped: ${event.payload.reason}`,
+          localePair(
+            `Подключение остановлено: ${event.payload.reason}`,
+            `Pairing stopped: ${event.payload.reason}`,
+          ),
         );
         setStep("error");
       }
@@ -322,7 +334,7 @@ export function MobilePairingCard({
   async function handleCopy() {
     if (!qrUri) return;
     await writeTextToClipboard(qrUri);
-    toast.success(isRussian ? "Скопировано" : "Copied to clipboard");
+    toast.success(localePair("Скопировано", "Copied to clipboard"));
   }
 
   async function handleConfirmSas() {
@@ -333,9 +345,10 @@ export function MobilePairingCard({
       setError(
         err instanceof Error
           ? err.message
-          : isRussian
-            ? "Не удалось передать данные входа. Попробуйте ещё раз."
-            : "We couldn't send your identity. Try again.",
+          : localePair(
+              "Не удалось передать данные входа. Попробуйте ещё раз.",
+              "We couldn't send your identity. Try again.",
+            ),
       );
       pairingActiveRef.current = false;
       setStep("error");
@@ -346,9 +359,10 @@ export function MobilePairingCard({
     pairingActiveRef.current = false;
     cancelPairing().catch(() => {});
     setError(
-      isRussian
-        ? "Коды не совпали. Подключение отменено."
-        : "The codes didn't match. Pairing was canceled.",
+      localePair(
+        "Коды не совпали. Подключение отменено.",
+        "The codes didn't match. Pairing was canceled.",
+      ),
     );
     setStep("error");
   }
@@ -364,19 +378,18 @@ export function MobilePairingCard({
     }
 
     cancelPairing().catch(() => {});
-    setError(isRussian ? "Подключение отменено." : "Pairing was canceled.");
+    setError(localePair("Подключение отменено.", "Pairing was canceled."));
     setStep("error");
   }
 
   return (
     <section className="min-w-0" data-testid="settings-mobile">
       <SettingsSectionHeader
-        title={isRussian ? "Мобильное приложение Buzz" : "Buzz mobile app"}
-        description={
-          isRussian
-            ? "Для доступа к AirHop Center с телефона используется приложение Buzz. Откройте Buzz, выберите сканирование QR-кода и отсканируйте код ниже. Затем сверьте проверочный код на обоих устройствах и подтвердите подключение. Данные входа передаются в зашифрованном виде."
-            : "Use the Buzz mobile app to access AirHop Center from your phone. Open Buzz, choose Scan a QR code, and scan the code below. Then compare the verification code on both devices and confirm the connection. Sign-in data is transferred encrypted."
-        }
+        title={localePair("Мобильное приложение Buzz", "Buzz mobile app")}
+        description={localePair(
+          "Для доступа к AirHop Center с телефона используется приложение Buzz. Откройте Buzz, выберите сканирование QR-кода и отсканируйте код ниже. Затем сверьте проверочный код на обоих устройствах и подтвердите подключение. Данные входа передаются в зашифрованном виде.",
+          "Use the Buzz mobile app to access AirHop Center from your phone. Open Buzz, choose Scan a QR code, and scan the code below. Then compare the verification code on both devices and confirm the connection. Sign-in data is transferred encrypted.",
+        )}
       />
 
       <SettingsOptionGroup
@@ -394,19 +407,19 @@ export function MobilePairingCard({
                 centerImageSrc="/app-icon@2x.png"
                 data-testid="mobile-pairing-qr"
                 size={240}
-                title={
-                  isRussian
-                    ? "QR-код для подключения мобильного приложения"
-                    : "Mobile pairing QR code"
-                }
+                title={localePair(
+                  "QR-код для подключения мобильного приложения",
+                  "Mobile pairing QR code",
+                )}
                 value={qrUri}
               />
             ) : step === "expired" ? (
               <div className="flex max-w-52 origin-center animate-in flex-col items-center gap-3 text-center fade-in-0 zoom-in-95 duration-[250ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:animate-none">
                 <p className="text-sm text-muted-foreground">
-                  {isRussian
-                    ? "Срок действия кода истёк."
-                    : "Pairing code expired."}
+                  {localePair(
+                    "Срок действия кода истёк.",
+                    "Pairing code expired.",
+                  )}
                 </p>
                 <Button
                   data-testid="regenerate-pairing-button"
@@ -416,9 +429,7 @@ export function MobilePairingCard({
                   variant="outline"
                 >
                   <RefreshCw className="mr-1.5 h-4 w-4" />
-                  {isRussian
-                    ? "Создать новый код"
-                    : "Generate new pairing code"}
+                  {localePair("Создать новый код", "Generate new pairing code")}
                 </Button>
               </div>
             ) : step === "error" ? (
@@ -426,9 +437,10 @@ export function MobilePairingCard({
                 <TriangleAlert className="h-6 w-6 text-destructive" />
                 <p className="text-sm text-destructive">
                   {error ??
-                    (isRussian
-                      ? "Сеанс подключения завершён."
-                      : "Pairing session ended.")}
+                    localePair(
+                      "Сеанс подключения завершён.",
+                      "Pairing session ended.",
+                    )}
                 </p>
                 <Button
                   data-testid="retry-pairing-button"
@@ -436,7 +448,7 @@ export function MobilePairingCard({
                   size="sm"
                   variant="outline"
                 >
-                  {isRussian ? "Повторить" : "Try again"}
+                  {localePair("Повторить", "Try again")}
                 </Button>
               </div>
             ) : step === "idle" ? (
@@ -446,13 +458,14 @@ export function MobilePairingCard({
                   onClick={beginPairing}
                   type="button"
                 >
-                  {isRussian ? "Начать подключение" : "Start pairing"}
+                  {localePair("Начать подключение", "Start pairing")}
                 </Button>
               ) : (
                 <p className="max-w-44 text-center text-sm text-muted-foreground">
-                  {isRussian
-                    ? "Войдите, чтобы создать код для мобильного устройства."
-                    : "Sign in to generate a mobile pairing code."}
+                  {localePair(
+                    "Войдите, чтобы создать код для мобильного устройства.",
+                    "Sign in to generate a mobile pairing code.",
+                  )}
                 </p>
               )
             ) : (
@@ -463,7 +476,7 @@ export function MobilePairingCard({
                   data-testid="pairing-loading-spinner"
                 />
                 <p className="text-sm text-muted-foreground">
-                  {isRussian ? "Начинаем подключение…" : "Starting pairing…"}
+                  {localePair("Начинаем подключение…", "Starting pairing…")}
                 </p>
               </div>
             )}
@@ -479,7 +492,7 @@ export function MobilePairingCard({
               variant="outline"
             >
               <Copy className="mr-1.5 h-4 w-4" />
-              {isRussian ? "Скопировать код" : "Copy pairing code"}
+              {localePair("Скопировать код", "Copy pairing code")}
             </Button>
           ) : null}
         </SettingsOptionRow>

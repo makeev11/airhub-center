@@ -9,13 +9,20 @@ import { parseInviteInput } from "@/shared/api/inviteHelpers";
 import { AirHopMark } from "@/shared/ui/airhop-brand/AirHopBrand";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { messageText } from "@/shared/locale/messengerCopy";
+import type { AirHopLocale } from "@/shared/locale/airhopLocale";
+
+function browserInviteLocale(): AirHopLocale {
+  if (navigator.language.toLowerCase().startsWith("pt")) return "pt-BR";
+  if (navigator.language.toLowerCase().startsWith("ru")) return "ru-RU";
+  return "en-US";
+}
 
 /** Public employee invitation landing page, rendered without the native app shell. */
 export function PublicStaffInvitePage() {
-  const [russian, setRussian] = React.useState(() =>
-    navigator.language.startsWith("ru"),
-  );
-  const t = (ru: string, en: string) => (russian ? ru : en);
+  const [locale, setLocale] = React.useState<AirHopLocale>(browserInviteLocale);
+  const t = (russian: string, english: string) =>
+    locale === "ru-RU" ? russian : messageText(english, {}, locale);
   const invite = React.useMemo(
     () => parseInviteInput(window.location.href),
     [],
@@ -75,9 +82,25 @@ export function PublicStaffInvitePage() {
       <section className="w-full max-w-lg space-y-5 rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8">
         <div className="flex items-center justify-between">
           <AirHopMark className="size-12" decorative={false} />
-          <Button variant="ghost" onClick={() => setRussian(!russian)}>
-            {russian ? "English" : "Русский"}
-          </Button>
+          <fieldset aria-label={t("Язык", "Language")} className="flex gap-1">
+            {(
+              [
+                ["en-US", "EN"],
+                ["ru-RU", "RU"],
+                ["pt-BR", "PT-BR"],
+              ] as const
+            ).map(([value, label]) => (
+              <Button
+                aria-pressed={locale === value}
+                key={value}
+                onClick={() => setLocale(value)}
+                size="sm"
+                variant={locale === value ? "secondary" : "ghost"}
+              >
+                {label}
+              </Button>
+            ))}
+          </fieldset>
         </div>
         <h1 className="text-2xl font-semibold">
           {t("Приглашение в Airhop Center", "Invitation to Airhop Center")}

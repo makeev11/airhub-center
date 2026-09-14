@@ -3,6 +3,7 @@ import { Card } from "@/shared/ui/card";
 import { Progress } from "@/shared/ui/progress";
 import { SiteAnalyticsDetails } from "./SiteAnalyticsDetails";
 import { organizationLocalDateTime } from "../lib/bookingDateTime";
+import { localizeCopyTree } from "@/shared/locale/messengerCopy";
 
 function percent(locale: string, basisPoints: number | null): string {
   if (basisPoints === null) return "—";
@@ -44,6 +45,10 @@ function copy(locale: string) {
         noSources: "Источники появятся после первых переходов.",
         source: "Источник",
         opens: "Переходы",
+        timeZone: "Часовой пояс: ",
+        daySummary: (partial: boolean) =>
+          `${partial ? "Сегодняшний день ещё не завершён" : "Завершённые календарные дни"}. Посетитель — отдельный браузер.`,
+        sourcesTruncated: "Показаны 100 крупнейших источников.",
         stages: [
           "Открыли форму",
           "Выбрали филиал и возраст",
@@ -55,37 +60,44 @@ function copy(locale: string) {
           "Запись создана",
         ],
       }
-    : {
-        period: (from: string, to: string) => `Period ${from} — ${to}`,
-        visitors: "Visitors",
-        sessions: "Sessions",
-        bookingOpens: "Booking opens",
-        bookings: "Bookings created",
-        contacts: "Contact clicks",
-        conversion: "Booking conversion",
-        conversionHint:
-          "Journeys opened in this period that also created a booking within this period",
-        trend: "Daily activity",
-        trendHint: "Sessions, committed bookings, and contact clicks.",
-        funnel: "Booking funnel",
-        funnelHint:
-          "Observed stages of journeys opened in this period. Blockers may hide individual stages.",
-        sources: "Sources",
-        sourcesHint: "Tracked links and ordinary sources in one view.",
-        noSources: "Sources will appear after the first visits.",
-        source: "Source",
-        opens: "Visits",
-        stages: [
-          "Opened booking",
-          "Selected branch and age",
-          "Selected group",
-          "Selected lesson",
-          "Completed contacts",
-          "Reviewed details",
-          "Submitted",
-          "Booking created",
-        ],
-      };
+    : localizeCopyTree(
+        {
+          period: (from: string, to: string) => `Period ${from} — ${to}`,
+          visitors: "Visitors",
+          sessions: "Sessions",
+          bookingOpens: "Booking opens",
+          bookings: "Bookings created",
+          contacts: "Contact clicks",
+          conversion: "Booking conversion",
+          conversionHint:
+            "Journeys opened in this period that also created a booking within this period",
+          trend: "Daily activity",
+          trendHint: "Sessions, committed bookings, and contact clicks.",
+          funnel: "Booking funnel",
+          funnelHint:
+            "Observed stages of journeys opened in this period. Blockers may hide individual stages.",
+          sources: "Sources",
+          sourcesHint: "Tracked links and ordinary sources in one view.",
+          noSources: "Sources will appear after the first visits.",
+          source: "Source",
+          opens: "Visits",
+          timeZone: "Timezone: ",
+          daySummary: (partial: boolean) =>
+            `${partial ? "Today is partial" : "Complete calendar days"}. A visitor represents a browser.`,
+          sourcesTruncated: "Showing the top 100 sources.",
+          stages: [
+            "Opened booking",
+            "Selected branch and age",
+            "Selected group",
+            "Selected lesson",
+            "Completed contacts",
+            "Reviewed details",
+            "Submitted",
+            "Booking created",
+          ],
+        },
+        locale.toLowerCase().startsWith("pt") ? "pt-BR" : "en-US",
+      );
 }
 
 function Metric({
@@ -140,11 +152,9 @@ export function SiteAnalyticsView({
         )}
       </p>
       <p className="text-xs text-muted-foreground">
-        {locale.startsWith("ru") ? "Часовой пояс: " : "Timezone: "}
+        {messages.timeZone}
         {report.timeZone}
-        {locale.startsWith("ru")
-          ? `${partial ? ". Сегодняшний день ещё не завершён" : ". Завершённые календарные дни"}. Посетитель — отдельный браузер.`
-          : `${partial ? ". Today is partial" : ". Complete calendar days"}. A visitor represents a browser.`}
+        {`. ${messages.daySummary(partial)}`}
       </p>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <Metric
@@ -288,9 +298,7 @@ export function SiteAnalyticsView({
         )}
         {report.sourcesTruncated ? (
           <p className="text-xs text-muted-foreground">
-            {locale.startsWith("ru")
-              ? "Показаны 100 крупнейших источников."
-              : "Showing the top 100 sources."}
+            {messages.sourcesTruncated}
           </p>
         ) : null}
       </Card>

@@ -42,26 +42,16 @@ impl Db {
         tenant: &TenantContext,
         credential: PublicManagementCredential,
     ) -> Result<Vec<String>> {
-        let available: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM airhop_bookings b
-             JOIN airhop_organizations o ON o.community_id = b.community_id AND o.id = b.organization_id
-             JOIN airhop_channel_connections c ON c.community_id = b.community_id AND c.organization_id = b.organization_id
-             JOIN airhop_channel_credentials secret ON secret.community_id = c.community_id AND secret.connection_id = c.id
-             WHERE b.community_id = $1 AND b.management_key_version = $2 AND b.management_token_digest = $3
-               AND o.status = 'active' AND b.status IN ('pending_confirmation', 'confirmed')
-               AND c.provider = 'telegram' AND c.status = 'active'
-               AND secret.provider_bot_username ~ '^[A-Za-z0-9_]+$')",
-        )
-        .bind(tenant.community().as_uuid())
-        .bind(credential.key_version)
-        .bind(credential.token_digest.as_slice())
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(if available {
-            vec!["telegram".to_owned()]
-        } else {
-            Vec::new()
-        })
+        Ok(sqlx::query_scalar(
+            "SELECT DISTINCT CASE c.provider WHEN 'whatsapp_cloud' THEN 'whatsapp' ELSE c.provider END FROM airhop_bookings b
+             JOIN airhop_organizations o ON o.community_id=b.community_id AND o.id=b.organization_id
+             JOIN airhop_channel_connections c ON c.community_id=b.community_id AND c.organization_id=b.organization_id
+             JOIN airhop_channel_credentials secret ON secret.community_id=c.community_id AND secret.connection_id=c.id
+             WHERE b.community_id=$1 AND b.management_key_version=$2 AND b.management_token_digest=$3
+             AND o.status='active' AND b.status IN ('pending_confirmation','confirmed') AND c.status='active'
+             AND ((c.provider='telegram' AND secret.provider_bot_username ~ '^[A-Za-z0-9_]+$')
+               OR (c.provider='whatsapp_cloud' AND regexp_replace(secret.provider_bot_username,'[^0-9]','','g') ~ '^[0-9]{5,20}$')) ORDER BY 1"
+        ).bind(tenant.community().as_uuid()).bind(credential.key_version).bind(credential.token_digest.as_slice()).fetch_all(&self.pool).await?)
     }
 
     /// Links only conversations the requesting staff principal can actually read.
@@ -90,17 +80,30 @@ impl Db {
         tenant: &TenantContext,
         credential: PublicManagementCredential,
     ) -> Result<bool> {
+        Ok(self
+            .airhop_booking_connected_channels(tenant, credential)
+            .await?
+            .iter()
+            .any(|c| c == "telegram"))
+    }
+
+    /// Reads verified messenger bindings using the management credential.
+    pub async fn airhop_booking_connected_channels(
+        &self,
+        tenant: &TenantContext,
+        credential: PublicManagementCredential,
+    ) -> Result<Vec<String>> {
         Ok(sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM airhop_bookings b
+            "SELECT DISTINCT CASE c.provider WHEN 'whatsapp_cloud' THEN 'whatsapp' ELSE c.provider END FROM airhop_bookings b
              JOIN airhop_booking_messenger_handoffs h ON h.community_id = b.community_id AND h.booking_id = b.id
              JOIN airhop_external_conversations v ON v.community_id = h.community_id AND v.id = h.conversation_id
              JOIN airhop_external_conversation_routes r ON r.community_id = v.community_id AND r.conversation_id = v.id AND r.connection_id = h.connection_id
              JOIN airhop_channel_connections c ON c.community_id = r.community_id AND c.id = r.connection_id
              WHERE b.community_id = $1 AND b.management_key_version = $2 AND b.management_token_digest = $3
                AND h.status = 'consumed' AND v.family_id = b.family_id AND v.representative_id = b.representative_id
-               AND v.status = 'active' AND r.status = 'active' AND c.status = 'active')",
+               AND v.status = 'active' AND r.status = 'active' AND c.status = 'active' AND c.provider IN ('telegram','whatsapp_cloud') ORDER BY 1",
         ).bind(tenant.community().as_uuid()).bind(credential.key_version).bind(credential.token_digest.as_slice())
-            .fetch_one(&self.pool).await?)
+            .fetch_all(&self.pool).await?)
     }
 
     /// Issues or replays a 15-minute Telegram grant for a credential-owned booking.
@@ -111,6 +114,27 @@ impl Db {
         credential: PublicManagementCredential,
         token_digest: [u8; 32],
     ) -> Result<Option<BookingHandoffLaunch>> {
+        self.issue_airhop_booking_handoff_for_channel(tenant, credential, token_digest, "telegram")
+            .await
+    }
+
+    /// Issues a provider-bound grant. A click alone never verifies a family.
+    pub async fn issue_airhop_booking_handoff_for_channel(
+        &self,
+        tenant: &TenantContext,
+        credential: PublicManagementCredential,
+        token_digest: [u8; 32],
+        channel: &str,
+    ) -> Result<Option<BookingHandoffLaunch>> {
+        let provider = match channel {
+            "telegram" => "telegram",
+            "whatsapp" => "whatsapp_cloud",
+            _ => {
+                return Err(DbError::InvalidData(
+                    "unsupported booking handoff channel".into(),
+                ));
+            }
+        };
         let mut tx = self.pool.begin().await?;
         let booking = sqlx::query(
             "SELECT b.id, b.organization_id, b.version FROM airhop_bookings b
@@ -128,8 +152,8 @@ impl Db {
             "SELECT h.status, h.expires_at, c.provider_bot_username FROM airhop_booking_messenger_handoffs h
              JOIN airhop_channel_credentials c ON c.community_id = h.community_id
                AND c.connection_id = h.connection_id
-             WHERE h.community_id = $1 AND h.booking_id = $2 AND h.token_digest = $3",
-        ).bind(tenant.community().as_uuid()).bind(booking_id).bind(token_digest.as_slice())
+             WHERE h.community_id = $1 AND h.booking_id = $2 AND h.token_digest = $3 AND c.provider=$4",
+        ).bind(tenant.community().as_uuid()).bind(booking_id).bind(token_digest.as_slice()).bind(provider)
             .fetch_optional(&mut *tx).await?;
         if let Some(row) = existing {
             let status: String = row.try_get("status")?;
@@ -147,12 +171,13 @@ impl Db {
             "SELECT c.id, secret.provider_bot_username FROM airhop_channel_connections c
              JOIN airhop_channel_credentials secret ON secret.community_id = c.community_id
                AND secret.connection_id = c.id
-             WHERE c.community_id = $1 AND c.organization_id = $2 AND c.provider = 'telegram'
-               AND c.status = 'active' AND secret.provider_bot_username ~ '^[A-Za-z0-9_]+$'
+             WHERE c.community_id = $1 AND c.organization_id = $2 AND c.provider = $3
+               AND c.status = 'active' AND ((c.provider='telegram' AND secret.provider_bot_username ~ '^[A-Za-z0-9_]+$') OR (c.provider='whatsapp_cloud' AND regexp_replace(secret.provider_bot_username,'[^0-9]','','g') ~ '^[0-9]{5,20}$'))
              ORDER BY c.created_at, c.id LIMIT 1 FOR SHARE OF c",
         )
         .bind(tenant.community().as_uuid())
         .bind(organization_id)
+        .bind(provider)
         .fetch_optional(&mut *tx)
         .await?;
         let Some(connection) = connection else {
@@ -189,7 +214,7 @@ impl Db {
         // Consistent lock order: connection, conversation, grant. Grant issuance
         // locks the booking, which redemption only reads (never locks).
         let route = sqlx::query(
-            "SELECT c.organization_id, r.provider_chat_id, r.provider_chat_digest,
+            "SELECT c.organization_id, c.provider, r.provider_chat_id, r.provider_chat_digest,
                     v.family_id, v.representative_id, v.channel_id
              FROM airhop_channel_connections c
              JOIN airhop_external_conversation_routes r ON r.community_id = c.community_id
@@ -198,11 +223,22 @@ impl Db {
                AND v.organization_id = r.organization_id AND v.id = r.conversation_id
              JOIN airhop_organizations o ON o.community_id = c.community_id AND o.id = c.organization_id
              WHERE c.community_id = $1 AND c.id = $2 AND v.id = $3 AND c.connector_pubkey = $4
-               AND c.provider = 'telegram' AND c.status = 'active' AND r.status = 'active'
+               AND c.provider IN ('telegram','whatsapp_cloud') AND c.status = 'active' AND r.status = 'active'
                AND v.status = 'active' AND o.status = 'active' FOR SHARE OF c FOR UPDATE OF v",
         ).bind(tenant.community().as_uuid()).bind(connection_id).bind(conversation_id)
             .bind(connector_pubkey.as_slice()).fetch_optional(&mut *tx).await?
             .ok_or_else(|| DbError::AccessDenied("AirHop active connector route required".into()))?;
+        let provider: String = route.try_get("provider")?;
+        let channel = if provider == "whatsapp_cloud" {
+            "whatsapp"
+        } else {
+            "telegram"
+        };
+        let messenger = if channel == "whatsapp" {
+            "WhatsApp"
+        } else {
+            "Telegram"
+        };
         let grant = sqlx::query(
             "SELECT h.status, h.expires_at, h.conversation_id, b.family_id, b.representative_id,
                     f.display_name AS family_name, p.display_name AS parent_name,
@@ -268,7 +304,7 @@ impl Db {
         let chat_digest: Vec<u8> = route.try_get("provider_chat_digest")?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
             .bind(format!(
-                "{organization_id}:telegram:{}",
+                "{organization_id}:{channel}:{}",
                 hex::encode(&chat_digest)
             ))
             .execute(&mut *tx)
@@ -277,11 +313,12 @@ impl Db {
         // Unique route locking serializes all redemptions for this identity.
         let account_owner: Option<Uuid> = sqlx::query_scalar(
             "SELECT representative_id FROM airhop_messenger_accounts WHERE community_id = $1
-             AND organization_id = $2 AND channel = 'telegram' AND external_user_digest = $3",
+             AND organization_id = $2 AND channel = $4 AND external_user_digest = $3",
         )
         .bind(tenant.community().as_uuid())
         .bind(organization_id)
         .bind(&chat_digest)
+        .bind(channel)
         .fetch_optional(&mut *tx)
         .await?;
         if account_owner.is_some_and(|id| id != representative_id) {
@@ -290,7 +327,7 @@ impl Db {
         let account_write: Option<Uuid> = sqlx::query_scalar(
             "INSERT INTO airhop_messenger_accounts (community_id, organization_id, representative_id,
                 channel, external_user_id, external_user_digest, verified_at, verified_by_pubkey, last_inbound_at)
-             VALUES ($1,$2,$3,'telegram',$4,$5,now(),$6,now())
+             VALUES ($1,$2,$3,$7,$4,$5,now(),$6,now())
              ON CONFLICT (community_id, organization_id, channel, external_user_digest)
              DO UPDATE SET last_inbound_at = now(), updated_at = now(),
                verified_at = COALESCE(airhop_messenger_accounts.verified_at, now()),
@@ -298,7 +335,7 @@ impl Db {
              WHERE airhop_messenger_accounts.representative_id = EXCLUDED.representative_id RETURNING id",
         ).bind(tenant.community().as_uuid()).bind(organization_id).bind(representative_id)
             .bind(route.try_get::<String, _>("provider_chat_id")?).bind(chat_digest)
-            .bind(connector_pubkey.as_slice()).fetch_optional(&mut *tx).await?;
+            .bind(connector_pubkey.as_slice()).bind(channel).fetch_optional(&mut *tx).await?;
         let Some(account_id) = account_write else {
             return Ok(BookingHandoffStatus::Conflict);
         };
@@ -327,11 +364,11 @@ impl Db {
             CommandInsertOutcome::Existing(_) => return Err(DbError::AirhopVersionConflict),
         };
         let representative_version: i64 = sqlx::query_scalar(
-            "UPDATE airhop_representatives SET version=version+1, updated_at=now(), preferred_contact_channel='telegram'
+            "UPDATE airhop_representatives SET version=version+1, updated_at=now(), preferred_contact_channel=$4
              WHERE community_id=$1 AND organization_id=$2 AND id=$3 RETURNING version",
-        ).bind(tenant.community().as_uuid()).bind(organization_id).bind(representative_id).fetch_one(&mut *tx).await?;
+        ).bind(tenant.community().as_uuid()).bind(organization_id).bind(representative_id).bind(channel).fetch_one(&mut *tx).await?;
         let evidence = json!({"messengerAccountId": account_id, "conversationId": conversation_id,
-            "representativeId": representative_id, "channel": "telegram", "verificationMethod": "booking_handoff"});
+            "representativeId": representative_id, "channel": channel, "verificationMethod": "booking_handoff"});
         append_domain_event(
             &mut tx,
             tenant,
@@ -362,7 +399,7 @@ impl Db {
         sqlx::query("UPDATE airhop_booking_messenger_handoffs SET status = 'consumed', conversation_id = $3, consumed_at = now() WHERE community_id = $1 AND token_digest = $2")
             .bind(tenant.community().as_uuid()).bind(token_digest.as_slice()).bind(conversation_id).execute(&mut *tx).await?;
         let title = format!(
-            "{} · {} · {} · Telegram",
+            "{} · {} · {} · {messenger}",
             grant.try_get::<String, _>("family_name")?,
             grant.try_get::<String, _>("parent_name")?,
             grant

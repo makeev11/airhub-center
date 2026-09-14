@@ -37,6 +37,26 @@ test("public occurrence label includes a localized weekday, date and time", () =
   );
 });
 
+test("public booking is fully available in Brazilian Portuguese", () => {
+  const messages = getPublicBookingMessages("pt-BR");
+  assert.equal(messages.standaloneTitle, "Encontre uma aula experimental");
+  assert.equal(messages.chooseBranch, "Escolha uma unidade");
+  assert.equal(messages.successTitle, "Solicitação aguardando confirmação");
+  assert.equal(messages.ageYears(1), "1 ano");
+  assert.equal(messages.ageYears(5), "5 anos");
+  assert.match(
+    formatPublicOccurrenceDateTime(
+      {
+        date: "2026-08-10",
+        startTime: "18:30",
+        endTime: "20:00",
+      },
+      "pt-BR",
+    ),
+    /segunda-feira, 10 de agosto · 18:30–20:00/i,
+  );
+});
+
 test("public trial copy distinguishes free, paid and disabled policies", () => {
   const messages = getPublicBookingMessages("ru-RU");
   assert.equal(

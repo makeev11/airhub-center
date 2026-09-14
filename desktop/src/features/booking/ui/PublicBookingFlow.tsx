@@ -475,7 +475,11 @@ export function PublicBookingFlow({
       );
       if (card) {
         setSuccess({ ...success, card });
-        if (!card.messengerHandoff && !card.telegramConnected)
+        if (
+          !card.messengerHandoff &&
+          !card.telegramConnected &&
+          !card.connectedChannels?.length
+        )
           setChannelError(true);
       } else setChannelError(true);
     } catch {

@@ -7,7 +7,7 @@ import { getBookingAdminMessages } from "./bookingAdminLocale.ts";
 const { createBookingFormatters, formatBookingAgeRange, getBookingMessages } =
   bookingLocale;
 
-test("Booking locale serves reviewed Russian and English copy", () => {
+test("Booking locale serves reviewed Russian, English, and Portuguese copy", () => {
   assert.equal(getBookingMessages("ru-RU").scheduleTitle, "Расписание");
   assert.equal(getBookingMessages("en-US").scheduleTitle, "Schedule");
   assert.equal(getBookingMessages("tr-TR").scheduleTitle, "Schedule");
@@ -22,8 +22,9 @@ test("Booking locale serves reviewed Russian and English copy", () => {
   );
   assert.equal(
     getBookingAdminMessages("pt-BR").settingsTitle,
-    "AirHop settings",
+    "Configurações do AirHop",
   );
+  assert.equal(getBookingMessages("pt-BR").scheduleTitle, "Agenda");
 });
 
 test("Booking locale covers lesson overrides and working-hour accessibility", () => {
@@ -122,6 +123,18 @@ test("Booking age formatter does not round month limits down", () => {
       maxAgeMonths: 84,
     }),
     "5–7 years",
+  );
+  assert.equal(
+    formatBookingAgeRange({ locale: "pt-BR", minAgeMonths: 71 }),
+    "a partir de 5 anos e 11 meses",
+  );
+  assert.equal(
+    formatBookingAgeRange({
+      locale: "pt-BR",
+      minAgeMonths: 60,
+      maxAgeMonths: 84,
+    }),
+    "5–7 anos",
   );
 });
 

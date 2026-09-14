@@ -70,6 +70,21 @@ test("Russian administration copy exposes the tariff catalog contract", () => {
   assert.equal(messages.paymentCancelReason, "Внутренняя причина");
 });
 
+test("Portuguese administration copy covers operational booking flows", () => {
+  const messages = getBookingAdminMessages("pt-BR");
+
+  assert.equal(messages.navTariffs, "Planos");
+  assert.equal(messages.navPayments, "Pagamentos");
+  assert.equal(messages.localePortuguese, "Português (Brasil)");
+  assert.equal(messages.branchAddress, "Endereço");
+  assert.equal(messages.paymentMarkPaid, "Confirmar pagamento");
+  assert.equal(messages.participantSourceChannel, "Origem");
+  assert.equal(
+    messages.timeZoneAutomatic("America/Sao_Paulo"),
+    "Detectar automaticamente — America/Sao_Paulo",
+  );
+});
+
 test("Buzz channel routing accepts # names, finds active streams and suggests close matches", () => {
   const channels = [
     channel({ name: "Курская-клиенты" }),

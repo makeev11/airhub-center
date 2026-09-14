@@ -5,9 +5,8 @@ import {
   Palette,
   UserRound,
 } from "lucide-react";
-
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { cn } from "@/shared/lib/cn";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 export type ReviewSection = "person" | "shape" | "color" | "poster";
 
@@ -28,7 +27,6 @@ export function AnimatedAvatarReviewNav({
   onSectionChange,
   testIdPrefix,
 }: AnimatedAvatarReviewNavProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const reviewSections: {
     key: ReviewSection;
     label: string;
@@ -37,29 +35,29 @@ export function AnimatedAvatarReviewNav({
     icon: typeof UserRound;
   }[] = [
     {
-      caption: isRussian ? "Вы" : "You",
+      caption: localePair("Вы", "You"),
       icon: UserRound,
       key: "person",
-      label: isRussian ? "Расположить себя" : "Position yourself",
+      label: localePair("Расположить себя", "Position yourself"),
     },
     {
-      caption: isRussian ? "Круг" : "Circle",
+      caption: localePair("Круг", "Circle"),
       hidden: true,
       icon: Circle,
       key: "shape",
-      label: isRussian ? "Настроить круг" : "Adjust the circle",
+      label: localePair("Настроить круг", "Adjust the circle"),
     },
     {
-      caption: isRussian ? "Фон" : "Background",
+      caption: localePair("Фон", "Background"),
       icon: Palette,
       key: "color",
-      label: isRussian ? "Фон" : "Background",
+      label: localePair("Фон", "Background"),
     },
     {
-      caption: isRussian ? "Кадр" : "Frame",
+      caption: localePair("Кадр", "Frame"),
       icon: GalleryThumbnails,
       key: "poster",
-      label: isRussian ? "Стоп-кадр" : "Still frame",
+      label: localePair("Стоп-кадр", "Still frame"),
     },
   ];
   const controlsDisabled = disabled || isSaving;
@@ -116,13 +114,13 @@ export function AnimatedAvatarReviewNav({
         className="h-12 w-px shrink-0 rounded-full bg-border/70"
       />
       <button
-        aria-label={isRussian ? "Перезаписать" : "Retake the recording"}
+        aria-label={localePair("Перезаписать", "Retake the recording")}
         className="group flex flex-col items-center gap-1.5 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-testid={`${testIdPrefix}-animated-retake`}
         disabled={controlsDisabled}
         key="retake"
         onClick={onRetake}
-        title={isRussian ? "Перезаписать" : "Retake the recording"}
+        title={localePair("Перезаписать", "Retake the recording")}
         type="button"
       >
         <span className="grid h-12 w-12 place-items-center rounded-full bg-muted text-muted-foreground/70 transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none group-hover:bg-muted/80 group-hover:text-muted-foreground motion-safe:group-hover:scale-[1.04] motion-safe:group-active:scale-[0.98] group-disabled:bg-muted group-disabled:text-muted-foreground/70 group-disabled:scale-100">
@@ -132,7 +130,7 @@ export function AnimatedAvatarReviewNav({
           />
         </span>
         <span className="text-sm text-muted-foreground">
-          {isRussian ? "Переснять" : "Retake"}
+          {localePair("Переснять", "Retake")}
         </span>
       </button>
     </div>

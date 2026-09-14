@@ -52,6 +52,17 @@ test("an unknown run location reads as local, not as a hedge", () => {
   }
 });
 
+test("Portuguese warnings preserve the audience and host distinction", () => {
+  assert.equal(
+    agentAccessWarningText("anyone", "local", "pt-BR"),
+    "Qualquer funcionário poderá usar este agente para acessar seu computador, incluindo arquivos, contas e ferramentas conectadas.",
+  );
+  assert.equal(
+    agentAccessWarningText("allowlist", "remote", "pt-BR"),
+    "As pessoas selecionadas poderão usar este agente para acessar o servidor em que ele é executado, incluindo as contas e ferramentas disponíveis nele.",
+  );
+});
+
 test("every variant leads with the audience and stays jargon-free", () => {
   for (const mode of ["anyone", "allowlist"]) {
     for (const runLocation of [null, "local", "remote"]) {

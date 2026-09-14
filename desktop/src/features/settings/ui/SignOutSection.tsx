@@ -17,6 +17,7 @@ import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 /**
  * The exact phrase the user must type before the destructive sign-out button
@@ -41,14 +42,18 @@ export const SIGNOUT_CONFIRM_PHRASE = "wipe all my data";
  * Only when both gates pass does "Delete my data" become clickable.
  */
 export function SignOutSection() {
-  const russian = useAirHopLocale() === "ru-RU";
-  const confirmPhrase = russian
-    ? "удалить данные с устройства"
-    : SIGNOUT_CONFIRM_PHRASE;
-  const pendingLabel = russian ? "Выходим…" : "Signing out…";
-  const deleteLabel = russian
-    ? "Выйти и удалить локальные данные"
-    : "Sign out and delete local data";
+  const locale = useAirHopLocale();
+  const confirmPhrase =
+    locale === "ru-RU"
+      ? "удалить данные с устройства"
+      : locale === "pt-BR"
+        ? "excluir dados deste dispositivo"
+        : SIGNOUT_CONFIRM_PHRASE;
+  const pendingLabel = localePair("Выходим…", "Signing out…");
+  const deleteLabel = localePair(
+    "Выйти и удалить локальные данные",
+    "Sign out and delete local data",
+  );
   const [isOpen, setIsOpen] = React.useState(false);
   const [isPending, setIsPending] = React.useState(false);
 
@@ -94,9 +99,10 @@ export function SignOutSection() {
     } catch {
       if (!fetchCancelledRef.current)
         setNsecError(
-          russian
-            ? "Не удалось получить ключ доступа. Повторите попытку."
-            : "Failed to retrieve private key. Please try again.",
+          localePair(
+            "Не удалось получить ключ доступа. Повторите попытку.",
+            "Failed to retrieve private key. Please try again.",
+          ),
         );
     } finally {
       if (!fetchCancelledRef.current) setIsNsecLoading(false);
@@ -124,9 +130,10 @@ export function SignOutSection() {
         setIsOpen(false);
         resetDialogState();
         toast.error(
-          russian
-            ? "Не удалось выйти. Повторите попытку."
-            : "Sign out failed. Please try again.",
+          localePair(
+            "Не удалось выйти. Повторите попытку.",
+            "Sign out failed. Please try again.",
+          ),
         );
       });
   }
@@ -139,12 +146,13 @@ export function SignOutSection() {
       <div className="flex items-center justify-between gap-4 px-1">
         <div className="min-w-0 space-y-1">
           <h2 className="text-lg font-semibold tracking-tight">
-            {russian ? "Выход из аккаунта" : "Sign out"}
+            {localePair("Выход из аккаунта", "Sign out")}
           </h2>
           <p className="text-sm text-muted-foreground">
-            {russian
-              ? "Ключ доступа и локальные данные приложения будут удалены с этого устройства. Данные центра на сервере останутся. Перед выходом сохраните ключ или проверьте резервную копию: без них вы можете потерять доступ к аккаунту."
-              : "Your identity key and local app data will be removed from this device. Center data on the server will remain. Before signing out, save your key or verify a backup: without them, you may lose access to your account."}
+            {localePair(
+              "Ключ доступа и локальные данные приложения будут удалены с этого устройства. Данные центра на сервере останутся. Перед выходом сохраните ключ или проверьте резервную копию: без них вы можете потерять доступ к аккаунту.",
+              "Your identity key and local app data will be removed from this device. Center data on the server will remain. Before signing out, save your key or verify a backup: without them, you may lose access to your account.",
+            )}
           </p>
         </div>
         <Button
@@ -173,26 +181,29 @@ export function SignOutSection() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {russian
-                ? "Выйти и удалить данные с устройства?"
-                : "Sign out and delete data from this device?"}
+              {localePair(
+                "Выйти и удалить данные с устройства?",
+                "Sign out and delete data from this device?",
+              )}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {russian
-                ? "Будут удалены ключ доступа, локальные настройки агентов и кеш приложения. AirHop Center перезапустится и предложит войти заново. Это действие нельзя отменить; данные на сервере не удаляются."
-                : "This removes your identity key, local agent settings, and app cache. AirHop Center will restart and ask you to sign in again. This cannot be undone; server data is not deleted."}
+              {localePair(
+                "Будут удалены ключ доступа, локальные настройки агентов и кеш приложения. AirHop Center перезапустится и предложит войти заново. Это действие нельзя отменить; данные на сервере не удаляются.",
+                "This removes your identity key, local agent settings, and app cache. AirHop Center will restart and ask you to sign in again. This cannot be undone; server data is not deleted.",
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           <div className="space-y-3">
             <p className="text-sm font-medium">
-              {russian
-                ? "1. Подтвердите, что сможете восстановить доступ"
-                : "1. Confirm you can restore your identity"}
+              {localePair(
+                "1. Подтвердите, что сможете восстановить доступ",
+                "1. Confirm you can restore your identity",
+              )}
             </p>
             {isNsecLoading ? (
               <p className="text-sm text-muted-foreground">
-                {russian ? "Загрузка…" : "Loading…"}
+                {localePair("Загрузка…", "Loading…")}
               </p>
             ) : nsecError ? (
               <p
@@ -220,9 +231,10 @@ export function SignOutSection() {
                 }
               />
               <span>
-                {russian
-                  ? "Я проверил резервную копию или сохранил этот секретный ключ в безопасном месте."
-                  : "I have tested a key backup or saved this private key somewhere safe."}
+                {localePair(
+                  "Я проверил резервную копию или сохранил этот секретный ключ в безопасном месте.",
+                  "I have tested a key backup or saved this private key somewhere safe.",
+                )}
               </span>
             </label>
           </div>
@@ -232,9 +244,10 @@ export function SignOutSection() {
               className="text-sm font-medium"
               htmlFor="signout-confirm-phrase"
             >
-              {russian
-                ? "2. Для подтверждения введите "
-                : "2. To confirm, type "}
+              {localePair(
+                "2. Для подтверждения введите ",
+                "2. To confirm, type ",
+              )}
               <span className="font-semibold">«{confirmPhrase}»</span>
             </label>
             <Input
@@ -251,7 +264,7 @@ export function SignOutSection() {
 
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isPending}>
-              {russian ? "Отмена" : "Cancel"}
+              {localePair("Отмена", "Cancel")}
             </AlertDialogCancel>
             {/* A plain Button, not AlertDialogAction: Radix's Action closes
                 the dialog on click, which would drop the pending state while

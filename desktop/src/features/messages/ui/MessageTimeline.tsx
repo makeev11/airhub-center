@@ -1,4 +1,8 @@
-import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
+import {
+  localePair,
+  messageText,
+  useMessengerCopy,
+} from "@/shared/locale/messengerCopy";
 import * as React from "react";
 
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
@@ -215,7 +219,7 @@ const MessageTimelineBase = React.forwardRef<
   ref,
 ) {
   useMessengerCopy();
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
   const internalScrollRef = React.useRef<HTMLDivElement>(null);
   const scrollContainerRef = externalScrollRef ?? internalScrollRef;
   const contentRef = React.useRef<HTMLDivElement>(null);
@@ -623,15 +627,17 @@ const MessageTimelineBase = React.forwardRef<
           </p>
           <p className="mt-1 max-w-full truncate whitespace-nowrap text-sm leading-5 text-muted-foreground">
             {activeDirectMessageIntro.isSelf ? (
-              isRussian ? (
-                "Ваше место для заметок, ссылок и файлов."
-              ) : (
-                "Your space for notes, links, and files."
+              localePair(
+                "Ваше место для заметок, ссылок и файлов.",
+                "Your space for notes, links, and files.",
+                locale,
               )
             ) : (
               <>
                 {messageText(
                   "This is the beginning of your direct message with",
+                  {},
+                  locale,
                 )}{" "}
                 <span className="font-medium text-foreground">
                   {activeDirectMessageIntro.displayName}
@@ -642,12 +648,7 @@ const MessageTimelineBase = React.forwardRef<
           </p>
         </div>
       ) : null,
-    [
-      activeChannelIntro,
-      activeDirectMessageIntro,
-      activePinnedIntro,
-      isRussian,
-    ],
+    [activeChannelIntro, activeDirectMessageIntro, activePinnedIntro, locale],
   );
 
   const handleVirtualizerRangeChanged = React.useCallback(() => {
@@ -821,18 +822,15 @@ const MessageTimelineBase = React.forwardRef<
                     </p>
                     <p className="mt-1 max-w-full truncate whitespace-nowrap text-sm leading-5 text-muted-foreground">
                       {activeDirectMessageIntro.isSelf ? (
-                        isRussian ? (
-                          "Ваше место для заметок, ссылок и файлов."
-                        ) : (
-                          "Your space for notes, links, and files."
+                        localePair(
+                          "Ваше место для заметок, ссылок и файлов.",
+                          "Your space for notes, links, and files.",
                         )
                       ) : (
                         <>
-                          {isRussian
-                            ? "Это начало вашей личной переписки с "
-                            : messageText(
-                                "This is the beginning of your direct message with",
-                              )}
+                          {messageText(
+                            "This is the beginning of your direct message with",
+                          )}{" "}
                           <span className="font-medium text-foreground">
                             {activeDirectMessageIntro.displayName}
                           </span>

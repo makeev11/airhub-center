@@ -1,7 +1,9 @@
+import type { AirHopLocale } from "@/shared/locale/airhopLocale";
 import { messageText } from "@/shared/locale/messengerCopy";
-export function getMessageThreadCopy(isRussian: boolean) {
+
+export function getMessageThreadCopy(locale: AirHopLocale) {
   const m = (key: string, values?: Record<string, string | number>) =>
-    messageText(key, values, isRussian ? "ru-RU" : "en-US");
+    messageText(key, values, locale);
   return {
     collapseThread: m("Collapse thread"),
     collapseReplies: m("Collapse replies"),

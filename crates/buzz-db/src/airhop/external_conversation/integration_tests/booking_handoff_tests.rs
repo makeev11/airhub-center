@@ -432,3 +432,58 @@ async fn staff_takeover_prevents_inflight_online_confirmation() {
             .unwrap();
     assert_eq!(card.status, airhop_core::BookingStatus::PendingConfirmation);
 }
+
+#[tokio::test]
+#[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
+async fn whatsapp_booking_handoff_is_provider_bound_and_never_reports_telegram_connected() {
+    let f = Fixture::new_threaded().await;
+    let connection_id = connection(&f).await;
+    sqlx::query("UPDATE airhop_channel_connections SET provider='whatsapp_cloud' WHERE community_id=$1 AND id=$2").bind(f.tenant.community().as_uuid()).bind(connection_id).execute(&f.db.pool).await.unwrap();
+    sqlx::query("UPDATE airhop_channel_credentials SET provider='whatsapp_cloud',provider_bot_username='+55 11 99999-0000' WHERE community_id=$1 AND connection_id=$2").bind(f.tenant.community().as_uuid()).bind(connection_id).execute(&f.db.pool).await.unwrap();
+    let (_, family_id, credential) = booking(&f, 71).await;
+    assert_eq!(
+        f.db.airhop_booking_confirmation_channels(&f.tenant, credential)
+            .await
+            .unwrap(),
+        vec!["whatsapp"]
+    );
+    assert!(f
+        .db
+        .issue_airhop_booking_handoff(&f.tenant, credential, [72; 32])
+        .await
+        .unwrap()
+        .is_none());
+    let launch =
+        f.db.issue_airhop_booking_handoff_for_channel(&f.tenant, credential, [73; 32], "whatsapp")
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(launch.bot_username, "+55 11 99999-0000");
+    assert!(f
+        .db
+        .airhop_booking_connected_channels(&f.tenant, credential)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        redeem(&f, connection_id, 73).await,
+        BookingHandoffStatus::Connected
+    );
+    assert_eq!(
+        redeem(&f, connection_id, 73).await,
+        BookingHandoffStatus::Connected
+    );
+    assert_eq!(
+        f.db.airhop_booking_connected_channels(&f.tenant, credential)
+            .await
+            .unwrap(),
+        vec!["whatsapp"]
+    );
+    assert!(!f
+        .db
+        .is_airhop_booking_telegram_connected(&f.tenant, credential)
+        .await
+        .unwrap());
+    let bound:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM airhop_external_conversations v JOIN airhop_messenger_accounts m ON m.community_id=v.community_id AND m.representative_id=v.representative_id WHERE v.community_id=$1 AND v.id=$2 AND v.family_id=$3 AND m.channel='whatsapp' AND m.verified_at IS NOT NULL)").bind(f.tenant.community().as_uuid()).bind(f.conversation).bind(family_id).fetch_one(&f.db.pool).await.unwrap();
+    assert!(bound);
+}

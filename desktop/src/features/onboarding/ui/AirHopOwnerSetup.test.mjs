@@ -39,7 +39,7 @@ test("fresh owner sees the recovered AirHop language and one-code flow", async (
   assert.ok(view.getByRole("heading", { name: "Set up your center" }));
   assert.deepEqual(
     view.getAllByRole("button").map((button) => button.textContent),
-    ["English", "Русский"],
+    ["English", "Русский", "Português (Brasil)"],
   );
   assert.equal(
     view.getByTestId("airhop-owner-background").getAttribute("src"),

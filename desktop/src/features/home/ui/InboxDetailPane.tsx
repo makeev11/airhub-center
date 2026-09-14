@@ -8,7 +8,6 @@ import {
   Trash2,
 } from "lucide-react";
 import * as React from "react";
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 
 import type {
   InboxContextMessage,
@@ -57,6 +56,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/shared/ui/tooltip";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 const MembersSidebar = React.lazy(async () => {
   const module = await import("@/features/channels/ui/MembersSidebar");
@@ -166,7 +166,6 @@ function InboxMessageDetailPane({
   onSendReply,
   onToggleReaction,
 }: InboxDetailPaneProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const detailPaneRef = React.useRef<HTMLElement | null>(null);
   const { activeCommunity } = useCommunities();
   // Refs for the shared anchored-scroll hook's container and content roots.
@@ -380,12 +379,13 @@ function InboxMessageDetailPane({
             <Mail className="h-6 w-6" />
           </div>
           <p className="mt-4 text-base font-semibold">
-            {isRussian ? "Выберите сообщение" : "Select a message"}
+            {localePair("Выберите сообщение", "Select a message")}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isRussian
-              ? "Выберите элемент во входящих, чтобы открыть сообщение и ответить на него."
-              : "Pick an inbox item to see the full message and react to it."}
+            {localePair(
+              "Выберите элемент во входящих, чтобы открыть сообщение и ответить на него.",
+              "Pick an inbox item to see the full message and react to it.",
+            )}
           </p>
         </div>
       </section>
@@ -419,39 +419,35 @@ function InboxMessageDetailPane({
     !isDirectMessage && hasInboxThreadContext(item, messages);
   const contextLabel = isThreadContext
     ? isDirectMessage
-      ? isRussian
-        ? `Обсуждение с ${item.senderLabel}`
-        : `Thread with ${item.senderLabel}`
+      ? localePair(
+          `Обсуждение с ${item.senderLabel}`,
+          `Thread with ${item.senderLabel}`,
+        )
       : channelContextName
-        ? isRussian
-          ? `Обсуждение в #${channelContextName}`
-          : `Thread in #${channelContextName}`
-        : isRussian
-          ? "Обсуждение"
-          : "Thread"
+        ? localePair(
+            `Обсуждение в #${channelContextName}`,
+            `Thread in #${channelContextName}`,
+          )
+        : localePair("Обсуждение", "Thread")
     : isDirectMessage
-      ? isRussian
-        ? `Переписка с ${item.senderLabel}`
-        : `DM with ${item.senderLabel}`
+      ? localePair(
+          `Переписка с ${item.senderLabel}`,
+          `DM with ${item.senderLabel}`,
+        )
       : channelContextName
-        ? isRussian
-          ? `Сообщение в #${channelContextName}`
-          : `Message in #${channelContextName}`
+        ? localePair(
+            `Сообщение в #${channelContextName}`,
+            `Message in #${channelContextName}`,
+          )
         : formatInboxTypeLabel(item);
   const contextChannelId = item.item.channelId;
   const sourceEventId = selectedEventId ?? item.id;
   const contextThreadRootId = isThreadContext ? item.conversationId : null;
   const openContextLabel = isThreadContext
-    ? isRussian
-      ? "Открыть обсуждение целиком"
-      : "Open full thread"
+    ? localePair("Открыть обсуждение целиком", "Open full thread")
     : isDirectMessage
-      ? isRussian
-        ? "Открыть переписку"
-        : "Open conversation"
-      : isRussian
-        ? "Открыть в канале"
-        : "Open in channel";
+      ? localePair("Открыть переписку", "Open conversation")
+      : localePair("Открыть в канале", "Open in channel");
 
   const handleSelectReplyTarget = (message: InboxDisplayMessage) => {
     setReplyTargetId((currentReplyTargetId) =>
@@ -478,11 +474,10 @@ function InboxMessageDetailPane({
               >
                 {onBack ? (
                   <Button
-                    aria-label={
-                      isRussian
-                        ? "Назад к списку входящих"
-                        : "Back to inbox list"
-                    }
+                    aria-label={localePair(
+                      "Назад к списку входящих",
+                      "Back to inbox list",
+                    )}
                     className="rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                     onClick={onBack}
                     size="icon"
@@ -594,9 +589,10 @@ function InboxMessageDetailPane({
               >
                 <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" />
                 <span>
-                  {isRussian
-                    ? "Загружаем контекст сообщения…"
-                    : "Loading surrounding context..."}
+                  {localePair(
+                    "Загружаем контекст сообщения…",
+                    "Loading surrounding context...",
+                  )}
                 </span>
               </div>
             ) : null}
@@ -607,9 +603,10 @@ function InboxMessageDetailPane({
               >
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 <span>
-                  {isRussian
-                    ? "Не удалось загрузить часть контекста сообщения."
-                    : "Some message context could not be loaded."}
+                  {localePair(
+                    "Не удалось загрузить часть контекста сообщения.",
+                    "Some message context could not be loaded.",
+                  )}
                 </span>
                 {onRetryContext ? (
                   <button
@@ -619,7 +616,7 @@ function InboxMessageDetailPane({
                     onClick={onRetryContext}
                     type="button"
                   >
-                    {isRussian ? "Повторить" : "Retry"}
+                    {localePair("Повторить", "Retry")}
                   </button>
                 ) : null}
               </div>
@@ -698,9 +695,7 @@ function InboxMessageDetailPane({
                     }
               }
               channelId={item.item.channelId}
-              channelName={
-                item.channelLabel ?? (isRussian ? "канал" : "channel")
-              }
+              channelName={item.channelLabel ?? localePair("канал", "channel")}
               channelType={composerChannelType}
               containerClassName="px-4 pb-4 sm:px-4"
               disabled={!canReply}
@@ -724,16 +719,19 @@ function InboxMessageDetailPane({
               placeholder={
                 canReply
                   ? isDirectMessage
-                    ? isRussian
-                      ? `Сообщение для ${item.senderLabel}`
-                      : `Message ${item.senderLabel}`
-                    : isRussian
-                      ? `Ответить в ${item.channelLabel ? `обсуждении #${item.channelLabel}` : "обсуждении канала"}`
-                      : `Send reply to ${item.channelLabel ? `#${item.channelLabel} thread` : "channel thread"}`
+                    ? localePair(
+                        `Сообщение для ${item.senderLabel}`,
+                        `Message ${item.senderLabel}`,
+                      )
+                    : localePair(
+                        `Ответить в ${item.channelLabel ? `обсуждении #${item.channelLabel}` : "обсуждении канала"}`,
+                        `Send reply to ${item.channelLabel ? `#${item.channelLabel} thread` : "channel thread"}`,
+                      )
                   : (disabledReplyReason ??
-                    (isRussian
-                      ? "Для этого элемента ответы недоступны."
-                      : "Replies are not available for this item."))
+                    localePair(
+                      "Для этого элемента ответы недоступны.",
+                      "Replies are not available for this item.",
+                    ))
               }
               replyTarget={composerReplyTarget}
             />
@@ -763,8 +761,7 @@ function HeaderMoreMenu({
   isDeletingMessage: boolean;
   onDelete: () => void;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
-  const moreLabel = isRussian ? "Другие действия" : "More actions";
+  const moreLabel = localePair("Другие действия", "More actions");
   const trigger = (
     <Button
       aria-label={moreLabel}
@@ -792,7 +789,7 @@ function HeaderMoreMenu({
           onClick={onDelete}
         >
           <Trash2 className="h-4 w-4" />
-          {isRussian ? "Удалить сообщение" : "Delete message"}
+          {localePair("Удалить сообщение", "Delete message")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

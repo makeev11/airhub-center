@@ -1,5 +1,4 @@
 import { cn } from "@/shared/lib/cn";
-import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
@@ -10,6 +9,7 @@ import {
 } from "@/features/channels/ui/channelFormStyles";
 import { ChannelPermissionsSettings } from "@/features/channels/ui/ChannelPermissionsSettings";
 import type { CreateChannelFormState } from "@/features/sidebar/lib/useCreateChannelForm";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 const CREATE_LABEL_OPTIONAL_CLASS =
   "ml-1 text-xs font-normal text-muted-foreground/50";
@@ -26,8 +26,6 @@ export function CreateChannelFormFields({
   form: CreateChannelFormState;
 }) {
   const { channelKind, kindLabel, isCreating } = form;
-  const isRussian = useAirHopLocale() === "ru-RU";
-
   return (
     <div className="space-y-5">
       <div className="space-y-1.5">
@@ -35,7 +33,7 @@ export function CreateChannelFormFields({
           className="text-sm font-medium text-foreground"
           htmlFor="create-channel-name"
         >
-          {isRussian ? "Название" : "Name"}
+          {localePair("Название", "Name")}
         </label>
         <div
           className={cn(
@@ -70,9 +68,9 @@ export function CreateChannelFormFields({
           className="text-sm font-medium text-foreground"
           htmlFor="create-channel-description"
         >
-          {isRussian ? "Описание" : "Description"}
+          {localePair("Описание", "Description")}
           <span className={CREATE_LABEL_OPTIONAL_CLASS}>
-            {isRussian ? "Необязательно" : "Optional"}
+            {localePair("Необязательно", "Optional")}
           </span>
         </label>
         <div className={CHANNEL_FORM_FIELD_SHELL_CLASS}>
@@ -85,11 +83,10 @@ export function CreateChannelFormFields({
             disabled={isCreating}
             id="create-channel-description"
             onChange={(event) => form.setDescription(event.target.value)}
-            placeholder={
-              isRussian
-                ? "Для чего нужен этот канал"
-                : `What this ${kindLabel} is for`
-            }
+            placeholder={localePair(
+              "Для чего нужен этот канал",
+              `What this ${kindLabel} is for`,
+            )}
             rows={2}
             value={form.description}
           />
@@ -122,8 +119,6 @@ export function CreateChannelFormFooter({
   submitLabel?: string;
 }) {
   const { isCreating, kindLabel } = form;
-  const isRussian = useAirHopLocale() === "ru-RU";
-
   return (
     <div className="flex w-full items-center justify-end gap-3">
       <Button
@@ -133,11 +128,8 @@ export function CreateChannelFormFooter({
         type="submit"
       >
         {isCreating
-          ? isRussian
-            ? "Создаём…"
-            : "Creating..."
-          : (submitLabel ??
-            (isRussian ? "Создать канал" : `Create ${kindLabel}`))}
+          ? localePair("Создаём…", "Creating...")
+          : (submitLabel ?? localePair("Создать канал", `Create ${kindLabel}`))}
       </Button>
     </div>
   );

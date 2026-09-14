@@ -1,5 +1,6 @@
 import { ruPaymentMessages } from "@/features/booking/lib/bookingPaymentLocale";
 import { EN_BOOKING_ADMIN_MESSAGES } from "@/features/booking/lib/bookingAdminLocale.en";
+import { PT_BR_BOOKING_ADMIN_MESSAGES } from "@/features/booking/lib/bookingAdminLocale.pt-BR";
 import { loadAirHopLocale } from "@/shared/locale/airhopLocale";
 import type { BookingAdminMessages } from "./bookingAdminMessages";
 export type { BookingAdminMessages } from "./bookingAdminMessages";
@@ -56,6 +57,7 @@ const ru: BookingAdminMessages = {
   locale: "Язык интерфейса",
   localeRussian: "Русский",
   localeEnglish: "Английский",
+  localePortuguese: "Португальский (Бразилия)",
   timeZone: "Часовой пояс",
   timeZoneAutomatic: (timeZone) => `Определить автоматически — ${timeZone}`,
   timeZoneHint:
@@ -556,6 +558,7 @@ const ru: BookingAdminMessages = {
 };
 const messagesByLanguage: Partial<Record<string, BookingAdminMessages>> = {
   en: EN_BOOKING_ADMIN_MESSAGES,
+  pt: PT_BR_BOOKING_ADMIN_MESSAGES,
   ru,
 };
 function bookingLanguage(locale: string): string {

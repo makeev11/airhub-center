@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import { localePair, messageText } from "@/shared/locale/messengerCopy";
 
 const INBOX_FILTER_OPTIONS: Array<{
   label: { en: string; ru: string };
@@ -47,33 +48,34 @@ export function InboxFilterMenu({
   onFilterChange,
   reminderCount,
 }: InboxFilterMenuProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   const optionLabel = (option: (typeof INBOX_FILTER_OPTIONS)[number]) =>
-    isRussian ? option.label.ru : option.label.en;
+    isRussian ? option.label.ru : messageText(option.label.en, {}, locale);
   const activeFilter = INBOX_FILTER_OPTIONS.find(
     (option) => option.value === filter,
   );
   const statusLabel =
     dueReminderCount > 0
-      ? isRussian
-        ? `Просроченных напоминаний: ${dueReminderCount}`
-        : `${dueReminderCount} due reminder${dueReminderCount === 1 ? "" : "s"}`
+      ? localePair(
+          `Просроченных напоминаний: ${dueReminderCount}`,
+          `${dueReminderCount} due reminder${dueReminderCount === 1 ? "" : "s"}`,
+        )
       : activeDraftCount > 0
-        ? isRussian
-          ? `Активных черновиков: ${activeDraftCount}`
-          : `${activeDraftCount} active draft${activeDraftCount === 1 ? "" : "s"}`
+        ? localePair(
+            `Активных черновиков: ${activeDraftCount}`,
+            `${activeDraftCount} active draft${activeDraftCount === 1 ? "" : "s"}`,
+          )
         : null;
   const activeLabel = activeFilter
     ? optionLabel(activeFilter)
-    : isRussian
-      ? "Все"
-      : "All";
+    : localePair("Все", "All");
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          aria-label={`${isRussian ? "Фильтр входящих" : "Filter inbox"}: ${activeLabel}${statusLabel ? `. ${statusLabel}` : ""}`}
+          aria-label={`${localePair("Фильтр входящих", "Filter inbox")}: ${activeLabel}${statusLabel ? `. ${statusLabel}` : ""}`}
           className={cn(TRIGGER_CLASS)}
           data-testid="inbox-filter-trigger"
           type="button"

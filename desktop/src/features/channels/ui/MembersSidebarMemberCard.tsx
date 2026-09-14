@@ -1,4 +1,8 @@
-import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
+import {
+  messageText,
+  useMessengerCopy,
+  localePair,
+} from "@/shared/locale/messengerCopy";
 import {
   Activity,
   Ban,
@@ -97,12 +101,12 @@ const MEMBER_ROW_INSET_DIVIDER_CLASS =
 function formatRoleLabel(
   member: ChannelMember,
   memberIsBot: boolean,
-  isRussian: boolean,
+  _isRussian: boolean,
 ) {
   if (memberIsBot) return messageText("AI agent");
-  if (member.role === "owner") return isRussian ? "владелец" : "owner";
+  if (member.role === "owner") return localePair("владелец", "owner");
   if (member.role === "admin") {
-    return isRussian ? "администратор" : "administrator";
+    return localePair("администратор", "administrator");
   }
 
   return null;
@@ -120,7 +124,7 @@ function formatRespondToLabel(agent: ManagedAgent) {
 }
 
 function localizeAgentAction(label: string, isRussian: boolean): string {
-  if (!isRussian) return label;
+  if (!isRussian) return messageText(label);
   const normalized = label.toLowerCase();
   if (normalized.includes("restart")) return "Перезапустить";
   if (normalized.includes("stop")) return "Остановить";
@@ -239,7 +243,7 @@ export function MembersSidebarMemberCard({
                 ? agentCommunityAvailability(managedAgentRuntime) === "Here"
                   ? "В этом центре"
                   : "В другом центре"
-                : agentCommunityAvailability(managedAgentRuntime)
+                : messageText(agentCommunityAvailability(managedAgentRuntime))
               : managedAgent && isManagedAgentActive(managedAgent)
                 ? messageText("Running")
                 : messageText("Stopped")}
@@ -364,11 +368,10 @@ function MemberActionsMenu({
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <button
-          aria-label={
-            isRussian
-              ? `Действия с участником ${member.pubkey}`
-              : `Actions for ${member.pubkey}`
-          }
+          aria-label={localePair(
+            `Действия с участником ${member.pubkey}`,
+            `Actions for ${member.pubkey}`,
+          )}
           className="invisible relative z-20 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground group-hover/member:visible hover:bg-muted hover:text-foreground data-[state=open]:visible"
           data-testid={`sidebar-member-menu-${member.pubkey}`}
           type="button"
@@ -448,11 +451,9 @@ function MemberActionsMenu({
                       : role === "guest"
                         ? "Гость"
                         : "Сотрудник"
-                    : `${role[0]?.toUpperCase()}${role.slice(1)}`}
+                    : messageText(`${role[0]?.toUpperCase()}${role.slice(1)}`)}
                   {member.role === role
-                    ? isRussian
-                      ? " (текущая)"
-                      : " (current)"
+                    ? localePair(" (текущая)", " (current)")
                     : ""}
                 </DropdownMenuItem>
               ))}

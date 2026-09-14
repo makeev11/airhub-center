@@ -25,6 +25,7 @@ import { Spinner } from "@/shared/ui/spinner";
 import { Textarea } from "@/shared/ui/textarea";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { SignOutSection } from "./SignOutSection";
+import { localePair, localizeCopyTree } from "@/shared/locale/messengerCopy";
 
 type ProfileSettingsCardProps = {
   currentPubkey?: string;
@@ -115,8 +116,11 @@ const PROFILE_COPY = {
 export function ProfileSettingsCard({
   fallbackDisplayName,
 }: ProfileSettingsCardProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
-  const copy = isRussian ? PROFILE_COPY.ru : PROFILE_COPY.en;
+  const locale = useAirHopLocale();
+  const copy =
+    locale === "ru-RU"
+      ? PROFILE_COPY.ru
+      : localizeCopyTree(PROFILE_COPY.en, locale);
   const shouldReduceMotion = useReducedMotion();
   const profileQuery = useProfileQuery();
   const updateProfileMutation = useUpdateProfileMutation();
@@ -542,12 +546,14 @@ export function ProfileSettingsCard({
                                 aria-expanded={isAvatarEditorOpen}
                                 aria-label={
                                   isAvatarEditorSaving
-                                    ? isRussian
-                                      ? "Сохраняем фото профиля"
-                                      : "Saving profile photo"
-                                    : isRussian
-                                      ? "Изменить фото профиля"
-                                      : "Edit profile photo"
+                                    ? localePair(
+                                        "Сохраняем фото профиля",
+                                        "Saving profile photo",
+                                      )
+                                    : localePair(
+                                        "Изменить фото профиля",
+                                        "Edit profile photo",
+                                      )
                                 }
                                 className={avatarEditButtonClassName}
                                 data-testid="profile-avatar-edit"
@@ -555,22 +561,23 @@ export function ProfileSettingsCard({
                                 onClick={openAvatarEditor}
                                 title={
                                   isAvatarEditorSaving
-                                    ? isRussian
-                                      ? "Сохраняем фото профиля"
-                                      : "Saving profile photo"
-                                    : isRussian
-                                      ? "Изменить фото профиля"
-                                      : "Edit profile photo"
+                                    ? localePair(
+                                        "Сохраняем фото профиля",
+                                        "Saving profile photo",
+                                      )
+                                    : localePair(
+                                        "Изменить фото профиля",
+                                        "Edit profile photo",
+                                      )
                                 }
                                 type="button"
                               >
                                 {isAvatarEditorSaving && !isAvatarEditorOpen ? (
                                   <Spinner
-                                    aria-label={
-                                      isRussian
-                                        ? "Сохраняем аватар"
-                                        : "Saving avatar"
-                                    }
+                                    aria-label={localePair(
+                                      "Сохраняем аватар",
+                                      "Saving avatar",
+                                    )}
                                     className="h-4 w-4 border-2"
                                   />
                                 ) : (

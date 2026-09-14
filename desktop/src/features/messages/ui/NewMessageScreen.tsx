@@ -1,8 +1,11 @@
-import { messageError, messageText } from "@/shared/locale/messengerCopy";
+import {
+  messageError,
+  messageText,
+  localePair,
+} from "@/shared/locale/messengerCopy";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import {
   useOpenDmMutation,
   useUpsertCachedChannel,
@@ -29,7 +32,6 @@ import {
  * lives in an attached popover instead of taking over the message area.
  */
 export function NewMessageScreen() {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const identityQuery = useIdentityQuery();
   const currentPubkey = identityQuery.data?.pubkey;
   const openDmMutation = useOpenDmMutation();
@@ -305,12 +307,14 @@ export function NewMessageScreen() {
     selectedUsers.length === 0
       ? messageText("Choose a recipient to start a message")
       : selectedUsers.length === 1
-        ? isRussian
-          ? `Сообщение для ${formatRecipientName(selectedUsers[0])}`
-          : `Message ${formatRecipientName(selectedUsers[0])}`
-        : isRussian
-          ? `Сообщение для ${selectedUsers.length} получателей`
-          : `Message ${selectedUsers.length} people`;
+        ? localePair(
+            `Сообщение для ${formatRecipientName(selectedUsers[0])}`,
+            `Message ${formatRecipientName(selectedUsers[0])}`,
+          )
+        : localePair(
+            `Сообщение для ${selectedUsers.length} получателей`,
+            `Message ${selectedUsers.length} people`,
+          );
 
   return (
     <div

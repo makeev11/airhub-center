@@ -9,6 +9,8 @@ import type {
   UpdateManagedAgentInput,
 } from "@/shared/api/types";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import type { AirHopLocale } from "@/shared/locale/airhopLocale";
+import { messageText } from "@/shared/locale/messengerCopy";
 
 export { truncatePubkey };
 
@@ -53,11 +55,11 @@ const RUSSIAN_PROFILE_PANEL_VIEW_TITLES: Record<ProfilePanelView, string> = {
 
 export function getProfilePanelViewTitle(
   view: ProfilePanelView,
-  isRussian: boolean,
+  locale: AirHopLocale,
 ): string {
-  return isRussian
+  return locale === "ru-RU"
     ? RUSSIAN_PROFILE_PANEL_VIEW_TITLES[view]
-    : PROFILE_PANEL_VIEW_TITLES[view];
+    : messageText(PROFILE_PANEL_VIEW_TITLES[view], {}, locale);
 }
 
 const PROFILE_PANEL_VIEWS = new Set<ProfilePanelView>(

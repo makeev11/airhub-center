@@ -80,12 +80,16 @@ const occurrencesResponseSchema = z.object({
 });
 
 const managementCardSchema = z.object({
-  confirmationChannels: z.array(z.literal("telegram")).optional(),
+  confirmationChannels: z.array(z.enum(["telegram", "whatsapp"])).optional(),
+  connectedChannels: z.array(z.enum(["telegram", "whatsapp"])).optional(),
   messengerHandoff: z
     .object({
+      channel: z.enum(["telegram", "whatsapp"]).optional(),
       url: z
         .string()
-        .regex(/^https:\/\/t\.me\/[A-Za-z0-9_]+\?start=ahh_[A-Za-z0-9_-]{43}$/),
+        .regex(
+          /^https:\/\/(?:t\.me\/[A-Za-z0-9_]+\?start=|wa\.me\/[0-9]{5,20}\?text=)ahh_[A-Za-z0-9_-]{43}$/,
+        ),
       expiresAt: z.string().datetime({ offset: true }),
     })
     .optional(),

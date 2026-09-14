@@ -1,8 +1,7 @@
 import { Smartphone, Webcam } from "lucide-react";
-
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import type { CameraSource } from "@/features/profile/ui/AnimatedAvatarCapture.helpers";
 import { cn } from "@/shared/lib/cn";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 type AnimatedAvatarCameraPickerProps = {
   activeCameraSource: CameraSource | null;
@@ -21,22 +20,19 @@ export function AnimatedAvatarCameraPicker({
   onSelectSource,
   testIdPrefix,
 }: AnimatedAvatarCameraPickerProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <div className="grid grid-cols-2 gap-3">
       {[
         {
           disabled: iphoneDisabled,
           icon: Smartphone,
-          label: isRussian ? "Использовать iPhone" : "Use iPhone",
+          label: localePair("Использовать iPhone", "Use iPhone"),
           source: "iphone" as const,
         },
         {
           disabled: computerDisabled,
           icon: Webcam,
-          label: isRussian
-            ? "Использовать этот компьютер"
-            : "Use this computer",
+          label: localePair("Использовать этот компьютер", "Use this computer"),
           source: "computer" as const,
         },
       ].map((option) => {

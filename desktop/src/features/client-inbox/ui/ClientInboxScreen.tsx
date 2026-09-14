@@ -1,8 +1,10 @@
 import * as React from "react";
+import { WhatsAppConversationTools } from "./WhatsAppConversationTools";
 import { ClientMigration } from "./ClientMigration";
 import { Link } from "@tanstack/react-router";
 import { MessageCircle, RefreshCw, Search } from "lucide-react";
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
+import { messageText } from "@/shared/locale/messengerCopy";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { SkeletonReveal } from "@/shared/ui/skeleton";
@@ -19,8 +21,10 @@ const selectClass =
   "h-9 rounded-md border border-input bg-background px-3 text-sm";
 
 export function ClientInboxScreen() {
-  const ru = useAirHopLocale().startsWith("ru");
-  const t = (a: string, b: string) => (ru ? a : b);
+  const locale = useAirHopLocale();
+  const ru = locale.startsWith("ru");
+  const t = (russian: string, english: string) =>
+    ru ? russian : messageText(english, {}, locale);
   const [service] = React.useState(() => new ClientInboxService());
   const [data, setData] = React.useState<ClientInbox | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -316,9 +320,7 @@ export function ClientInboxScreen() {
                     )}
                     <p className="mt-1 text-xs text-muted-foreground">
                       {t("Обновлено", "Updated")}{" "}
-                      {new Date(item.updatedAt).toLocaleString(
-                        ru ? "ru-RU" : "en-US",
-                      )}
+                      {new Date(item.updatedAt).toLocaleString(locale)}
                       {item.connectionStatus !== "active"
                         ? ` · ${t("Подключение приостановлено", "Connection paused")}`
                         : ""}
@@ -358,6 +360,14 @@ export function ClientInboxScreen() {
                     </Link>
                   </Button>
                 </div>
+                {item.provider === "whatsapp_cloud" && (
+                  <WhatsAppConversationTools
+                    item={item}
+                    service={service}
+                    ru={ru}
+                    onSent={load}
+                  />
+                )}
                 <div className="mt-4 flex flex-wrap gap-3">
                   <select
                     className={selectClass}

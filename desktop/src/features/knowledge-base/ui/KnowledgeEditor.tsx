@@ -21,6 +21,8 @@ import {
 } from "../model/knowledge";
 import { KnowledgeMarkdown } from "./KnowledgeMarkdown";
 import { saveKnowledgeDocument } from "../data/saveKnowledgeDocument";
+import { messageText } from "@/shared/locale/messengerCopy";
+import { resolveAirHopLocale } from "@/shared/locale/airhopLocale";
 
 type Props = {
   material: KnowledgeMaterial;
@@ -38,7 +40,8 @@ export function KnowledgeEditor({
   onCommand,
   onOriginal,
 }: Props) {
-  const t = (a: string, b: string) => (ru ? a : b);
+  const t = (russian: string, english: string) =>
+    ru ? russian : messageText(english);
   const workspace = useBookingWorkspace().workspace;
   const [draft, setDraft] = React.useState(material.draft);
   const questionKeys = React.useRef(
@@ -500,7 +503,7 @@ export function KnowledgeEditor({
                   <span>
                     v{h.version} ·{" "}
                     {new Date(h.createdAt).toLocaleString(
-                      ru ? "ru-RU" : "en-US",
+                      resolveAirHopLocale(),
                     )}{" "}
                     ·{" "}
                     {(

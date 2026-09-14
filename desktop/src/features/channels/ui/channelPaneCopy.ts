@@ -1,7 +1,9 @@
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
+import { localizeCopyTree } from "@/shared/locale/messengerCopy";
 
 export function useChannelPaneCopy() {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   return isRussian
     ? {
         surfaceLabel: "Сообщения и поле ввода канала",
@@ -34,36 +36,39 @@ export function useChannelPaneCopy() {
               ? "Сообщений пока нет"
               : "Канал не выбран",
       }
-    : {
-        surfaceLabel: "Channel messages and composer",
-        forumEmptyDescription:
-          "Select a stream or direct message to load its history.",
-        channelEmptyDescription:
-          "Messages and replies will appear here once the channel has history.",
-        forumEmptyTitle: "Select a discussion",
-        channelEmptyTitle: "No messages yet",
-        noChannelTitle: "No channel selected",
-        viewing: "Viewing ",
-        joining: "Joining...",
-        join: "Join to participate",
-        channelFallback: "channel",
-        timedOut: "You're timed out by Center administrators.",
-        readOnly: "This channel is read-only.",
-        archivedReadOnly: "Archived channels are read-only.",
-        forumUnavailable: "Forum posting is not available yet.",
-        messageSelf: "Message yourself",
-        messagePerson: (name: string) => `Message ${name}`,
-        messageChannel: (name: string) => `Message #${name}`,
-        selectChannel: "Select a channel",
-        emptyDescription: (forum: boolean) =>
-          forum
-            ? "Select a stream or direct message to load its history."
-            : "Messages and replies will appear here once the channel has history.",
-        emptyTitle: (kind?: string) =>
-          kind === "forum"
-            ? "Select a discussion"
-            : kind
-              ? "No messages yet"
-              : "No channel selected",
-      };
+    : localizeCopyTree(
+        {
+          surfaceLabel: "Channel messages and composer",
+          forumEmptyDescription:
+            "Select a stream or direct message to load its history.",
+          channelEmptyDescription:
+            "Messages and replies will appear here once the channel has history.",
+          forumEmptyTitle: "Select a discussion",
+          channelEmptyTitle: "No messages yet",
+          noChannelTitle: "No channel selected",
+          viewing: "Viewing ",
+          joining: "Joining...",
+          join: "Join to participate",
+          channelFallback: "channel",
+          timedOut: "You're timed out by Center administrators.",
+          readOnly: "This channel is read-only.",
+          archivedReadOnly: "Archived channels are read-only.",
+          forumUnavailable: "Forum posting is not available yet.",
+          messageSelf: "Message yourself",
+          messagePerson: (name: string) => `Message ${name}`,
+          messageChannel: (name: string) => `Message #${name}`,
+          selectChannel: "Select a channel",
+          emptyDescription: (forum: boolean) =>
+            forum
+              ? "Select a stream or direct message to load its history."
+              : "Messages and replies will appear here once the channel has history.",
+          emptyTitle: (kind?: string) =>
+            kind === "forum"
+              ? "Select a discussion"
+              : kind
+                ? "No messages yet"
+                : "No channel selected",
+        },
+        locale,
+      );
 }

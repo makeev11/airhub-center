@@ -34,22 +34,28 @@ export function PublicBookingSuccess({
   onStartAnother: () => void;
   organizationName: string;
 }) {
+  const connected = Boolean(
+    card.telegramConnected || card.connectedChannels?.length,
+  );
+  const handoffChannel =
+    card.messengerHandoff?.channel ??
+    (card.messengerHandoff?.url.startsWith("https://wa.me/")
+      ? "whatsapp"
+      : "telegram");
   const channels =
     (confirmationPreview
       ? (["telegram", "max", "whatsapp"] as const)
       : card.confirmationChannels) ??
-    (card.messengerHandoff || card.telegramConnected
-      ? (["telegram"] as const)
-      : []);
+    (card.messengerHandoff || connected ? ([handoffChannel] as const) : []);
   const showConfirmation =
     card.status === "pending_confirmation" &&
-    (channels.length > 0 || card.telegramConnected);
+    (channels.length > 0 || connected);
   const preparationAttempt = useRef<string | null>(null);
   useEffect(() => {
     if (
       confirmationPreview ||
       !showConfirmation ||
-      card.telegramConnected ||
+      connected ||
       card.messengerHandoff ||
       channels.length !== 1 ||
       !managementToken ||
@@ -63,7 +69,7 @@ export function PublicBookingSuccess({
   }, [
     confirmationPreview,
     showConfirmation,
-    card.telegramConnected,
+    connected,
     card.messengerHandoff,
     channels,
     managementToken,
@@ -71,7 +77,7 @@ export function PublicBookingSuccess({
     channelError,
     onChooseContactChannel,
   ]);
-  const needsMessenger = showConfirmation && !card.telegramConnected;
+  const needsMessenger = showConfirmation && !connected;
   const copy = locale.startsWith("ru")
     ? {
         open: "Перейти в Telegram",
@@ -107,10 +113,68 @@ export function PublicBookingSuccess({
             error:
               "Couldn't prepare the link. Please try again; your booking is saved.",
           };
+  const whatsapp = locale.startsWith("ru")
+    ? {
+        open: "Перейти в WhatsApp",
+        hint: "Отправьте подготовленное сообщение — так мы найдём вашу запись.",
+        connected:
+          "WhatsApp подключён. Продолжайте общение с центром в этом чате.",
+      }
+    : locale.startsWith("pt")
+      ? {
+          open: "Abrir WhatsApp",
+          hint: "Envie a mensagem preparada para vincular sua reserva.",
+          connected:
+            "WhatsApp conectado. Continue conversando com o centro nesse chat.",
+        }
+      : locale.startsWith("tr")
+        ? {
+            open: "WhatsApp'ı aç",
+            hint: "Kaydınızı bağlamak için hazırlanan mesajı gönderin.",
+            connected:
+              "WhatsApp bağlandı. Merkezle bu sohbette iletişime devam edebilirsiniz.",
+          }
+        : {
+            open: "Open WhatsApp",
+            hint: "Send the prepared message to link your booking.",
+            connected:
+              "WhatsApp connected. Continue talking with the center in this chat.",
+          };
+  const connectedCopy = card.connectedChannels?.includes("whatsapp")
+    ? whatsapp.connected
+    : copy.connected;
+  const handoffPreparing = locale.startsWith("ru")
+    ? "Готовим переход…"
+    : locale.startsWith("pt")
+      ? "Preparando o acesso…"
+      : locale.startsWith("tr")
+        ? "Bağlantı hazırlanıyor…"
+        : "Preparing the handoff…";
+  const openChannel = (channelName: string) =>
+    locale.startsWith("ru")
+      ? `Перейти в ${channelName}`
+      : locale.startsWith("pt")
+        ? `Abrir ${channelName}`
+        : locale.startsWith("tr")
+          ? `${channelName} uygulamasını aç`
+          : `Open ${channelName}`;
+  const newBooking = locale.startsWith("ru")
+    ? "Новая запись"
+    : locale.startsWith("pt")
+      ? "Novo agendamento"
+      : locale.startsWith("tr")
+        ? "Yeni kayıt"
+        : "New booking";
   const channelHints: Partial<Record<PreferredContactChannel, string>> = {
     telegram: copy.hint,
-    max: "Продолжите запись в чате.",
-    whatsapp: "Напишите нам в чате.",
+    max: locale.startsWith("ru")
+      ? "Продолжите запись в чате."
+      : locale.startsWith("pt")
+        ? "Continue o agendamento no chat."
+        : locale.startsWith("tr")
+          ? "Kayda sohbette devam edin."
+          : "Continue the booking in chat.",
+    whatsapp: whatsapp.hint,
   };
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col py-1 sm:py-4">
@@ -125,15 +189,15 @@ export function PublicBookingSuccess({
           {needsMessenger
             ? messages.contactChannelTitle
             : card.status === "pending_confirmation"
-              ? "Заявка отправлена"
+              ? messages.successTitle
               : messages.status[card.status]}
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           {needsMessenger
             ? messages.contactChannelDescription
             : card.status === "pending_confirmation"
-              ? card.telegramConnected
-                ? copy.connected
+              ? connected
+                ? connectedCopy
                 : messages.successDescription
               : card.childName}
         </p>
@@ -157,67 +221,67 @@ export function PublicBookingSuccess({
         {showConfirmation ? (
           <div className="mt-4">
             <div className="flex flex-wrap gap-4">
-              {(!card.telegramConnected && !card.messengerHandoff
-                ? channels
-                : []
-              ).map((channel) => (
-                <div key={channel} className="w-full">
-                  <Button
-                    className="min-h-11 w-full text-base"
-                    data-testid={`airhop-contact-channel-${channel}`}
-                    disabled={
-                      isSavingChannel ||
-                      (!managementToken && !confirmationPreview)
-                    }
-                    aria-disabled={confirmationPreview || undefined}
-                    aria-describedby={`airhop-channel-hint-${channel}`}
-                    onClick={() => {
-                      if (!confirmationPreview) onChooseContactChannel(channel);
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="default"
-                  >
-                    {isSavingChannel
-                      ? "Готовим переход…"
-                      : `Перейти в ${messages.contactChannels[channel]}`}
-                  </Button>
-                  {channelHints[channel] ? (
-                    <p
-                      id={`airhop-channel-hint-${channel}`}
-                      className="mt-2 text-xs leading-5 text-muted-foreground"
+              {(!connected && !card.messengerHandoff ? channels : []).map(
+                (channel) => (
+                  <div key={channel} className="w-full">
+                    <Button
+                      className="min-h-11 w-full text-base"
+                      data-testid={`airhop-contact-channel-${channel}`}
+                      disabled={
+                        isSavingChannel ||
+                        (!managementToken && !confirmationPreview)
+                      }
+                      aria-disabled={confirmationPreview || undefined}
+                      aria-describedby={`airhop-channel-hint-${channel}`}
+                      onClick={() => {
+                        if (!confirmationPreview)
+                          onChooseContactChannel(channel);
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="default"
                     >
-                      {channelHints[channel]}
-                    </p>
-                  ) : null}
-                </div>
-              ))}
+                      {isSavingChannel
+                        ? handoffPreparing
+                        : openChannel(messages.contactChannels[channel])}
+                    </Button>
+                    {channelHints[channel] ? (
+                      <p
+                        id={`airhop-channel-hint-${channel}`}
+                        className="mt-2 text-xs leading-5 text-muted-foreground"
+                      >
+                        {channelHints[channel]}
+                      </p>
+                    ) : null}
+                  </div>
+                ),
+              )}
             </div>
             {channelError ? (
               <p className="mt-3 text-sm text-destructive" role="alert">
                 {copy.error}
               </p>
             ) : null}
-            {!card.telegramConnected && card.messengerHandoff ? (
+            {!connected && card.messengerHandoff ? (
               <div
                 className="mt-4 space-y-3"
-                data-testid="airhop-telegram-handoff"
+                data-testid={`airhop-${handoffChannel}-handoff`}
               >
                 <Button asChild className="min-h-11 w-full">
                   <a
-                    aria-describedby="airhop-channel-hint-telegram"
+                    aria-describedby={`airhop-channel-hint-${handoffChannel}`}
                     href={card.messengerHandoff.url}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    {copy.open}
+                    {handoffChannel === "whatsapp" ? whatsapp.open : copy.open}
                   </a>
                 </Button>
                 <p
-                  id="airhop-channel-hint-telegram"
+                  id={`airhop-channel-hint-${handoffChannel}`}
                   className="text-xs leading-5 text-muted-foreground"
                 >
-                  {channelHints.telegram}
+                  {channelHints[handoffChannel]}
                 </p>
               </div>
             ) : null}
@@ -268,7 +332,7 @@ export function PublicBookingSuccess({
           onClick={onStartAnother}
           type="button"
         >
-          Новая запись
+          {newBooking}
         </Button>
       ) : null}
     </div>

@@ -1,6 +1,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import * as React from "react";
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 const EN_SEARCH_PROMPT_WORDS = [
   "everything",
@@ -15,6 +16,13 @@ const RU_SEARCH_PROMPT_WORDS = [
   "сообщение",
   "обсуждение",
   "агента",
+] as const;
+const PT_BR_SEARCH_PROMPT_WORDS = [
+  "tudo",
+  "um canal",
+  "uma mensagem",
+  "uma conversa",
+  "um agente",
 ] as const;
 const SEARCH_PROMPT_ROTATION_MS = 3200;
 const SEARCH_PROMPT_EASE = [0.22, 1, 0.36, 1] as const;
@@ -89,8 +97,13 @@ function getPromptEnterTotalSeconds(characterCount: number) {
 }
 
 export function SearchPromptPlaceholder() {
-  const isRussian = useAirHopLocale() === "ru-RU";
-  const words = isRussian ? RU_SEARCH_PROMPT_WORDS : EN_SEARCH_PROMPT_WORDS;
+  const locale = useAirHopLocale();
+  const words =
+    locale === "ru-RU"
+      ? RU_SEARCH_PROMPT_WORDS
+      : locale === "pt-BR"
+        ? PT_BR_SEARCH_PROMPT_WORDS
+        : EN_SEARCH_PROMPT_WORDS;
   const shouldReduceMotion = useReducedMotion();
   const [wordIndex, setWordIndex] = React.useState(0);
   const activeWord = words[wordIndex] ?? words[0];
@@ -152,7 +165,7 @@ export function SearchPromptPlaceholder() {
         className="text-muted-foreground"
         data-testid="search-placeholder"
       >
-        {isRussian ? "Искать: " : "Search for "}
+        {localePair("Искать: ", "Search for ")}
         {activeWord}
       </span>
     );
@@ -166,7 +179,7 @@ export function SearchPromptPlaceholder() {
       data-search-prompt-options={words.join(",")}
       data-testid="search-placeholder"
     >
-      <span>{isRussian ? "Искать: " : "Search for "}</span>
+      <span>{localePair("Искать: ", "Search for ")}</span>
       <span
         className="relative inline-block overflow-visible whitespace-nowrap align-baseline leading-[inherit] motion-safe:transition-[width] motion-safe:ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
         data-width-animation-duration-ms={Math.round(

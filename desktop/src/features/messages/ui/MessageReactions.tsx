@@ -1,4 +1,8 @@
-import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
+import {
+  messageText,
+  useMessengerCopy,
+  localePair,
+} from "@/shared/locale/messengerCopy";
 import { SmilePlus } from "lucide-react";
 import * as React from "react";
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
@@ -102,38 +106,37 @@ function EmojiGlyph({
   );
 }
 
-function formatReactionUsers(
-  reaction: TimelineReaction,
-  russian: boolean,
-): string {
+function formatReactionUsers(reaction: TimelineReaction): string {
   const names = reaction.users.map((user) => user.displayName).filter(Boolean);
   if (reaction.reactedByCurrentUser) {
     const others = names.filter((name) => name !== "You");
     names.splice(
       0,
       names.length,
-      russian ? "Вы (нажмите, чтобы убрать)" : "You (click to remove)",
+      localePair("Вы (нажмите, чтобы убрать)", "You (click to remove)"),
       ...others,
     );
   }
   if (names.length === 0) {
-    return russian
-      ? `Пользователей: ${reaction.count}`
-      : `${reaction.count} people`;
+    return localePair(
+      `Пользователей: ${reaction.count}`,
+      `${reaction.count} people`,
+    );
   }
   if (names.length === 1) return names[0];
   if (names.length === 2) {
-    return `${names[0]} ${russian ? "и" : "and"} ${names[1]}`;
+    return `${names[0]} ${localePair("и", "and")} ${names[1]}`;
   }
-  return russian
-    ? `${names.slice(0, -1).join(", ")} и ${names[names.length - 1]}`
-    : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+  return localePair(
+    `${names.slice(0, -1).join(", ")} и ${names[names.length - 1]}`,
+    `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`,
+  );
 }
 
 function ReactionPopoverContent({ reaction }: { reaction: TimelineReaction }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  useAirHopLocale();
   const displayName = emojiDisplayName(reaction.emoji);
-  const userText = formatReactionUsers(reaction, isRussian);
+  const userText = formatReactionUsers(reaction);
 
   return (
     <div className="flex flex-col items-center text-center">

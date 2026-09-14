@@ -21,6 +21,7 @@ import { Switch } from "@/shared/ui/switch";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { SoundPicker } from "./SoundPicker";
+import { localizeCopyTree } from "@/shared/locale/messengerCopy";
 
 export function NotificationSettingsCard({
   isUpdatingDesktopNotifications,
@@ -45,7 +46,8 @@ export function NotificationSettingsCard({
   onSetNotifyWhileViewing: (enabled: boolean) => void;
   onSetSoundForSlot: (slot: SoundSlot, name: SoundName) => void;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   const copy = isRussian
     ? {
         title: "Уведомления",
@@ -76,36 +78,39 @@ export function NotificationSettingsCard({
         denied:
           "Системные уведомления заблокированы. Разрешите их в настройках компьютера.",
       }
-    : {
-        title: "Notifications",
-        description:
-          "Desktop alerts are on by default. Fine-tune what gets through below.",
-        unavailable: "Unavailable",
-        blocked: "Blocked",
-        on: "On",
-        off: "Off",
-        requesting: "Requesting…",
-        desktopAlerts: "Desktop alerts",
-        desktopEnabled:
-          "Native desktop alerts are enabled for the categories you have armed below.",
-        desktopDisabled:
-          "Request OS permission and surface new mentions or needs-action items outside the app.",
-        notifyWhileViewing: "Notify while viewing",
-        notifyWhileViewingDescription:
-          "Also alert for direct messages in the conversation you have open.",
-        sound: "Sound",
-        soundDescription: "Alert with a sound for the events below.",
-        comingSoon: "Coming soon",
-        showLess: "Show less",
-        viewAll: "View all",
-        homeBadge: "Inbox badge",
-        homeBadgeDescription:
-          "Show an Inbox badge for mentions and needs-action items in the sidebar.",
-        unsupported:
-          "Desktop notifications are not supported in this environment.",
-        denied:
-          "Desktop notifications are blocked. Enable them in your system settings.",
-      };
+    : localizeCopyTree(
+        {
+          title: "Notifications",
+          description:
+            "Desktop alerts are on by default. Fine-tune what gets through below.",
+          unavailable: "Unavailable",
+          blocked: "Blocked",
+          on: "On",
+          off: "Off",
+          requesting: "Requesting…",
+          desktopAlerts: "Desktop alerts",
+          desktopEnabled:
+            "Native desktop alerts are enabled for the categories you have armed below.",
+          desktopDisabled:
+            "Request OS permission and surface new mentions or needs-action items outside the app.",
+          notifyWhileViewing: "Notify while viewing",
+          notifyWhileViewingDescription:
+            "Also alert for direct messages in the conversation you have open.",
+          sound: "Sound",
+          soundDescription: "Alert with a sound for the events below.",
+          comingSoon: "Coming soon",
+          showLess: "Show less",
+          viewAll: "View all",
+          homeBadge: "Inbox badge",
+          homeBadgeDescription:
+            "Show an Inbox badge for mentions and needs-action items in the sidebar.",
+          unsupported:
+            "Desktop notifications are not supported in this environment.",
+          denied:
+            "Desktop notifications are blocked. Enable them in your system settings.",
+        },
+        locale,
+      );
   const slotLabels: Record<SoundSlot, string> = isRussian
     ? {
         dm: "Личные сообщения",
@@ -117,7 +122,7 @@ export function NotificationSettingsCard({
         job_result: "Агент завершил задачу",
         job_error: "Ошибка задачи агента",
       }
-    : SLOT_LABELS;
+    : localizeCopyTree(SLOT_LABELS, locale);
   const slotDescriptions: Record<SoundSlot, string> = isRussian
     ? {
         dm: "Когда вам пишут личное сообщение.",
@@ -129,7 +134,7 @@ export function NotificationSettingsCard({
         job_result: "Когда агент завершает задачу.",
         job_error: "Когда задача агента завершается с ошибкой.",
       }
-    : SLOT_DESCRIPTIONS;
+    : localizeCopyTree(SLOT_DESCRIPTIONS, locale);
   const permissionBlocked =
     notificationPermission === "denied" ||
     notificationPermission === "unsupported";

@@ -25,6 +25,7 @@ import {
 } from "@/shared/ui/mentionChip";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 type TopbarSearchProps = {
   channelLabels?: Record<string, string>;
@@ -67,10 +68,10 @@ type SearchHitContextLabel = {
   text: string;
 };
 
-function truncateResultText(content: string, russian: boolean, maxLength = 96) {
+function truncateResultText(content: string, _locale: string, maxLength = 96) {
   const trimmed = content.trim();
   if (trimmed.length === 0) {
-    return russian ? "Нет текста сообщения." : "No message body.";
+    return localePair("Нет текста сообщения.", "No message body.");
   }
 
   if (trimmed.length <= maxLength) {
@@ -80,29 +81,32 @@ function truncateResultText(content: string, russian: boolean, maxLength = 96) {
   return `${trimmed.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
-function formatRelativeTime(unixSeconds: number, locale: "ru-RU" | "en-US") {
+function formatRelativeTime(unixSeconds: number, locale: string) {
   const diff = Math.floor(Date.now() / 1_000) - unixSeconds;
 
   if (diff < 60) {
-    return locale === "ru-RU" ? "только что" : "just now";
+    return localePair("только что", "just now");
   }
 
   if (diff < 60 * 60) {
-    return locale === "ru-RU"
-      ? `${Math.floor(diff / 60)} мин назад`
-      : `${Math.floor(diff / 60)}m ago`;
+    return localePair(
+      `${Math.floor(diff / 60)} мин назад`,
+      `${Math.floor(diff / 60)}m ago`,
+    );
   }
 
   if (diff < 60 * 60 * 24) {
-    return locale === "ru-RU"
-      ? `${Math.floor(diff / (60 * 60))} ч назад`
-      : `${Math.floor(diff / (60 * 60))}h ago`;
+    return localePair(
+      `${Math.floor(diff / (60 * 60))} ч назад`,
+      `${Math.floor(diff / (60 * 60))}h ago`,
+    );
   }
 
   if (diff < 60 * 60 * 24 * 7) {
-    return locale === "ru-RU"
-      ? `${Math.floor(diff / (60 * 60 * 24))} дн назад`
-      : `${Math.floor(diff / (60 * 60 * 24))}d ago`;
+    return localePair(
+      `${Math.floor(diff / (60 * 60 * 24))} дн назад`,
+      `${Math.floor(diff / (60 * 60 * 24))}d ago`,
+    );
   }
 
   return new Intl.DateTimeFormat(locale, {
@@ -120,7 +124,7 @@ function getChannelActivityTime(channel: Channel) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-function getChannelSuggestionMeta(channel: Channel, locale: "ru-RU" | "en-US") {
+function getChannelSuggestionMeta(channel: Channel, locale: string) {
   const activityTime = getChannelActivityTime(channel);
 
   if (activityTime > 0) {
@@ -191,7 +195,7 @@ function getSearchHitContextLabel(
   hit: SearchHit,
   channelLookup: ReadonlyMap<string, Channel>,
   channelLabels?: Record<string, string>,
-  russian = false,
+  _locale = "en-US",
 ): SearchHitContextLabel {
   const channel = hit.channelId ? channelLookup.get(hit.channelId) : null;
   const channelName = getSearchHitChannelName(
@@ -203,7 +207,7 @@ function getSearchHitContextLabel(
   if (channel?.channelType === "dm") {
     return {
       channelLabel: null,
-      text: russian ? "Личное сообщение" : "Direct message",
+      text: localePair("Личное сообщение", "Direct message"),
     };
   }
 
@@ -212,16 +216,13 @@ function getSearchHitContextLabel(
   return {
     channelLabel: channelName,
     text: channelName
-      ? russian
-        ? `${isThread ? "Обсуждение" : "Сообщение"} в`
-        : `${isThread ? "Thread" : "Message"} in`
+      ? localePair(
+          `${isThread ? "Обсуждение" : "Сообщение"} в`,
+          `${isThread ? "Thread" : "Message"} in`,
+        )
       : isThread
-        ? russian
-          ? "Обсуждение"
-          : "Thread"
-        : russian
-          ? "Сообщение"
-          : "Message",
+        ? localePair("Обсуждение", "Thread")
+        : localePair("Сообщение", "Message"),
   };
 }
 
@@ -241,20 +242,20 @@ function getResultSectionKey(result: SearchResult): SearchResultSectionKey {
   return "messages";
 }
 
-function getSectionTitle(sectionKey: SearchResultSectionKey, russian: boolean) {
+function getSectionTitle(sectionKey: SearchResultSectionKey, _locale: string) {
   switch (sectionKey) {
     case "channels":
-      return russian ? "Каналы" : "Channels";
+      return localePair("Каналы", "Channels");
     case "direct-messages":
-      return russian ? "Личные сообщения" : "Direct messages";
+      return localePair("Личные сообщения", "Direct messages");
     case "people":
-      return russian ? "Люди" : "People";
+      return localePair("Люди", "People");
     case "agents":
-      return russian ? "Агенты" : "Agents";
+      return localePair("Агенты", "Agents");
     case "messages":
-      return russian ? "Самое подходящее" : "Most relevant";
+      return localePair("Самое подходящее", "Most relevant");
     case "actions":
-      return russian ? "Действия" : "Actions";
+      return localePair("Действия", "Actions");
   }
 }
 
@@ -284,7 +285,7 @@ function SearchHitContextLine({ label }: { label: SearchHitContextLabel }) {
 
 function groupSearchResults(
   results: SearchResult[],
-  russian: boolean,
+  locale: string,
 ): SearchResultSection[] {
   const resultsBySection = new Map<SearchResultSectionKey, SearchResult[]>();
 
@@ -306,7 +307,7 @@ function groupSearchResults(
       {
         key: sectionKey,
         results: sectionResults,
-        title: getSectionTitle(sectionKey, russian),
+        title: getSectionTitle(sectionKey, locale),
       },
     ];
   });
@@ -417,9 +418,8 @@ export function TopbarSearch({
   suggestionChannels,
   variant = "bar",
 }: TopbarSearchProps) {
-  const locale = useAirHopLocale() === "ru-RU" ? "ru-RU" : "en-US";
-  const isRussian = locale === "ru-RU";
-  const searchLabel = isRussian ? "Искать везде" : "Search everything";
+  const locale = useAirHopLocale();
+  const searchLabel = localePair("Искать везде", "Search everything");
   const [isOpen, setIsOpen] = React.useState(false);
   const [selectedMenuIndex, setSelectedMenuIndex] = React.useState(0);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
@@ -454,7 +454,7 @@ export function TopbarSearch({
         kind: "action",
         action: {
           id: "browse-channels",
-          title: isRussian ? "Найти каналы" : "Browse channels",
+          title: localePair("Найти каналы", "Browse channels"),
         },
       });
     }
@@ -464,7 +464,7 @@ export function TopbarSearch({
         kind: "action",
         action: {
           id: "create-channel",
-          title: isRussian ? "Создать канал" : "Create a new channel",
+          title: localePair("Создать канал", "Create a new channel"),
         },
       });
     }
@@ -474,13 +474,13 @@ export function TopbarSearch({
         kind: "action",
         action: {
           id: "create-agent",
-          title: isRussian ? "Создать агента" : "Create a new agent",
+          title: localePair("Создать агента", "Create a new agent"),
         },
       });
     }
 
     return actions;
-  }, [isRussian, onBrowseChannels, onCreateAgent, onCreateChannel]);
+  }, [onBrowseChannels, onCreateAgent, onCreateChannel]);
   const suggestionResults = React.useMemo(
     () => [...suggestedResults, ...suggestionActionResults],
     [suggestedResults, suggestionActionResults],
@@ -498,8 +498,8 @@ export function TopbarSearch({
     [currentPubkeyNormalized, results],
   );
   const searchResultSections = React.useMemo(
-    () => groupSearchResults(searchableResults, isRussian),
-    [isRussian, searchableResults],
+    () => groupSearchResults(searchableResults, locale),
+    [locale, searchableResults],
   );
   const groupedSearchResults = React.useMemo(
     () => searchResultSections.flatMap((section) => section.results),
@@ -663,7 +663,7 @@ export function TopbarSearch({
             result.hit,
             channelLookup,
             channelLabels,
-            isRussian,
+            locale,
           )
         : null;
     const title =
@@ -681,7 +681,7 @@ export function TopbarSearch({
           ? result.action.description
           : result.kind === "user"
             ? getUserSecondaryLabel(result.user)
-            : truncateResultText(result.hit.content, isRussian);
+            : truncateResultText(result.hit.content, locale);
     const trailingLabel =
       result.kind === "channel"
         ? getChannelSuggestionMeta(result.channel, locale)
@@ -797,14 +797,12 @@ export function TopbarSearch({
     suggestionResults.length === 0 ? (
       <div className="px-4 py-5 text-sm text-muted-foreground">
         <p>
-          {isRussian
-            ? "Недавних действий пока нет."
-            : "No recent activity yet."}
+          {localePair("Недавних действий пока нет.", "No recent activity yet.")}
         </p>
       </div>
     ) : (
       <div
-        aria-label={isRussian ? "Недавние действия" : "Recent activity"}
+        aria-label={localePair("Недавние действия", "Recent activity")}
         className="max-h-96 overflow-y-auto p-1.5"
         role="listbox"
       >
@@ -816,7 +814,7 @@ export function TopbarSearch({
               {suggestedResults.length > 0 ? (
                 <div>
                   <div className={SEARCH_SECTION_TITLE_CLASS}>
-                    {isRussian ? "Недавние действия" : "Recent activity"}
+                    {localePair("Недавние действия", "Recent activity")}
                   </div>
                   {suggestedResults.map((result) =>
                     renderSearchResultRow(result, resultIndex++),
@@ -826,7 +824,7 @@ export function TopbarSearch({
               {suggestionActionResults.length > 0 ? (
                 <div>
                   <div className={SEARCH_SECTION_TITLE_CLASS}>
-                    {isRussian ? "Действия" : "Actions"}
+                    {localePair("Действия", "Actions")}
                   </div>
                   {suggestionActionResults.map((result) =>
                     renderSearchResultRow(result, resultIndex++),
@@ -846,7 +844,7 @@ export function TopbarSearch({
     </p>
   ) : searchableResults.length === 0 ? (
     <p className="px-4 py-5 text-sm text-muted-foreground">
-      {isRussian ? "Нет результатов для" : "No matches for"}{" "}
+      {localePair("Нет результатов для", "No matches for")}{" "}
       <span className="font-semibold">{trimmedQuery}</span>.
     </p>
   ) : (

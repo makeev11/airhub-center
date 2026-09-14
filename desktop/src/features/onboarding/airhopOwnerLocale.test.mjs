@@ -23,11 +23,12 @@ function storage(initial = {}) {
   };
 }
 
-test("owner first run exposes only launched locales in stable order", () => {
-  assert.deepEqual(AIRHOP_OWNER_LOCALES, ["en-US", "ru-RU"]);
+test("owner first run exposes every launched locale in stable order", () => {
+  assert.deepEqual(AIRHOP_OWNER_LOCALES, ["en-US", "ru-RU", "pt-BR"]);
   assert.deepEqual(AIRHOP_OWNER_LOCALES.map(airHopOwnerLanguageLabel), [
     "English",
     "Русский",
+    "Português (Brasil)",
   ]);
 });
 

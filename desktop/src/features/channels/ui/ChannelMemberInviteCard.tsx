@@ -1,4 +1,8 @@
-import { messageError, messageText } from "@/shared/locale/messengerCopy";
+import {
+  messageError,
+  messageText,
+  localePair,
+} from "@/shared/locale/messengerCopy";
 import { Search, UserPlus, X } from "lucide-react";
 import * as React from "react";
 
@@ -177,7 +181,7 @@ export function ChannelMemberInviteCard({
         </div>
         {inviteTargets.length > 0 ? (
           <span className="rounded-full bg-background px-2 py-1 text-2xs font-medium leading-none text-muted-foreground">
-            {inviteTargets.length} {isRussian ? "выбрано" : "selected"}
+            {inviteTargets.length} {localePair("выбрано", "selected")}
           </span>
         ) : null}
       </div>
@@ -369,7 +373,11 @@ export function ChannelMemberInviteCard({
                       : role === "guest"
                         ? "Гость"
                         : "AI-агент"
-                  : role}
+                  : messageText(
+                      role === "bot"
+                        ? "AI agent"
+                        : `${role[0]?.toUpperCase()}${role.slice(1)}`,
+                    )}
               </option>
             ))}
           </select>

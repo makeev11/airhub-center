@@ -1,7 +1,35 @@
 import { z } from "zod";
 import { getRelayHttpUrl, signRelayEvent } from "@/shared/api/tauri";
 
+export const whatsappTemplateSchema = z.object({
+  name: z.string(),
+  language: z.string(),
+  body: z.string(),
+  header: z.string(),
+  footer: z.string(),
+  parameterCount: z.number().int().min(0).max(10),
+});
+export type WhatsAppTemplate = z.infer<typeof whatsappTemplateSchema>;
+export function renderWhatsAppTemplate(
+  template: WhatsAppTemplate,
+  parameters: string[],
+) {
+  const body = template.body.replace(
+    /\{\{([1-9][0-9]?)\}\}/g,
+    (_, i) => parameters[Number(i) - 1] ?? `{{${i}}}`,
+  );
+  return [template.header, body, template.footer].filter(Boolean).join("\n");
+}
 export const clientSchema = z.object({
+  whatsappTemplates: z.array(whatsappTemplateSchema).optional(),
+  latestDelivery: z
+    .object({
+      status: z.string(),
+      providerStatus: z.string().nullable(),
+      errorCode: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
   id: z.string().uuid(),
   channelId: z.string().uuid(),
   rootEventId: z
@@ -238,6 +266,55 @@ export class ClientInboxService {
     }
     if (!result.accepted) throw new Error(result.message);
     return result;
+  }
+  /** Staff reviews the exact provider text; retries reuse the signed event. */
+  async sendWhatsAppTemplate(
+    conversation: ClientConversation,
+    template: WhatsAppTemplate,
+    parameters: string[],
+  ) {
+    const event = await (this.options.signEvent ?? signRelayEvent)({
+      kind: 9,
+      content: renderWhatsAppTemplate(template, parameters),
+      tags: [
+        ["h", conversation.channelId],
+        ...(conversation.rootEventId
+          ? [
+              ["e", conversation.rootEventId, "", "root"],
+              ["e", conversation.rootEventId, "", "reply"],
+            ]
+          : []),
+        [
+          "airhop-whatsapp-template",
+          JSON.stringify({
+            name: template.name,
+            language: template.language,
+            parameters,
+          }),
+        ],
+        ["nonce", crypto.randomUUID()],
+      ],
+    });
+    const body = JSON.stringify(event);
+    const send = () => this.request("/events", body);
+    let result: unknown;
+    try {
+      result = await send();
+    } catch (error) {
+      if (
+        !(
+          error instanceof TypeError ||
+          (error instanceof DOMException &&
+            ["TimeoutError", "AbortError"].includes(error.name))
+        )
+      )
+        throw error;
+      result = await send();
+    }
+    const ack = z
+      .object({ accepted: z.boolean(), message: z.string() })
+      .parse(result);
+    if (!ack.accepted) throw new Error(ack.message);
   }
   async migrationPreview(id: string) {
     return z

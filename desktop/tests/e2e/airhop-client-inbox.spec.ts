@@ -310,3 +310,75 @@ test("legacy preview cannot migrate while a delivery is pending", async ({
   ).toBeDisabled();
   expect(state.commands).toHaveLength(0);
 });
+
+test("WhatsApp failure offers a reviewed utility template and tracks Meta acceptance separately", async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  Object.assign(state.data.items[0], {
+    provider: "whatsapp_cloud",
+    connectionName: "WhatsApp центра",
+    latestDelivery: {
+      status: "failed",
+      providerStatus: null,
+      errorCode: "whatsapp_template_required",
+    },
+    whatsappTemplates: [
+      {
+        name: "lesson_update",
+        language: "ru",
+        body: "Ваше занятие: {{1}}",
+        header: "AirHop",
+        footer: "",
+        parameterCount: 1,
+      },
+    ],
+  });
+  const sent: Array<{ content: string; tags: string[][] }> = [];
+  await page.route("**/events", async (route) => {
+    const event = route.request().postDataJSON();
+    if (event.kind !== 9) {
+      await route.fallback();
+      return;
+    }
+    sent.push(event);
+    state.data.items[0].latestDelivery = {
+      status: "accepted",
+      providerStatus: "accepted",
+      errorCode: null,
+    };
+    await route.fulfill({ json: { accepted: true, message: "ok" } });
+  });
+  await page.getByRole("button", { name: "Обновить", exact: true }).click();
+  const panel = page.getByTestId("whatsapp-conversation-tools");
+  await expect(panel).toContainText("Окно диалога закрыто");
+  await panel
+    .getByText("Сервисное сообщение WhatsApp", { exact: true })
+    .click();
+  await panel.getByLabel("Шаблон и язык").selectOption("lesson_update:ru");
+  await expect(
+    panel.getByRole("button", { name: "Отправить проверенный текст" }),
+  ).toBeDisabled();
+  await panel.getByLabel("Значение 1").fill("завтра в 10:00");
+  await expect(panel.locator("pre")).toHaveText(
+    "AirHop\nВаше занятие: завтра в 10:00",
+  );
+  await waitForAnimations(page);
+  await panel.screenshot({
+    path: "test-results/whatsapp-template-preview.png",
+  });
+  await panel
+    .getByRole("button", { name: "Отправить проверенный текст" })
+    .click();
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0].content).toBe("AirHop\nВаше занятие: завтра в 10:00");
+  expect(sent[0].tags).toContainEqual(["e", "ab".repeat(32), "", "root"]);
+  await expect(panel).toContainText("Принято Meta · доставка ожидается");
+  state.data.items[0].latestDelivery = {
+    status: "delivered",
+    providerStatus: "read",
+    errorCode: null,
+  };
+  await page.getByRole("button", { name: "Обновить", exact: true }).click();
+  await expect(panel).toContainText("Последнее сообщение: Прочитано");
+});

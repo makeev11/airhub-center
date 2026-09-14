@@ -51,7 +51,7 @@ test("the warning copy comes from the shared helper, not inline text", () => {
   // call site must keep that precedence rather than reading only one source.
   assert.match(
     collapsedSource,
-    /agentAccessWarningText\( mode, runLocation \?\? inheritedRunLocation, isRussian \? "ru-RU" : "en-US", \)/,
+    /agentAccessWarningText\( mode, runLocation \?\? inheritedRunLocation, locale, \)/,
   );
   assert.match(collapsedSource, /<p aria-live="polite"[^>]*> \{warningText\}/);
 });

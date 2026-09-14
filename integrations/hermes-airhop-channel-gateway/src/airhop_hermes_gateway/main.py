@@ -165,6 +165,7 @@ async def _run() -> None:
             env,
             connection_id=assignment.connection_id,
             state_path=state_path,
+            credential_version=assignment.credential_version,
         )
         client = AirHopGatewayClient(
             relay_url=settings.relay_url,
@@ -178,7 +179,6 @@ async def _run() -> None:
             client=client,
             signer=signer,
             router=whatsapp_router,
-            credential_version=assignment.credential_version,
         )
 
     supervisor = GatewaySupervisor(

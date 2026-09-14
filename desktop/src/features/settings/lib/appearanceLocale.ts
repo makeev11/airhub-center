@@ -83,8 +83,39 @@ const RU: AppearanceMessages = {
   widgetAge: "Выберите возраст ребёнка",
 };
 
+const PT_BR: AppearanceMessages = {
+  title: "Aparência",
+  description:
+    "Escolha a aparência do AirHop Center e do widget de agendamento.",
+  centerTarget: "AirHop Center",
+  widgetTarget: "Widget de agendamento",
+  systemMode: "Sistema",
+  widgetAutomatic: "Seguir o AirHop",
+  widgetLight: "Claro",
+  widgetDark: "Escuro",
+  lightMode: "Claro",
+  darkMode: "Escuro",
+  accentColor: "Cor de destaque",
+  threadLayout: "Layout das conversas",
+  threadFocus: "Foco",
+  threadFocusDescription: "As conversas abrem sobre o canal, em tela cheia",
+  threadSplit: "Dividido",
+  threadSplitDescription: "As conversas abrem em um painel ao lado do canal",
+  widgetDescription:
+    "O widget pode seguir a aparência do AirHop ou usar sempre o tema claro ou escuro.",
+  widgetPreview: "Prévia",
+  widgetSave: "Salvar alterações",
+  widgetSaving: "Salvando…",
+  widgetSaved: "Salvo",
+  widgetHeading: "Agendamento on-line",
+  widgetStep: "Etapa 1 de 5",
+  widgetAge: "Selecione a idade da criança",
+};
+
 export function getAppearanceMessages(
   locale: AirHopLocale,
 ): AppearanceMessages {
-  return locale === "ru-RU" ? RU : EN;
+  if (locale === "ru-RU") return RU;
+  if (locale === "pt-BR") return PT_BR;
+  return EN;
 }

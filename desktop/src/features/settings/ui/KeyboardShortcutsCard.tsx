@@ -6,6 +6,7 @@ import {
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
+import { localePair, messageText } from "@/shared/locale/messengerCopy";
 
 function KeyCombo({ shortcut }: { shortcut: KeyboardShortcut }) {
   const keys = getPlatformKeys(shortcut);
@@ -30,7 +31,8 @@ function KeyCombo({ shortcut }: { shortcut: KeyboardShortcut }) {
 }
 
 export function KeyboardShortcutsCard() {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   const categories = getShortcutsByCategory();
   const categoryLabels: Record<string, string> = {
     Navigation: "Навигация",
@@ -84,19 +86,20 @@ export function KeyboardShortcutsCard() {
   return (
     <section className="min-w-0" data-testid="settings-shortcuts">
       <SettingsSectionHeader
-        title={isRussian ? "Сочетания клавиш" : "Keyboard shortcuts"}
-        description={
-          isRussian
-            ? "Все доступные сочетания клавиш. Изменить их пока нельзя."
-            : "All available keyboard shortcuts. Shortcuts are read-only."
-        }
+        title={localePair("Сочетания клавиш", "Keyboard shortcuts")}
+        description={localePair(
+          "Все доступные сочетания клавиш. Изменить их пока нельзя.",
+          "All available keyboard shortcuts. Shortcuts are read-only.",
+        )}
       />
 
       <div className="space-y-4">
         {[...categories.entries()].map(([category, shortcuts]) => (
           <div key={category}>
             <h2 className="mb-2 text-lg font-semibold tracking-tight">
-              {isRussian ? categoryLabels[category] : category}
+              {isRussian
+                ? categoryLabels[category]
+                : messageText(category, {}, locale)}
             </h2>
             <SettingsOptionGroup>
               {shortcuts.map((shortcut) => (
@@ -108,13 +111,13 @@ export function KeyboardShortcutsCard() {
                     <span className="text-sm font-medium text-foreground">
                       {isRussian
                         ? (shortcutCopy[shortcut.id]?.[0] ?? shortcut.label)
-                        : shortcut.label}
+                        : messageText(shortcut.label, {}, locale)}
                     </span>
                     <span className="ml-2 text-muted-foreground">
                       {isRussian
                         ? (shortcutCopy[shortcut.id]?.[1] ??
                           shortcut.description)
-                        : shortcut.description}
+                        : messageText(shortcut.description, {}, locale)}
                     </span>
                   </div>
                   <KeyCombo shortcut={shortcut} />

@@ -17,6 +17,7 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import { localePair, messageText } from "@/shared/locale/messengerCopy";
 
 /**
  * Clock-icon dropdown of snooze presets plus a "Custom…" popover with a native
@@ -31,7 +32,7 @@ export function SnoozeMenu({
   disabled?: boolean;
   onSnooze: (notBefore: number) => void;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
   const [customOpen, setCustomOpen] = React.useState(false);
   const [customDate, setCustomDate] = React.useState(todayDateString);
   const [customTime, setCustomTime] = React.useState("09:00");
@@ -45,7 +46,7 @@ export function SnoozeMenu({
           className="h-7 w-7 p-0"
           disabled={disabled}
           size="sm"
-          title={isRussian ? "Отложить" : "Snooze"}
+          title={localePair("Отложить", "Snooze")}
           type="button"
           variant="ghost"
         >
@@ -58,7 +59,7 @@ export function SnoozeMenu({
             key={preset.label}
             onSelect={() => onSnooze(preset.getTimestamp())}
           >
-            {isRussian
+            {locale === "ru-RU"
               ? ({
                   "In 30 minutes": "Через 30 минут",
                   "In 1 hour": "Через 1 час",
@@ -66,7 +67,7 @@ export function SnoozeMenu({
                   "Tomorrow at 9am": "Завтра в 09:00",
                   "Next Monday at 9am": "В следующий понедельник в 09:00",
                 }[preset.label] ?? preset.label)
-              : preset.label}
+              : messageText(preset.label, {}, locale)}
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
@@ -79,16 +80,16 @@ export function SnoozeMenu({
                 setCustomOpen(true);
               }}
             >
-              {isRussian ? "Указать время…" : "Custom…"}
+              {localePair("Указать время…", "Custom…")}
             </DropdownMenuItem>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-auto space-y-3">
             <p className="text-sm font-medium">
-              {isRussian ? "Отложить до" : "Snooze until"}
+              {localePair("Отложить до", "Snooze until")}
             </p>
             <div className="flex gap-2">
               <Input
-                aria-label={isRussian ? "Дата напоминания" : "Snooze date"}
+                aria-label={localePair("Дата напоминания", "Snooze date")}
                 className="flex-1"
                 min={todayDateString()}
                 onChange={(event) => setCustomDate(event.target.value)}
@@ -96,7 +97,7 @@ export function SnoozeMenu({
                 value={customDate}
               />
               <Input
-                aria-label={isRussian ? "Время напоминания" : "Snooze time"}
+                aria-label={localePair("Время напоминания", "Snooze time")}
                 className="w-[120px]"
                 onChange={(event) => setCustomTime(event.target.value)}
                 type="time"
@@ -113,7 +114,7 @@ export function SnoozeMenu({
               }}
               type="button"
             >
-              {isRussian ? "Отложить" : "Snooze"}
+              {localePair("Отложить", "Snooze")}
             </Button>
           </PopoverContent>
         </Popover>

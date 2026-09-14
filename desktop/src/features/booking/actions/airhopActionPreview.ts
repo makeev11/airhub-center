@@ -7,18 +7,28 @@ import type {
   BookingApplicantSnapshot,
   BookingWorkspace,
 } from "@/features/booking/model/bookingCore";
+import type { AirHopLocale } from "@/shared/locale/airhopLocale";
+import { localePair } from "@/shared/locale/messengerCopy";
+
+function previewLocale(value: string): AirHopLocale {
+  if (value.toLowerCase().startsWith("ru")) return "ru-RU";
+  if (value.toLowerCase().startsWith("pt")) return "pt-BR";
+  if (value.toLowerCase().startsWith("tr")) return "tr-TR";
+  return "en-US";
+}
 
 export function previewAirhopAction(
   workspace: BookingWorkspace,
   command: AirhopActionCommand,
   client?: { applicant: BookingApplicantSnapshot },
 ): AirhopActionPreview {
-  const russian = workspace.organization.locale.toLowerCase().startsWith("ru");
+  const locale = previewLocale(workspace.organization.locale);
+  const t = <T>(russian: T, english: T) => localePair(russian, english, locale);
   const formatters = createBookingFormatters(workspace.organization.locale);
   const lines = client
     ? [
-        `${russian ? "Представитель" : "Representative"}: ${client.applicant.parentName}`,
-        `${russian ? "Ребёнок" : "Child"}: ${client.applicant.childName}`,
+        `${t("Представитель", "Representative")}: ${client.applicant.parentName}`,
+        `${t("Ребёнок", "Child")}: ${client.applicant.childName}`,
       ]
     : [];
   if (command.type === "CreateExistingStudent") {
@@ -35,11 +45,11 @@ export function previewAirhopAction(
       })
       .join("; ");
     lines.push(
-      `${russian ? "Группа" : "Group"}: ${group?.name ?? command.groupId}`,
-      `${russian ? "Тариф" : "Tariff"}: ${tariff?.name ?? command.tariffId}`,
-      `${russian ? "Расписание" : "Schedule"}: ${schedule}`,
-      `${russian ? "Начало" : "Starts"}: ${command.startDate}`,
-      `${russian ? "Первая оплата" : "First payment"}: ${
+      `${t("Группа", "Group")}: ${group?.name ?? command.groupId}`,
+      `${t("Тариф", "Tariff")}: ${tariff?.name ?? command.tariffId}`,
+      `${t("Расписание", "Schedule")}: ${schedule}`,
+      `${t("Начало", "Starts")}: ${command.startDate}`,
+      `${t("Первая оплата", "First payment")}: ${
         tariff
           ? `${formatters.money(tariff.priceMinor, tariff.currency)}, ${formatters.date(command.startDate)}`
           : command.startDate
@@ -47,82 +57,78 @@ export function previewAirhopAction(
     );
   } else if (command.type === "CreateTariff") {
     lines.push(
-      `${russian ? "Тариф" : "Tariff"}: ${command.name}`,
-      `${russian ? "Стоимость" : "Price"}: ${formatters.money(command.priceMinor, command.currency)}`,
-      `${russian ? "Занятий в неделю" : "Classes per week"}: ${command.weeklyScheduleLimit}`,
+      `${t("Тариф", "Tariff")}: ${command.name}`,
+      `${t("Стоимость", "Price")}: ${formatters.money(command.priceMinor, command.currency)}`,
+      `${t("Занятий в неделю", "Classes per week")}: ${command.weeklyScheduleLimit}`,
     );
   } else if (command.type === "UpdateTariff") {
     lines.push(
-      `${russian ? "Тариф" : "Tariff"}: ${command.name}`,
-      `${russian ? "Новая стоимость" : "New price"}: ${formatters.money(command.priceMinor, command.currency)}`,
-      `${russian ? "Занятий в неделю" : "Classes per week"}: ${command.weeklyScheduleLimit}`,
+      `${t("Тариф", "Tariff")}: ${command.name}`,
+      `${t("Новая стоимость", "New price")}: ${formatters.money(command.priceMinor, command.currency)}`,
+      `${t("Занятий в неделю", "Classes per week")}: ${command.weeklyScheduleLimit}`,
     );
   } else if (command.type === "SetTariffStatus") {
     const tariff = workspace.tariffs.find(({ id }) => id === command.tariffId);
     lines.push(
-      `${russian ? "Тариф" : "Tariff"}: ${tariff?.name ?? command.tariffId}`,
-      `${russian ? "Статус" : "Status"}: ${command.status}`,
+      `${t("Тариф", "Tariff")}: ${tariff?.name ?? command.tariffId}`,
+      `${t("Статус", "Status")}: ${command.status}`,
     );
   } else if (command.type === "SetPaymentStatus") {
     const payment = workspace.paymentExpectations.find(
       ({ id }) => id === command.paymentId,
     );
     lines.push(
-      `${russian ? "Оплата" : "Payment"}: ${
+      `${t("Оплата", "Payment")}: ${
         payment
           ? formatters.money(payment.amountMinor, payment.currency)
           : command.paymentId
       }`,
-      `${russian ? "Статус" : "Status"}: ${command.status}`,
+      `${t("Статус", "Status")}: ${command.status}`,
     );
   } else if (command.type === "UpdatePaymentAmount") {
     const payment = workspace.paymentExpectations.find(
       ({ id }) => id === command.paymentId,
     );
     lines.push(
-      `${russian ? "Новая сумма" : "New amount"}: ${formatters.money(
+      `${t("Новая сумма", "New amount")}: ${formatters.money(
         command.amountMinor,
         payment?.currency ?? "RUB",
       )}`,
     );
   } else if (command.type === "UpdatePaymentDueDate") {
     lines.push(
-      `${russian ? "Новый срок" : "New due date"}: ${formatters.date(command.dueDate)}`,
-      `${russian ? "Причина" : "Reason"}: ${command.internalReason}`,
+      `${t("Новый срок", "New due date")}: ${formatters.date(command.dueDate)}`,
+      `${t("Причина", "Reason")}: ${command.internalReason}`,
     );
   } else if (command.type === "CreateBookingRequest") {
     lines.push(
-      `${russian ? "Занятие" : "Lesson"}: ${command.lessonRef.originalDate}`,
-      `${russian ? "Тип" : "Type"}: ${command.visitKind}`,
-      `${russian ? "Статус" : "Status"}: ${russian ? "Новая заявка" : "New request"}`,
+      `${t("Занятие", "Lesson")}: ${command.lessonRef.originalDate}`,
+      `${t("Тип", "Type")}: ${command.visitKind}`,
+      `${t("Статус", "Status")}: ${t("Новая заявка", "New request")}`,
     );
   } else if (command.type === "AddLessonParticipant") {
     const status =
       command.submissionMode === "direct"
-        ? russian
-          ? "Подтверждено"
-          : "Confirmed"
-        : russian
-          ? "Новая заявка"
-          : "New request";
+        ? t("Подтверждено", "Confirmed")
+        : t("Новая заявка", "New request");
     lines.push(
-      `${russian ? "Занятие" : "Lesson"}: ${command.lessonRef.originalDate}`,
-      `${russian ? "Тип" : "Type"}: ${command.visitKind}`,
-      `${russian ? "Статус" : "Status"}: ${status}`,
+      `${t("Занятие", "Lesson")}: ${command.lessonRef.originalDate}`,
+      `${t("Тип", "Type")}: ${command.visitKind}`,
+      `${t("Статус", "Status")}: ${status}`,
     );
   } else if (command.type === "CreateUnassignedRequest") {
     lines.push(
-      russian ? "Время пока не выбрано" : "Time has not been selected",
-      `${russian ? "Статус" : "Status"}: ${russian ? "Новая" : "New"}`,
+      t("Время пока не выбрано", "Time has not been selected"),
+      `${t("Статус", "Status")}: ${t("Новая", "New")}`,
     );
   } else {
     lines.push(
-      `${russian ? "Посещаемость" : "Attendance"}: ${command.status ?? (russian ? "без отметки" : "unmarked")}`,
+      `${t("Посещаемость", "Attendance")}: ${command.status ?? t("без отметки", "unmarked")}`,
     );
   }
   return {
     locale: workspace.organization.locale,
-    title: russian ? "Будет выполнено" : "Will be applied",
+    title: t("Будет выполнено", "Will be applied"),
     lines,
   };
 }

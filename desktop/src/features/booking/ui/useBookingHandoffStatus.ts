@@ -17,7 +17,9 @@ export function useBookingHandoffStatus(
 ) {
   const token = success?.token;
   const expiresAt = success?.card.messengerHandoff?.expiresAt;
-  const connected = success?.card.telegramConnected;
+  const connected =
+    success?.card.telegramConnected ||
+    Boolean(success?.card.connectedChannels?.length);
   const status = success?.card.status;
   useEffect(() => {
     if (
@@ -54,7 +56,9 @@ export function useBookingHandoffStatus(
                   card: {
                     ...card,
                     messengerHandoff:
-                      !card.telegramConnected &&
+                      !(
+                        card.telegramConnected || card.connectedChannels?.length
+                      ) &&
                       current.card.messengerHandoff &&
                       Date.parse(current.card.messengerHandoff.expiresAt) >
                         Date.now()
@@ -66,7 +70,10 @@ export function useBookingHandoffStatus(
           );
         // Binding and confirmation are different commits. Keep reading until
         // the authoritative decision, not just until the messenger connects.
-        if (card?.telegramConnected && card.status !== "pending_confirmation")
+        if (
+          (card?.telegramConnected || card?.connectedChannels?.length) &&
+          card.status !== "pending_confirmation"
+        )
           return;
       } catch {
         /* A temporary read failure does not invalidate the issued link. */

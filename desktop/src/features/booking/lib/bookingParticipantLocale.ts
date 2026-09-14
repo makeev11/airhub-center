@@ -56,3 +56,24 @@ export const EN_BOOKING_PARTICIPANT_SOURCE_MESSAGES: BookingParticipantSourceMes
     participantCapacityFullDescription:
       "This class has no places left. Choose another class.",
   };
+
+export const PT_BR_BOOKING_PARTICIPANT_SOURCE_MESSAGES: BookingParticipantSourceMessages =
+  {
+    participantSourceChannel: "Origem",
+    participantSourcePhone: "Ligação telefônica",
+    participantSourceVisit: "Visita presencial",
+    participantSourceTelegram: "Telegram",
+    participantSourceMax: "MAX",
+    participantSourceWhatsapp: "WhatsApp",
+    participantSourceOther: "Outro",
+    participantInternalComment: "Observação interna (opcional)",
+    participantIdentityChoiceTitle: "Escolha um cliente",
+    participantIdentityChoiceDescription:
+      "Foram encontrados vários cadastros correspondentes. Volte à busca e selecione a criança na lista de clientes.",
+    participantAlreadyAddedTitle: "Criança já adicionada",
+    participantAlreadyAddedDescription:
+      "Esta criança já está agendada ou matriculada na aula.",
+    participantCapacityFullTitle: "Sem vagas disponíveis",
+    participantCapacityFullDescription:
+      "Esta aula não tem mais vagas. Escolha outra aula.",
+  };

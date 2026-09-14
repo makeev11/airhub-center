@@ -1,11 +1,10 @@
 import { Circle, CircleDashed } from "lucide-react";
 import * as React from "react";
-
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { clampFrameIndex } from "@/features/profile/ui/AnimatedAvatarCapture.helpers";
 import { cn } from "@/shared/lib/cn";
 import { performDefaultHaptic } from "@/shared/lib/haptics";
 import { Spinner } from "@/shared/ui/spinner";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 const FILMSTRIP_SELECTOR_SIZE = 48;
 const SLIDER_TICK_STEP = 10;
@@ -91,7 +90,6 @@ export function AvatarFramingSlider({
   tipText = null,
   value,
 }: AvatarFramingSliderProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const sliderRef = React.useRef<HTMLDivElement | null>(null);
   const activePointerRef = React.useRef<number | null>(null);
   const valueRef = React.useRef(value);
@@ -160,7 +158,7 @@ export function AvatarFramingSlider({
   const sliderControl = (
     <div className="buzz-avatar-framing-slider-wrapper">
       <div
-        aria-label={isRussian ? "Размер аватара" : "Avatar size"}
+        aria-label={localePair("Размер аватара", "Avatar size")}
         aria-describedby={tipText ? tipId : undefined}
         aria-valuemax={max}
         aria-valuemin={min}
@@ -244,7 +242,7 @@ export function AvatarFramingSlider({
         <div aria-hidden="true" className="buzz-avatar-framing-slider-handle" />
       </div>
       <button
-        aria-label={isRussian ? "Сбросить размер аватара" : "Reset avatar size"}
+        aria-label={localePair("Сбросить размер аватара", "Reset avatar size")}
         className="buzz-avatar-framing-slider-hashmark"
         data-reset="true"
         data-testid={resetTestId}
@@ -257,7 +255,7 @@ export function AvatarFramingSlider({
           onReset();
         }}
         style={resetTickStyle}
-        title={isRussian ? "Сбросить размер аватара" : "Reset avatar size"}
+        title={localePair("Сбросить размер аватара", "Reset avatar size")}
         type="button"
       />
       {tipText ? (
@@ -300,18 +298,13 @@ export function AvatarOutlineToggle({
   onChange,
   testIdPrefix,
 }: AvatarOutlineToggleProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const Icon = enabled ? Circle : CircleDashed;
   return (
     <button
       aria-label={
         enabled
-          ? isRussian
-            ? "Выключить обводку"
-            : "Turn outline off"
-          : isRussian
-            ? "Включить обводку"
-            : "Turn outline on"
+          ? localePair("Выключить обводку", "Turn outline off")
+          : localePair("Включить обводку", "Turn outline on")
       }
       aria-pressed={enabled}
       className={cn(
@@ -323,12 +316,8 @@ export function AvatarOutlineToggle({
       onClick={() => onChange(!enabled)}
       title={
         enabled
-          ? isRussian
-            ? "Обводка включена"
-            : "Outline on"
-          : isRussian
-            ? "Обводка выключена"
-            : "Outline off"
+          ? localePair("Обводка включена", "Outline on")
+          : localePair("Обводка выключена", "Outline off")
       }
       type="button"
     >
@@ -358,7 +347,6 @@ export function AvatarFilmstripPicker({
   selectedFrame,
   testIdPrefix,
 }: AvatarFilmstripPickerProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const stripRef = React.useRef<HTMLDivElement | null>(null);
   const maxFrameIndex = Math.max(0, frameCount - 1);
   const safeSelectedFrame = clampFrameIndex(selectedFrame, frameCount);
@@ -402,7 +390,7 @@ export function AvatarFilmstripPicker({
       data-testid={`${testIdPrefix}-animated-poster-strip`}
     >
       <div
-        aria-label={isRussian ? "Выбрать стоп-кадр" : "Choose still frame"}
+        aria-label={localePair("Выбрать стоп-кадр", "Choose still frame")}
         aria-valuemax={maxFrameIndex}
         aria-valuemin={0}
         aria-valuenow={safeSelectedFrame}
@@ -445,11 +433,10 @@ export function AvatarFilmstripPicker({
           {frames.length === 0 ? (
             <div className="grid h-full w-full place-items-center">
               <Spinner
-                aria-label={
-                  isRussian
-                    ? "Создаём миниатюры кадров"
-                    : "Generating frame thumbnails"
-                }
+                aria-label={localePair(
+                  "Создаём миниатюры кадров",
+                  "Generating frame thumbnails",
+                )}
                 className="h-5 w-5"
               />
             </div>

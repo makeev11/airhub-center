@@ -49,6 +49,15 @@ import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { PageHeader } from "@/shared/ui/PageHeader";
 import { Progress } from "@/shared/ui/progress";
+import type { AirHopLocale } from "@/shared/locale/airhopLocale";
+import { localePair, messageText } from "@/shared/locale/messengerCopy";
+
+function analyticsAppLocale(locale: string): AirHopLocale {
+  if (locale.toLowerCase().startsWith("ru")) return "ru-RU";
+  if (locale.toLowerCase().startsWith("pt")) return "pt-BR";
+  if (locale.toLowerCase().startsWith("tr")) return "tr-TR";
+  return "en-US";
+}
 
 function paymentShare(locale: string, basisPoints: number | null): string {
   if (basisPoints === null) return "—";
@@ -274,7 +283,6 @@ function AnalyticsDashboard({
   >("overview");
   const tab =
     selectedTab === "links" && !trackingLinks ? "overview" : selectedTab;
-  const russian = organization.locale.toLowerCase().startsWith("ru");
   return (
     <div className="space-y-4">
       <fieldset
@@ -283,13 +291,13 @@ function AnalyticsDashboard({
       >
         {(
           [
-            ["overview", russian ? "Обзор" : "Overview"],
-            ["sources", russian ? "Привлечение" : "Acquisition"],
-            ["consultations", russian ? "Консультации" : "Consultations"],
-            ["students", russian ? "Ученики" : "Students"],
-            ["capacity", russian ? "Загрузка" : "Capacity"],
-            ["money", russian ? "Деньги" : "Money"],
-            ["links", russian ? "Ссылки" : "Links"],
+            ["overview", localePair("Обзор", "Overview")],
+            ["sources", localePair("Привлечение", "Acquisition")],
+            ["consultations", localePair("Консультации", "Consultations")],
+            ["students", localePair("Ученики", "Students")],
+            ["capacity", localePair("Загрузка", "Capacity")],
+            ["money", localePair("Деньги", "Money")],
+            ["links", localePair("Ссылки", "Links")],
           ] as const
         )
           .filter(([key]) => key !== "links" || trackingLinks)
@@ -308,9 +316,10 @@ function AnalyticsDashboard({
       {tab === "links" && trackingLinks && onCreateTrackingLink ? (
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            {russian
-              ? "Счётчики ссылок — за всю доступную историю. Фильтр периода не применяется."
-              : "Link counts cover all retained history. The period filter does not apply."}
+            {localePair(
+              "Счётчики ссылок — за всю доступную историю. Фильтр периода не применяется.",
+              "Link counts cover all retained history. The period filter does not apply.",
+            )}
           </p>
           <TrackingLinksView
             links={trackingLinks.items}
@@ -338,9 +347,10 @@ function AnalyticsDashboard({
       {tab === "sources" && siteAnalytics ? (
         <details className="rounded-xl border border-border p-4">
           <summary className="cursor-pointer font-medium">
-            {russian
-              ? "Подробно: сайт и форма записи"
-              : "Details: website and booking form"}
+            {localePair(
+              "Подробно: сайт и форма записи",
+              "Details: website and booking form",
+            )}
           </summary>
           <div className="mt-4">
             <SiteAnalyticsView
@@ -353,9 +363,10 @@ function AnalyticsDashboard({
       {tab === "money" && paymentReport ? (
         <details className="rounded-xl border border-border p-4">
           <summary className="cursor-pointer font-medium">
-            {russian
-              ? "Начисления по расчётным месяцам · последние 6 месяцев"
-              : "Billing periods · last 6 months"}
+            {localePair(
+              "Начисления по расчётным месяцам · последние 6 месяцев",
+              "Billing periods · last 6 months",
+            )}
           </summary>
           <div className="mt-4">
             <PaymentAnalyticsContent
@@ -368,9 +379,10 @@ function AnalyticsDashboard({
       {tab === "students" && funnelReport ? (
         <details className="rounded-xl border border-border p-4">
           <summary className="cursor-pointer font-medium">
-            {russian
-              ? "Пробные заявки по месяцам · последние 6 месяцев"
-              : "Monthly trial cohorts · last 6 months"}
+            {localePair(
+              "Пробные заявки по месяцам · последние 6 месяцев",
+              "Monthly trial cohorts · last 6 months",
+            )}
           </summary>
           <div className="mt-4">
             <BookingFunnelAnalyticsView
@@ -422,7 +434,11 @@ function WorkspaceAnalyticsContent() {
       <p className="mb-3 text-xs text-muted-foreground">
         {workspace.organization.locale.startsWith("ru")
           ? "Демонстрационные данные браузера. Точная связь пробного с зачислением здесь не хранится; в приложении отчёт читается с сервера."
-          : "Isolated browser preview. Exact trial-to-enrollment links are not retained here; the installed app reads server data."}
+          : messageText(
+              "Isolated browser preview. Exact trial-to-enrollment links are not retained here; the installed app reads server data.",
+              {},
+              analyticsAppLocale(workspace.organization.locale),
+            )}
       </p>
       <AnalyticsPeriodPicker
         period={period}
@@ -451,26 +467,29 @@ type AnalyticsPeriod = { days: number; until: AnalyticsUntil };
 function AnalyticsPeriodPicker({
   period,
   onChange,
-  locale,
+  locale: _locale,
 }: {
   period: AnalyticsPeriod;
   onChange: (period: AnalyticsPeriod) => void;
   locale: string;
 }) {
-  const ru = locale.startsWith("ru");
   return (
     <fieldset
       className="mb-4 flex flex-wrap gap-2"
-      aria-label={ru ? "Период аналитики" : "Analytics period"}
+      aria-label={localePair("Период аналитики", "Analytics period")}
     >
       {(
         [
-          { days: 1, until: "yesterday", label: ru ? "Вчера" : "Yesterday" },
-          { days: 1, until: "today", label: ru ? "Сегодня" : "Today" },
+          {
+            days: 1,
+            until: "yesterday",
+            label: localePair("Вчера", "Yesterday"),
+          },
+          { days: 1, until: "today", label: localePair("Сегодня", "Today") },
           ...[7, 30, 90, 366].map((days) => ({
             days,
             until: "today" as const,
-            label: `${days} ${ru ? "дн." : "days"}`,
+            label: `${days} ${localePair("дн.", "days")}`,
           })),
         ] as const
       ).map((p) => (
@@ -620,28 +639,42 @@ function ServerPaymentAnalyticsScreen() {
           disabled={loading}
           onClick={() => void load()}
         >
-          {locale.startsWith("ru") ? "Обновить" : "Refresh"}
+          {locale.startsWith("ru")
+            ? "Обновить"
+            : messageText("Refresh", {}, analyticsAppLocale(locale))}
         </Button>
       </div>
       {loading && payload ? (
         <p role="status" className="mb-3 text-sm text-muted-foreground">
           {locale.startsWith("ru")
             ? "Обновляю данные. Ниже пока предыдущий снимок."
-            : "Refreshing. The previous snapshot remains below."}
+            : messageText(
+                "Refreshing. The previous snapshot remains below.",
+                {},
+                analyticsAppLocale(locale),
+              )}
         </p>
       ) : null}
       {partialError && !loading ? (
         <p role="status" className="mb-3 text-sm text-destructive">
           {locale.startsWith("ru")
             ? "Обзор центра загружен, но часть дополнительных отчётов недоступна. Нажмите «Обновить», чтобы повторить."
-            : "Center report loaded; some additional reports are unavailable. Refresh to retry."}
+            : messageText(
+                "Center report loaded; some additional reports are unavailable. Refresh to retry.",
+                {},
+                analyticsAppLocale(locale),
+              )}
         </p>
       ) : null}
       {extrasLoading ? (
         <p role="status" className="mb-3 text-sm text-muted-foreground">
           {locale.startsWith("ru")
             ? "Обзор готов. Дополнительные отчёты ещё загружаются."
-            : "Overview ready. Additional reports are still loading."}
+            : messageText(
+                "Overview ready. Additional reports are still loading.",
+                {},
+                analyticsAppLocale(locale),
+              )}
         </p>
       ) : null}
       {loading && !payload ? (

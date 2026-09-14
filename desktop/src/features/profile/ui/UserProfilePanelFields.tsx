@@ -23,6 +23,7 @@ import type {
   Profile,
   RelayAgent,
 } from "@/shared/api/types";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 const RUNTIME_LABELS: Record<string, string> = {
   goose: "Goose",
@@ -125,8 +126,12 @@ export function useProfileFieldBuckets({
   pubkey: string | null;
   relayAgent: RelayAgent | undefined;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   return React.useMemo(() => {
+    // The builders use the shared locale resolver; this keeps their memoized
+    // copy in sync when switching between non-Russian locales.
+    void locale;
     const metadataFields = [
       ...buildPublicFields({
         pubkey,
@@ -158,6 +163,7 @@ export function useProfileFieldBuckets({
   }, [
     isBot,
     isRussian,
+    locale,
     isOwner,
     managedAgent,
     onOpenProfile,
@@ -181,7 +187,7 @@ export function buildPublicFields({
   profile,
   pubkey,
   relayAgent,
-  isRussian = false,
+  isRussian: _isRussian = false,
 }: {
   isBot: boolean;
   persona?: AgentPersona;
@@ -197,7 +203,7 @@ export function buildPublicFields({
       displayValue: truncatePubkey(pubkey),
       displayNode: <PubKey pubkey={pubkey} testId="user-profile-copy-pubkey" />,
       icon: Fingerprint,
-      label: isRussian ? "Публичный ключ" : "Public key",
+      label: localePair("Публичный ключ", "Public key"),
     });
   }
 
@@ -216,16 +222,16 @@ export function buildPublicFields({
       copyValue: relayAgent.agentType,
       displayValue: runtimeLabel(relayAgent.agentType),
       icon: Cpu,
-      label: isRussian ? "Тип агента" : "Agent type",
+      label: localePair("Тип агента", "Agent type"),
       testId: "user-profile-agent-type",
     });
   }
 
   if (!pubkey && persona) {
     fields.push({
-      displayValue: isRussian ? "Не запущен" : "Not deployed",
+      displayValue: localePair("Не запущен", "Not deployed"),
       icon: Activity,
-      label: isRussian ? "Статус" : "Status",
+      label: localePair("Статус", "Status"),
       testId: "user-profile-agent-status",
     });
   }
@@ -235,7 +241,7 @@ export function buildPublicFields({
       copyValue: relayAgent.capabilities.join(", "),
       displayValue: relayAgent.capabilities.join(", "),
       icon: Server,
-      label: isRussian ? "Возможности" : "Capabilities",
+      label: localePair("Возможности", "Capabilities"),
       testId: "user-profile-capabilities",
     });
   }
@@ -256,7 +262,7 @@ export function buildOwnerFields({
   presenceLoaded,
   presenceStatus,
   relayAgent,
-  isRussian = false,
+  isRussian: _isRussian = false,
 }: {
   includeOperationalFields: boolean;
   managedAgent: ManagedAgent | undefined;
@@ -277,19 +283,14 @@ export function buildOwnerFields({
   const respondToDisplayValue = respondTo
     ? respondTo === "owner-only"
       ? ownerDisplayName
-        ? isRussian
-          ? `Только ${ownerDisplayName} (владелец)`
-          : `Only ${ownerDisplayName} (owner)`
-        : isRussian
-          ? "Только владелец"
-          : "Only the owner"
+        ? localePair(
+            `Только ${ownerDisplayName} (владелец)`,
+            `Only ${ownerDisplayName} (owner)`,
+          )
+        : localePair("Только владелец", "Only the owner")
       : respondTo === "allowlist"
-        ? isRussian
-          ? "Выбранные сотрудники"
-          : "Selected people"
-        : isRussian
-          ? "Любой сотрудник"
-          : "Anyone"
+        ? localePair("Выбранные сотрудники", "Selected people")
+        : localePair("Любой сотрудник", "Anyone")
     : null;
 
   const ownerClickable = Boolean(onOpenProfile && ownerProfilePubkey);
@@ -318,7 +319,7 @@ export function buildOwnerFields({
         </span>
       ),
       icon: UserRound,
-      label: isRussian ? "Ответственный" : "Managed by",
+      label: localePair("Ответственный", "Managed by"),
       onClick:
         ownerClickable && ownerProfilePubkey
           ? () => onOpenProfile?.(ownerProfilePubkey)
@@ -336,7 +337,7 @@ export function buildOwnerFields({
       copyValue: managedAgent.agentCommand,
       displayValue: runtimeLabel(managedAgent.agentCommand),
       icon: Terminal,
-      label: isRussian ? "Среда запуска" : "Runtime",
+      label: localePair("Среда запуска", "Runtime"),
       testId: "user-profile-runtime",
     });
   } else if (relayAgent?.agentType) {
@@ -344,7 +345,7 @@ export function buildOwnerFields({
       copyValue: relayAgent.agentType,
       displayValue: runtimeLabel(relayAgent.agentType),
       icon: Terminal,
-      label: isRussian ? "Среда запуска" : "Runtime",
+      label: localePair("Среда запуска", "Runtime"),
       testId: "user-profile-runtime",
     });
   } else if (persona?.runtime) {
@@ -352,17 +353,18 @@ export function buildOwnerFields({
       copyValue: persona.runtime,
       displayValue: runtimeLabel(persona.runtime),
       icon: Terminal,
-      label: isRussian ? "Среда запуска" : "Runtime",
+      label: localePair("Среда запуска", "Runtime"),
       testId: "user-profile-runtime",
     });
   } else if (ownerPubkey) {
     fields.push({
       copyValue: ownerPubkey,
-      displayValue: isRussian
-        ? "Владелец агента подтверждён"
-        : "Declared owner verified",
+      displayValue: localePair(
+        "Владелец агента подтверждён",
+        "Declared owner verified",
+      ),
       icon: UserRound,
-      label: isRussian ? "Профиль агента" : "Agent profile",
+      label: localePair("Профиль агента", "Agent profile"),
       testId: "user-profile-agent-profile",
     });
   }
@@ -380,7 +382,7 @@ export function buildOwnerFields({
         />
       ),
       icon: Activity,
-      label: isRussian ? "Статус" : "Status",
+      label: localePair("Статус", "Status"),
       testId: "user-profile-agent-status",
     });
   }
@@ -411,7 +413,7 @@ export function buildOwnerFields({
       copyValue: backendLabel,
       displayValue: backendLabel,
       icon: Server,
-      label: isRussian ? "Бэкенд" : "Backend",
+      label: localePair("Бэкенд", "Backend"),
       testId: "user-profile-backend",
     });
   }
@@ -419,14 +421,10 @@ export function buildOwnerFields({
   if (managedAgent) {
     fields.push({
       displayValue: managedAgent.startOnAppLaunch
-        ? isRussian
-          ? "Да"
-          : "Yes"
-        : isRussian
-          ? "Нет"
-          : "No",
+        ? localePair("Да", "Yes")
+        : localePair("Нет", "No"),
       icon: Server,
-      label: isRussian ? "Запускать вместе с приложением" : "Start on launch",
+      label: localePair("Запускать вместе с приложением", "Start on launch"),
       testId: "user-profile-start-on-launch",
     });
   }
@@ -435,9 +433,10 @@ export function buildOwnerFields({
     fields.push({
       displayValue: respondToDisplayValue,
       icon: Ear,
-      label: isRussian
-        ? "Кто может ставить задачи"
-        : "Who can send instructions",
+      label: localePair(
+        "Кто может ставить задачи",
+        "Who can send instructions",
+      ),
       testId: "user-profile-respond-to",
     });
   }
@@ -447,7 +446,7 @@ export function buildOwnerFields({
       copyValue: managedAgent.lastError,
       displayValue: managedAgent.lastError,
       icon: Activity,
-      label: isRussian ? "Последняя ошибка" : "Last error",
+      label: localePair("Последняя ошибка", "Last error"),
       testId: "user-profile-last-error",
     });
   }

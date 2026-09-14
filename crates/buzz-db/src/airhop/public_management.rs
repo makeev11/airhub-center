@@ -738,10 +738,8 @@ async fn apply_action(
         }
         PublicManagementAction::SetPreferredContactChannel { channel } => {
             ensure_changeable(booking)?;
-            if *channel != PreferredContactChannel::Telegram {
-                sqlx::query("UPDATE airhop_booking_messenger_handoffs SET status = 'revoked' WHERE community_id = $1 AND booking_id = $2 AND status = 'issued'")
-                    .bind(tenant.community().as_uuid()).bind(booking.id).execute(&mut **transaction).await?;
-            }
+            sqlx::query("UPDATE airhop_booking_messenger_handoffs h SET status='revoked' FROM airhop_channel_connections c WHERE h.community_id=$1 AND h.booking_id=$2 AND h.status='issued' AND c.community_id=h.community_id AND c.id=h.connection_id AND (CASE c.provider WHEN 'whatsapp_cloud' THEN 'whatsapp' ELSE c.provider END)<>$3")
+                .bind(tenant.community().as_uuid()).bind(booking.id).bind(channel.as_db_str()).execute(&mut **transaction).await?;
             let changed = sqlx::query(
                 "UPDATE airhop_representatives \
                  SET preferred_contact_channel = $4, version = version + 1, updated_at = $5 \
@@ -821,7 +819,7 @@ fn parse_management_card(row: sqlx::postgres::PgRow) -> Result<PublicManagementC
             other => {
                 return Err(DbError::InvalidData(format!(
                     "unknown AirHub booking visit kind {other:?}"
-                )))
+                )));
             }
         },
         can_cancel: can_change,

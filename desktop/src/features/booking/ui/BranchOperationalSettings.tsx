@@ -25,6 +25,7 @@ import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Textarea } from "@/shared/ui/textarea";
+import { localizeCopyTree } from "@/shared/locale/messengerCopy";
 
 function copy(locale: string) {
   const ru = locale.toLowerCase().startsWith("ru");
@@ -62,39 +63,42 @@ function copy(locale: string) {
         linksUnavailable:
           "Аналитические ссылки сейчас недоступны. Адрес и ответственных всё равно можно сохранить.",
       }
-    : {
-        addressTitle: "Branch address",
-        addressHint:
-          "Enter the exact client-facing address. AirHop will use it in bookings and conversations.",
-        addressLabel: "Address",
-        addressPlaceholder:
-          "For example: 27 Zemlyanoy Val St., entrance from the courtyard",
-        checkAddress: "Check in maps",
-        responsiblesTitle: "Conversation responsibles",
-        responsiblesHint:
-          "Choose up to eight staff. Eligible responsibles with channel access are notified; otherwise the owner or central administrator receives the conversation.",
-        responsiblesFallback: "No selection — owner or administrator",
-        unavailableStaff: "Unavailable staff member",
-        routingUnavailable:
-          "The staff list is unavailable right now. Other branch settings can still be saved.",
-        retryRouting: "Retry loading",
-        loadingStaff: "Loading staff…",
-        trackedTitle: "Tracked links for map listings",
-        trackedHint:
-          "AirHop creates a separate short link for every platform. It opens booking for this branch and preserves the acquisition source.",
-        trackedSteps:
-          "1. Copy the link → 2. Paste it into the Website or Book online field in the branch listing → 3. See visits and bookings under Analytics → Acquisition.",
-        createTracked: "Create missing links",
-        creatingTracked: "Creating links…",
-        createAfterSave:
-          "After the branch is saved, AirHop automatically creates three separate links for Yandex Maps, Google Maps, and 2GIS.",
-        linkAfterSave: "Created after saving",
-        loadingLinks: "Loading tracked links…",
-        copy: "Copy",
-        copied: "Copied",
-        linksUnavailable:
-          "Analytics links are unavailable right now. The address and responsibles can still be saved.",
-      };
+    : localizeCopyTree(
+        {
+          addressTitle: "Branch address",
+          addressHint:
+            "Enter the exact client-facing address. AirHop will use it in bookings and conversations.",
+          addressLabel: "Address",
+          addressPlaceholder:
+            "For example: 27 Zemlyanoy Val St., entrance from the courtyard",
+          checkAddress: "Check in maps",
+          responsiblesTitle: "Conversation responsibles",
+          responsiblesHint:
+            "Choose up to eight staff. Eligible responsibles with channel access are notified; otherwise the owner or central administrator receives the conversation.",
+          responsiblesFallback: "No selection — owner or administrator",
+          unavailableStaff: "Unavailable staff member",
+          routingUnavailable:
+            "The staff list is unavailable right now. Other branch settings can still be saved.",
+          retryRouting: "Retry loading",
+          loadingStaff: "Loading staff…",
+          trackedTitle: "Tracked links for map listings",
+          trackedHint:
+            "AirHop creates a separate short link for every platform. It opens booking for this branch and preserves the acquisition source.",
+          trackedSteps:
+            "1. Copy the link → 2. Paste it into the Website or Book online field in the branch listing → 3. See visits and bookings under Analytics → Acquisition.",
+          createTracked: "Create missing links",
+          creatingTracked: "Creating links…",
+          createAfterSave:
+            "After the branch is saved, AirHop automatically creates three separate links for Yandex Maps, Google Maps, and 2GIS.",
+          linkAfterSave: "Created after saving",
+          loadingLinks: "Loading tracked links…",
+          copy: "Copy",
+          copied: "Copied",
+          linksUnavailable:
+            "Analytics links are unavailable right now. The address and responsibles can still be saved.",
+        },
+        locale.toLowerCase().startsWith("pt") ? "pt-BR" : "en-US",
+      );
 }
 
 function providerLabel(provider: BranchMapProvider): string {

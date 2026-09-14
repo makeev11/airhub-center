@@ -9,6 +9,7 @@ import type {
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { Progress } from "@/shared/ui/progress";
+import { messageText } from "@/shared/locale/messengerCopy";
 import { ConsultationLearningView } from "./ConsultationLearningView";
 
 type Filter = "all" | "delivery" | ConsultationStatus;
@@ -26,7 +27,8 @@ export function ConsultationAnalyticsView({
   periodEnd: string;
 }) {
   const ru = locale.startsWith("ru");
-  const t = (a: string, b: string) => (ru ? a : b);
+  const t = (russian: string, english: string) =>
+    ru ? russian : messageText(english);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [filter, setFilter] = React.useState<Filter>("all");
   const [question, setQuestion] = React.useState<ConsultationQuestion | null>(

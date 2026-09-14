@@ -1,5 +1,4 @@
 import * as React from "react";
-import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 
 import { getPresenceLabel } from "@/features/presence/lib/presence";
 import { PresenceDot } from "@/features/presence/ui/PresenceBadge";
@@ -19,6 +18,7 @@ import { useMyRelayMembershipLookupQuery } from "@/features/community-members/ho
 import type { SettingsSection } from "@/features/settings/ui/SettingsPanels";
 import type { PresenceStatus, Profile, UserStatus } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 type SidebarProfileCardProps = {
   activeCommunity: Community | null;
@@ -60,7 +60,6 @@ export function SidebarProfileCard({
   selfUserStatus,
   communities,
 }: SidebarProfileCardProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const selfProfileCache = useSelfProfileCache();
   const communityIconQuery = useActiveCommunityIcon(activeCommunity?.relayUrl);
   const myMembershipQuery = useMyRelayMembershipLookupQuery();
@@ -87,7 +86,7 @@ export function SidebarProfileCard({
   );
   const hasStatus = Boolean(selfUserStatus?.text || selfUserStatus?.emoji);
   const communityLabel =
-    activeCommunity?.name ?? (isRussian ? "Центр не выбран" : "No community");
+    activeCommunity?.name ?? localePair("Центр не выбран", "No community");
   const readonlyCommunityLabel = (
     <span
       className="flex min-w-0 cursor-pointer items-center gap-1 text-xs leading-snug text-sidebar-foreground/70"
@@ -111,7 +110,7 @@ export function SidebarProfileCard({
     >
       <div className="flex min-w-0 items-center gap-3">
         <button
-          aria-label={`${isRussian ? "Открыть меню профиля" : "Open profile menu for"} ${resolvedDisplayName}`}
+          aria-label={`${localePair("Открыть меню профиля", "Open profile menu for")} ${resolvedDisplayName}`}
           className="relative shrink-0 rounded-xl outline-hidden focus:outline-none focus-visible:outline-none"
           data-testid="sidebar-profile-avatar-button"
           onClick={(event) => {
@@ -206,7 +205,7 @@ export function SidebarProfileCard({
           {hasStatus ? (
             <div className="relative mt-0.5">
               <button
-                aria-label={`${isRussian ? "Открыть меню профиля" : "Open profile menu for"} ${resolvedDisplayName}`}
+                aria-label={`${localePair("Открыть меню профиля", "Open profile menu for")} ${resolvedDisplayName}`}
                 className={cn(
                   "flex w-full min-w-0 items-center truncate rounded-sm text-left text-xs leading-snug text-sidebar-foreground/70 outline-hidden transition-opacity duration-150 focus:outline-none focus-visible:outline-none group-hover/profile-card:opacity-0",
                   profilePopoverOpen && "opacity-100",

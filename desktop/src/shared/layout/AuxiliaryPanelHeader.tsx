@@ -5,8 +5,8 @@ import { channelChrome } from "@/shared/layout/chromeLayout";
 import { AuxiliaryPanelContext } from "@/shared/layout/auxiliaryPanelContext";
 import type { AuxiliaryPanelMode } from "@/shared/layout/auxiliaryPanelContext";
 import { cn } from "@/shared/lib/cn";
-import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 export type { AuxiliaryPanelMode } from "@/shared/layout/auxiliaryPanelContext";
 type AuxiliaryPanelHeaderProps = Omit<
@@ -321,7 +321,6 @@ export function AuxiliaryPanelHeaderActions({
 }
 
 function AuxiliaryPanelHeaderCloseAction() {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const panelContext = React.useContext(AuxiliaryPanelContext);
 
   if (!panelContext?.onClose) {
@@ -330,7 +329,7 @@ function AuxiliaryPanelHeaderCloseAction() {
 
   return (
     <Button
-      aria-label={isRussian ? "Закрыть панель" : "Close panel"}
+      aria-label={localePair("Закрыть панель", "Close panel")}
       className="shrink-0"
       data-testid={AUXILIARY_PANEL_CLOSE_TEST_ID}
       onClick={panelContext.onClose}

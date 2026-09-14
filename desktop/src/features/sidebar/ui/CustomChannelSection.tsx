@@ -12,8 +12,6 @@ import {
 
 import { useRef, useState } from "react";
 import type * as React from "react";
-
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import type { ChannelSortMode } from "@/features/sidebar/lib/channelSortPreference";
 import {
   ContextMenu,
@@ -62,6 +60,7 @@ import { cn } from "@/shared/lib/cn";
 import { getPlatformKeysById } from "@/shared/lib/keyboard-shortcuts";
 import { HashSearch } from "@/shared/ui/icons";
 import { StatusEmoji } from "@/features/user-status/ui/StatusEmoji";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 const SECTION_LABEL_BUTTON_CLASS =
   "group/section-label flex w-fit max-w-[calc(100%-3rem)] cursor-pointer appearance-none items-center gap-1 text-left transition-colors hover:text-sidebar-foreground focus-visible:text-sidebar-foreground";
@@ -156,9 +155,8 @@ export function SectionActionsMenu({
   sortMode?: ChannelSortMode;
   onSortModeChange?: (mode: ChannelSortMode) => void;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const sortOptions: { value: ChannelSortMode; label: string }[] = [
-    { value: "recent", label: isRussian ? "Сначала новые" : "Recent" },
+    { value: "recent", label: localePair("Сначала новые", "Recent") },
     { value: "alpha", label: "A–Z" },
   ];
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -169,11 +167,10 @@ export function SectionActionsMenu({
     <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
-          aria-label={
-            isRussian
-              ? `Другие действия: ${sectionLabel}`
-              : `More actions for ${sectionLabel}`
-          }
+          aria-label={localePair(
+            `Другие действия: ${sectionLabel}`,
+            `More actions for ${sectionLabel}`,
+          )}
           className={cn(SECTION_ICON_BUTTON_CLASS, visibilityClassName)}
           data-testid={testId}
           onClick={(event) => event.stopPropagation()}
@@ -195,7 +192,7 @@ export function SectionActionsMenu({
           <DropdownMenuItem onSelect={() => deferMenuAction(onMarkAllRead)}>
             <CheckCheck className="h-4 w-4" />
             <span>
-              {isRussian ? "Отметить всё прочитанным" : "Mark all as read"}
+              {localePair("Отметить всё прочитанным", "Mark all as read")}
             </span>
           </DropdownMenuItem>
         ) : null}
@@ -203,8 +200,7 @@ export function SectionActionsMenu({
           <DropdownMenuItem onSelect={() => deferMenuAction(onNewMessage)}>
             <Plus className="h-4 w-4" />
             <span>
-              {newMessageLabel ??
-                (isRussian ? "Новое сообщение" : "New message")}
+              {newMessageLabel ?? localePair("Новое сообщение", "New message")}
             </span>
           </DropdownMenuItem>
         ) : null}
@@ -212,7 +208,7 @@ export function SectionActionsMenu({
           <DropdownMenuItem onSelect={() => deferMenuAction(onBrowse)}>
             <HashSearch className="h-4 w-4" />
             <span>
-              {browseLabel ?? (isRussian ? "Найти каналы" : "Browse channels")}
+              {browseLabel ?? localePair("Найти каналы", "Browse channels")}
             </span>
             <DropdownMenuShortcut>
               {getPlatformKeysById("browse-channels")}
@@ -223,7 +219,7 @@ export function SectionActionsMenu({
           <DropdownMenuItem onSelect={() => deferMenuAction(onCreate)}>
             <Plus className="h-4 w-4" />
             <span>
-              {createLabel ?? (isRussian ? "Создать канал" : "Create channel")}
+              {createLabel ?? localePair("Создать канал", "Create channel")}
             </span>
           </DropdownMenuItem>
         ) : null}
@@ -235,7 +231,7 @@ export function SectionActionsMenu({
               >
                 <Pencil className="h-4 w-4" />
                 <span>
-                  {isRussian ? "Переименовать раздел" : "Rename section"}
+                  {localePair("Переименовать раздел", "Rename section")}
                 </span>
               </DropdownMenuItem>
             ) : null}
@@ -245,7 +241,7 @@ export function SectionActionsMenu({
                 onSelect={() => deferMenuAction(onMoveSectionUp)}
               >
                 <ArrowUp className="h-4 w-4" />
-                <span>{isRussian ? "Переместить выше" : "Move up"}</span>
+                <span>{localePair("Переместить выше", "Move up")}</span>
               </DropdownMenuItem>
             ) : null}
             {onMoveSectionDown ? (
@@ -254,7 +250,7 @@ export function SectionActionsMenu({
                 onSelect={() => deferMenuAction(onMoveSectionDown)}
               >
                 <ArrowDown className="h-4 w-4" />
-                <span>{isRussian ? "Переместить ниже" : "Move down"}</span>
+                <span>{localePair("Переместить ниже", "Move down")}</span>
               </DropdownMenuItem>
             ) : null}
           </>
@@ -265,7 +261,7 @@ export function SectionActionsMenu({
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <ArrowUpDown className="h-4 w-4" />
-                <span>{isRussian ? "Сортировка" : "Sort"}</span>
+                <span>{localePair("Сортировка", "Sort")}</span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup
@@ -295,7 +291,7 @@ export function SectionActionsMenu({
               onSelect={() => deferMenuAction(onDeleteSection)}
             >
               <Trash2 className="h-4 w-4" />
-              <span>{isRussian ? "Удалить раздел" : "Delete section"}</span>
+              <span>{localePair("Удалить раздел", "Delete section")}</span>
             </DropdownMenuItem>
           </>
         ) : null}
@@ -440,7 +436,6 @@ export function ChannelGroupSection({
   onDeleteChannel?: (channel: Channel) => void;
   onLeaveChannel?: (channel: Channel) => void;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const contentId = `sidebar-${listTestId}`;
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
 
@@ -524,7 +519,7 @@ export function ChannelGroupSection({
                 label={
                   quickCreateLabel ??
                   createLabel ??
-                  (isRussian ? "Создать канал" : "Create channel")
+                  localePair("Создать канал", "Create channel")
                 }
                 onClick={(onQuickCreateClick ?? onCreateClick) as () => void}
                 testId={

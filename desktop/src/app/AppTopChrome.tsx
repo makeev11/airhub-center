@@ -5,8 +5,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
-
-import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { isMacPlatform } from "@/shared/lib/platform";
 import { useIsFullscreen } from "@/shared/lib/useIsFullscreen";
 import { Button } from "@/shared/ui/button";
@@ -14,6 +12,7 @@ import { cn } from "@/shared/lib/cn";
 import { topChromeBackdrop } from "@/shared/layout/chromeLayout";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 type AppTopChromeProps = {
   canGoBack: boolean;
@@ -80,16 +79,11 @@ function preventTopChromeWheel(event: WheelEvent) {
 }
 
 function TopChromeSidebarTrigger() {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const isMac = isMacPlatform();
   const sidebar = useOptionalSidebar();
   const label = sidebar?.open
-    ? isRussian
-      ? "Скрыть боковую панель"
-      : "Hide sidebar"
-    : isRussian
-      ? "Показать боковую панель"
-      : "Show sidebar";
+    ? localePair("Скрыть боковую панель", "Hide sidebar")
+    : localePair("Показать боковую панель", "Show sidebar");
 
   return (
     <TopChromeControlTooltip
@@ -123,7 +117,6 @@ export function AppTopChrome({
   onGoForward,
   hasCommunityRail = false,
 }: AppTopChromeProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const topChromeRef = React.useRef<HTMLDivElement>(null);
   const isFullscreen = useIsFullscreen();
   const isMac = isMacPlatform();
@@ -171,12 +164,12 @@ export function AppTopChrome({
       <div className={cn("flex items-center gap-0.5", navRowAlignmentClass)}>
         <TopChromeSidebarTrigger />
         <TopChromeControlTooltip
-          label={isRussian ? "Назад в истории" : "Back in history"}
+          label={localePair("Назад в истории", "Back in history")}
           shortcut={isMac ? ["⌘", "["] : ["Alt", "←"]}
           testId="global-back-tooltip"
         >
           <Button
-            aria-label={isRussian ? "Назад в истории" : "Back in history"}
+            aria-label={localePair("Назад в истории", "Back in history")}
             className={HISTORY_ICON_BUTTON_CLASS}
             data-testid="global-back"
             disabled={!canGoBack}
@@ -188,12 +181,12 @@ export function AppTopChrome({
           </Button>
         </TopChromeControlTooltip>
         <TopChromeControlTooltip
-          label={isRussian ? "Вперёд по истории" : "Forward in history"}
+          label={localePair("Вперёд по истории", "Forward in history")}
           shortcut={isMac ? ["⌘", "]"] : ["Alt", "→"]}
           testId="global-forward-tooltip"
         >
           <Button
-            aria-label={isRussian ? "Вперёд по истории" : "Forward in history"}
+            aria-label={localePair("Вперёд по истории", "Forward in history")}
             className={HISTORY_ICON_BUTTON_CLASS}
             data-testid="global-forward"
             disabled={!canGoForward}

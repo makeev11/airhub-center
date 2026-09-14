@@ -19,6 +19,7 @@ import { Markdown } from "@/shared/ui/markdown";
 import { Popover, PopoverAnchor, PopoverContent } from "@/shared/ui/popover";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 const HOVER_OPEN_DELAY_MS = 250;
 const HOVER_CLOSE_DELAY_MS = 180;
@@ -72,7 +73,7 @@ function RowActionButton({
 
 function ThreadPreviewRow({
   item,
-  isRussian,
+  isRussian: _isRussian,
   onMarkRead,
   onOpen,
   onRemindLater,
@@ -89,11 +90,10 @@ function ThreadPreviewRow({
       data-testid={`channel-activity-item-${item.conversationId}`}
     >
       <button
-        aria-label={
-          isRussian
-            ? `Открыть обсуждение от ${item.senderLabel}`
-            : `Open thread from ${item.senderLabel}`
-        }
+        aria-label={localePair(
+          `Открыть обсуждение от ${item.senderLabel}`,
+          `Open thread from ${item.senderLabel}`,
+        )}
         className="absolute inset-0 z-0 w-full text-left"
         onClick={onOpen}
         type="button"
@@ -115,12 +115,12 @@ function ThreadPreviewRow({
             </span>
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-xs leading-4 text-muted-foreground">
-            <span>{isRussian ? "Обсуждение" : "Thread"}</span>
+            <span>{localePair("Обсуждение", "Thread")}</span>
             {item.unreadCount > 1 ? (
               <>
                 <span aria-hidden="true">·</span>
                 <span>
-                  {item.unreadCount} {isRussian ? "непрочитано" : "unread"}
+                  {item.unreadCount} {localePair("непрочитано", "unread")}
                 </span>
               </>
             ) : null}
@@ -135,13 +135,13 @@ function ThreadPreviewRow({
       </div>
       <div className="pointer-events-none absolute right-2 top-2 z-20 flex items-center gap-0.5 rounded-full bg-muted/95 p-0.5 opacity-0 shadow-xs transition-opacity group-hover/activity-row:pointer-events-auto group-hover/activity-row:opacity-100 group-focus-within/activity-row:pointer-events-auto group-focus-within/activity-row:opacity-100">
         <RowActionButton
-          label={isRussian ? "Отметить прочитанным" : "Mark as read"}
+          label={localePair("Отметить прочитанным", "Mark as read")}
           onClick={onMarkRead}
         >
           <MailOpen />
         </RowActionButton>
         <RowActionButton
-          label={isRussian ? "Напомнить позже" : "Remind me later"}
+          label={localePair("Напомнить позже", "Remind me later")}
           onClick={onRemindLater}
         >
           <Clock />
@@ -155,7 +155,7 @@ function WorkingAgentRow({
   avatarUrl,
   elapsed,
   name,
-  isRussian,
+  isRussian: _isRussian,
   onOpen,
   pubkey,
 }: {
@@ -190,7 +190,7 @@ function WorkingAgentRow({
         </div>
         <span className="mt-0.5 flex items-center gap-1.5 text-xs leading-4 text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-primary/70" />
-          {isRussian ? "Работает" : "Working"}
+          {localePair("Работает", "Working")}
         </span>
       </div>
     </button>
@@ -411,14 +411,14 @@ export function ChannelActivityPopover({
         sideOffset={8}
       >
         <section
-          aria-label={isRussian ? "Активность канала" : "Channel activity"}
+          aria-label={localePair("Активность канала", "Channel activity")}
           className="flex max-h-96 min-h-0 flex-col overflow-hidden"
         >
           <h3
             className="relative z-20 shrink-0 border-b border-border/70 bg-background/95 px-3 py-2 text-sm font-semibold text-foreground backdrop-blur-md supports-[backdrop-filter]:bg-background/90"
             data-testid="channel-activity-header"
           >
-            {isRussian ? "Активность канала" : "Channel activity"}
+            {localePair("Активность канала", "Channel activity")}
           </h3>
           <div
             className="buzz-channel-activity-scrollbar min-h-0 overflow-y-auto overscroll-contain"

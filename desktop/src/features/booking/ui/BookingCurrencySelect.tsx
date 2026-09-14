@@ -3,6 +3,7 @@ import * as React from "react";
 import { cn } from "@/shared/lib/cn";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 type Props = {
   value: string;
@@ -21,7 +22,6 @@ export function BookingCurrencySelect({
   const [query, setQuery] = React.useState("");
   const [active, setActive] = React.useState(0);
   const listId = React.useId();
-  const russian = locale.startsWith("ru");
   const options = React.useMemo(() => {
     const names = new Intl.DisplayNames([locale], { type: "currency" });
     const codes = new Set([...Intl.supportedValuesOf("currency"), value]);
@@ -82,16 +82,17 @@ export function BookingCurrencySelect({
       >
         <Input
           role="combobox"
-          aria-label={russian ? "Поиск валюты" : "Search currencies"}
+          aria-label={localePair("Поиск валюты", "Search currencies")}
           aria-expanded={open}
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={
             filtered[active] ? `${listId}-${active}` : undefined
           }
-          placeholder={
-            russian ? "Название или код валюты" : "Currency name or code"
-          }
+          placeholder={localePair(
+            "Название или код валюты",
+            "Currency name or code",
+          )}
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -147,7 +148,7 @@ export function BookingCurrencySelect({
           ))}
           {!filtered.length && (
             <p className="p-3 text-sm text-muted-foreground">
-              {russian ? "Валюта не найдена" : "No currencies found"}
+              {localePair("Валюта не найдена", "No currencies found")}
             </p>
           )}
         </div>

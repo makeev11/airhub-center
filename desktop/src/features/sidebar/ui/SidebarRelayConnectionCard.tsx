@@ -6,6 +6,7 @@ import {
   type SidebarActionCardSurface,
 } from "@/shared/ui/sidebar-action-card";
 import { Spinner } from "@/shared/ui/spinner";
+import { localizeCopyTree } from "@/shared/locale/messengerCopy";
 
 type SidebarRelayConnectionCardProps = {
   isActionDisabled?: boolean;
@@ -59,7 +60,8 @@ export function SidebarRelayConnectionCompactCard({
   surface,
   testId = "sidebar-relay-unreachable-compact",
 }: SidebarRelayConnectionCardProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   const copy = isRussian
     ? {
         waiting: "Ожидаем подключение",
@@ -73,18 +75,21 @@ export function SidebarRelayConnectionCompactCard({
         dismiss: "Закрыть уведомление о подключении",
         unreachable: "Нет связи с сервером",
       }
-    : {
-        waiting: "Waiting to reconnect",
-        connecting: "Connecting",
-        helper:
-          "Complete any prompts opened by the reconnect helper to continue.",
-        reconnecting: "Reconnecting",
-        connected: "Connected",
-        connect: "Connect to relay",
-        click: "Click to connect",
-        dismiss: "Dismiss relay notification",
-        unreachable: "Can't reach the relay",
-      };
+    : localizeCopyTree(
+        {
+          waiting: "Waiting to reconnect",
+          connecting: "Connecting",
+          helper:
+            "Complete any prompts opened by the reconnect helper to continue.",
+          reconnecting: "Reconnecting",
+          connected: "Connected",
+          connect: "Connect to relay",
+          click: "Click to connect",
+          dismiss: "Dismiss relay notification",
+          unreachable: "Can't reach the relay",
+        },
+        locale,
+      );
   const reconnectTitle = isWaitingOnReconnectHook
     ? copy.waiting
     : copy.connecting;

@@ -137,3 +137,32 @@ test("Telegram guidance follows its button and explains the bot and ongoing comm
     assert.doesNotMatch(html, /чат центра|связи с центром|undefined/);
   }
 });
+
+test("WhatsApp launch asks the parent to send the token message without claiming verification", () => {
+  const html = render("ru-RU", {
+    preferredContactChannel: "whatsapp",
+    confirmationChannels: ["whatsapp"],
+    connectedChannels: [],
+    messengerHandoff: {
+      channel: "whatsapp",
+      url: `https://wa.me/5511999990000?text=ahh_${"a".repeat(43)}`,
+      expiresAt: "2026-09-12T20:00:00Z",
+    },
+  });
+  assert.match(html, /Перейти в WhatsApp/);
+  assert.match(html, /Отправьте подготовленное сообщение/);
+  assert.doesNotMatch(
+    html,
+    /WhatsApp подключён|Нажмите Start|Перейти в Telegram/,
+  );
+});
+test("verified WhatsApp binding hides the one-time link and stays pending until Core confirms", () => {
+  const html = render("pt-BR", {
+    preferredContactChannel: "whatsapp",
+    confirmationChannels: ["whatsapp"],
+    connectedChannels: ["whatsapp"],
+    telegramConnected: false,
+  });
+  assert.match(html, /WhatsApp conectado/);
+  assert.doesNotMatch(html, /Abrir WhatsApp|Telegram conectado/);
+});

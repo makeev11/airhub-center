@@ -1,8 +1,10 @@
-import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
+import {
+  messageText,
+  useMessengerCopy,
+  localePair,
+} from "@/shared/locale/messengerCopy";
 import { Bot } from "lucide-react";
 import { AIRHOP_PRODUCT } from "@/shared/product/airhopProduct";
-
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { UserProfilePopover } from "@/features/profile/ui/UserProfilePopover";
 
 type MessageAgentOwnerProps = {
@@ -17,7 +19,6 @@ export function MessageAgentOwner(props: MessageAgentOwnerProps) {
 }
 
 function AgentOwnerLabel({ ownerLabel, ownerPubkey }: MessageAgentOwnerProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <span
       className="inline-flex min-w-0 max-w-56 items-baseline gap-1 text-xs leading-4 text-muted-foreground/65"
@@ -26,9 +27,10 @@ function AgentOwnerLabel({ ownerLabel, ownerPubkey }: MessageAgentOwnerProps) {
       <span className="sr-only">
         {ownerLabel
           ? messageText("Agent managed by")
-          : isRussian
-            ? "Агент; владелец недоступен"
-            : "Agent; owner unavailable"}
+          : localePair(
+              "Агент; владелец недоступен",
+              "Agent; owner unavailable",
+            )}
       </span>
       {ownerPubkey && ownerLabel ? (
         <>

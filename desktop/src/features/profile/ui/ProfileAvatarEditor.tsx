@@ -41,6 +41,7 @@ import {
   hsvToHex,
   normalizeHue,
   parseEmojiAvatarDataUrl,
+  randomInitialEmojiAvatarColor,
   useEmojiMartStyles,
   useEmojiMartThemeVars,
 } from "./ProfileAvatarEditor.utils";
@@ -50,21 +51,6 @@ import type {
   AvatarMode,
   ProfileAvatarEditorProps,
 } from "./ProfileAvatarEditor.types";
-
-const INITIAL_EMOJI_AVATAR_COLORS = AVATAR_COLORS.filter(
-  (color) => color !== DEFAULT_EMOJI_AVATAR_COLOR,
-);
-
-function randomInitialEmojiAvatarColor() {
-  const colors =
-    INITIAL_EMOJI_AVATAR_COLORS.length > 0
-      ? INITIAL_EMOJI_AVATAR_COLORS
-      : AVATAR_COLORS;
-  return (
-    colors[Math.floor(Math.random() * colors.length)] ??
-    DEFAULT_EMOJI_AVATAR_COLOR
-  );
-}
 
 export function ProfileAvatarEditor({
   avatarUrl,
@@ -89,8 +75,8 @@ export function ProfileAvatarEditor({
   onAnimatedPreviewCaptionChange,
   presentation = "default",
 }: ProfileAvatarEditorProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
-  const copy = getProfileAvatarEditorCopy(isRussian);
+  const locale = useAirHopLocale();
+  const copy = getProfileAvatarEditorCopy(locale);
   const { burstEmoji } = useEmojiBurst();
   const shouldReduceMotion = useReducedMotion();
   const initialEmojiAvatar = React.useMemo(
@@ -731,7 +717,9 @@ export function ProfileAvatarEditor({
                       data-testid={`${testIdPrefix}-upload-error`}
                       role="alert"
                     >
-                      {isRussian ? copy.uploadError : uploadErrorMessage}
+                      {locale === "ru-RU" || locale === "pt-BR"
+                        ? copy.uploadError
+                        : uploadErrorMessage}
                     </p>
                   ) : null}
                 </div>
@@ -790,7 +778,13 @@ export function ProfileAvatarEditor({
                         applyEmojiAvatar(emoji.native, nextColor);
                       }}
                       previewPosition="none"
-                      locale={isRussian ? "ru" : "en"}
+                      locale={
+                        locale === "ru-RU"
+                          ? "ru"
+                          : locale === "pt-BR"
+                            ? "pt"
+                            : "en"
+                      }
                       searchPosition="none"
                       set="native"
                       skinTonePosition="none"

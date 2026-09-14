@@ -255,8 +255,96 @@ const enMessages: BookingMessages = {
   scheduleRetry: "Try again",
 };
 
+const ptBrMessages: BookingMessages = {
+  scheduleTitle: "Agenda",
+  today: "Hoje",
+  previousWeek: "Semana anterior",
+  nextWeek: "Próxima semana",
+  branch: "Unidade",
+  archivedBranch: "Unidade arquivada",
+  allBranches: "Todas as unidades",
+  noLessons: "Nenhuma aula",
+  moved: "Reagendada",
+  modified: "Alterada",
+  cancelled: "Cancelada",
+  dateAndTime: "Data e horário",
+  room: "Sala",
+  teachers: "Professores",
+  places: "Vagas",
+  trialLesson: "Aula experimental",
+  unlimited: "Sem limite",
+  unlimitedCapacity: "Ilimitada",
+  noPlaces: "Sem vagas",
+  onePlaceLeft: "1 vaga restante",
+  placesFree: (count) => `${count} vagas disponíveis`,
+  occupiedPlaces: (booked, capacity) => `${booked} de ${capacity} ocupadas`,
+  trialUnavailable: "Aula experimental indisponível",
+  trialFree: "Experimental: grátis",
+  trialPaid: (price) => `Experimental: ${price}`,
+  teacherUnassigned: "Nenhum professor atribuído",
+  roomFallback: "Não informada — exibindo o endereço da unidade",
+  addressMissing: "Endereço não informado",
+  unnamedGroup: "Grupo sem nome",
+  movedFrom: (date, startTime, endTime) =>
+    `Reagendada de ${date}, ${startTime}–${endTime}`,
+  editLesson: "Editar aula",
+  cancelLesson: "Cancelar aula",
+  restoreLesson: "Restaurar valores da série",
+  editLessonTitle: "Editar uma aula",
+  editLessonDescription:
+    "Data, horário, local, professores, capacidade e regras da aula experimental serão alterados somente para a aula selecionada.",
+  lessonDate: "Data da aula",
+  lessonStartTime: "Horário de início",
+  lessonEndTime: "Horário de término",
+  lessonCapacity: "Capacidade da aula",
+  lessonCapacityInherit: "Herdar da série",
+  lessonCapacityUnlimited: "Ilimitada",
+  lessonCapacityLimited: "Definir limite",
+  lessonCapacityLimit: "Limite de vagas",
+  lessonTrialPolicy: "Experimental nesta aula",
+  lessonTrialInherit: "Herdar",
+  lessonInheritedValue: (value) => `Herdar da série (${value})`,
+  lessonCapacityValue: (count) => `${count} vagas`,
+  lessonPreviewTitle: "O que será alterado",
+  lessonOneOccurrenceOnly: "As alterações se aplicam somente a esta aula.",
+  lessonNoChanges:
+    "Altere pelo menos um valor ou restaure os valores da série.",
+  lessonChangeDate: (from, to) => `Data: ${from} → ${to}`,
+  lessonChangeTime: (from, to) => `Horário: ${from} → ${to}`,
+  lessonChangeBranch: (from, to) => `Unidade: ${from} → ${to}`,
+  lessonChangeRoom: (from, to) => `Sala: ${from} → ${to}`,
+  lessonChangeTeachers: (from, to) => `Professores: ${from} → ${to}`,
+  lessonChangeCapacity: (from, to) => `Capacidade: ${from} → ${to}`,
+  lessonChangeTrial: (from, to) => `Experimental: ${from} → ${to}`,
+  lessonConflictTitle: "Foram encontrados conflitos de aula",
+  lessonConflictDescription:
+    "Ainda é possível salvar, mas revise os conflitos da data e do horário resultantes.",
+  lessonConflictConfirmation: "Revisei os conflitos e quero alterar esta aula",
+  cancelLessonTitle: "Cancelar esta aula?",
+  cancelLessonDescription: (date, time) =>
+    `${date}, ${time}. As outras aulas da série não serão alteradas.`,
+  restoreLessonTitle: "Restaurar os valores da série?",
+  restoreLessonDescription:
+    "A exceção será removida. A aula voltará a usar data, horário, local, professores, capacidade e regras da série.",
+  lessonUpdated: "Aula atualizada",
+  lessonCancelled: "Aula cancelada",
+  lessonRestored: "Valores da série restaurados",
+  openLesson: (groupName, startTime) =>
+    `Abrir aula de ${groupName} às ${startTime}`,
+  scheduleUnavailableTitle: "A agenda ainda não está conectada",
+  scheduleUnavailableDescription:
+    "Conecte a API de agendamento da organização para exibir aqui unidades, grupos e aulas em tempo real.",
+  scheduleLoadingTitle: "Carregando agenda",
+  scheduleLoadingDescription: "Buscando as aulas mais recentes do Center.",
+  scheduleLoadErrorTitle: "Não foi possível carregar a agenda",
+  scheduleLoadErrorDescription:
+    "Verifique a conexão com o servidor do Center e tente novamente.",
+  scheduleRetry: "Tentar novamente",
+};
+
 const messagesByLanguage: Partial<Record<string, BookingMessages>> = {
   en: enMessages,
+  pt: ptBrMessages,
   ru: ruMessages,
 };
 
@@ -393,6 +481,17 @@ function englishAgeDuration(totalMonths: number): string {
   return parts.join(" ");
 }
 
+function portugueseAgeDuration(totalMonths: number): string {
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  const parts: string[] = [];
+  if (years) parts.push(`${years} ${years === 1 ? "ano" : "anos"}`);
+  if (months || !parts.length) {
+    parts.push(`${months} ${months === 1 ? "mês" : "meses"}`);
+  }
+  return parts.join(" e ");
+}
+
 export function formatBookingAgeRange({
   locale,
   minAgeMonths,
@@ -410,29 +509,35 @@ export function formatBookingAgeRange({
   const language = new Intl.Locale(
     canonicalLocale(loadActivationLocale() ?? locale),
   ).language;
-  const duration = language === "ru" ? russianAgeDuration : englishAgeDuration;
+  const duration =
+    language === "ru"
+      ? russianAgeDuration
+      : language === "pt"
+        ? portugueseAgeDuration
+        : englishAgeDuration;
   if (minAgeMonths === undefined) {
-    return language === "ru"
-      ? `до ${duration(maxAgeMonths ?? 0)}`
-      : `up to ${duration(maxAgeMonths ?? 0)}`;
+    if (language === "ru") return `до ${duration(maxAgeMonths ?? 0)}`;
+    if (language === "pt") return `até ${duration(maxAgeMonths ?? 0)}`;
+    return `up to ${duration(maxAgeMonths ?? 0)}`;
   }
   if (maxAgeMonths === undefined) {
-    return language === "ru"
-      ? `от ${duration(minAgeMonths)}`
-      : `from ${duration(minAgeMonths)}`;
+    if (language === "ru") return `от ${duration(minAgeMonths)}`;
+    if (language === "pt") return `a partir de ${duration(minAgeMonths)}`;
+    return `from ${duration(minAgeMonths)}`;
   }
 
   if (minAgeMonths % 12 === 0 && maxAgeMonths % 12 === 0) {
     const minYears = minAgeMonths / 12;
     const maxYears = maxAgeMonths / 12;
-    return language === "ru"
-      ? `${minYears}–${maxYears} ${russianPlural(
-          maxYears,
-          "год",
-          "года",
-          "лет",
-        )}`
-      : `${minYears}–${maxYears} years`;
+    if (language === "ru") {
+      return `${minYears}–${maxYears} ${russianPlural(
+        maxYears,
+        "год",
+        "года",
+        "лет",
+      )}`;
+    }
+    return `${minYears}–${maxYears} ${language === "pt" ? "anos" : "years"}`;
   }
   return `${duration(minAgeMonths)}–${duration(maxAgeMonths)}`;
 }
@@ -468,9 +573,13 @@ export function formatChildAgeAndBirthDate({
         : category === "few"
           ? "года"
           : "лет"
-      : category === "one"
-        ? "year"
-        : "years";
+      : language === "pt"
+        ? category === "one"
+          ? "ano"
+          : "anos"
+        : category === "one"
+          ? "year"
+          : "years";
   const date = new Intl.DateTimeFormat(resolvedLocale, {
     day: "numeric",
     month: "long",

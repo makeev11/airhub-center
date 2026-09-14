@@ -14,6 +14,7 @@ const MAX_EXTERNAL_DELIVERY_ATTEMPTS: i32 = 5;
 const MAX_HERMES_PUBLICATION_ATTEMPTS: i32 = 10;
 
 mod routing;
+mod whatsapp;
 
 /// Owner-selected physical channel and independent operational branch.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -293,6 +294,11 @@ pub struct ExternalMessageDeliveryJob {
 /// Connector completion for one external-message lease.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExternalDeliveryCompletion {
+    /// Meta accepted the message; delivery still needs a signed webhook.
+    Accepted {
+        /// Exact Meta message identifier.
+        provider_message_id: String,
+    },
     /// The provider accepted the exact message.
     Delivered {
         /// Provider receipt/message id when available.
@@ -312,6 +318,8 @@ pub enum ExternalDeliveryCompletion {
 /// Observable result of an idempotent external delivery callback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExternalDeliveryAckState {
+    /// Accepted by Meta, awaiting delivery confirmation.
+    Accepted,
     /// Provider delivery is terminally successful.
     Delivered,
     /// The same outbox result will be retried later.
@@ -1231,6 +1239,12 @@ impl Db {
         let lease_seconds = requested_lease_seconds.clamp(30, 300);
         let community_id = *tenant.community().as_uuid();
         let mut tx = self.pool.begin().await?;
+        let expired:Vec<Uuid>=sqlx::query_scalar("UPDATE airhop_external_message_outbox o SET status='failed',provider_status='failed',failed_at=now(),last_error_code='whatsapp_delivery_unconfirmed',updated_at=now() FROM airhop_channel_connections c WHERE c.community_id=o.community_id AND c.id=o.connection_id AND c.provider='whatsapp_cloud' AND c.connector_pubkey=$2 AND o.community_id=$1 AND ($3::uuid IS NULL OR c.id=$3) AND o.status='accepted' AND o.accepted_at<now()-interval '25 hours' RETURNING o.id")
+            .bind(community_id).bind(connector_pubkey.as_slice()).bind(connection_id).fetch_all(&mut *tx).await?;
+        for id in expired {
+            whatsapp::handoff_failed_delivery(&mut tx, community_id, id).await?;
+        }
+
         // A connector crash is still a real delivery attempt. Close exhausted
         // expired leases before selecting more work so a permanently crashing
         // adapter cannot circulate one message forever without a callback.
@@ -1288,6 +1302,7 @@ impl Db {
                 UPDATE airhop_external_message_outbox outbox
                 SET status = 'leased', lease_token = gen_random_uuid(),
                     leased_by_pubkey = $2,
+                    provider_recipient=(SELECT r.provider_chat_id FROM airhop_external_conversation_routes r WHERE r.community_id=outbox.community_id AND r.conversation_id=outbox.conversation_id AND r.connection_id=outbox.connection_id),
                     lease_expires_at = now() + ($4::BIGINT * interval '1 second'),
                     attempts = attempts + 1,
                     updated_at = now()
@@ -1345,12 +1360,13 @@ impl Db {
         if let Some(row) = sqlx::query(
             "SELECT outcome FROM airhop_external_message_delivery_attempts
              WHERE community_id = $1 AND organization_id = $2
-               AND outbox_id = $3 AND lease_token = $4",
+               AND outbox_id = $3 AND lease_token = $4 AND connector_pubkey = $5",
         )
         .bind(community_id)
         .bind(organization_id)
         .bind(outbox_id)
         .bind(lease_token)
+        .bind(connector_pubkey.as_slice())
         .fetch_optional(&mut *tx)
         .await?
         {
@@ -1359,7 +1375,7 @@ impl Db {
             return state;
         }
         let row = sqlx::query(
-            "SELECT outbox.attempts, outbox.status, outbox.lease_token,
+            "SELECT connection.provider, outbox.attempts, outbox.status, outbox.lease_token,
                     outbox.leased_by_pubkey
              FROM airhop_external_message_outbox outbox
              JOIN airhop_channel_connections connection
@@ -1388,8 +1404,26 @@ impl Db {
                 "AirHop external delivery lease belongs to another attempt".to_owned(),
             ));
         }
+        let provider: String = row.try_get("provider")?;
+        if (matches!(completion, ExternalDeliveryCompletion::Accepted { .. })
+            && provider != "whatsapp_cloud")
+            || (matches!(completion, ExternalDeliveryCompletion::Delivered { .. })
+                && provider == "whatsapp_cloud")
+        {
+            return Err(DbError::InvalidData(
+                "WhatsApp acceptance requires asynchronous delivery receipts".into(),
+            ));
+        }
         let attempt: i32 = row.try_get("attempts")?;
         let (outcome, error_code, provider_message_id, state) = match completion {
+            ExternalDeliveryCompletion::Accepted {
+                provider_message_id,
+            } => (
+                "accepted",
+                None,
+                Some(provider_message_id.as_str()),
+                ExternalDeliveryAckState::Accepted,
+            ),
             ExternalDeliveryCompletion::Delivered {
                 provider_message_id,
             } => (
@@ -1432,6 +1466,12 @@ impl Db {
         .execute(&mut *tx)
         .await?;
         match completion {
+            ExternalDeliveryCompletion::Accepted {
+                provider_message_id,
+            } => {
+                sqlx::query("UPDATE airhop_external_message_outbox SET status='accepted', provider_status='accepted', provider_message_id=$4, accepted_at=now(), last_error_code=NULL, lease_token=NULL, leased_by_pubkey=NULL, lease_expires_at=NULL, updated_at=now() WHERE community_id=$1 AND organization_id=$2 AND id=$3")
+                    .bind(community_id).bind(organization_id).bind(outbox_id).bind(provider_message_id).execute(&mut *tx).await?;
+            }
             ExternalDeliveryCompletion::Delivered {
                 provider_message_id,
             } => {
@@ -1494,6 +1534,9 @@ impl Db {
                 .execute(&mut *tx)
                 .await?;
             }
+        }
+        if state == ExternalDeliveryAckState::Failed {
+            whatsapp::handoff_failed_delivery(&mut tx, community_id, outbox_id).await?;
         }
         tx.commit().await?;
         Ok(state)
@@ -1732,6 +1775,11 @@ fn validate_observation(input: &ObserveChannelConnectionInput) -> Result<()> {
 
 fn validate_completion(completion: &ExternalDeliveryCompletion) -> Result<()> {
     match completion {
+        ExternalDeliveryCompletion::Accepted {
+            provider_message_id,
+        } if provider_message_id.trim().is_empty() || provider_message_id.len() > 300 => Err(
+            DbError::InvalidData("provider message id is invalid".to_owned()),
+        ),
         ExternalDeliveryCompletion::Delivered {
             provider_message_id,
         } if provider_message_id
@@ -1834,6 +1882,7 @@ fn delivery_job_from_row(row: &sqlx::postgres::PgRow) -> Result<ExternalMessageD
 
 fn delivery_state_from_outcome(outcome: &str) -> Result<ExternalDeliveryAckState> {
     match outcome {
+        "accepted" => Ok(ExternalDeliveryAckState::Accepted),
         "delivered" => Ok(ExternalDeliveryAckState::Delivered),
         "retry" => Ok(ExternalDeliveryAckState::RetryScheduled),
         "failed" => Ok(ExternalDeliveryAckState::Failed),

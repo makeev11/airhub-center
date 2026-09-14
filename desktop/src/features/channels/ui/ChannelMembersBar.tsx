@@ -1,11 +1,10 @@
-import { messageText } from "@/shared/locale/messengerCopy";
+import { messageText, localePair } from "@/shared/locale/messengerCopy";
 import { EllipsisVertical, Settings2, Users } from "lucide-react";
 import * as React from "react";
 import { useAvailableAcpRuntimes } from "@/features/agents/hooks";
 import { requestOpenCreateAgent } from "@/features/agents/openCreateAgentEvent";
 import { useChannelMembersQuery } from "@/features/channels/hooks";
 import type { Channel } from "@/shared/api/types";
-import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import {
@@ -34,7 +33,6 @@ export function ChannelMembersBar({
   onToggleMembers,
   variant = "inline",
 }: ChannelMembersBarProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const [uncontrolledAddBotOpen, setUncontrolledAddBotOpen] =
     React.useState(false);
   const isAddBotOpen = isAddBotOpenProp ?? uncontrolledAddBotOpen;
@@ -116,11 +114,10 @@ export function ChannelMembersBar({
         <Tooltip disableHoverableContent>
           <TooltipTrigger asChild>
             <Button
-              aria-label={
-                isRussian
-                  ? `Участники канала (${memberCount})`
-                  : `View channel members (${memberCount})`
-              }
+              aria-label={localePair(
+                `Участники канала (${memberCount})`,
+                `View channel members (${memberCount})`,
+              )}
               className="h-8 px-2.5"
               data-testid="channel-members-trigger"
               onClick={onToggleMembers}

@@ -1,7 +1,6 @@
 import { Bot, Inbox } from "lucide-react";
 
 import { BookingSidebarNav } from "@/features/booking/ui/BookingSidebarNav";
-import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import { AirHopWordmark } from "@/shared/ui/airhop-brand/AirHopBrand";
 import type { Channel, SearchHit } from "@/shared/api/types";
@@ -13,6 +12,7 @@ import {
   SidebarMenuItem,
 } from "@/shared/ui/sidebar";
 import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 type SidebarSelectedView =
   | "home"
@@ -90,9 +90,8 @@ export function AppSidebarPrimaryMenu({
   onSelectHome,
   selectedView,
 }: AppSidebarPrimaryMenuProps) {
-  const locale = useAirHopLocale();
-  const inboxLabel = locale === "ru-RU" ? "Входящие" : "Inbox";
-  const agentsLabel = locale === "ru-RU" ? "AI-агенты" : "AI agents";
+  const inboxLabel = localePair("Входящие", "Inbox");
+  const agentsLabel = localePair("AI-агенты", "AI agents");
 
   return (
     <SidebarHeader

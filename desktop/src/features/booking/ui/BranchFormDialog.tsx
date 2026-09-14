@@ -453,7 +453,9 @@ export function BranchFormDialog({
           warnings.push(
             workspace.organization.locale.startsWith("ru")
               ? "ответственные не сохранены"
-              : "responsibles were not saved",
+              : workspace.organization.locale.startsWith("pt")
+                ? "os responsáveis não foram salvos"
+                : "responsibles were not saved",
           );
         }
       }
@@ -464,7 +466,9 @@ export function BranchFormDialog({
           warnings.push(
             workspace.organization.locale.startsWith("ru")
               ? "ссылки для карт не созданы"
-              : "map listing links were not created",
+              : workspace.organization.locale.startsWith("pt")
+                ? "os links para perfis em mapas não foram criados"
+                : "map listing links were not created",
           );
         }
       }
@@ -472,7 +476,9 @@ export function BranchFormDialog({
       const warning = warnings.length
         ? workspace.organization.locale.startsWith("ru")
           ? `Филиал сохранён, но ${warnings.join(" и ")}. Повторите настройку.`
-          : `The branch was saved, but ${warnings.join(" and ")}. Try the setting again.`
+          : workspace.organization.locale.startsWith("pt")
+            ? `A unidade foi salva, mas ${warnings.join(" e ")}. Tente configurar novamente.`
+            : `The branch was saved, but ${warnings.join(" and ")}. Try the setting again.`
         : undefined;
       onSaved(branch ? "updated" : "created", warning);
       onOpenChange(false);

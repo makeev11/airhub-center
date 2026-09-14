@@ -33,23 +33,36 @@ export function analyticsShare(
 
 /** Human labels never reinterpret an unknown website origin as direct traffic. */
 export function analyticsSourceLabel(source: string, locale: string): string {
-  const labels: Record<string, [string, string]> = {
-    direct: ["Прямые заходы", "Direct visits"],
-    website: ["Сайт · площадка неизвестна", "Website · origin unknown"],
-    unknown: ["Источник неизвестен", "Unknown source"],
-    other: ["Другой источник", "Other source"],
-    yandex_maps: ["Яндекс Карты", "Yandex Maps"],
-    google_maps: ["Google Maps", "Google Maps"],
-    two_gis: ["2ГИС", "2GIS"],
-    phone: ["Телефон", "Phone"],
-    visit: ["Личное обращение", "Walk-in"],
-    telegram: ["Telegram", "Telegram"],
-    whatsapp: ["WhatsApp", "WhatsApp"],
-    max: ["MAX", "MAX"],
-    qr: ["QR-код", "QR code"],
-    campaign: ["Кампания", "Campaign"],
+  const labels: Record<string, { en: string; pt: string; ru: string }> = {
+    direct: { ru: "Прямые заходы", en: "Direct visits", pt: "Acessos diretos" },
+    website: {
+      ru: "Сайт · площадка неизвестна",
+      en: "Website · origin unknown",
+      pt: "Site · origem desconhecida",
+    },
+    unknown: {
+      ru: "Источник неизвестен",
+      en: "Unknown source",
+      pt: "Origem desconhecida",
+    },
+    other: { ru: "Другой источник", en: "Other source", pt: "Outra origem" },
+    yandex_maps: { ru: "Яндекс Карты", en: "Yandex Maps", pt: "Yandex Maps" },
+    google_maps: { ru: "Google Maps", en: "Google Maps", pt: "Google Maps" },
+    two_gis: { ru: "2ГИС", en: "2GIS", pt: "2GIS" },
+    phone: { ru: "Телефон", en: "Phone", pt: "Telefone" },
+    visit: { ru: "Личное обращение", en: "Walk-in", pt: "Visita presencial" },
+    telegram: { ru: "Telegram", en: "Telegram", pt: "Telegram" },
+    whatsapp: { ru: "WhatsApp", en: "WhatsApp", pt: "WhatsApp" },
+    max: { ru: "MAX", en: "MAX", pt: "MAX" },
+    qr: { ru: "QR-код", en: "QR code", pt: "Código QR" },
+    campaign: { ru: "Кампания", en: "Campaign", pt: "Campanha" },
   };
-  return labels[source]?.[locale.startsWith("ru") ? 0 : 1] ?? source;
+  const language = locale.toLowerCase().startsWith("ru")
+    ? "ru"
+    : locale.toLowerCase().startsWith("pt")
+      ? "pt"
+      : "en";
+  return labels[source]?.[language] ?? source;
 }
 
 /** Isolated browser preview only. Never a fallback for a failed server read. */

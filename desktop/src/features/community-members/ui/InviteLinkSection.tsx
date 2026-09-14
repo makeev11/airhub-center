@@ -16,6 +16,7 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import { Separator } from "@/shared/ui/separator";
 import { Spinner } from "@/shared/ui/spinner";
+import { localePair, localizeCopyTree } from "@/shared/locale/messengerCopy";
 
 const TTL_OPTIONS: { label: string; value: number }[] = [
   { label: "1 day", value: 24 * 60 * 60 },
@@ -51,7 +52,8 @@ export function InviteLinkSection({
   onTtlSecsChange: (ttlSecs: number) => void;
   ttlSecs: number;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   const [copyStatus, setCopyStatus] = React.useState<CopyStatus>("idle");
   const [error, setError] = React.useState<string | null>(null);
   const [maxUses, setMaxUses] = React.useState<number | null>(null);
@@ -62,7 +64,7 @@ export function InviteLinkSection({
         { label: "7 дней", value: 7 * 24 * 60 * 60 },
         { label: "30 дней", value: 30 * 24 * 60 * 60 },
       ]
-    : TTL_OPTIONS;
+    : localizeCopyTree(TTL_OPTIONS, locale);
   const maxUseOptions = isRussian
     ? [
         { label: "Без ограничений", value: null },
@@ -72,25 +74,19 @@ export function InviteLinkSection({
         { label: "10 входов", value: 10 },
         { label: "25 входов", value: 25 },
       ]
-    : MAX_USE_OPTIONS;
+    : localizeCopyTree(MAX_USE_OPTIONS, locale);
   const ttlLabel =
     ttlOptions.find((option) => option.value === ttlSecs)?.label ??
-    (isRussian ? "3 дня" : "3 days");
+    localePair("3 дня", "3 days");
   const maxUsesLabel =
     maxUseOptions.find((option) => option.value === maxUses)?.label ??
-    (isRussian ? "Без ограничений" : "No limit");
+    localePair("Без ограничений", "No limit");
   const copyLabel =
     copyStatus === "copying"
-      ? isRussian
-        ? "Копируем…"
-        : "Copying…"
+      ? localePair("Копируем…", "Copying…")
       : copyStatus === "copied"
-        ? isRussian
-          ? "Скопировано"
-          : "Copied"
-        : isRussian
-          ? "Скопировать ссылку"
-          : "Copy link";
+        ? localePair("Скопировано", "Copied")
+        : localePair("Скопировать ссылку", "Copy link");
 
   React.useEffect(() => {
     if (copyStatus !== "copied") return;
@@ -108,14 +104,15 @@ export function InviteLinkSection({
       created = true;
       await writeTextToClipboard(invite.url);
       setCopyStatus("copied");
-      toast.success(isRussian ? "Ссылка скопирована" : "Invite link copied");
+      toast.success(localePair("Ссылка скопирована", "Invite link copied"));
     } catch (cause) {
       setCopyStatus("idle");
       const message = created
-        ? isRussian
-          ? "Не удалось скопировать ссылку. Попробуйте ещё раз."
-          : "Couldn’t copy the invite link. Try again."
-        : `${isRussian ? "Не удалось создать приглашение" : "Couldn’t create the invitation"}: ${inviteErrorMessage(cause)}`;
+        ? localePair(
+            "Не удалось скопировать ссылку. Попробуйте ещё раз.",
+            "Couldn’t copy the invite link. Try again.",
+          )
+        : `${localePair("Не удалось создать приглашение", "Couldn’t create the invitation")}: ${inviteErrorMessage(cause)}`;
       setError(message);
       toast.error(message);
     }
@@ -131,16 +128,15 @@ export function InviteLinkSection({
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-4">
           <span className="text-sm font-medium">
-            {isRussian ? "Срок действия" : "Expires after"}
+            {localePair("Срок действия", "Expires after")}
           </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                aria-label={
-                  isRussian
-                    ? "Выбрать срок действия приглашения"
-                    : "Choose invite expiry"
-                }
+                aria-label={localePair(
+                  "Выбрать срок действия приглашения",
+                  "Choose invite expiry",
+                )}
                 className="h-8 shrink-0 gap-1.5 px-2 text-sm text-muted-foreground"
                 data-testid="invite-link-ttl-trigger"
                 disabled={copyStatus === "copying"}
@@ -172,16 +168,15 @@ export function InviteLinkSection({
         </div>
         <div className="flex items-center justify-between gap-4">
           <span className="text-sm font-medium">
-            {isRussian ? "Ограничить число входов" : "Limit number of uses"}
+            {localePair("Ограничить число входов", "Limit number of uses")}
           </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                aria-label={
-                  isRussian
-                    ? "Выбрать число входов по приглашению"
-                    : "Choose maximum invite uses"
-                }
+                aria-label={localePair(
+                  "Выбрать число входов по приглашению",
+                  "Choose maximum invite uses",
+                )}
                 className="h-8 shrink-0 gap-1.5 px-2 text-sm text-muted-foreground"
                 data-testid="invite-link-max-uses-trigger"
                 disabled={copyStatus === "copying"}

@@ -36,6 +36,7 @@ import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { useActiveCommunityIcon } from "@/features/communities/useCommunityIcons";
 import { CommunityIcon } from "./CommunityIcon";
 import { EditCommunityDialog } from "./EditCommunityDialog";
+import { localePair, messageText } from "@/shared/locale/messengerCopy";
 
 const CONNECTION_STATE_LABEL: Record<ConnectionState, string> = {
   idle: "Not connected",
@@ -80,16 +81,17 @@ export function CommunitySwitcher({
   onUpdateCommunity,
   onRemoveCommunity,
 }: CommunitySwitcherProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   const [editingCommunity, setEditingCommunity] =
     React.useState<Community | null>(null);
   const [dropdownOpen, setDropdownOpen] = React.useState(false);
   const profileMenuHoverTimer = React.useRef<number | null>(null);
   const connectionState = useRelayConnection();
   const degraded = isRelayConnectionDegraded(connectionState);
-  const connectionLabel = (
-    isRussian ? CONNECTION_STATE_RU : CONNECTION_STATE_LABEL
-  )[connectionState];
+  const connectionLabel = isRussian
+    ? CONNECTION_STATE_RU[connectionState]
+    : messageText(CONNECTION_STATE_LABEL[connectionState], {}, locale);
   const activeIconQuery = useActiveCommunityIcon(activeCommunity?.relayUrl);
   const activeIcon = activeIconQuery.data ?? null;
   const isProfileVariant = variant === "profile";
@@ -162,8 +164,7 @@ export function CommunitySwitcher({
             : "min-w-0 flex-1 truncate font-medium"
         }
       >
-        {activeCommunity?.name ??
-          (isRussian ? "Центр не выбран" : "No community")}
+        {activeCommunity?.name ?? localePair("Центр не выбран", "No community")}
       </span>
       {variant === "profile-menu" ? (
         <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -189,9 +190,7 @@ export function CommunitySwitcher({
             aria-label={
               degraded
                 ? `${activeCommunity?.name ?? "Community"} — ${connectionLabel}`
-                : isRussian
-                  ? "Действия центра"
-                  : "Community actions"
+                : localePair("Действия центра", "Community actions")
             }
             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-popover-foreground outline-hidden transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none focus-visible:bg-muted/50 focus-visible:outline-none data-[state=open]:bg-muted/50 data-[state=open]:text-popover-foreground"
             data-testid="community-switcher"
@@ -213,7 +212,7 @@ export function CommunitySwitcher({
           sideOffset={0}
         >
           <div
-            aria-label={isRussian ? "Действия центра" : "Community actions"}
+            aria-label={localePair("Действия центра", "Community actions")}
             data-testid="profile-community-actions"
             role="menu"
           >
@@ -230,9 +229,10 @@ export function CommunitySwitcher({
                 >
                   <Link2 className="h-4 w-4" />
                   <span>
-                    {isRussian
-                      ? "Скопировать ссылку центра"
-                      : "Copy community URL"}
+                    {localePair(
+                      "Скопировать ссылку центра",
+                      "Copy community URL",
+                    )}
                   </span>
                 </button>
                 {canInvite && onInvite ? (
@@ -247,7 +247,7 @@ export function CommunitySwitcher({
                   >
                     <Ticket className="h-4 w-4" />
                     <span>
-                      {isRussian ? "Пригласить в центр" : "Invite to community"}
+                      {localePair("Пригласить в центр", "Invite to community")}
                     </span>
                   </button>
                 ) : null}
@@ -262,7 +262,7 @@ export function CommunitySwitcher({
                 >
                   <Settings2 className="h-4 w-4" />
                   <span>
-                    {isRussian ? "Настройки центра" : "Community settings"}
+                    {localePair("Настройки центра", "Community settings")}
                   </span>
                 </button>
                 <hr className="-mx-1 my-1 h-px border-0 bg-muted" />
@@ -278,7 +278,7 @@ export function CommunitySwitcher({
               type="button"
             >
               <Plus className="h-4 w-4" />
-              <span>{isRussian ? "Добавить центр" : "Add a community"}</span>
+              <span>{localePair("Добавить центр", "Add a community")}</span>
             </button>
           </div>
         </PopoverContent>
@@ -297,9 +297,7 @@ export function CommunitySwitcher({
             aria-label={
               degraded
                 ? `${activeCommunity?.name ?? "Community"} — ${connectionLabel}`
-                : isRussian
-                  ? "Выбрать центр"
-                  : "Switch community"
+                : localePair("Выбрать центр", "Switch community")
             }
             className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md py-0.5 text-left text-xs text-sidebar-foreground/50 outline-hidden transition-colors hover:text-sidebar-foreground focus:outline-none focus-visible:outline-none data-[state=open]:text-sidebar-foreground"
             data-testid="community-switcher"
@@ -361,7 +359,7 @@ export function CommunitySwitcher({
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onAddCommunity}>
           <Plus className="h-4 w-4" />
-          <span>{isRussian ? "Добавить центр" : "Add a community"}</span>
+          <span>{localePair("Добавить центр", "Add a community")}</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

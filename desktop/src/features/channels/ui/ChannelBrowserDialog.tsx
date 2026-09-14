@@ -1,4 +1,4 @@
-import { messengerCount } from "@/shared/locale/messengerCopy";
+import { messengerCount, localePair } from "@/shared/locale/messengerCopy";
 import { messageText, useMessengerCopy } from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import {
@@ -54,6 +54,7 @@ import {
   CreateChannelFormFooter,
 } from "@/features/sidebar/ui/CreateChannelFormFields";
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
+import type { AirHopLocale } from "@/shared/locale/airhopLocale";
 
 type BrowserTab = "all" | "joined" | "archived";
 type ChannelSort = ChannelSortMode | "members";
@@ -114,7 +115,8 @@ export function ChannelBrowserDialog({
   isCreatingChannel = false,
 }: ChannelBrowserDialogProps) {
   useMessengerCopy();
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   const [query, setQuery] = React.useState("");
   const [activeTab, setActiveTab] = React.useState<BrowserTab>("all");
   const [sort, setSort] = React.useState<ChannelSort>("alpha");
@@ -152,31 +154,35 @@ export function ChannelBrowserDialog({
     ? isForumMode
       ? "Добавить форум"
       : "Каналы"
-    : isForumMode
-      ? "Add a forum"
-      : "Browse channels";
+    : messageText(isForumMode ? "Add a forum" : "Browse channels", {}, locale);
   const searchPlaceholder = canCreate
     ? isRussian
       ? isForumMode
         ? "Найти или создать форум"
         : "Найти или создать канал"
-      : isForumMode
-        ? "Search or create a forum"
-        : "Search or create a channel"
+      : messageText(
+          isForumMode
+            ? "Search or create a forum"
+            : "Search or create a channel",
+          {},
+          locale,
+        )
     : isRussian
       ? isForumMode
         ? "Поиск форумов по названию или описанию"
         : "Поиск каналов по названию или описанию"
-      : isForumMode
-        ? "Search forums by name or description"
-        : "Search channels by name or description";
+      : messageText(
+          isForumMode
+            ? "Search forums by name or description"
+            : "Search channels by name or description",
+          {},
+          locale,
+        );
   const entityLabel = isRussian
     ? isForumMode
       ? "форум"
       : "канал"
-    : isForumMode
-      ? "forum"
-      : "channel";
+    : messageText(isForumMode ? "forum" : "channel", {}, locale);
 
   const noopCreate = React.useCallback(async () => {}, []);
   const createForm = useCreateChannelForm({
@@ -268,16 +274,18 @@ export function ChannelBrowserDialog({
       : sort === "recent"
         ? "Недавние"
         : "Больше участников"
-    : (CHANNEL_SORT_OPTIONS.find((option) => option.value === sort)?.labelKey ??
-      messageText("Alphabetical"));
+    : messageText(
+        CHANNEL_SORT_OPTIONS.find((option) => option.value === sort)
+          ?.labelKey ?? "Alphabetical",
+        {},
+        locale,
+      );
 
   const allTabLabel = isRussian
     ? isForumMode
       ? "Все форумы"
       : "Все каналы"
-    : isForumMode
-      ? "All forums"
-      : "All channels";
+    : messageText(isForumMode ? "All forums" : "All channels", {}, locale);
 
   // Whether an exact name match already exists — if so we don't offer to
   // create a duplicate, mirroring how you'd never make two "#general"s.
@@ -437,13 +445,17 @@ export function ChannelBrowserDialog({
         : activeTab === "joined"
           ? "Вы ещё не присоединились"
           : "Каналов пока нет"
-    : deferredQuery.length > 0
-      ? `No ${entityLabel}s match your search`
-      : activeTab === "archived"
-        ? `No archived ${entityLabel}s`
-        : activeTab === "joined"
-          ? `No joined ${entityLabel}s`
-          : `No ${entityLabel}s to browse`;
+    : messageText(
+        deferredQuery.length > 0
+          ? `No ${entityLabel}s match your search`
+          : activeTab === "archived"
+            ? `No archived ${entityLabel}s`
+            : activeTab === "joined"
+              ? `No joined ${entityLabel}s`
+              : `No ${entityLabel}s to browse`,
+        {},
+        locale,
+      );
   const emptyDescription = isRussian
     ? deferredQuery.length > 0
       ? canCreate
@@ -454,15 +466,19 @@ export function ChannelBrowserDialog({
         : activeTab === "joined"
           ? "Каналы, к которым вы присоединитесь, появятся здесь."
           : "Создайте первый канал для сотрудников Центра."
-    : deferredQuery.length > 0
-      ? canCreate
-        ? `No ${entityLabel} by that name yet — create it to get started.`
-        : "Try a different name or keyword."
-      : activeTab === "archived"
-        ? `Archived ${entityLabel}s you have joined will appear here.`
-        : activeTab === "joined"
-          ? `${entityLabel[0].toUpperCase()}${entityLabel.slice(1)}s you join will appear here.`
-          : `All open ${entityLabel}s are available in the sidebar. Create a new ${entityLabel} to get started.`;
+    : messageText(
+        deferredQuery.length > 0
+          ? canCreate
+            ? `No ${entityLabel} by that name yet — create it to get started.`
+            : "Try a different name or keyword."
+          : activeTab === "archived"
+            ? `Archived ${entityLabel}s you have joined will appear here.`
+            : activeTab === "joined"
+              ? `${entityLabel[0].toUpperCase()}${entityLabel.slice(1)}s you join will appear here.`
+              : `All open ${entityLabel}s are available in the sidebar. Create a new ${entityLabel} to get started.`,
+        {},
+        locale,
+      );
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -571,11 +587,10 @@ export function ChannelBrowserDialog({
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
-                      aria-label={
-                        isRussian
-                          ? `Сортировка: ${selectedSortLabel}`
-                          : `Sort ${entityLabel}s: ${selectedSortLabel}`
-                      }
+                      aria-label={localePair(
+                        `Сортировка: ${selectedSortLabel}`,
+                        `Sort ${entityLabel}s: ${selectedSortLabel}`,
+                      )}
                       data-testid="channel-browser-sort"
                       size="icon-xs"
                       type="button"
@@ -694,7 +709,7 @@ export function ChannelBrowserDialog({
                         <ChannelCard
                           channel={channel}
                           isJoining={joiningChannelId === channel.id}
-                          isRussian={isRussian}
+                          locale={locale}
                           isSelected={
                             index + channelNavOffset === selectedIndex
                           }
@@ -723,7 +738,7 @@ export function ChannelBrowserDialog({
 
 function CreateChannelRow({
   entityLabel,
-  isRussian,
+  isRussian: _isRussian,
   isSelected,
   onClick,
   query,
@@ -754,13 +769,13 @@ function CreateChannelRow({
       {hasQuery ? (
         <span className="min-w-0 text-sm">
           <span className="font-medium text-foreground">
-            {isRussian ? `Создать ${entityLabel} ` : `Create ${entityLabel} `}
+            {localePair(`Создать ${entityLabel} `, `Create ${entityLabel} `)}
           </span>
           <span className="font-semibold text-foreground">“{query}”</span>
         </span>
       ) : (
         <span className="min-w-0 text-sm font-medium text-foreground">
-          {isRussian ? `Создать ${entityLabel}` : `Create a new ${entityLabel}`}
+          {localePair(`Создать ${entityLabel}`, `Create a new ${entityLabel}`)}
         </span>
       )}
     </button>
@@ -770,7 +785,7 @@ function CreateChannelRow({
 function ChannelCreateView({
   entityLabel,
   form,
-  isRussian,
+  isRussian: _isRussian,
   onBack,
   onClose,
 }: {
@@ -796,7 +811,7 @@ function ChannelCreateView({
               <ArrowLeft className="h-4 w-4" />
             </button>
             <DialogTitle className="truncate">
-              {isRussian ? `Новый ${entityLabel}` : `New ${entityLabel}`}
+              {localePair(`Новый ${entityLabel}`, `New ${entityLabel}`)}
             </DialogTitle>
           </div>
           <button
@@ -831,24 +846,20 @@ function ChannelCreateView({
 function ChannelCard({
   channel,
   isJoining,
-  isRussian,
+  locale,
   isSelected,
   onJoin,
   onSelect,
 }: {
   channel: Channel;
   isJoining: boolean;
-  isRussian: boolean;
+  locale: AirHopLocale;
   isSelected: boolean;
   onJoin?: () => void;
   onSelect: () => void;
 }) {
   useMessengerCopy();
-  const memberLabel = messengerCount(
-    channel.memberCount,
-    "member",
-    isRussian ? "ru-RU" : "en-US",
-  );
+  const memberLabel = messengerCount(channel.memberCount, "member", locale);
 
   return (
     <div
@@ -877,7 +888,7 @@ function ChannelCard({
             </p>
             {channel.archivedAt ? (
               <Badge className="ml-1 shrink-0" variant="warning">
-                {isRussian ? "в архиве" : "archived"}
+                {localePair("в архиве", "archived")}
               </Badge>
             ) : null}
           </div>

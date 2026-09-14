@@ -1,12 +1,11 @@
 import { createPortal } from "react-dom";
-
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import type {
   AvatarEditorPresentation,
   AvatarMode,
 } from "@/features/profile/ui/ProfileAvatarEditor.types";
 import { cn } from "@/shared/lib/cn";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/ui/tabs";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 const MODE_TAB_ORDER: AvatarMode[] = ["image", "emoji", "animated"];
 type ProfileAvatarModeTabsProps = {
@@ -24,11 +23,10 @@ export function ProfileAvatarModeTabs({
   presentation,
   portalContainer,
 }: ProfileAvatarModeTabsProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const modeTabLabels: Record<AvatarMode, string> = {
-    animated: isRussian ? "Анимация" : "Animated",
+    animated: localePair("Анимация", "Animated"),
     emoji: "Emoji",
-    image: isRussian ? "Изображение" : "Image",
+    image: localePair("Изображение", "Image"),
   };
   const isOnboardingModal = presentation === "onboarding-modal";
   const tabs = (
@@ -40,7 +38,7 @@ export function ProfileAvatarModeTabs({
       value={mode}
     >
       <TabsList
-        aria-label={isRussian ? "Тип аватара" : "Avatar type"}
+        aria-label={localePair("Тип аватара", "Avatar type")}
         className={cn(
           isOnboardingModal
             ? "flex h-10 w-auto gap-2 rounded-none bg-transparent p-0 text-muted-foreground"

@@ -283,6 +283,7 @@ function SettingsFormContent({
               >
                 <option value="ru-RU">{messages.localeRussian}</option>
                 <option value="en-US">{messages.localeEnglish}</option>
+                <option value="pt-BR">{messages.localePortuguese}</option>
               </BookingSelect>
             </Field>
             <Field
@@ -424,7 +425,9 @@ function SettingsFormContent({
               hint={
                 form.locale.startsWith("ru")
                   ? "Для новых тарифов и пробных занятий. Существующие тарифы и оплаты сохранят свою валюту; автоматического пересчёта по курсу нет."
-                  : "For new tariffs and trial prices. Existing tariffs and payments keep their currency; no automatic exchange conversion."
+                  : form.locale.startsWith("pt")
+                    ? "Para novos planos e valores de aulas experimentais. Os planos e pagamentos existentes mantêm a moeda atual; não há conversão automática de câmbio."
+                    : "For new tariffs and trial prices. Existing tariffs and payments keep their currency; no automatic exchange conversion."
               }
             >
               <BookingCurrencySelect
@@ -437,21 +440,19 @@ function SettingsFormContent({
               />
             </Field>
             {form.trialMode === "paid" ? (
-              <>
-                <Field error={errors.price} label={messages.trialPrice}>
-                  <Input
-                    aria-label={messages.trialPrice}
-                    inputMode="decimal"
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        price: event.target.value,
-                      }))
-                    }
-                    value={form.price}
-                  />
-                </Field>
-              </>
+              <Field error={errors.price} label={messages.trialPrice}>
+                <Input
+                  aria-label={messages.trialPrice}
+                  inputMode="decimal"
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      price: event.target.value,
+                    }))
+                  }
+                  value={form.price}
+                />
+              </Field>
             ) : null}
             <div className="flex items-start justify-between gap-4 rounded-xl border border-border/70 p-4 lg:col-span-2">
               <div className="space-y-1">
@@ -534,7 +535,9 @@ function SettingsFormContent({
             >
               {form.locale.startsWith("ru")
                 ? "Оформление формы: Внешний вид → Виджет"
-                : "Form design: Appearance → Widget"}
+                : form.locale.startsWith("pt")
+                  ? "Design do formulário: Aparência → Widget"
+                  : "Form design: Appearance → Widget"}
             </Link>
           </CardContent>
         </Card>

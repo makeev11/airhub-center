@@ -1,5 +1,6 @@
 import { BookOpen, ShieldCheck } from "lucide-react";
 import { Button } from "@/shared/ui/button";
+import { messageText } from "@/shared/locale/messengerCopy";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +20,8 @@ export function KnowledgeIntro({
   onStep: (step: number) => void;
   onClose: () => void;
 }) {
-  const t = (a: string, b: string) => (ru ? a : b);
+  const t = (russian: string, english: string) =>
+    ru ? russian : messageText(english);
   return (
     <Dialog
       open={step !== null}

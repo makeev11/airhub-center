@@ -83,10 +83,10 @@ export function AnimatedAvatarCapture({
   autoStartCamera = false,
   compactReview = false,
 }: AnimatedAvatarCaptureProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
   const copy = React.useMemo(
-    () => getAnimatedAvatarCaptureCopy(isRussian),
-    [isRussian],
+    () => getAnimatedAvatarCaptureCopy(locale),
+    [locale],
   );
   const [phase, setPhase] = React.useState<CapturePhase>("idle");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);

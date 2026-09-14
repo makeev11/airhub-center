@@ -1,5 +1,6 @@
 import type { ConsultationAnalytics } from "../data/consultationAnalyticsSchema";
 import { Card } from "@/shared/ui/card";
+import { messageText } from "@/shared/locale/messengerCopy";
 
 /** Owner-facing outcome with explicit measurement maturity and version evidence. */
 export function ConsultationLearningView({
@@ -10,7 +11,8 @@ export function ConsultationLearningView({
   locale: string;
 }) {
   const ru = locale.startsWith("ru");
-  const t = (a: string, b: string) => (ru ? a : b);
+  const t = (russian: string, english: string) =>
+    ru ? russian : messageText(english);
   const learning = report.learning;
   const n = (value: number) => new Intl.NumberFormat(locale).format(value);
   const rate = (booked: number, eligible: number) =>

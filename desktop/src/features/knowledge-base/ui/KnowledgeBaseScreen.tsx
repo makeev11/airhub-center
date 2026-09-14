@@ -11,6 +11,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
+import { messageText } from "@/shared/locale/messengerCopy";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { Badge } from "@/shared/ui/badge";
@@ -35,8 +36,10 @@ import { KnowledgeIntro } from "./KnowledgeIntro";
 import { KnowledgePreview } from "./KnowledgePreview";
 
 export function KnowledgeBaseScreen() {
-  const ru = useAirHopLocale().startsWith("ru");
-  const t = (a: string, b: string) => (ru ? a : b);
+  const interfaceLocale = useAirHopLocale();
+  const ru = interfaceLocale.startsWith("ru");
+  const t = (russian: string, english: string) =>
+    ru ? russian : messageText(english, {}, interfaceLocale);
   const [service] = React.useState(() => new KnowledgeService());
   const [items, setItems] = React.useState<KnowledgeSummary[]>([]);
   const [community, setCommunity] = React.useState<string | null>(null);
@@ -392,7 +395,7 @@ export function KnowledgeBaseScreen() {
                     )}
                   </h2>
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {knowledgeTopics(ru).map((topic) => (
+                    {knowledgeTopics(interfaceLocale).map((topic) => (
                       <button
                         key={topic.key}
                         type="button"

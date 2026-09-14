@@ -20,6 +20,7 @@ import type {
 } from "@/shared/api/types";
 import { resolveMentionProps } from "@/shared/lib/resolveMentionNames";
 import { resolveActivationLocale } from "@/features/activation/i18n";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 export type InboxFilter =
   | "all"
@@ -107,7 +108,7 @@ export type InboxGroup = {
 type InboxChannel = Pick<Channel, "channelType" | "id" | "name">;
 
 function inboxLocale() {
-  return resolveActivationLocale() === "ru-RU" ? "ru-RU" : "en-US";
+  return resolveActivationLocale();
 }
 
 function inboxDateFormatter(options: Intl.DateTimeFormatOptions) {
@@ -137,14 +138,13 @@ function projectRootItem(item: FeedItem, groupItems: readonly FeedItem[]) {
 }
 
 function projectTypeLabel(item: FeedItem) {
-  const russian = inboxLocale() === "ru-RU";
-  if (item.kind === 1618) return russian ? "Запрос на слияние" : "Pull request";
-  if (item.kind === 1621) return russian ? "Задача" : "Issue";
-  return russian ? "Обновление проекта" : "Project update";
+  if (item.kind === 1618)
+    return localePair("Запрос на слияние", "Pull request");
+  if (item.kind === 1621) return localePair("Задача", "Issue");
+  return localePair("Обновление проекта", "Project update");
 }
 
 function feedHeadline(item: FeedItem, groupItems: readonly FeedItem[] = []) {
-  const russian = inboxLocale() === "ru-RU";
   if (isProjectInboxItem(item)) {
     const root = projectRootItem(item, groupItems);
     return (
@@ -155,77 +155,72 @@ function feedHeadline(item: FeedItem, groupItems: readonly FeedItem[] = []) {
 
   switch (item.kind) {
     case 40007:
-      return russian ? "Напоминание" : "Reminder";
+      return localePair("Напоминание", "Reminder");
     case 43001:
-      return russian ? "Запрошена задача" : "Job requested";
+      return localePair("Запрошена задача", "Job requested");
     case 43002:
-      return russian ? "Задача принята" : "Job accepted";
+      return localePair("Задача принята", "Job accepted");
     case 43003:
-      return russian ? "Обновление выполнения" : "Progress update";
+      return localePair("Обновление выполнения", "Progress update");
     case 43004:
-      return russian ? "Результат задачи" : "Job result";
+      return localePair("Результат задачи", "Job result");
     case 43005:
-      return russian ? "Задача отменена" : "Job cancelled";
+      return localePair("Задача отменена", "Job cancelled");
     case 43006:
-      return russian ? "Ошибка задачи" : "Job failed";
+      return localePair("Ошибка задачи", "Job failed");
     case 45001:
-      return russian ? "Публикация" : "Forum post";
+      return localePair("Публикация", "Forum post");
     case 45003:
-      return russian ? "Ответ" : "Forum reply";
+      return localePair("Ответ", "Forum reply");
     case 46010:
-      return russian ? "Запрошено подтверждение" : "Approval requested";
+      return localePair("Запрошено подтверждение", "Approval requested");
     default:
       if (item.category === "mention") {
-        return russian ? "Упоминание" : "Mention";
+        return localePair("Упоминание", "Mention");
       }
 
       if (item.category === "agent_activity") {
-        return russian ? "Обновление агента" : "Agent update";
+        return localePair("Обновление агента", "Agent update");
       }
 
-      return russian ? "Обновление канала" : "Channel update";
+      return localePair("Обновление канала", "Channel update");
   }
 }
 
 function feedPreview(item: FeedItem) {
-  const russian = inboxLocale() === "ru-RU";
   const content = item.content.trim();
   if (content.length > 0) {
     return content;
   }
 
   if (item.kind === 46010) {
-    return russian
-      ? "Процесс ожидает подтверждения."
-      : "A workflow is waiting for approval.";
+    return localePair(
+      "Процесс ожидает подтверждения.",
+      "A workflow is waiting for approval.",
+    );
   }
 
   if (item.kind === 40007) {
-    return russian ? "Вас ждёт напоминание." : "A reminder is waiting for you.";
+    return localePair(
+      "Вас ждёт напоминание.",
+      "A reminder is waiting for you.",
+    );
   }
 
-  return russian
-    ? "Дополнительных сведений нет."
-    : "No additional details were attached to this event.";
+  return localePair(
+    "Дополнительных сведений нет.",
+    "No additional details were attached to this event.",
+  );
 }
 
 function categoryLabelFor(category: FeedItemCategory) {
-  const russian = inboxLocale() === "ru-RU";
   return category === "needs_action"
-    ? russian
-      ? "Нужны действия"
-      : "Needs Action"
+    ? localePair("Нужны действия", "Needs Action")
     : category === "mention"
-      ? russian
-        ? "Упоминание"
-        : "Mention"
+      ? localePair("Упоминание", "Mention")
       : category === "agent_activity"
-        ? russian
-          ? "Обновление агента"
-          : "Agent update"
-        : russian
-          ? "Действие"
-          : "Activity";
+        ? localePair("Обновление агента", "Agent update")
+        : localePair("Действие", "Activity");
 }
 
 export function isThreadActivityItem(item: FeedItem) {
@@ -293,7 +288,6 @@ function resolveGroupChannel(
 }
 
 export function getInboxTypeLabel(item: InboxItem): InboxTypeLabel {
-  const russian = inboxLocale() === "ru-RU";
   const channelName = item.channelLabel;
 
   if (item.groupItems.some(isProjectInboxItem)) {
@@ -307,12 +301,11 @@ export function getInboxTypeLabel(item: InboxItem): InboxTypeLabel {
   if (item.item.channelType === "dm") {
     return {
       text: item.senderLabel
-        ? russian
-          ? `Личное сообщение от ${item.senderLabel}`
-          : `DM from ${item.senderLabel}`
-        : russian
-          ? "Личное сообщение"
-          : "DM",
+        ? localePair(
+            `Личное сообщение от ${item.senderLabel}`,
+            `DM from ${item.senderLabel}`,
+          )
+        : localePair("Личное сообщение", "DM"),
       channelLabel: null,
     };
   }
@@ -321,12 +314,8 @@ export function getInboxTypeLabel(item: InboxItem): InboxTypeLabel {
   if (primaryCategory === "mention") {
     return {
       text: channelName
-        ? russian
-          ? "Упомянули в"
-          : "Mentioned in"
-        : russian
-          ? "Упоминание"
-          : "Mentioned",
+        ? localePair("Упомянули в", "Mentioned in")
+        : localePair("Упоминание", "Mentioned"),
       channelLabel: channelName,
     };
   }
@@ -334,12 +323,8 @@ export function getInboxTypeLabel(item: InboxItem): InboxTypeLabel {
   if (primaryCategory === "needs_action") {
     return {
       text: channelName
-        ? russian
-          ? "Нужны действия в"
-          : "Needs action in"
-        : russian
-          ? "Нужны действия"
-          : "Needs action",
+        ? localePair("Нужны действия в", "Needs action in")
+        : localePair("Нужны действия", "Needs action"),
       channelLabel: channelName,
     };
   }
@@ -347,12 +332,8 @@ export function getInboxTypeLabel(item: InboxItem): InboxTypeLabel {
   if (isThreadActivityItem(item.item)) {
     return {
       text: channelName
-        ? russian
-          ? "Обсуждение в"
-          : "Thread in"
-        : russian
-          ? "Обсуждение"
-          : "Thread",
+        ? localePair("Обсуждение в", "Thread in")
+        : localePair("Обсуждение", "Thread"),
       channelLabel: channelName,
     };
   }
@@ -480,7 +461,7 @@ function formatInboxTimestamp(unixSeconds: number) {
   }
 
   if (dayDiff === 1) {
-    return inboxLocale() === "ru-RU" ? "Вчера" : "Yesterday";
+    return localePair("Вчера", "Yesterday");
   }
 
   if (now.getFullYear() === date.getFullYear()) {
@@ -525,13 +506,9 @@ export function groupInboxItems(items: InboxItem[]): InboxGroup[] {
     const dayDiff = diffInDays(now, date);
     const label =
       dayDiff === 0
-        ? inboxLocale() === "ru-RU"
-          ? "Сегодня"
-          : "Today"
+        ? localePair("Сегодня", "Today")
         : dayDiff === 1
-          ? inboxLocale() === "ru-RU"
-            ? "Вчера"
-            : "Yesterday"
+          ? localePair("Вчера", "Yesterday")
           : dayDiff < 7
             ? inboxDateFormatter({ weekday: "long" }).format(date)
             : inboxDateFormatter({

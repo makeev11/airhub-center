@@ -1,4 +1,8 @@
-import { useMessengerCopy, messageText } from "@/shared/locale/messengerCopy";
+import {
+  useMessengerCopy,
+  messageText,
+  localePair,
+} from "@/shared/locale/messengerCopy";
 import * as React from "react";
 import { Bot, Sparkles, UserPlus } from "lucide-react";
 import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
@@ -38,7 +42,7 @@ export function useChannelIntro({
   onOpenMembers?: () => void;
   onWelcomeAddAgent?: () => void;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
   const m = useMessengerCopy();
   return React.useMemo(() => {
     if (!activeChannel || activeChannel.channelType === "dm") {
@@ -51,16 +55,23 @@ export function useChannelIntro({
         actions,
         beginning: m("This is the beginning of your private welcome channel."),
         channelKindLabel: isWelcomeChannel(activeChannel)
-          ? isRussian
-            ? "закрытого приветственного канала"
-            : "private welcome channel"
+          ? localePair(
+              "закрытого приветственного канала",
+              "private welcome channel",
+            )
           : getChannelIntroKind(activeChannel),
         channelName: activeChannel.name,
-        description: isRussian
-          ? "Здесь вы познакомитесь с командой центра. Физ, администратор, аналитик и контент-маркетолог расскажут, с чем могут помочь."
-          : "Meet your center’s team: Fizz, the administrator, analyst and content marketer will explain how they can help.",
+        description: localePair(
+          "Здесь вы познакомитесь с командой центра. Физ, администратор, аналитик и контент-маркетолог расскажут, с чем могут помочь.",
+          "Meet your center’s team: Fizz, the administrator, analyst and content marketer will explain how they can help.",
+        ),
         icon: <Sparkles aria-hidden className="h-7 w-7" />,
-        leadIn: isRussian ? "Это начало" : undefined,
+        leadIn:
+          locale === "ru-RU"
+            ? "Это начало"
+            : locale === "pt-BR"
+              ? "Este é o início"
+              : undefined,
       };
     }
 
@@ -97,5 +108,5 @@ export function useChannelIntro({
       channelName: activeChannel.name,
       description: getChannelIntroDescription(activeChannel),
     };
-  }, [activeChannel, m, isRussian, onAddAgent, onOpenMembers]);
+  }, [activeChannel, m, locale, onAddAgent, onOpenMembers]);
 }

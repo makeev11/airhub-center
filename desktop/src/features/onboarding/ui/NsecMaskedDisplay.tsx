@@ -1,6 +1,5 @@
 import { Check, Copy, Eye, EyeOff, MoreHorizontal } from "lucide-react";
 import * as React from "react";
-import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Button } from "@/shared/ui/button";
 import {
   copyTextToClipboard,
@@ -12,6 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 type NsecAction = {
   icon?: React.ReactNode;
@@ -52,7 +52,6 @@ export function NsecMaskedDisplay({
   onKeyInteraction,
   actions,
 }: NsecMaskedDisplayProps) {
-  const russian = useAirHopLocale() === "ru-RU";
   const [isRevealed, setIsRevealed] = React.useState(false);
   const [isCopied, setIsCopied] = React.useState(false);
   const copyTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -135,12 +134,8 @@ export function NsecMaskedDisplay({
           <Button
             aria-label={
               isRevealed
-                ? russian
-                  ? "Скрыть секретный ключ"
-                  : "Hide private key"
-                : russian
-                  ? "Показать секретный ключ"
-                  : "Reveal private key"
+                ? localePair("Скрыть секретный ключ", "Hide private key")
+                : localePair("Показать секретный ключ", "Reveal private key")
             }
             className={`${isBare ? "h-10 w-10" : "h-7 w-7"} text-muted-foreground hover:text-foreground`}
             data-testid="nsec-reveal-toggle"
@@ -159,11 +154,10 @@ export function NsecMaskedDisplay({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
-                  aria-label={
-                    russian
-                      ? "Действия с секретным ключом"
-                      : "Private key actions"
-                  }
+                  aria-label={localePair(
+                    "Действия с секретным ключом",
+                    "Private key actions",
+                  )}
                   className={`${isBare ? "h-10 w-10" : "h-7 w-7"} text-muted-foreground hover:text-foreground`}
                   data-testid="nsec-actions"
                   size="icon"
@@ -179,7 +173,7 @@ export function NsecMaskedDisplay({
                   onSelect={handleMenuCopy}
                 >
                   <Copy aria-hidden="true" />
-                  {russian ? "Скопировать" : "Copy"}
+                  {localePair("Скопировать", "Copy")}
                 </DropdownMenuItem>
                 {actions.map((action) => (
                   <DropdownMenuItem
@@ -195,9 +189,10 @@ export function NsecMaskedDisplay({
             </DropdownMenu>
           ) : (
             <Button
-              aria-label={
-                russian ? "Скопировать секретный ключ" : "Copy private key"
-              }
+              aria-label={localePair(
+                "Скопировать секретный ключ",
+                "Copy private key",
+              )}
               className={`${isBare ? "h-10 w-10" : "h-7 w-7"} text-muted-foreground hover:text-foreground`}
               data-testid="nsec-copy"
               onClick={() => void handleCopy()}

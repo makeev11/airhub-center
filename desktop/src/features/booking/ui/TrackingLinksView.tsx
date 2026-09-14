@@ -11,6 +11,7 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
+import { localizeCopyTree } from "@/shared/locale/messengerCopy";
 
 const SOURCES: TrackingLinkSource[] = [
   "yandex_maps",
@@ -54,34 +55,37 @@ function copy(locale: string) {
         },
         goalLabel: { site: "Сайт", booking: "Запись", contact: "Контакт" },
       }
-    : {
-        title: "New tracked link",
-        hint: "Create a link for a map listing, QR code, or campaign. Visits and outcomes are attributed automatically.",
-        name: "Name",
-        namePlaceholder: "For example, Google Maps — Downtown",
-        source: "Source",
-        goal: "Goal",
-        destination: "Destination",
-        create: "Create link",
-        creating: "Creating…",
-        failed: "Could not create the link. Check the fields and try again.",
-        list: "Ready links",
-        empty: "There are no tracked links yet.",
-        copied: "Copied",
-        copy: "Copy",
-        opens: "visits",
-        bookings: "bookings",
-        contacts: "contacts",
-        sourceLabel: {
-          yandex_maps: "Yandex Maps",
-          google_maps: "Google Maps",
-          two_gis: "2GIS",
-          qr: "QR code",
-          campaign: "Campaign",
-          custom: "Other",
+    : localizeCopyTree(
+        {
+          title: "New tracked link",
+          hint: "Create a link for a map listing, QR code, or campaign. Visits and outcomes are attributed automatically.",
+          name: "Name",
+          namePlaceholder: "For example, Google Maps — Downtown",
+          source: "Source",
+          goal: "Goal",
+          destination: "Destination",
+          create: "Create link",
+          creating: "Creating…",
+          failed: "Could not create the link. Check the fields and try again.",
+          list: "Ready links",
+          empty: "There are no tracked links yet.",
+          copied: "Copied",
+          copy: "Copy",
+          opens: "visits",
+          bookings: "bookings",
+          contacts: "contacts",
+          sourceLabel: {
+            yandex_maps: "Yandex Maps",
+            google_maps: "Google Maps",
+            two_gis: "2GIS",
+            qr: "QR code",
+            campaign: "Campaign",
+            custom: "Other",
+          },
+          goalLabel: { site: "Site", booking: "Booking", contact: "Contact" },
         },
-        goalLabel: { site: "Site", booking: "Booking", contact: "Contact" },
-      };
+        locale.toLowerCase().startsWith("pt") ? "pt-BR" : "en-US",
+      );
 }
 
 export function TrackingLinksView({

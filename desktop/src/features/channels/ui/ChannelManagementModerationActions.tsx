@@ -1,4 +1,8 @@
-import { messageError, messageText } from "@/shared/locale/messengerCopy";
+import {
+  messageError,
+  messageText,
+  localePair,
+} from "@/shared/locale/messengerCopy";
 import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 
@@ -105,7 +109,6 @@ export function ChannelDeleteConfirmationDialog({
   open,
   trigger,
 }: ChannelDeleteConfirmationDialogProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   return (
     <AlertDialog onOpenChange={onOpenChange} open={open}>
       {trigger ? (
@@ -115,9 +118,10 @@ export function ChannelDeleteConfirmationDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{messageText("Delete channel?")}</AlertDialogTitle>
           <AlertDialogDescription>
-            {isRussian
-              ? `Канал «${channelName}» будет удалён из Центра. Это действие нельзя отменить.`
-              : `Delete ${channelName} from the Center. This action cannot be undone.`}
+            {localePair(
+              `Канал «${channelName}» будет удалён из Центра. Это действие нельзя отменить.`,
+              `Delete ${channelName} from the Center. This action cannot be undone.`,
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error instanceof Error ? (

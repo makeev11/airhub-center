@@ -12,7 +12,11 @@ import {
 
 export const ACTIVATION_LOCALES = AIRHOP_LOCALES;
 export type ActivationLocale = AirHopLocale;
-export const AVAILABLE_ACTIVATION_LOCALES = ["en-US", "ru-RU"] as const;
+export const AVAILABLE_ACTIVATION_LOCALES = [
+  "en-US",
+  "ru-RU",
+  "pt-BR",
+] as const;
 export const ACTIVATION_LOCALE_STORAGE_KEY = AIRHOP_LOCALE_STORAGE_KEY;
 export const ACTIVATION_LOCALE_CHANGED_EVENT = AIRHOP_LOCALE_CHANGE_EVENT;
 

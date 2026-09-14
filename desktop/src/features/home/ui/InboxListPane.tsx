@@ -42,6 +42,11 @@ import { Switch } from "@/shared/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { VirtualizedList } from "@/shared/ui/VirtualizedList";
+import {
+  localePair,
+  localizeCopyTree,
+  messageText,
+} from "@/shared/locale/messengerCopy";
 
 const INBOX_EMPTY_STATE_TITLES: Record<InboxFilter, string> = {
   all: "No activity yet",
@@ -129,28 +134,35 @@ function InboxLabel({
   );
 }
 
-function formatReminderStatus(notBefore: number | undefined, russian: boolean) {
-  if (notBefore === undefined) return russian ? "Ожидает" : "Pending";
+function formatReminderStatus(
+  notBefore: number | undefined,
+  _russian: boolean,
+) {
+  if (notBefore === undefined) return localePair("Ожидает", "Pending");
   const secondsUntil = notBefore - Math.floor(Date.now() / 1_000);
-  if (secondsUntil <= 0) return russian ? "Пора напомнить" : "Reminder due";
+  if (secondsUntil <= 0) return localePair("Пора напомнить", "Reminder due");
   if (secondsUntil < 60) {
-    return russian
-      ? "Меньше чем через минуту"
-      : "Reminder in less than a minute";
+    return localePair(
+      "Меньше чем через минуту",
+      "Reminder in less than a minute",
+    );
   }
   if (secondsUntil < 3_600) {
-    return russian
-      ? `Через ${Math.floor(secondsUntil / 60)} мин`
-      : `Reminder in ${Math.floor(secondsUntil / 60)}m`;
+    return localePair(
+      `Через ${Math.floor(secondsUntil / 60)} мин`,
+      `Reminder in ${Math.floor(secondsUntil / 60)}m`,
+    );
   }
   if (secondsUntil < 86_400) {
-    return russian
-      ? `Через ${Math.floor(secondsUntil / 3_600)} ч`
-      : `Reminder in ${Math.floor(secondsUntil / 3_600)}h`;
+    return localePair(
+      `Через ${Math.floor(secondsUntil / 3_600)} ч`,
+      `Reminder in ${Math.floor(secondsUntil / 3_600)}h`,
+    );
   }
-  return russian
-    ? `Через ${Math.floor(secondsUntil / 86_400)} дн`
-    : `Reminder in ${Math.floor(secondsUntil / 86_400)}d`;
+  return localePair(
+    `Через ${Math.floor(secondsUntil / 86_400)} дн`,
+    `Reminder in ${Math.floor(secondsUntil / 86_400)}d`,
+  );
 }
 
 function PersonalItemRow({
@@ -261,7 +273,8 @@ export function InboxListPane({
   selectedReminderId,
   unreadOnly,
 }: InboxListPaneProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   const copy = isRussian
     ? {
         reminder: "Напоминание",
@@ -278,21 +291,24 @@ export function InboxListPane({
         unreadOnly: "Только непрочитанные",
         markAllRead: "Отметить всё прочитанным",
       }
-    : {
-        reminder: "Reminder",
-        unread: "unread",
-        reminderDue: "Reminder due",
-        markUnread: "Mark unread",
-        markRead: "Mark as read",
-        openChannel: "Open in channel",
-        noChannel: "No channel link",
-        reminderSet: "Reminder set",
-        remindLater: "Remind me later",
-        cannotRemind: "Cannot remind without a channel",
-        options: "Inbox options",
-        unreadOnly: "Show unread only",
-        markAllRead: "Mark all as read",
-      };
+    : localizeCopyTree(
+        {
+          reminder: "Reminder",
+          unread: "unread",
+          reminderDue: "Reminder due",
+          markUnread: "Mark unread",
+          markRead: "Mark as read",
+          openChannel: "Open in channel",
+          noChannel: "No channel link",
+          reminderSet: "Reminder set",
+          remindLater: "Remind me later",
+          cannotRemind: "Cannot remind without a channel",
+          options: "Inbox options",
+          unreadOnly: "Show unread only",
+          markAllRead: "Mark all as read",
+        },
+        locale,
+      );
   const isReminders = filter === "reminders";
   const isDrafts = filter === "drafts";
   const isMixedInboxView = filter === "all";
@@ -368,11 +384,10 @@ export function InboxListPane({
         }
       >
         <button
-          aria-label={
-            isRussian
-              ? `Открыть входящее от ${item.senderLabel}`
-              : `Open inbox item from ${item.senderLabel}`
-          }
+          aria-label={localePair(
+            `Открыть входящее от ${item.senderLabel}`,
+            `Open inbox item from ${item.senderLabel}`,
+          )}
           className="absolute inset-0 z-0 block w-full border-l border-l-transparent text-left"
           onClick={() => onSelect(item.id)}
           type="button"
@@ -697,13 +712,14 @@ export function InboxListPane({
                       source?.channel
                         ? source.channel.channelType === "dm"
                           ? {
-                              text: isRussian
-                                ? `В личной переписке с ${source.channelLabel}`
-                                : `In DM with ${source.channelLabel}`,
+                              text: localePair(
+                                `В личной переписке с ${source.channelLabel}`,
+                                `In DM with ${source.channelLabel}`,
+                              ),
                               channelLabel: null,
                             }
                           : {
-                              text: isRussian ? "В" : "In",
+                              text: localePair("В", "In"),
                               channelLabel: source.channelLabel,
                             }
                         : null
@@ -734,23 +750,34 @@ export function InboxListPane({
                   {unreadOnly
                     ? isRussian
                       ? RU_INBOX_UNREAD_EMPTY_STATE_TITLES[filter]
-                      : INBOX_UNREAD_EMPTY_STATE_TITLES[filter]
+                      : messageText(
+                          INBOX_UNREAD_EMPTY_STATE_TITLES[filter],
+                          {},
+                          locale,
+                        )
                     : isRussian
                       ? RU_INBOX_EMPTY_STATE_TITLES[filter]
-                      : INBOX_EMPTY_STATE_TITLES[filter]}
+                      : messageText(
+                          INBOX_EMPTY_STATE_TITLES[filter],
+                          {},
+                          locale,
+                        )}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {unreadOnly
-                    ? isRussian
-                      ? "Отключите фильтр непрочитанных, чтобы увидеть остальные действия."
-                      : "Turn off Show unread only to see read activity."
+                    ? localePair(
+                        "Отключите фильтр непрочитанных, чтобы увидеть остальные действия.",
+                        "Turn off Show unread only to see read activity.",
+                      )
                     : filter === "all"
-                      ? isRussian
-                        ? "Новые действия появятся здесь."
-                        : "New activity will appear here."
-                      : isRussian
-                        ? "Вернитесь к фильтру «Все», чтобы увидеть остальные действия."
-                        : "Switch back to All to see other activity."}
+                      ? localePair(
+                          "Новые действия появятся здесь.",
+                          "New activity will appear here.",
+                        )
+                      : localePair(
+                          "Вернитесь к фильтру «Все», чтобы увидеть остальные действия.",
+                          "Switch back to All to see other activity.",
+                        )}
                 </p>
               </div>
             </div>

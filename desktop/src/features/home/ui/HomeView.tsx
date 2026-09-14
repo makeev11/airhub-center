@@ -1,7 +1,6 @@
 import * as React from "react";
 import { RefreshCcw } from "lucide-react";
 
-import { useAirHopLocale } from "@/features/activation/useAirHopLocale";
 import { useAppShell } from "@/app/AppShellContext";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
@@ -71,6 +70,7 @@ import { AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX } from "@/shared/layout/Aux
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
 import { Button } from "@/shared/ui/button";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 const INBOX_SEARCH_KEYS = [
   "item",
@@ -102,7 +102,6 @@ export function HomeView({
   onOpenContext,
   onRefresh,
 }: HomeViewProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const relaySelfPubkey = useRelaySelfQuery().data;
   const [homeInboxRef, homeInboxWidthPx] = useElementWidth<HTMLDivElement>();
   const isNarrowHomeViewport =
@@ -558,9 +557,10 @@ export function HomeView({
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
               {errorMessage ??
-                (isRussian
-                  ? "Центр не вернул данные ленты."
-                  : "The Center did not return a feed response.")}
+                localePair(
+                  "Центр не вернул данные ленты.",
+                  "The Center did not return a feed response.",
+                )}
             </p>
             <Button className="mt-5" onClick={onRefresh} type="button">
               <RefreshCcw className="h-4 w-4" />
@@ -583,13 +583,15 @@ export function HomeView({
   const canReact = capabilities.canReact && !contextReadOnly;
   const canReply = capabilities.canReply && !contextReadOnly;
   const disabledReplyReason = contextReadOnly
-    ? isRussian
-      ? threadContext.isCheckingAvailability
-        ? "Проверяем доступность обсуждения…"
-        : "Ответ в недоступное обсуждение невозможен."
-      : threadContext.isCheckingAvailability
-        ? "Checking discussion availability..."
-        : "Replies to this discussion are unavailable."
+    ? threadContext.isCheckingAvailability
+      ? localePair(
+          "Проверяем доступность обсуждения…",
+          "Checking discussion availability...",
+        )
+      : localePair(
+          "Ответ в недоступное обсуждение невозможен.",
+          "Replies to this discussion are unavailable.",
+        )
     : capabilities.disabledReplyReason;
   const detailMode = isDrafts
     ? "drafts"
@@ -732,11 +734,10 @@ export function HomeView({
           ) : null}
 
           <button
-            aria-label={
-              isRussian
-                ? "Изменить ширину списка входящих"
-                : "Resize inbox list"
-            }
+            aria-label={localePair(
+              "Изменить ширину списка входящих",
+              "Resize inbox list",
+            )}
             className={cn(
               "group absolute bottom-0 z-40 w-3 -translate-x-1/2 cursor-col-resize",
               topChromeInset.top,
@@ -750,12 +751,14 @@ export function HomeView({
             style={{ left: `${effectiveInboxListWidthPx}px` }}
             title={
               canResetInboxListWidth
-                ? isRussian
-                  ? "Перетащите, чтобы изменить ширину. Двойной щелчок сбросит её."
-                  : "Drag to resize. Double-click to reset width."
-                : isRussian
-                  ? "Перетащите, чтобы изменить ширину."
-                  : "Drag to resize."
+                ? localePair(
+                    "Перетащите, чтобы изменить ширину. Двойной щелчок сбросит её.",
+                    "Drag to resize. Double-click to reset width.",
+                  )
+                : localePair(
+                    "Перетащите, чтобы изменить ширину.",
+                    "Drag to resize.",
+                  )
             }
             type="button"
           >

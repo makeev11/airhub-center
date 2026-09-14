@@ -2,7 +2,7 @@ import {
   useAirhopPrincipalDirectory,
   humanMembers,
 } from "@/features/airhop-agents/data/principalDirectory";
-import { useMessengerCopy } from "@/shared/locale/messengerCopy";
+import { useMessengerCopy, localePair } from "@/shared/locale/messengerCopy";
 import { Crown, MoreHorizontal, Search, Shield } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import * as React from "react";
@@ -39,7 +39,7 @@ import { CommunityInviteDialog } from "./CommunityInviteDialog";
 function formatDisplayName(
   member: RelayMember,
   displayName: string | null | undefined,
-  russian: boolean,
+  _russian: boolean,
 ) {
   const trimmedDisplayName = displayName?.trim();
   if (
@@ -49,12 +49,8 @@ function formatDisplayName(
     return trimmedDisplayName;
   }
   return member.role === "owner"
-    ? russian
-      ? "Владелец центра"
-      : "Community owner"
-    : russian
-      ? "Профиль не заполнен"
-      : "Unnamed member";
+    ? localePair("Владелец центра", "Community owner")
+    : localePair("Профиль не заполнен", "Unnamed member");
 }
 
 function npubFromPubkey(pubkey: string): string | null {
@@ -142,16 +138,10 @@ function RelayMemberRow({
   );
   const roleLabel =
     member.role === "owner"
-      ? isRussian
-        ? "Владелец"
-        : "Owner"
+      ? localePair("Владелец", "Owner")
       : member.role === "admin"
-        ? isRussian
-          ? "Администратор"
-          : "Admin"
-        : isRussian
-          ? "Сотрудник"
-          : "Member";
+        ? localePair("Администратор", "Admin")
+        : localePair("Сотрудник", "Member");
 
   async function mutateWithToast(
     action: () => Promise<unknown>,
@@ -164,9 +154,10 @@ function RelayMemberRow({
       toast.error(
         error instanceof Error
           ? error.message
-          : isRussian
-            ? "Не удалось изменить данные сотрудника."
-            : "Couldn’t update this community member.",
+          : localePair(
+              "Не удалось изменить данные сотрудника.",
+              "Couldn’t update this community member.",
+            ),
       );
     }
   }
@@ -178,11 +169,10 @@ function RelayMemberRow({
     >
       <UserProfilePopover
         pubkey={member.pubkey}
-        triggerAriaLabel={
-          isRussian
-            ? `Открыть профиль: ${displayName}`
-            : `Open profile for ${displayName}`
-        }
+        triggerAriaLabel={localePair(
+          `Открыть профиль: ${displayName}`,
+          `Open profile for ${displayName}`,
+        )}
         triggerElement="span"
       >
         <ProfileAvatar
@@ -210,7 +200,7 @@ function RelayMemberRow({
             ·
           </span>
           <span className="shrink-0">
-            {isRussian ? "Добавлен" : "Added"}{" "}
+            {localePair("Добавлен", "Added")}{" "}
             {formatDate(member.createdAt, locale)}
           </span>
           {isSelf ? (
@@ -218,7 +208,7 @@ function RelayMemberRow({
               <span aria-hidden="true" className="shrink-0">
                 ·
               </span>
-              <span className="shrink-0">{isRussian ? "Вы" : "You"}</span>
+              <span className="shrink-0">{localePair("Вы", "You")}</span>
             </>
           ) : null}
         </div>
@@ -228,11 +218,10 @@ function RelayMemberRow({
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button
-              aria-label={
-                isRussian
-                  ? `Действия: ${displayName}`
-                  : `Actions for ${displayName}`
-              }
+              aria-label={localePair(
+                `Действия: ${displayName}`,
+                `Actions for ${displayName}`,
+              )}
               data-testid={`relay-member-actions-${member.pubkey}`}
               disabled={isBusy}
               size="icon"
@@ -251,13 +240,14 @@ function RelayMemberRow({
                         pubkey: member.pubkey,
                         role: "admin",
                       }),
-                    isRussian
-                      ? "Назначен администратором"
-                      : "Made community admin",
+                    localePair(
+                      "Назначен администратором",
+                      "Made community admin",
+                    ),
                   )
                 }
               >
-                {isRussian ? "Сделать администратором" : "Make admin"}
+                {localePair("Сделать администратором", "Make admin")}
               </DropdownMenuItem>
             ) : null}
             {canDemote ? (
@@ -269,13 +259,11 @@ function RelayMemberRow({
                         pubkey: member.pubkey,
                         role: "member",
                       }),
-                    isRussian
-                      ? "Назначен сотрудником"
-                      : "Made community member",
+                    localePair("Назначен сотрудником", "Made community member"),
                   )
                 }
               >
-                {isRussian ? "Сделать сотрудником" : "Make member"}
+                {localePair("Сделать сотрудником", "Make member")}
               </DropdownMenuItem>
             ) : null}
             {canRemove && (canPromote || canDemote) ? (
@@ -290,11 +278,11 @@ function RelayMemberRow({
               onClick={() =>
                 void mutateWithToast(
                   () => removeMutation.mutateAsync(member.pubkey),
-                  isRussian ? "Сотрудник удалён" : "Removed community member",
+                  localePair("Сотрудник удалён", "Removed community member"),
                 )
               }
             >
-              {isRussian ? "Удалить из центра" : "Remove from community"}
+              {localePair("Удалить из центра", "Remove from community")}
             </DropdownMenuItem>
             {removeReason ? (
               <p
@@ -316,7 +304,6 @@ export function CommunityMembersSettingsCard({
 }: {
   currentPubkey?: string;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const m = useMessengerCopy();
   const myMembershipQuery = useMyRelayMembershipLookupQuery();
   const currentRole = myMembershipQuery.data?.membership?.role ?? null;
@@ -363,9 +350,10 @@ export function CommunityMembersSettingsCard({
     return (
       <section className="min-w-0" data-testid="settings-community-members">
         <p className="text-sm text-muted-foreground">
-          {isRussian
-            ? "Проверяем права на приглашения…"
-            : "Checking invite permissions…"}
+          {localePair(
+            "Проверяем права на приглашения…",
+            "Checking invite permissions…",
+          )}
         </p>
       </section>
     );
@@ -383,15 +371,14 @@ export function CommunityMembersSettingsCard({
             data-testid="community-invite-dialog-trigger"
             onClick={() => setInviteDialogOpen(true)}
           >
-            {isRussian ? "Пригласить сотрудника" : "Invite to community"}
+            {localePair("Пригласить сотрудника", "Invite to community")}
           </Button>
         }
-        title={isRussian ? "Сотрудники" : "Employees"}
-        description={
-          isRussian
-            ? "Управляйте сотрудниками и их доступом к центру."
-            : "Manage employees and their access to the center."
-        }
+        title={localePair("Сотрудники", "Employees")}
+        description={localePair(
+          "Управляйте сотрудниками и их доступом к центру.",
+          "Manage employees and their access to the center.",
+        )}
       />
 
       {directory.isLoading ? (
@@ -410,7 +397,7 @@ export function CommunityMembersSettingsCard({
         <div className="space-y-3 p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-medium">
-              {isRussian ? "Сотрудники" : "Employees"}
+              {localePair("Сотрудники", "Employees")}
               {members.length > 0 ? (
                 <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                   {members.length}
@@ -427,7 +414,7 @@ export function CommunityMembersSettingsCard({
               className="w-full rounded-lg border border-border/70 bg-background py-2 pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               data-testid="community-members-search"
               onChange={(event) => setSearch(event.target.value)}
-              placeholder={isRussian ? "Найти сотрудника" : "Search employees"}
+              placeholder={localePair("Найти сотрудника", "Search employees")}
               spellCheck={false}
               type="text"
               value={search}
@@ -442,17 +429,18 @@ export function CommunityMembersSettingsCard({
 
           {membersQuery.isLoading ? (
             <p className="py-3 text-sm text-muted-foreground">
-              {isRussian ? "Загружаем сотрудников…" : "Loading employees…"}
+              {localePair("Загружаем сотрудников…", "Loading employees…")}
             </p>
           ) : members.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/70 px-3 py-6 text-center text-sm text-muted-foreground">
-              {isRussian ? "Сотрудников пока нет." : "No employees yet."}
+              {localePair("Сотрудников пока нет.", "No employees yet.")}
             </p>
           ) : filteredMembers.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/70 px-3 py-6 text-center text-sm text-muted-foreground">
-              {isRussian
-                ? "По вашему запросу ничего не найдено."
-                : "No employees match your search."}
+              {localePair(
+                "По вашему запросу ничего не найдено.",
+                "No employees match your search.",
+              )}
             </p>
           ) : (
             <VirtualizedList

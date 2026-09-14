@@ -167,6 +167,7 @@ class WhatsAppSettings:
     relay_url: str
     connection_id: UUID
     state_path: Path
+    credential_version: int = 1
     heartbeat_seconds: float = 30.0
     claim_interval_seconds: float = 1.0
     inbound_interval_seconds: float = 0.2
@@ -185,8 +186,11 @@ class WhatsAppSettings:
         *,
         connection_id: UUID,
         state_path: Path,
+        credential_version: int = 1,
     ) -> "WhatsAppSettings":
         env = dict(os.environ if source is None else source)
+        if credential_version <= 0:
+            raise ValueError("WhatsApp credential version must be positive")
         probe = Settings.from_env(
             env,
             connection_id=connection_id,
@@ -197,6 +201,7 @@ class WhatsAppSettings:
             relay_url=probe.relay_url,
             connection_id=connection_id,
             state_path=state_path,
+            credential_version=credential_version,
             heartbeat_seconds=probe.heartbeat_seconds,
             claim_interval_seconds=probe.claim_interval_seconds,
             inbound_interval_seconds=probe.inbound_interval_seconds,

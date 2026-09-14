@@ -344,6 +344,20 @@ class AirHopGatewayClient:
             raise GatewayHttpError(502, "AirHop gateway returned invalid outbound jobs")
         return [job for job in jobs if isinstance(job, dict)]
 
+    async def complete_accepted(self, *, outbox_id: str, lease_token: str, provider_message_id: str) -> dict[str, Any]:
+        return await self._post(
+            f"/api/airhop/integrations/v1/channel-gateway/outbound/{outbox_id}/complete",
+            {"status": "accepted", "leaseToken": lease_token, "providerMessageId": provider_message_id},
+        )
+
+    async def whatsapp_status(self, receipt: dict[str, Any]) -> bool:
+        connection_id = self._required_connection_id()
+        result = await self._post(
+            f"/api/airhop/integrations/v1/channel-gateway/connections/{connection_id}/whatsapp-status",
+            receipt,
+        )
+        return result.get("recorded") is True
+
     async def complete_delivered(
         self, *, outbox_id: str, lease_token: str, provider_message_id: str | None
     ) -> dict[str, Any]:

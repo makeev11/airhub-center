@@ -78,6 +78,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/shared/ui/sidebar";
+import { localePair, localizeCopyTree } from "@/shared/locale/messengerCopy";
 
 type AppSidebarProps = {
   addCommunityPrefill?: AddCommunityPrefillRequest | null;
@@ -217,7 +218,8 @@ export function AppSidebar({
   onStarChannel,
   onUnstarChannel,
 }: AppSidebarProps) {
-  const isRussian = useAirHopLocale() === "ru-RU";
+  const locale = useAirHopLocale();
+  const isRussian = locale === "ru-RU";
   const sidebarCopy = isRussian
     ? {
         browseChannels: "Найти каналы",
@@ -228,15 +230,18 @@ export function AppSidebar({
         newMessage: "Новое сообщение",
         starred: "Избранное",
       }
-    : {
-        browseChannels: "Browse channels",
-        channels: "Channels",
-        directMessages: "Direct messages",
-        forums: "Forums",
-        newForum: "New forum",
-        newMessage: "New message",
-        starred: "Starred",
-      };
+    : localizeCopyTree(
+        {
+          browseChannels: "Browse channels",
+          channels: "Channels",
+          directMessages: "Direct messages",
+          forums: "Forums",
+          newForum: "New forum",
+          newMessage: "New message",
+          starred: "Starred",
+        },
+        locale,
+      );
   const activeWorkingByChannelId = useActiveWorkingChannelsById();
   const { status: updateStatus } = useUpdaterContext();
   const canShowSidebarUpdateCard = shouldShowSidebarUpdateCard(updateStatus);
@@ -502,7 +507,7 @@ export function AppSidebar({
   const resolvedDisplayName =
     profile?.displayName?.trim() ||
     fallbackDisplayName?.trim() ||
-    (isRussian ? "Текущий профиль" : "Current identity");
+    localePair("Текущий профиль", "Current identity");
   const {
     scrollToNextAbove,
     scrollToNextBelow,

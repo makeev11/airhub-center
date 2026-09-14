@@ -119,6 +119,8 @@ impl Db {
                 'familyId',v.family_id,'representativeId',v.representative_id,'owner',v.owner,
                 'provider',c.provider,'connectionId',c.id,'connectionName',c.display_name,
                 'connectorPubkey',encode(c.connector_pubkey,'hex'),
+                'whatsappTemplates',CASE WHEN c.provider='whatsapp_cloud' AND c.status='active' AND (CASE WHEN c.observed_capabilities->>'templatesSyncedAt' ~ '^[0-9]{1,10}$' THEN (c.observed_capabilities->>'templatesSyncedAt')::bigint ELSE 0 END)>extract(epoch FROM now())-600 THEN coalesce(c.observed_capabilities->'utilityTemplates','[]'::jsonb) ELSE '[]'::jsonb END,
+                'latestDelivery',(SELECT jsonb_build_object('status',d.status,'providerStatus',d.provider_status,'errorCode',d.last_error_code) FROM airhop_external_message_outbox d WHERE d.community_id=v.community_id AND d.conversation_id=v.id ORDER BY d.created_at DESC,d.id DESC LIMIT 1),
                 'parentName',p.display_name,
                 'hermesPubkey',(SELECT encode(d.agent_pubkey,'hex') FROM airhop_agent_deployments d WHERE d.community_id=v.community_id AND d.organization_id=v.organization_id AND d.role='parent_administrator' LIMIT 1),
                 'hermesInChannel',EXISTS(SELECT 1 FROM airhop_agent_deployments d JOIN channel_members hm ON hm.community_id=d.community_id AND hm.pubkey=d.agent_pubkey AND hm.channel_id=v.channel_id AND hm.removed_at IS NULL WHERE d.community_id=v.community_id AND d.organization_id=v.organization_id AND d.role='parent_administrator'),

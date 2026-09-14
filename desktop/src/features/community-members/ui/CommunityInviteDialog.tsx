@@ -7,12 +7,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
-import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { DirectAddMemberForm } from "./AddMemberDialog";
 import {
   DEFAULT_INVITE_TTL_SECS,
   InviteLinkSection,
 } from "./InviteLinkSection";
+import { localePair } from "@/shared/locale/messengerCopy";
 
 export function CommunityInviteDialog({
   isOwner,
@@ -23,7 +23,6 @@ export function CommunityInviteDialog({
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
-  const isRussian = useAirHopLocale() === "ru-RU";
   const [ttlSecs, setTtlSecs] = React.useState(DEFAULT_INVITE_TTL_SECS);
 
   React.useEffect(() => {
@@ -38,12 +37,13 @@ export function CommunityInviteDialog({
       >
         <DialogHeader>
           <DialogTitle>
-            {isRussian ? "Пригласить сотрудника" : "Invite employee"}
+            {localePair("Пригласить сотрудника", "Invite employee")}
           </DialogTitle>
           <DialogDescription>
-            {isRussian
-              ? "Добавьте человека напрямую или отправьте ему ссылку для входа."
-              : "Add someone directly or share a link they can use to join."}
+            {localePair(
+              "Добавьте человека напрямую или отправьте ему ссылку для входа.",
+              "Add someone directly or share a link they can use to join.",
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -51,13 +51,13 @@ export function CommunityInviteDialog({
           <DirectAddMemberForm
             isOwner={isOwner}
             showLabel={false}
-            submitLabel={isRussian ? "Пригласить" : "Invite"}
+            submitLabel={localePair("Пригласить", "Invite")}
           />
         </section>
 
         <section className="space-y-3">
           <p className="text-2xs font-medium text-secondary-foreground/75">
-            {isRussian ? "Настройки ссылки" : "Link settings"}
+            {localePair("Настройки ссылки", "Link settings")}
           </p>
           <InviteLinkSection onTtlSecsChange={setTtlSecs} ttlSecs={ttlSecs} />
         </section>
