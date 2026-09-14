@@ -781,7 +781,7 @@ pub(crate) async fn get_organization_settings(
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let path = "/api/airhop/staff/v1/settings";
-    let (tenant, _) = authenticate(&state, &headers, "GET", path, None, Access::Staff).await?;
+    let (tenant, actor) = authenticate(&state, &headers, "GET", path, None, Access::Staff).await?;
     let organization = state
         .db
         .get_airhop_organization(&tenant)
@@ -812,6 +812,11 @@ pub(crate) async fn get_organization_settings(
         false,
     );
     response["principalDirectory"] = directory;
+    response["agentPolicies"] = state
+        .db
+        .airhop_agent_policies(&tenant, &actor.to_bytes())
+        .await
+        .map_err(map_db_error)?;
     Ok(Json(response))
 }
 
@@ -3035,6 +3040,13 @@ pub(super) async fn authorize_registered_agent_read(
                 "registered Airhop agent access required",
             )
         })?;
+    let policy_role = airhop_core::agent_policy::AgentRole::parse(role.as_str())
+        .ok_or_else(|| api_error(StatusCode::FORBIDDEN, "invalid agent role"))?;
+    state
+        .db
+        .require_airhop_agent_enabled(tenant, policy_role)
+        .await
+        .map_err(map_db_error)?;
     if registered_agent_role_allows_path(role, path) {
         Ok(())
     } else {

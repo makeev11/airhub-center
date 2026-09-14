@@ -1,4 +1,4 @@
-"""Hosted multi-connection supervisor for self-service Telegram channels."""
+"""Hosted multi-connection supervisor for official provider channels."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any
 from uuid import UUID
 
 from .client import AirHopGatewayClient, GatewayAssignment
-from .config import Settings, _bounded_float
+from .config import Settings, _bounded_float, _bounded_int
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +22,11 @@ class SupervisorSettings:
     relay_url: str
     connector_secret_key: str = field(repr=False)
     state_root: Path = Path("/var/lib/airhop-channel-gateway/connections")
-    sync_seconds: float = 15.0
+    sync_seconds: float = 5.0
     http_timeout_seconds: float = 15.0
+    whatsapp_webhook_host: str = "0.0.0.0"
+    whatsapp_webhook_port: int = 8443
+    whatsapp_webhook_max_body_bytes: int = 1024 * 1024
 
     @classmethod
     def from_env(
@@ -40,6 +43,15 @@ class SupervisorSettings:
             raise ValueError("AIRHOP_GATEWAY_STATE_ROOT must be absolute")
         if env.get("TELEGRAM_WEBHOOK_URL", "").strip():
             raise ValueError("hosted Telegram supervisor currently requires polling mode")
+        whatsapp_webhook_host = env.get(
+            "AIRHOP_WHATSAPP_WEBHOOK_HOST", "0.0.0.0"
+        ).strip()
+        if (
+            not whatsapp_webhook_host
+            or len(whatsapp_webhook_host) > 255
+            or any(character.isspace() for character in whatsapp_webhook_host)
+        ):
+            raise ValueError("AIRHOP_WHATSAPP_WEBHOOK_HOST is invalid")
 
         # Reuse the single-connection parser as the validation authority for
         # relay URL, connector key, timing bounds, and all runtime defaults.
@@ -54,9 +66,20 @@ class SupervisorSettings:
             connector_secret_key=probe.connector_secret_key,
             state_root=state_root,
             sync_seconds=_bounded_float(
-                env, "AIRHOP_ASSIGNMENT_SYNC_SECONDS", 15.0, 5.0, 300.0
+                env, "AIRHOP_ASSIGNMENT_SYNC_SECONDS", 5.0, 1.0, 300.0
             ),
             http_timeout_seconds=probe.http_timeout_seconds,
+            whatsapp_webhook_host=whatsapp_webhook_host,
+            whatsapp_webhook_port=_bounded_int(
+                env, "AIRHOP_WHATSAPP_WEBHOOK_PORT", 8443, 1, 65_535
+            ),
+            whatsapp_webhook_max_body_bytes=_bounded_int(
+                env,
+                "AIRHOP_WHATSAPP_WEBHOOK_MAX_BODY_BYTES",
+                1024 * 1024,
+                1024,
+                4 * 1024 * 1024,
+            ),
         )
 
 
@@ -64,7 +87,7 @@ RuntimeFactory = Callable[[GatewayAssignment], Awaitable[Any]]
 
 
 class GatewaySupervisor:
-    """Reconciles Relay assignments into isolated Telegram runtime tasks."""
+    """Reconciles Relay assignments into isolated provider runtime tasks."""
 
     def __init__(
         self,
@@ -76,7 +99,9 @@ class GatewaySupervisor:
         self.settings = settings
         self.control_client = control_client
         self.runtime_factory = runtime_factory
-        self._tasks: dict[UUID, tuple[asyncio.Event, asyncio.Task[None]]] = {}
+        self._tasks: dict[
+            UUID, tuple[GatewayAssignment, asyncio.Event, asyncio.Task[None]]
+        ] = {}
 
     async def run(self, stop_event: asyncio.Event) -> None:
         try:
@@ -88,7 +113,7 @@ class GatewaySupervisor:
             await self.control_client.close()
 
     async def _reconcile(self) -> None:
-        for connection_id, (_, task) in list(self._tasks.items()):
+        for connection_id, (_, _, task) in list(self._tasks.items()):
             if task.done():
                 self._tasks.pop(connection_id, None)
                 try:
@@ -97,7 +122,7 @@ class GatewaySupervisor:
                     pass
                 except Exception:
                     logger.exception(
-                        "Telegram connection runtime stopped unexpectedly",
+                        "Provider connection runtime stopped unexpectedly",
                         extra={"connection_id": str(connection_id)},
                     )
 
@@ -109,17 +134,22 @@ class GatewaySupervisor:
         desired = {
             assignment.connection_id: assignment
             for assignment in assignments
-            if assignment.provider == "telegram" and assignment.status == "active"
+            if assignment.provider in {"telegram", "whatsapp_cloud"}
+            and assignment.status == "active"
         }
 
         for connection_id in set(self._tasks) - set(desired):
             await self._stop(connection_id)
         for connection_id, assignment in desired.items():
-            if connection_id in self._tasks:
-                continue
+            current = self._tasks.get(connection_id)
+            if current is not None:
+                current_assignment, _, _ = current
+                if current_assignment == assignment:
+                    continue
+                await self._stop(connection_id)
             child_stop = asyncio.Event()
             task = asyncio.create_task(self._run_assignment(assignment, child_stop))
-            self._tasks[connection_id] = (child_stop, task)
+            self._tasks[connection_id] = (assignment, child_stop, task)
 
     async def _run_assignment(
         self, assignment: GatewayAssignment, stop_event: asyncio.Event
@@ -131,15 +161,15 @@ class GatewaySupervisor:
         current = self._tasks.pop(connection_id, None)
         if current is None:
             return
-        stop_event, task = current
+        _, stop_event, task = current
         stop_event.set()
         await asyncio.gather(task, return_exceptions=True)
 
     async def _stop_all(self) -> None:
-        for stop_event, _ in self._tasks.values():
+        for _, stop_event, _ in self._tasks.values():
             stop_event.set()
         await asyncio.gather(
-            *(task for _, task in self._tasks.values()), return_exceptions=True
+            *(task for _, _, task in self._tasks.values()), return_exceptions=True
         )
         self._tasks.clear()
 

@@ -155,6 +155,156 @@ test("Telegram token uses only the write-only provisioning request", async () =>
   assert.doesNotMatch(JSON.stringify(result), new RegExp(token));
 });
 
+test("WhatsApp secrets use one provisioning request and activation is credential-free", async () => {
+  const appSecret = "meta-app-secret-1234567890";
+  const accessToken = "system-user-token-1234567890";
+  const calls = [];
+  const signed = [];
+  const whatsappConnection = connection({
+    provider: "whatsapp_cloud",
+    displayName: "AirHop Test",
+    observedStatus: "connecting",
+  });
+  const responses = [
+    {
+      schemaVersion: "airhop.whatsapp-cloud-connection.v1",
+      connection: whatsappConnection,
+      meta: {
+        appId: "123456789012345",
+        wabaId: "234567890123456",
+        phoneNumberId: "345678901234567",
+        displayPhoneNumber: "+55 11 99999-0000",
+        verifiedName: "AirHop Test",
+        qualityRating: "GREEN",
+      },
+      webhook: {
+        callbackUrl: `https://gateway.example/webhooks/whatsapp/${CONNECTION_ID}`,
+        verifyToken: "ab".repeat(32),
+        field: "messages",
+      },
+    },
+    {
+      schemaVersion: "airhop.whatsapp-cloud-activation.v1",
+      connectionId: CONNECTION_ID,
+      subscribed: true,
+      status: "connecting",
+    },
+  ];
+  const client = createAirhopControlPlaneClient({
+    relayHttpUrl: async () => "https://center.example",
+    nonceFactory: () => "nonce-whatsapp",
+    signEvent: async (input) => {
+      signed.push(input);
+      return { id: "event", kind: input.kind };
+    },
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify(responses.shift()), { status: 200 });
+    },
+  });
+
+  const result = await client.connectWhatsAppCloud({
+    appId: "123456789012345",
+    appSecret,
+    wabaId: "234567890123456",
+    phoneNumberId: "345678901234567",
+    accessToken,
+  });
+  await client.activateWhatsAppCloud(CONNECTION_ID);
+
+  assert.equal(result.connection.provider, "whatsapp_cloud");
+  assert.equal(
+    calls[0].url,
+    "https://center.example/api/airhop/integrations/v1/channel-connections/whatsapp-cloud",
+  );
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    appId: "123456789012345",
+    appSecret,
+    wabaId: "234567890123456",
+    phoneNumberId: "345678901234567",
+    accessToken,
+    hermesEnabled: true,
+  });
+  assert.equal(
+    calls[1].url,
+    `https://center.example/api/airhop/integrations/v1/channel-connections/${CONNECTION_ID}/whatsapp-cloud/activate`,
+  );
+  assert.deepEqual(JSON.parse(calls[1].init.body), {});
+  assert.doesNotMatch(
+    JSON.stringify(signed),
+    /meta-app-secret|system-user-token/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /meta-app-secret|system-user-token/,
+  );
+});
+
+test("WhatsApp credential rotation preserves connection identity and returns only the new webhook proof", async () => {
+  const appSecret = "replacement-meta-app-secret-1234";
+  const accessToken = "replacement-system-user-token-1234";
+  const calls = [];
+  const signed = [];
+  const client = createAirhopControlPlaneClient({
+    relayHttpUrl: async () => "https://center.example",
+    nonceFactory: () => "nonce-whatsapp-rotation",
+    signEvent: async (input) => {
+      signed.push(input);
+      return { id: "event", kind: input.kind };
+    },
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          schemaVersion: "airhop.whatsapp-cloud-credential-rotation.v1",
+          connection: connection({
+            provider: "whatsapp_cloud",
+            observedStatus: "connecting",
+            version: 2,
+          }),
+          webhook: {
+            callbackUrl: `https://hooks.airhop.com.br/webhooks/whatsapp/${CONNECTION_ID}`,
+            verifyToken: "cd".repeat(32),
+            field: "messages",
+          },
+        }),
+        { status: 200 },
+      );
+    },
+  });
+
+  const result = await client.rotateWhatsAppCloudCredential({
+    connectionId: CONNECTION_ID,
+    appId: "123456789012345",
+    appSecret,
+    accessToken,
+    expectedVersion: 1,
+  });
+
+  assert.equal(result.connection.id, CONNECTION_ID);
+  assert.equal(result.connection.version, 2);
+  assert.equal(result.webhook.field, "messages");
+  assert.equal(calls[0].init.method, "PUT");
+  assert.equal(
+    calls[0].url,
+    `https://center.example/api/airhop/integrations/v1/channel-connections/${CONNECTION_ID}/whatsapp-cloud/credential`,
+  );
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    appId: "123456789012345",
+    appSecret,
+    accessToken,
+    expectedVersion: 1,
+  });
+  assert.doesNotMatch(
+    JSON.stringify(signed),
+    /replacement-meta|replacement-system/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /replacement-meta|replacement-system/,
+  );
+});
+
 test("Hermes toggle preserves pinned deployment identity and revisions", async () => {
   const current = deployment();
   const bodies = [];
@@ -193,4 +343,104 @@ test("Hermes toggle preserves pinned deployment identity and revisions", async (
     expectedVersion: 3,
     autoConfirmOnlineBookings: true,
   });
+});
+
+function fizzPolicy() {
+  return {
+    role: "fizz",
+    version: 4,
+    policy: {
+      enabled: true,
+      birthdays: null,
+      analytics: null,
+      content: null,
+      learning: "observe",
+    },
+  };
+}
+
+test("settings retry preserves the exact signed command and its community binding", async () => {
+  const signed = [];
+  const bodies = [];
+  const client = createAirhopControlPlaneClient({
+    relayHttpUrl: async () => "https://center.example",
+    nonceFactory: () => "policy-nonce",
+    signEvent: async (input) => {
+      signed.push(input);
+      return { ...input, id: `signed-${signed.length}` };
+    },
+    fetch: async (_url, init) => {
+      bodies.push(init.body);
+      if (bodies.length === 1)
+        throw new TypeError("connection closed after commit");
+      return Response.json({
+        accepted: true,
+        message: JSON.stringify({ ...fizzPolicy(), version: 5 }),
+      });
+    },
+  });
+  const saved = await client.saveAgentPolicy(ORGANIZATION_ID, fizzPolicy());
+  assert.equal(saved.version, 5);
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[0], bodies[1]);
+  assert.equal(signed.filter((event) => event.kind === 9052).length, 1);
+  assert.deepEqual(signed[0].tags, [
+    ["airhop-community", ORGANIZATION_ID],
+    ["-"],
+    ["nonce", "policy-nonce"],
+  ]);
+  assert.equal(JSON.parse(signed[0].content).expectedVersion, 4);
+});
+
+test("settings rejection is not retried and wrong-role duties are never signed", async () => {
+  let commands = 0;
+  let requests = 0;
+  const client = createAirhopControlPlaneClient({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (input) => {
+      if (input.kind === 9052) commands += 1;
+      return input;
+    },
+    fetch: async () => {
+      requests += 1;
+      return Response.json({ accepted: false, message: "version conflict" });
+    },
+  });
+  await assert.rejects(
+    client.saveAgentPolicy(ORGANIZATION_ID, fizzPolicy()),
+    /version conflict/,
+  );
+  assert.equal(requests, 1);
+  await assert.rejects(
+    client.saveAgentPolicy(ORGANIZATION_ID, {
+      ...fizzPolicy(),
+      policy: { ...fizzPolicy().policy, content: { websiteEditing: true } },
+    }),
+    /duties do not match/,
+  );
+  assert.equal(commands, 1);
+});
+
+test("procedure rollback signs a separate private versioned command", async () => {
+  const signed = [];
+  const client = createAirhopControlPlaneClient({
+    relayHttpUrl: async () => "https://center.example",
+    signEvent: async (input) => {
+      signed.push(input);
+      return input;
+    },
+    fetch: async () => Response.json({ accepted: true, message: "{}" }),
+  });
+  await client.activateAgentProcedure(ORGANIZATION_ID, "fizz", null, 6);
+  assert.equal(signed[0].kind, 9053);
+  assert.deepEqual(JSON.parse(signed[0].content), {
+    operation: "activate",
+    role: "fizz",
+    procedureId: null,
+    expectedVersion: 6,
+  });
+  assert.deepEqual(signed[0].tags.slice(0, 2), [
+    ["airhop-community", ORGANIZATION_ID],
+    ["-"],
+  ]);
 });

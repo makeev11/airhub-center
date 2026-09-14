@@ -111,6 +111,7 @@ pub struct AirhopChannelGatewayConfig {
     credential_keys: BTreeMap<i16, AirhopSecret>,
     current_credential_key_version: i16,
     telegram_connector_pubkey: [u8; 32],
+    whatsapp_webhook_base_url: Option<String>,
 }
 
 impl AirhopChannelGatewayConfig {
@@ -128,6 +129,10 @@ impl AirhopChannelGatewayConfig {
 
     pub(crate) const fn telegram_connector_pubkey(&self) -> [u8; 32] {
         self.telegram_connector_pubkey
+    }
+
+    pub(crate) fn whatsapp_webhook_base_url(&self) -> Option<&str> {
+        self.whatsapp_webhook_base_url.as_deref()
     }
 }
 
@@ -526,15 +531,18 @@ fn airhop_channel_gateway_config_from_env(
     const CREDENTIAL_KEYS_ENV: &str = "BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS";
     const CURRENT_VERSION_ENV: &str = "BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION";
     const TELEGRAM_CONNECTOR_ENV: &str = "BUZZ_AIRHOP_TELEGRAM_CONNECTOR_PUBKEY";
+    const WHATSAPP_WEBHOOK_BASE_URL_ENV: &str = "BUZZ_AIRHOP_WHATSAPP_WEBHOOK_BASE_URL";
 
     let index_key = optional_unicode_env(INDEX_KEY_ENV)?;
     let credential_keys = optional_unicode_env(CREDENTIAL_KEYS_ENV)?;
     let current_version = optional_unicode_env(CURRENT_VERSION_ENV)?;
     let telegram_connector = optional_unicode_env(TELEGRAM_CONNECTOR_ENV)?;
+    let whatsapp_webhook_base_url = optional_unicode_env(WHATSAPP_WEBHOOK_BASE_URL_ENV)?;
     if index_key.is_none()
         && credential_keys.is_none()
         && current_version.is_none()
         && telegram_connector.is_none()
+        && whatsapp_webhook_base_url.is_none()
     {
         return Ok(None);
     }
@@ -594,12 +602,35 @@ fn airhop_channel_gateway_config_from_env(
             ))
         })?
         .to_bytes();
+    let whatsapp_webhook_base_url = whatsapp_webhook_base_url
+        .map(|raw| {
+            let parsed = url::Url::parse(raw.trim()).map_err(|_| {
+                ConfigError::InvalidValue(format!(
+                    "{WHATSAPP_WEBHOOK_BASE_URL_ENV} must be an absolute HTTPS URL"
+                ))
+            })?;
+            if parsed.scheme() != "https"
+                || parsed.host_str().is_none()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+                || parsed.query().is_some()
+                || parsed.fragment().is_some()
+                || parsed.path().trim_end_matches('/') != "/webhooks/whatsapp"
+            {
+                return Err(ConfigError::InvalidValue(format!(
+                    "{WHATSAPP_WEBHOOK_BASE_URL_ENV} must be an absolute HTTPS URL ending in /webhooks/whatsapp without credentials, query, or fragment"
+                )));
+            }
+            Ok(raw.trim().trim_end_matches('/').to_owned())
+        })
+        .transpose()?;
 
     Ok(Some(AirhopChannelGatewayConfig {
         credential_index_key,
         credential_keys: parsed_credential_keys,
         current_credential_key_version,
         telegram_connector_pubkey,
+        whatsapp_webhook_base_url,
     }))
 }
 
@@ -1444,6 +1475,7 @@ mod tests {
             "BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS",
             "BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION",
             "BUZZ_AIRHOP_TELEGRAM_CONNECTOR_PUBKEY",
+            "BUZZ_AIRHOP_WHATSAPP_WEBHOOK_BASE_URL",
         ];
         let previous = names.map(std::env::var_os);
         for name in names {
@@ -1471,6 +1503,29 @@ mod tests {
         assert!(config.credential_key(1).is_some());
         assert!(config.credential_key(2).is_some());
         assert_eq!(hex::encode(config.telegram_connector_pubkey()), connector);
+        assert!(config.whatsapp_webhook_base_url().is_none());
+
+        std::env::set_var(
+            "BUZZ_AIRHOP_WHATSAPP_WEBHOOK_BASE_URL",
+            "http://gateway.example/webhooks/whatsapp",
+        );
+        assert!(airhop_channel_gateway_config_from_env().is_err());
+        std::env::set_var(
+            "BUZZ_AIRHOP_WHATSAPP_WEBHOOK_BASE_URL",
+            "https://gateway.example/another/path",
+        );
+        assert!(airhop_channel_gateway_config_from_env().is_err());
+        std::env::set_var(
+            "BUZZ_AIRHOP_WHATSAPP_WEBHOOK_BASE_URL",
+            "https://gateway.example/webhooks/whatsapp/",
+        );
+        let config = airhop_channel_gateway_config_from_env()
+            .expect("valid WhatsApp webhook config")
+            .expect("channel credential store enabled");
+        assert_eq!(
+            config.whatsapp_webhook_base_url(),
+            Some("https://gateway.example/webhooks/whatsapp")
+        );
         let debug = format!("{config:?}");
         assert!(!debug.contains(&index_key));
         assert!(!debug.contains(&first_key));

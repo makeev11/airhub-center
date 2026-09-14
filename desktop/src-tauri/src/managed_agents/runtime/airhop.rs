@@ -2,9 +2,9 @@ use crate::managed_agents::{known_acp_runtime, ManagedAgentRecord};
 
 const WELCOME_TEAM_ID: &str = "builtin-team:welcome";
 const AGENT_MCP_COMMAND: &str = "airhop-agent-mcp";
-const HERMES_ACP_COMMAND: &str = "hermes-acp";
+const HERMES_ACP_COMMAND: &str = "airhop-hermes-acp";
 
-fn is_builtin_welcome_agent(record: &ManagedAgentRecord) -> bool {
+pub(super) fn is_builtin_welcome_agent(record: &ManagedAgentRecord) -> bool {
     if record.team_id.as_deref() != Some(WELCOME_TEAM_ID) {
         return false;
     }
@@ -58,4 +58,57 @@ pub(super) fn agent_connection_relay_url(relay_url: &str) -> Result<String, Stri
     }
     buzz_core_pkg::relay::normalize_relay_url(configured).map_err(|error| error.to_string())?;
     Ok(configured.to_string())
+}
+
+/// Trusted profile identity includes both agent key and canonical relay authority.
+pub(super) fn configure_hermes_profile(
+    command: &mut std::process::Command,
+    base: &std::path::Path,
+    key: &crate::managed_agents::ManagedAgentRuntimeKey,
+    provider: Option<&str>,
+) {
+    command.env(
+        "AIRHOP_HERMES_RUNTIME_ROOT",
+        base.join("hermes-profiles").join(key.runtime_id()),
+    );
+    if let Some(provider) = provider {
+        command.env("AIRHOP_HERMES_PROVIDER", provider);
+    }
+}
+
+/// Refuse a product runtime without its authoritative tools; generic runtimes
+/// retain the existing optional-MCP behavior.
+pub(super) fn resolve_mcp_command(
+    record: &ManagedAgentRecord,
+    agent_command: &str,
+) -> Result<Option<std::path::PathBuf>, String> {
+    let name = effective_mcp_command(record, agent_command);
+    if name.is_empty() {
+        return Ok(None);
+    }
+    let path = crate::managed_agents::resolve_command(name);
+    if path.is_none() {
+        if is_builtin_welcome_agent(record) {
+            return Err(crate::managed_agents::missing_command_message(
+                name,
+                "Airhop product MCP",
+            ));
+        }
+        eprintln!("buzz-desktop: mcp_command {name:?} not found, skipping");
+    }
+    Ok(path)
+}
+
+/// Shared built-in roles must use a runtime whose tools pass through the product graph.
+/// Preserve saved custom choices, but refuse to expose a native host toolset to staff.
+pub(super) fn require_product_runtime(
+    record: &ManagedAgentRecord,
+    command: &str,
+) -> Result<(), String> {
+    if is_builtin_welcome_agent(record)
+        && effective_mcp_command(record, command) != AGENT_MCP_COMMAND
+    {
+        return Err("Airhop team agents require a product runtime with role-scoped tools. Select Airhop Hermes and install scripts/install-airhop-hermes-team.sh. The existing Buzz Agent product runtime is also supported.".into());
+    }
+    Ok(())
 }

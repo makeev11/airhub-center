@@ -30,7 +30,8 @@ const BACKGROUND_BLOCKED_STATES = new Set<UpdateStatus["state"]>([
   "manual-required",
 ]);
 
-const GITHUB_RELEASES_URL = "https://github.com/block/buzz/releases/latest";
+const GITHUB_RELEASES_URL =
+  "https://github.com/makeev11/airhub-center/releases";
 
 function toErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -165,6 +166,7 @@ export function useUpdater() {
             // updateRef is intentionally NOT retained — no install handle
             // should be kept when we will never install in-app.
             updateRef.current = null;
+            await update.close();
             setStatus({
               state: "manual-required",
               version: update.version,

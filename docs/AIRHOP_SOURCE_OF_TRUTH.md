@@ -349,9 +349,9 @@ reads/actions. Это не сценарный бот и не заранее за
 tool call повторно проверяется по tenant, identity, capability и свежему Core
 state и только затем исполняется сервером.
 
-Hermes Agent Messaging Gateway является готовой transport-базой для Telegram и
-официального `whatsapp_cloud`: переиспользуются read receipt, lifecycle typing,
-media, provider-formatting, chunking и reconnect. Тонкий AirHop bridge/plugin
+Hermes Agent Messaging Gateway является готовой transport-базой для Telegram;
+официальный `whatsapp_cloud` использует тонкий Meta Graph/webhook transport без
+WhatsApp Web/QR-сессии. Тонкий AirHop bridge/plugin
 связывает provider identity с `ExternalConversation` и каноническим Buzz-тредом.
 Provider inbound сначала становится durable Buzz event и только затем может
 запустить агента. Hermes outbound сначала проходит ownership/version gate и
@@ -376,11 +376,10 @@ memory и typed actions, но не произвольный terminal production-
 полномочия сотрудника исполняются Agent Backend. Future задача, которой реально
 нужны code/browser/files, получает отдельный sandboxed worker и capability.
 
-Upstream `whatsapp_cloud` является transport-базой, но не полным delivery
-контрактом AirHop: текущая реализация не отправляет Meta templates вне
-24-часового окна и не содержит client-side outbound limiter. Template sync/send,
-service-window policy, tenant quota и идемпотентный retry добавляет AirHop
-Channel Gateway/outbox.
+Текущий `whatsapp_cloud` transport не является полным delivery-контрактом:
+обычный текст отправляется только в сохранённом 24-часовом service window,
+успешный provider message ID фиксируется локально до Relay completion, но Meta
+template sync/send и отдельная tenant quota ещё не реализованы.
 
 Первой model-конфигурацией Hermes Agent для eval является
 `deepseek-v4-flash`. Она используется на synthetic/PII-free corpus; legacy
@@ -1679,7 +1678,7 @@ handoff. Для provider template используется версия теку
 
 - Booking Core, staff decision API, messenger binding, lease/ack, повторы и fallback реализованы в AirHub Center.
 - Buzz-only supervisor foundation для внешнего Гермеса реализован: owner/admin может связать private channel с trusted external identity metadata и optional verified Family/Representative; server хранит текущий conversation cycle и владельца ответа; validated external inbound, staff takeover, internal mention и `@Гермес продолжай` проецируются атомарно с kind-9 event. Hosted `buzz-acp` получает turn lease только для current receipt, передаёт rotating context только `airhop-agent-mcp`, а исходящий текст проходит обязательный final-send commit. Обычный `/events` от ключа внешнего Гермеса в таком канале блокируется без committed intent. Родитель не изображается Buzz-пользователем и не получает фиктивный Nostr key.
-- Provider-neutral Channel Gateway foundation и Telegram text adapter реализованы: owner/admin хранит credential-free desired state Telegram или официального `whatsapp_cloud` connection, exact connector и настройку Гермеса; connector отдельно сообщает observed health/capabilities. Versioned route связывает canonical conversation с provider chat. Signed kind-9 exact connector principal проходит route/channel проверку и durable provider dedup; общий Hermes/staff outbox фиксирует delivery/retry/permanent failure, а internal mentions и команды Гермесу наружу не попадают. Отдельный process pin-ит Hermes Agent `v2026.8.18`, переиспользует upstream Telegram polling/send, имеет local durable inbound spool и bounded outbound loop. Hosted supervisor одним deployment identity синхронизирует assignments, запускает изолированный runtime на каждый active connection и останавливает его при pause/disable. HTTP seam описан в `docs/AIRHOP_HERMES_CHANNEL_GATEWAY_CONTRACT.md`. Generic first-contact conversation provisioning реализован, но identity остаётся unverified; одноразовый booking handoff grant, typing/read/media и WhatsApp Cloud остаются следующими slices.
+- Provider-neutral Channel Gateway foundation, Telegram text adapter и официальный WhatsApp Cloud text adapter реализованы: owner/admin хранит credential-free desired state Telegram или `whatsapp_cloud` connection, exact connector и настройку Гермеса; connector отдельно сообщает observed health/capabilities. Versioned route связывает canonical conversation с provider chat. Signed kind-9 exact connector principal проходит route/channel проверку и durable provider dedup; общий Hermes/staff outbox фиксирует delivery/retry/permanent failure, а internal mentions и команды Гермесу наружу не попадают. Отдельный process pin-ит Hermes Agent `v2026.8.18` для Telegram polling/send и содержит изолированный Meta Graph/webhook runtime для WhatsApp; каждый connection получает свой SQLite spool. Hosted supervisor одним deployment identity конкретного Center синхронизирует assignments, запускает изолированный runtime на каждый active connection и останавливает его при pause/disable. Номер поддержки AirHub HQ не переиспользуется для партнёрских Center. HTTP seam описан в `docs/AIRHOP_HERMES_CHANNEL_GATEWAY_CONTRACT.md`. Generic first-contact conversation provisioning реализован, но identity остаётся unverified. Для WhatsApp own-Meta реализованы русская операторская инструкция, мастер в настройках, server-side проверка WABA/Phone Number ID, одноразовая выдача Verify Token, зашифрованное хранение App Secret/System User Token, app subscription, raw-body HMAC webhook, WABA/phone fencing, durable inbound, heartbeat, Graph send и явный отказ обычного текста вне 24-часового окна. Ввод секретов остаётся выключенным без публичного HTTPS callback prefix. Реальный Meta E2E, ротация credential на существующем connection, templates, одноразовый booking handoff grant и typing/read/media остаются следующими slices.
 - Hosted parent runtime реализован отдельным Compose profile: pinned Hermes Agent работает через warm single-worker `buzz-acp`, хранит ACP sessions в organization-isolated volume и получает только `airhop-agent-mcp`. Upstream shell/filesystem/browser/code/subagent toolsets внешнему администратору не выдаются, rotating turn grant остаётся внутри MCP process. Runtime не делает автономных heartbeat model calls и ограничен восемью model/tool iterations, idle и absolute deadline. Первый private Telegram DM теперь идемпотентно создаёт один unverified private Buzz conversation и membership Гермеса/owner/admin/connector; это не подтверждает Family и не заменяет будущий одноразовый booking handoff grant. Pilot bootstrap публикует signed профиль Гермеса с отдельной product-иконкой и названием на locale организации, создаёт organization-scoped deployment и проверяет разделение runtime/gateway/relay secrets; затем owner/admin управляет enabled и booking capability через существующую карточку агента.
 - Control-plane UI для этого foundation встроен в существующие поверхности Center. В разделе «Агенты» внешний **Администратор Гермес** показан отдельной карточкой и отдельной иконкой, не смешивается с внутренним администратором, читает server desired state и позволяет owner/admin менять глобальный `enabled` и master capability управления записями. В настройках центра появился пункт **«Каналы связи»**: все active staff видят credential-free desired/observed state, heartbeat и bounded error code, а owner/admin вставляет BotFather token непосредственно в кабинете, приостанавливает connection и отдельно разрешает Гермесу отвечать в нём. Dedicated write-only NIP-98 endpoint проверяет Telegram `getMe`, не возвращает token в UI, шифрует его AES-256-GCM с tenant/connection/provider AAD и атомарно сохраняет ciphertext вместе с connection; стабильный HMAC fingerprint предотвращает дубль без индексирования plaintext. Ключи находятся вне PostgreSQL и поддерживают версии для ротации. Обычный connection PUT по-прежнему отклоняет provider token как неизвестное поле. Расшифрованный token выдаётся с `no-store` только exact hosted connector для конкретного active connection.
 - Public success-экран пока сохраняет только `preferredContactChannel`. Выдача и поглощение `MessengerHandoffGrant`, provider launch, статусы `pending/connected`, автоматическое создание/переиспользование conversation из provider binding, `waiting_system`/`HermesFollowUpTask`, карточные кнопки «Открыть чат», `autoConfirmOnlineBookings`, `ParentArrivalGuide`, map links, контрольная последовательность сообщений, напоминание за час и supersede задачи звонка являются зафиксированным следующим срезом, а не уже работающим поведением.
@@ -2034,3 +2033,61 @@ canonical BookingFlow внутри сайта, сохранение этапов
 тест находится в `desktop/tests/e2e/airhop-schedule.spec.ts`. Состояния и targets
 карточек команды ограничены текущим relay: одинаковая роль в другом сохранённом
 центре не должна подменять текущего агента.
+
+
+## Общая платформа команды и инициативная работа — 2026-09-11
+
+Принято владельцем продукта: внутренние агенты работают со всей допущенной
+командой центра. Регистрация, выдача полномочий и изменение настроек остаются
+за owner/admin; это не ограничивает обычный разговор владельцем. Сервер проверяет
+активное членство человека и доступ к рабочему каналу при выборе отвечающего
+и выполнении задачи. Внешние контакты и сервисные ключи не становятся сотрудниками.
+
+Все пять продуктовых ролей используют общий версионируемый механизм контекста,
+ограничений действий, квитанций, завершения, восстановления и журналирования.
+Конкретные рабочие маршруты различаются по ролям. Hermes от Nous остаётся
+runtime интеллекта; граф и Booking Core управляют фактами и исполнением.
+Для данных используются существующие связи Core и опубликованные материалы,
+с проверкой разрешений в типизированных инструментах, без копии операционных данных.
+Общий исполнительный граф подключён ко всем пяти ролям; отдельная графовая БД,
+универсальный graph search и автоматическое построение графа знаний не добавлены.
+
+У внутреннего администратора настраиваются напоминания о днях рождения:
+в день рождения и заранее (по умолчанию за два дня), с возрастом ребёнка,
+в локальное время организации (по умолчанию 09:00). По умолчанию маршрут —
+закрытый рабочий канал соответствующего активного филиала. Общий канал требует
+явного выбора. Связь ребёнка с филиалом определяется действующими занятиями/
+зачислениями, а не догадкой. Повтор запуска или доставки не создаёт второй отчёт.
+29 февраля в невисокосном году отмечается 28 февраля; правило видно в настройках.
+
+У аналитика настраиваются разделы регулярной сводки, время, периодичность
+и рабочий канал. Каждый показатель берётся из существующей authoritative
+аналитики. Пустое значение не подменяется нулём и неизвестное — фактом.
+У контент-маркетолога отдельно включается возможность предлагать изменения
+сайта; отключение действует и на уже подготовленные предложения. Публикация
+сохраняет существующее подтверждение человеком и проверку версии.
+
+Первая версия саморазвития собирает только последовательности категорий источников
+после ответов, принятых сервером, без ошибок инструментов. Это не оценка качества
+ответа. После трёх разных наблюдений owner/admin может вручную выбрать вариант
+для своей роли; выбор версионируется и откатывается. Применяется только совместимая
+с текущим графом подсказка о порядке поиска, и только для подходящей задачи.
+Процедура не меняет права доступа, политики Booking Core, маршруты доставки или
+настройки. Личные данные и переписки семей в кандидаты не попадают. Полноценные
+оценки качества, shadow/A-B проверки и автоматические промоции остаются следующим
+этапом; экономия токенов и влияние на конверсию требуют измерения после выкладки.
+
+Главные переключатели внутренних ролей сохраняют серверный допуск к работе и
+останавливают/запускают доступный локальный чат-процесс. Если процесс не запущен,
+UI отдельно показывает ожидание запуска чата. Расписания выполняются сервером.
+Встроенные роли с ранее незаданным runtime персоны получают `airhop-hermes`; явно
+выбранный runtime персоны не перезаписывается. Запуск встроенной команды с generic
+`hermes-acp`, Claude, Codex или другим runtime без продуктового MCP блокируется:
+нужно выбрать закреплённый профиль из `integrations/hermes-airhop-team-runtime`.
+Существующий продуктовый путь `buzz-agent` с общим MCP остаётся совместимым.
+
+Миграции 0065/0066 добавляют политики, расписания, процедурные версии и квитанции
+ответов. Одинаковое исходное сообщение не получает два ответа даже от конкурирующих
+или перезапущенных внутренних работников. Старые вводные этапы сохраняют отдельные
+идемпотентные квитанции. Дневная/недельная настраиваемая аналитика заменяет прежнюю
+автоматическую публикацию меняющегося месячного снимка.

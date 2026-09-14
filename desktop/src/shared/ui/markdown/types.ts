@@ -71,4 +71,8 @@ export type MarkdownProps = {
    * a nudge card.
    */
   configNudgeAuthorPubkey?: string | null;
+  /** Raw signer for a possible relay-authored agent request status. */
+  agentRequestStatusSignerPubkey?: string | null;
+  /** Active relay NIP-11 identity used to authenticate the status signer. */
+  agentRequestStatusRelaySelfPubkey?: string | null;
 };

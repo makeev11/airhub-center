@@ -130,38 +130,34 @@ pub async fn handle_req(
         let token_allows = token_channel_ids
             .as_deref()
             .is_none_or(|allowed| allowed.contains(&ch_id));
-        let db_is_member = if !token_allows || accessible_channels.contains(&ch_id) {
+        let db_can_read = if !token_allows || accessible_channels.contains(&ch_id) {
             None
         } else {
             match state
                 .db
-                .is_member(conn.tenant.community(), ch_id, &pubkey_bytes)
+                .can_read_channel(conn.tenant.community(), ch_id, &pubkey_bytes)
                 .await
             {
-                Ok(member) => {
+                Ok(can_read) => {
                     if let Some(state_snap) = trace_state.as_ref() {
                         crate::conformance::record_req_authcheck(
                             &state.tracer,
                             state_snap,
                             ch_id,
-                            member,
+                            can_read,
                         );
                     }
-                    Some(member)
+                    Some(can_read)
                 }
                 Err(e) => {
-                    warn!(conn_id = %conn_id, "Channel membership confirmation failed: {e}");
+                    warn!(conn_id = %conn_id, "Channel access confirmation failed: {e}");
                     conn.send(RelayMessage::closed(&sub_id, "error: database error"));
                     return;
                 }
             }
         };
-        if !resolve_request_local_access(
-            &mut accessible_channels,
-            ch_id,
-            token_allows,
-            db_is_member,
-        ) {
+        if !resolve_request_local_access(&mut accessible_channels, ch_id, token_allows, db_can_read)
+        {
             conn.send(RelayMessage::closed(
                 &sub_id,
                 "restricted: not a channel member",

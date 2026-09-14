@@ -29,11 +29,20 @@ fn builtin_welcome_agents_use_airhop_mcp_with_trusted_runtimes() {
             .env_vars
             .insert("BUZZ_AIRHOP_ROLE".into(), role.into());
 
-        for command in ["buzz-agent", "hermes-acp"] {
+        for command in ["buzz-agent", "airhop-hermes-acp"] {
+            assert!(super::airhop::require_product_runtime(&record, command).is_ok());
             assert_eq!(
                 super::airhop::effective_mcp_command(&record, command),
                 "airhop-agent-mcp"
             );
+        }
+        for command in [
+            "hermes-acp",
+            "claude-agent-acp",
+            "codex-acp",
+            "/custom/hermes-acp",
+        ] {
+            assert!(super::airhop::require_product_runtime(&record, command).is_err());
         }
     }
 }
@@ -58,4 +67,31 @@ fn non_welcome_agents_keep_catalog_mcp() {
         super::airhop::effective_mcp_command(&record, "hermes-acp"),
         ""
     );
+    assert!(super::airhop::require_product_runtime(&record, "hermes-acp").is_ok());
+}
+
+#[test]
+fn hermes_profiles_are_separated_by_agent_and_center() {
+    let first = ManagedAgentRuntimeKey::new("a".repeat(64), "wss://one.example").unwrap();
+    let other_center = ManagedAgentRuntimeKey::new("a".repeat(64), "wss://two.example").unwrap();
+    let other_agent = ManagedAgentRuntimeKey::new("b".repeat(64), "wss://one.example").unwrap();
+    let profile = |key: &ManagedAgentRuntimeKey| {
+        let mut command = std::process::Command::new("test");
+        super::airhop::configure_hermes_profile(
+            &mut command,
+            std::path::Path::new("/profiles"),
+            key,
+            Some("deepseek"),
+        );
+        command
+            .get_envs()
+            .find(|(name, _)| *name == "AIRHOP_HERMES_RUNTIME_ROOT")
+            .unwrap()
+            .1
+            .unwrap()
+            .to_owned()
+    };
+    assert_ne!(profile(&first), profile(&other_center));
+    assert_ne!(profile(&first), profile(&other_agent));
+    assert_eq!(profile(&first), profile(&first));
 }

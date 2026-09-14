@@ -24,6 +24,8 @@ export type TimelineMessage = {
    * user that cryptographically signed the event.
    */
   signerPubkey?: string;
+  /** Active relay identity used to authenticate relay-authored status cards. */
+  relaySelfPubkey?: string | null;
   author: string;
   /** True when the displayed author is known to be an agent. */
   isAgent?: boolean;

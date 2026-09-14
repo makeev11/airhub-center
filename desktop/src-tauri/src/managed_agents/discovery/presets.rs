@@ -150,6 +150,15 @@ pub(super) const PRESET_HARNESSES: &[PresetHarness] = &[
         underlying_cli: Some("amp"),
     },
     PresetHarness {
+        id: "airhop-hermes",
+        label: "Airhop Hermes",
+        command: "airhop-hermes-acp",
+        args: &[],
+        install_instructions_url: "https://github.com/NousResearch/hermes-agent",
+        install_hint: "Install the pinned Airhop Hermes profile with scripts/install-airhop-hermes-team.sh, then configure the provider credentials in agent settings. Each center and agent has a separate profile.",
+        underlying_cli: None,
+    },
+    PresetHarness {
         id: "hermes",
         label: "Hermes Agent",
         command: "hermes-acp",

@@ -1109,12 +1109,12 @@ impl AppState {
     /// Channel visibility string. Caches only `private` (10s); never caches a
     /// non-private value.
     ///
-    /// The fan-out access gate fails open on a non-private result, so a stale
-    /// cached `open` on another node would mask the filter for the whole TTL
-    /// after an open->private flip (no cross-node cache invalidation). Caching
-    /// only `private` keeps the cache fail-safe: the worst stale entry is an
-    /// over-restrictive `private` (drops non-members on a now-open channel for
-    /// <=10s), never a leak.
+    /// Fan-out now applies effective channel access for every visibility, but
+    /// ingest and other callers still consume this classification. Caching
+    /// only `private` therefore remains the conservative choice: after an
+    /// open->private flip, a stale cached `open` can never relax a caller's
+    /// visibility gate, while a stale `private` can only over-restrict for the
+    /// cache TTL.
     ///
     /// `prefetched` lets a caller that already holds the channel row for this
     /// request (ingest's once-per-request fetch, E1 §4.8) reuse it instead of

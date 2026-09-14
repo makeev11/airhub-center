@@ -18,7 +18,7 @@ import type {
   TrackingLink,
   TrackingLinkList,
 } from "@/features/booking/data/staffSiteAnalyticsService";
-import type { ClientInbox } from "@/features/client-inbox/data/clientInboxService";
+import type { ClientRoutingConfiguration } from "@/features/client-inbox/data/clientInboxService";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
@@ -44,6 +44,8 @@ function copy(locale: string) {
         unavailableStaff: "Недоступный сотрудник",
         routingUnavailable:
           "Список сотрудников сейчас недоступен. Остальные настройки филиала можно сохранить.",
+        retryRouting: "Повторить загрузку",
+        loadingStaff: "Загружаем сотрудников…",
         trackedTitle: "Трекинговые ссылки для карт",
         trackedHint:
           "Airhop создаёт отдельную короткую ссылку для каждой площадки. Она ведёт на запись именно в этот филиал и сохраняет источник перехода.",
@@ -75,6 +77,8 @@ function copy(locale: string) {
         unavailableStaff: "Unavailable staff member",
         routingUnavailable:
           "The staff list is unavailable right now. Other branch settings can still be saved.",
+        retryRouting: "Retry loading",
+        loadingStaff: "Loading staff…",
         trackedTitle: "Tracked links for map listings",
         trackedHint:
           "AirHop creates a separate short link for every platform. It opens booking for this branch and preserves the acquisition source.",
@@ -159,6 +163,7 @@ export function BranchOperationalSettings({
   onGenerateLinks,
   onAddressChange,
   onSelectedResponsiblesChange,
+  onRetryRouting,
   routing,
   routingFailed,
   selectedResponsibles,
@@ -175,7 +180,8 @@ export function BranchOperationalSettings({
   onGenerateLinks: () => Promise<void>;
   onAddressChange: (address: string) => void;
   onSelectedResponsiblesChange: (pubkeys: string[]) => void;
-  routing: ClientInbox | null;
+  onRetryRouting: () => void;
+  routing: ClientRoutingConfiguration | null;
   routingFailed: boolean;
   selectedResponsibles: string[];
   tracking: TrackingLinkList | null;
@@ -263,16 +269,30 @@ export function BranchOperationalSettings({
         <SettingsSection
           hint={messages.responsiblesHint}
           icon={<UsersRound className="h-5 w-5" />}
+          testId="airhop-branch-responsibles"
           title={messages.responsiblesTitle}
         >
           {loading && !routing ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <LoaderCircle className="h-4 w-4 animate-spin" />
-              {messages.responsiblesTitle}
+              {messages.loadingStaff}
             </p>
           ) : routingFailed || !routing ? (
             <Alert variant="destructive">
-              <AlertDescription>{messages.routingUnavailable}</AlertDescription>
+              <AlertDescription className="flex flex-wrap items-center gap-3">
+                <span className="min-w-0 flex-1 basis-64">
+                  {messages.routingUnavailable}
+                </span>
+                <Button
+                  disabled={loading}
+                  onClick={onRetryRouting}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {messages.retryRouting}
+                </Button>
+              </AlertDescription>
             </Alert>
           ) : routing.canManageRouting ? (
             <fieldset className="grid gap-2 sm:grid-cols-2" disabled={loading}>

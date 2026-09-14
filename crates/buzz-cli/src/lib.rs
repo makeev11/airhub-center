@@ -247,6 +247,20 @@ enum Cmd {
 /// Read-only Airhop Center reporting commands.
 #[derive(Subcommand)]
 pub enum AirhopCmd {
+    /// Read organization agent duties and procedural review candidates.
+    AgentSettings,
+    /// Submit a typed policy (9052) or learning (9053) command as a signed private event.
+    AgentCommand {
+        /// Server community UUID.
+        #[arg(long)]
+        community_id: uuid::Uuid,
+        /// Select procedural observation/activation instead of role settings.
+        #[arg(long)]
+        learning: bool,
+        /// Closed JSON command, validated authoritatively by the server.
+        #[arg(long)]
+        request: String,
+    },
     /// Membership-scoped client conversation Inbox
     Clients {
         /// Optional active branch filter

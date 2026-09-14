@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+# Installed next to entrypoint.py; the installer writes a path-safe launcher in bin/.
+runtime_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$runtime_dir/runtime/.venv/bin/python" "$runtime_dir/entrypoint.py" "$@"

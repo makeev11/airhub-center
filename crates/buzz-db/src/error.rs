@@ -2,6 +2,53 @@
 
 use thiserror::Error;
 
+/// Stable reason codes for an author-visible internal-agent request rejection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AirhopAgentRequestDenialReason {
+    /// The addressed internal agent is disabled in organization settings.
+    AgentDisabled,
+    /// The addressed agent is not an active member of the destination channel.
+    AgentNotInChannel,
+    /// The configured role or surface policy does not allow this conversation.
+    PolicyDenied,
+    /// At least one effective channel reader is external to the internal team.
+    ExternalReaders,
+}
+
+impl AirhopAgentRequestDenialReason {
+    /// Stable wire value used by the relay-authored private status event.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AgentDisabled => "agent_disabled",
+            Self::AgentNotInChannel => "agent_not_in_channel",
+            Self::PolicyDenied => "policy_denied",
+            Self::ExternalReaders => "external_readers",
+        }
+    }
+}
+
+/// Safe context needed to notify the human author without exposing policy
+/// details in the source channel or to unrelated agent claimants.
+#[derive(Debug, Clone)]
+pub struct AirhopAgentRequestDenial {
+    /// Human-authored event whose route was rejected.
+    pub source_event_id: [u8; 32],
+    /// Original creation time, reused to make the status event deterministic.
+    pub source_created_at: chrono::DateTime<chrono::Utc>,
+    /// Human author who should receive the private status.
+    pub source_author_pubkey: [u8; 32],
+    /// Channel containing the rejected request.
+    pub channel_id: uuid::Uuid,
+    /// Exact registered agent that was addressed.
+    pub target_pubkey: [u8; 32],
+    /// Stable internal role name, used only for localized presentation.
+    pub target_role: String,
+    /// Team locale used for the private status copy.
+    pub locale: String,
+    /// Stable, non-sensitive corrective-action category.
+    pub reason: AirhopAgentRequestDenialReason,
+}
+
 /// Errors produced by database operations.
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -36,6 +83,11 @@ pub enum DbError {
     /// The caller lacks permission for the requested operation.
     #[error("access denied: {0}")]
     AccessDenied(String),
+
+    /// A valid single-agent request was rejected after staff authorization.
+    /// The relay may privately tell the author how to correct it.
+    #[error("AirHop internal agent request denied: {}", .0.reason.as_str())]
+    AirhopAgentRequestDenied(Box<AirhopAgentRequestDenial>),
 
     /// JSON serialization or deserialization failed.
     #[error("serialization error: {0}")]

@@ -31,7 +31,10 @@ const SITE_CONTENT_CONTEXT_PATH: &str = "/api/airhop/agents/v1/site-content/cont
 const AGENT_BACKEND_PATH: &str = "/api/airhop/agents/v1/backend";
 const AGENT_CONTEXT_HEADER: &str = "x-airhop-agent-context";
 
+mod conversation_context;
 mod parent_dialogue;
+mod team_graph;
+use airhop_core::agent_graph::GraphAction;
 #[cfg(test)]
 #[path = "airhop/parent_dialogue_tests.rs"]
 mod parent_dialogue_tests;
@@ -176,6 +179,20 @@ pub struct SendMessagesParams {
     /// outside kickoff stages; use the owner question or specialist handoff ID.
     #[serde(default)]
     pub responds_to: Vec<String>,
+}
+
+/// Starts one internal task from relay-routed evidence or a known introduction stage.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GetTeamContextParams {
+    /// Exact source conversation ID from the prompt (DM or channel), not a
+    /// substituted Welcome ID. Relay policy authorizes this conversation.
+    #[schemars(with = "String")]
+    pub channel_id: Uuid,
+    /// Exact staff message or verified Fizz handoff from the current prompt.
+    pub source_event_id: Option<String>,
+    /// Used only for the corresponding automatic introduction, without a source ID.
+    pub kickoff_stage: Option<WelcomeKickoffStage>,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -665,6 +682,8 @@ pub struct CommitBookingDraftParams {
 #[serde(rename_all = "camelCase")]
 struct ParentContextClaims {
     #[serde(default)]
+    tenant_id: Option<Uuid>,
+    #[serde(default)]
     root_event_id: Option<String>,
     channel_id: Uuid,
     turn_id: Uuid,
@@ -978,7 +997,14 @@ impl AirhopConfig {
     async fn submit_event(&self, event: &Event) -> Result<Value, AirhopError> {
         let value = serde_json::to_value(event)
             .map_err(|error| AirhopError(format!("event serialization failed: {error}")))?;
-        self.post_json("/events", &value).await
+        let receipt = self.post_json("/events", &value).await?;
+        if receipt.get("accepted").and_then(Value::as_bool) != Some(true) {
+            return Err(AirhopError(format!(
+                "Relay rejected publication: {}",
+                receipt["message"]
+            )));
+        }
+        Ok(receipt)
     }
 }
 
@@ -1143,7 +1169,11 @@ fn build_message_events(
     config: &AirhopConfig,
     params: SendMessagesParams,
 ) -> Result<Vec<Event>, AirhopError> {
-    config.require_channel(params.channel_id)?;
+    // Normal conversations are authorized by their server route claim. Only
+    // onboarding stages remain bound to the configured Welcome channel.
+    if params.kickoff_stage.is_some() {
+        config.require_channel(params.channel_id)?;
+    }
     validate_messages(&params.messages)?;
     if params.kickoff_stage.is_none() && params.responds_to.is_empty() {
         return Err(AirhopError(
@@ -1186,11 +1216,20 @@ fn build_message_events(
     }
     // A stage receipt and its text are atomic: second-resolution timestamps
     // cannot preserve the order of several separate greeting events on replay.
-    let messages = if params.kickoff_stage.is_some() {
-        vec![params.messages.join("\n\n")]
-    } else {
-        params.messages
-    };
+    let mut seen = BTreeSet::new();
+    let messages = vec![params
+        .messages
+        .into_iter()
+        .filter(|text| {
+            seen.insert(
+                text.split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .to_lowercase(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")];
     let message_count = messages.len();
     let expects_reply = params.expects_reply
         && params
@@ -1231,6 +1270,7 @@ fn build_delegate_event(
     config: &AirhopConfig,
     params: DelegateParams,
     target_pubkey: PublicKey,
+    human_source: Option<&str>,
 ) -> Result<Event, AirhopError> {
     config.require_channel(params.channel_id)?;
     if config.role != AirhopRole::Fizz {
@@ -1252,13 +1292,17 @@ fn build_delegate_event(
     let channel = params.channel_id.to_string();
     let target = target_pubkey.to_hex();
     let task_id = Uuid::new_v4().to_string();
-    let tags = vec![
+    let mut tags = vec![
         parse_tag(["h", channel.as_str()])?,
         parse_tag(["p", target.as_str()])?,
         parse_tag(["airhop-agent-turn", AirhopRole::Fizz.as_str()])?,
         parse_tag(["airhop-handoff", params.target_role.as_str()])?,
         parse_tag(["airhop-task", task_id.as_str()])?,
     ];
+    if let Some(source) = human_source {
+        validate_hex_event_id(source, "human source")?;
+        tags.push(parse_tag(["airhop-human-source", source])?);
+    }
     config.sign_event(
         EventBuilder::new(
             Kind::Custom(buzz_core::kind::KIND_AIRHOP_AGENT_TASK as u16),
@@ -1279,6 +1323,7 @@ struct WelcomeManifest {
 struct AirhopService {
     config: Arc<AirhopConfig>,
     dialogue: Arc<tokio::sync::Mutex<parent_dialogue::Dialogue>>,
+    team_graph: Arc<tokio::sync::Mutex<team_graph::TeamGraph>>,
 }
 
 // The relay's stable history order is (created_at, id), not arrival order.
@@ -1327,10 +1372,98 @@ fn welcome_response_start(
 }
 
 impl AirhopService {
+    async fn record_procedure(
+        &self,
+        community: Option<Uuid>,
+        channel: Option<Uuid>,
+        plan: Option<airhop_core::agent_learning::ProcedurePlan>,
+        receipt: &Value,
+    ) {
+        let (Some(community), Some(channel), Some(plan)) = (community, channel, plan) else {
+            return;
+        };
+        let id = receipt
+            .pointer("/eventIds/0")
+            .or_else(|| receipt.pointer("/published/0/eventId"))
+            .and_then(Value::as_str);
+        let Some(reply_event_id) = id else {
+            return;
+        };
+        let result=tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            let content=json!({"operation":"observe","role":self.config.role,"replyEventId":reply_event_id,"plan":plan});
+            let event=self.config.sign_event(EventBuilder::new(Kind::Custom(buzz_core::kind::KIND_AIRHOP_AGENT_LEARNING_COMMAND as u16),content.to_string()).tags([parse_tag(["airhop-community",community.to_string().as_str()])?,parse_tag(["h",channel.to_string().as_str()])?,parse_tag(["-"])?]))?;
+            self.config.submit_event(&event).await
+        }).await;
+        if !matches!(result, Ok(Ok(_))) {
+            tracing::debug!("procedure observation not recorded; committed reply is unaffected");
+        }
+    }
+    async fn get_team_context(&self, params: GetTeamContextParams) -> Result<Value, AirhopError> {
+        let task = match (&params.source_event_id, params.kickoff_stage) {
+            (Some(id), None) => {
+                validate_hex_event_id(id, "sourceEventId")?;
+                let route = self
+                    .config
+                    .request_json(
+                        Method::POST,
+                        &format!("/api/airhop/agents/v1/routes/{id}/claim"),
+                        None,
+                    )
+                    .await?;
+                if route["targetPubkey"].as_str()
+                    != Some(self.config.keys.public_key().to_hex().as_str())
+                    || route["channelId"].as_str() != Some(params.channel_id.to_string().as_str())
+                {
+                    return Err(AirhopError(
+                        "This source is assigned to another agent. Do not answer it.".into(),
+                    ));
+                }
+                id.clone()
+            }
+            (None, Some(stage)) if stage.role() == self.config.role => {
+                self.config.require_channel(params.channel_id)?;
+                format!("kickoff:{}", stage.as_str())
+            }
+            _ => {
+                return Err(AirhopError(
+                    "Provide one routed sourceEventId or the exact kickoffStage for your role."
+                        .into(),
+                ))
+            }
+        };
+        let mut graph = self.team_graph.lock().await;
+        graph.start(self.config.role, task)?;
+        if graph
+            .channel
+            .is_some_and(|channel| channel != params.channel_id)
+        {
+            return Err(AirhopError(
+                "A task cannot change its authorized conversation.".into(),
+            ));
+        }
+        graph.channel = Some(params.channel_id);
+        if let Some(value) = graph.prepare(GraphAction::Context, "context")? {
+            return Ok(value);
+        }
+        let result=async {
+            let settings=self.config.get_json(SETTINGS_PATH).await?;
+            let organization=settings.get("organization").ok_or_else(||AirhopError("organization context is missing".into()))?;
+            let policy=settings.pointer("/agentPolicies/policies").and_then(Value::as_array).and_then(|values|values.iter().find(|v|v["role"].as_str()==Some(self.config.role.as_str()))).map(|v|json!({"version":v["version"],"policy":v["policy"],"activeProcedure":v["activeProcedure"]}));
+            if policy.as_ref().is_some_and(|p|p["policy"]["enabled"]==false) {return Err(AirhopError("This role is disabled in organization settings.".into()));}
+            let result=json!({"role":self.config.role,"channelId":params.channel_id,"organization":{"id":organization["id"],"name":organization["name"],"locale":organization["locale"],"timeZone":organization["timeZone"]},"policy":policy,"dataLinks":{"knowledge":"Use short query keywords or an exact documentId only when center facts are missing.","families":"Administrator: use a known familyId. Do not scan families for a greeting.","schedule":"Read branch/group links only for a schedule or setup question.","analytics":"Analyst/Fizz: read one bounded period; reuse the snapshot."}});
+            graph.settings=Some(settings); Ok(result)
+        }.await;
+        graph.finish(GraphAction::Context, "context".into(), result)
+    }
+
     fn new(config: AirhopConfig) -> Self {
+        let team_graph = Arc::new(tokio::sync::Mutex::new(team_graph::TeamGraph::new(
+            config.role,
+        )));
         Self {
             config: Arc::new(config),
             dialogue: Arc::new(tokio::sync::Mutex::new(parent_dialogue::Dialogue::default())),
+            team_graph,
         }
     }
 
@@ -1362,7 +1495,83 @@ impl AirhopService {
     }
 
     async fn send_messages(&self, params: SendMessagesParams) -> Result<Value, AirhopError> {
-        let sources = params.responds_to.clone();
+        let key = format!("reply:{params:?}");
+        let mut graph = self.team_graph.lock().await;
+        self.require_current_conversation(&graph, params.channel_id)
+            .await?;
+        if params.kickoff_stage.is_none() && !params.responds_to.contains(&graph.task) {
+            return Err(AirhopError(
+                "Reply must reference the source of the current team context.".into(),
+            ));
+        }
+        if let Some(receipt) = graph.prepare(GraphAction::Reply, &key)? {
+            return Ok(receipt);
+        }
+        let result = self.send_team_messages(params).await;
+        if let Ok(receipt) = &result {
+            let role = airhop_core::agent_policy::AgentRole::parse(self.config.role.as_str());
+            let plan = role.and_then(|r| graph.learning.plan(r));
+            let community = graph
+                .settings
+                .as_ref()
+                .and_then(|s| s.pointer("/principalDirectory/communityId"))
+                .and_then(Value::as_str)
+                .and_then(|id| Uuid::parse_str(id).ok());
+            self.record_procedure(community, graph.channel, plan, receipt)
+                .await;
+        }
+        graph.finish(GraphAction::Reply, key, result)
+    }
+
+    async fn published_response(
+        &self,
+        channel: Uuid,
+        sources: &[String],
+    ) -> Result<Option<String>, AirhopError> {
+        if sources.is_empty() {
+            return Ok(None);
+        }
+        let events=self.config.post_json("/query", &json!([{"kinds":[KIND_STREAM_MESSAGE],"#h":[channel.to_string()],"authors":[self.config.keys.public_key().to_hex()],"limit":200}])).await?;
+        Ok(events.as_array().and_then(|events| {
+            events.iter().find_map(|event| {
+                let tags = event.get("tags")?.as_array()?;
+                sources
+                    .iter()
+                    .all(|source| {
+                        tags.iter()
+                            .any(|tag| tag == &json!(["airhop-responds-to", source]))
+                    })
+                    .then(|| event.get("id").and_then(Value::as_str).map(str::to_owned))
+                    .flatten()
+            })
+        }))
+    }
+
+    async fn send_team_messages(&self, params: SendMessagesParams) -> Result<Value, AirhopError> {
+        let response_sources = params.responds_to.clone();
+        let mut sources = Vec::new();
+        for source in &params.responds_to {
+            let route = self
+                .config
+                .request_json(
+                    Method::POST,
+                    &format!("/api/airhop/agents/v1/routes/{source}/claim"),
+                    None,
+                )
+                .await?;
+            if route["targetPubkey"].as_str()
+                != Some(self.config.keys.public_key().to_hex().as_str())
+                || route["channelId"].as_str() != Some(params.channel_id.to_string().as_str())
+            {
+                return Err(AirhopError(
+                    "Source is no longer assigned to this agent in this channel.".into(),
+                ));
+            }
+            // Ephemeral assignments have durable routing evidence, but no history row.
+            if route["ephemeral"] != true {
+                sources.push(source.clone());
+            }
+        }
         let channel = params.channel_id;
         let stage = params.kickoff_stage;
         let events = build_message_events(&self.config, params)?;
@@ -1407,6 +1616,12 @@ impl AirhopService {
                 if let Some(stage) = stage {
                     if let Ok(Some(id)) = self.published_kickoff(channel, stage).await {
                         return Ok(json!({ "eventIds": [id], "alreadyPublished": true }));
+                    }
+                }
+                if stage.is_none() {
+                    if let Ok(Some(id)) = self.published_response(channel, &response_sources).await
+                    {
+                        return Ok(json!({"eventIds":[id],"alreadyPublished":true}));
                     }
                 }
                 return Err(error);
@@ -1510,7 +1725,19 @@ impl AirhopService {
             .await;
         match result {
             Ok(mut receipt) => {
+                let plan = dialogue
+                    .learning
+                    .plan(airhop_core::agent_policy::AgentRole::ParentAdministrator);
                 dialogue.sent(receipt.clone());
+                if !is_handoff {
+                    self.record_procedure(
+                        claims.tenant_id,
+                        Some(claims.channel_id),
+                        plan,
+                        &receipt,
+                    )
+                    .await;
+                }
                 receipt["dialogue"] = dialogue.guidance();
                 Ok(receipt)
             }
@@ -1522,6 +1749,23 @@ impl AirhopService {
     }
 
     async fn delegate(&self, params: DelegateParams) -> Result<Value, AirhopError> {
+        let key = format!("delegate:{params:?}");
+        let mut graph = self.team_graph.lock().await;
+        self.require_current_conversation(&graph, params.channel_id)
+            .await?;
+        if let Some(receipt) = graph.prepare(GraphAction::Delegate, &key)? {
+            return Ok(receipt);
+        }
+        let source = (!graph.task.starts_with("kickoff:")).then_some(graph.task.as_str());
+        let result = self.delegate_task(params, source).await;
+        graph.finish(GraphAction::Delegate, key, result)
+    }
+
+    async fn delegate_task(
+        &self,
+        params: DelegateParams,
+        human_source: Option<&str>,
+    ) -> Result<Value, AirhopError> {
         self.config.require_channel(params.channel_id)?;
         if self.config.role != AirhopRole::Fizz {
             return Err(AirhopError(
@@ -1548,7 +1792,7 @@ impl AirhopService {
         let target = PublicKey::from_hex(target_hex)
             .map_err(|error| AirhopError(format!("invalid target pubkey: {error}")))?;
         let target_role = params.target_role;
-        let event = build_delegate_event(&self.config, params, target)?;
+        let event = build_delegate_event(&self.config, params, target, human_source)?;
         self.config.submit_event(&event).await?;
         Ok(json!({
             "eventId": event.id.to_hex(),
@@ -1558,7 +1802,6 @@ impl AirhopService {
     }
 
     async fn read(&self, params: ReadParams) -> Result<Value, AirhopError> {
-        self.config.require_channel(params.channel_id)?;
         let resource = params.resolve_resource()?;
         if !self.config.role.allows(&resource) {
             return Err(AirhopError(format!(
@@ -1567,10 +1810,57 @@ impl AirhopService {
                 resource.name()
             )));
         }
-        read_authoritative(&self.config, &resource).await
+        let key = format!("read:{resource:?}");
+        let mut graph = self.team_graph.lock().await;
+        self.require_current_conversation(&graph, params.channel_id)
+            .await?;
+        if let Some(receipt) = graph.prepare(GraphAction::Read, &key)? {
+            return Ok(receipt);
+        }
+        let settings = graph
+            .settings
+            .as_ref()
+            .ok_or_else(|| AirhopError("Load airhop_get_team_context first".into()))?;
+        let result = read_authoritative(&self.config, &resource, settings).await;
+        if result.is_ok() {
+            use airhop_core::agent_learning::FactSource;
+            let source = match resource.name() {
+                "knowledge" => Some(FactSource::Knowledge),
+                "family" | "families" => Some(FactSource::Family),
+                "schedule" => Some(FactSource::Schedule),
+                "center_analytics" | "payment_analytics" | "booking_funnel" => {
+                    Some(FactSource::CenterAnalytics)
+                }
+                "site_analytics" => Some(FactSource::SiteAnalytics),
+                "tracking_links" => Some(FactSource::TrackingLinks),
+                "organization_settings" | "public_booking_settings" => {
+                    Some(FactSource::Organization)
+                }
+                _ => None,
+            };
+            if let Some(source) = source {
+                graph.learning.read(source);
+            }
+        }
+        graph.finish(GraphAction::Read, key, result)
     }
 
     async fn prepare_action(&self, params: PrepareActionParams) -> Result<Value, AirhopError> {
+        let key = format!("prepare:{params:?}");
+        let mut graph = self.team_graph.lock().await;
+        self.require_current_conversation(&graph, params.channel_id)
+            .await?;
+        if let Some(receipt) = graph.prepare(GraphAction::Prepare, &key)? {
+            return Ok(receipt);
+        }
+        let result = self.prepare_domain_action(params).await;
+        graph.finish(GraphAction::Prepare, key, result)
+    }
+
+    async fn prepare_domain_action(
+        &self,
+        params: PrepareActionParams,
+    ) -> Result<Value, AirhopError> {
         self.config.require_channel(params.channel_id)?;
         if self.config.role != AirhopRole::Administrator {
             return Err(AirhopError(
@@ -1614,6 +1904,21 @@ impl AirhopService {
     }
 
     async fn propose_site_content(
+        &self,
+        params: ProposeSiteContentParams,
+    ) -> Result<Value, AirhopError> {
+        let key = format!("propose:{params:?}");
+        let mut graph = self.team_graph.lock().await;
+        self.require_current_conversation(&graph, params.channel_id)
+            .await?;
+        if let Some(receipt) = graph.prepare(GraphAction::Prepare, &key)? {
+            return Ok(receipt);
+        }
+        let result = self.prepare_site_content(params).await;
+        graph.finish(GraphAction::Prepare, key, result)
+    }
+
+    async fn prepare_site_content(
         &self,
         params: ProposeSiteContentParams,
     ) -> Result<Value, AirhopError> {
@@ -1695,6 +2000,10 @@ impl AirhopService {
                 parse_tag(["airhop-agent-turn", AirhopRole::ContentMarketer.as_str()])?,
                 parse_tag(["airhop-question", AirhopRole::ContentMarketer.as_str()])?,
                 parse_tag([
+                    "airhop-conversation-source",
+                    params.triggering_event_id.as_str(),
+                ])?,
+                parse_tag([
                     "airhop-site-preview",
                     installation.as_str(),
                     preview_id,
@@ -1714,6 +2023,21 @@ impl AirhopService {
     }
 
     async fn confirm_site_content(
+        &self,
+        params: ConfirmSiteContentParams,
+    ) -> Result<Value, AirhopError> {
+        let key = format!("confirm:{params:?}");
+        let mut graph = self.team_graph.lock().await;
+        self.require_current_conversation(&graph, params.channel_id)
+            .await?;
+        if let Some(receipt) = graph.prepare(GraphAction::Commit, &key)? {
+            return Ok(receipt);
+        }
+        let result = self.commit_site_content(params).await;
+        graph.finish(GraphAction::Commit, key, result)
+    }
+
+    async fn commit_site_content(
         &self,
         params: ConfirmSiteContentParams,
     ) -> Result<Value, AirhopError> {
@@ -1972,8 +2296,8 @@ fn find_event<'a>(events: &'a [Value], event_id: &str) -> Result<&'a Value, Airh
 async fn read_authoritative(
     config: &AirhopConfig,
     resource: &ReadResource,
+    settings: &Value,
 ) -> Result<Value, AirhopError> {
-    let settings = config.get_json(SETTINGS_PATH).await?;
     let organization = settings.get("organization").ok_or_else(|| {
         AirhopError("organization settings response has no organization".to_owned())
     })?;
@@ -1988,7 +2312,14 @@ async fn read_authoritative(
         .ok_or_else(|| AirhopError("organization settings response has no timeZone".to_owned()))?
         .to_owned();
     let data = match resource {
-        ReadResource::OrganizationSettings => settings,
+        ReadResource::OrganizationSettings => {
+            let mut data = settings.clone();
+            if let Some(object) = data.as_object_mut() {
+                object.remove("agentPolicies");
+                object.remove("principalDirectory");
+            }
+            data
+        }
         ReadResource::PublicBookingSettings => json!({
             "organizationId": organization.get("id"),
             "name": organization.get("name"),
@@ -2000,7 +2331,7 @@ async fn read_authoritative(
                     resource
                         .path()
                         .as_deref()
-                        .expect("non-settings resources have an endpoint"),
+                        .ok_or_else(|| AirhopError("resource has no endpoint".into()))?,
                 )
                 .await?
         }
@@ -2028,7 +2359,11 @@ fn tools_for(role: AirhopRole) -> BTreeSet<String> {
             "airhop_send_parent_reply".to_owned(),
         ]);
     }
-    let mut tools = BTreeSet::from(["airhop_read".to_owned(), "airhop_send_messages".to_owned()]);
+    let mut tools = BTreeSet::from([
+        "airhop_get_team_context".to_owned(),
+        "airhop_read".to_owned(),
+        "airhop_send_messages".to_owned(),
+    ]);
     match role {
         AirhopRole::Fizz => {
             tools.insert("airhop_delegate".to_owned());
@@ -2060,11 +2395,23 @@ struct AirhopMcp {
 
 #[tool_router]
 impl AirhopMcp {
+    #[tool(
+        name = "airhop_get_team_context",
+        description = "Start each internal task with its exact sourceEventId from the prompt, or the exact kickoffStage during introductions. The relay checks the assigned agent. Returns compact organization settings, role duties and graph guidance without scanning clients. Reuse this context and load only missing facts. Stop when the task already has a reply receipt."
+    )]
+    async fn get_team_context(
+        &self,
+        Parameters(params): Parameters<GetTeamContextParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(as_tool_result(self.service.get_team_context(params).await))
+    }
+
     fn new(config: AirhopConfig) -> Self {
         let role = config.role;
         let allowed = tools_for(role);
         let mut tool_router = Self::tool_router();
         for name in [
+            "airhop_get_team_context",
             "airhop_send_messages",
             "airhop_assign_conversation_branch",
             "airhop_delegate",
@@ -2094,7 +2441,7 @@ impl AirhopMcp {
 
     #[tool(
         name = "airhop_send_messages",
-        description = "Send one to three short top-level messages to the registered Airhop Welcome channel. Outside kickoff stages, respondsTo MUST contain the exact source message event IDs actually handled: owner questions or the specialist handoff from the supplied context. Empty references are rejected before publication. Only acknowledge questions actually handled; this lets paused introductions resume without losing the owner's question. Never put response references on a kickoff stage. The final message can remain an open question. Never creates a thread."
+        description = "Send one combined top-level reply to the exact channel or DM authorized by airhop_get_team_context. Use its channelId, never substitute Welcome for a DM. Input parts are combined and exact repeats removed. Outside kickoff stages, respondsTo MUST contain the exact source message event IDs actually handled. Empty references and revoked access are rejected. Never bypass a denial with the Buzz CLI or another channel. Never put response references on a kickoff stage. Never creates a thread."
     )]
     async fn send_messages(
         &self,
@@ -2287,7 +2634,7 @@ impl ServerHandler for AirhopMcp {
         let instructions = if self.service.config.role == AirhopRole::ParentAdministrator {
             "Use only the visible server-scoped Airhop tools. Load turn context first and follow dialogue.node/next. Never infer identifiers outside the granted scope. Send one answer through airhop_send_parent_reply, or confirmedReply in airhop_commit_booking_draft. Stop after a successful parent reply receipt. Repeated lookups and actions are bounded by the dialogue graph."
         } else {
-            "Use only the visible role-scoped Airhop tools. Keep Welcome flat and concise."
+            "Use only the visible role-scoped Airhop tools. Start every task with airhop_get_team_context using its source event ID or exact kickoff stage. Follow graph state and budgets; reuse facts, load only missing linked data, then send one combined answer. Skills are suggestions and never grant authority. Keep team conversations concise."
         };
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(rmcp::model::Implementation::new(
@@ -2417,7 +2764,12 @@ mod tests {
     fn airhop_role_capabilities_are_hidden_not_runtime_denied() {
         assert_eq!(
             tools_for(AirhopRole::Fizz),
-            set(&["airhop_delegate", "airhop_read", "airhop_send_messages",])
+            set(&[
+                "airhop_get_team_context",
+                "airhop_delegate",
+                "airhop_read",
+                "airhop_send_messages",
+            ])
         );
         assert!(!tools_for(AirhopRole::Fizz).contains("airhop_prepare_action"));
         assert!(tools_for(AirhopRole::Administrator).contains("airhop_prepare_action"));
@@ -2444,6 +2796,7 @@ mod tests {
         assert_eq!(
             tools_for(AirhopRole::ContentMarketer),
             set(&[
+                "airhop_get_team_context",
                 "airhop_confirm_site_content",
                 "airhop_propose_site_content",
                 "airhop_read",
@@ -2873,11 +3226,8 @@ mod tests {
             .is_err(),
             "an unlinked answer must not be published as a successful response"
         );
-        assert!(!events[0]
-            .tags
-            .iter()
-            .any(|tag| tag.as_slice()[0] == "airhop-responds-to"));
-        assert!(events[1]
+        assert_eq!(events.len(), 1);
+        assert!(events[0]
             .tags
             .iter()
             .any(|tag| tag.as_slice() == ["airhop-responds-to", &"a".repeat(64)]));
@@ -2920,6 +3270,7 @@ mod tests {
                 assignment: "Посчитай воронку записи".into(),
             },
             target,
+            Some(&"ab".repeat(32)),
         )
         .expect("Fizz delegation");
         let tags: Vec<Vec<String>> = event
@@ -2945,6 +3296,7 @@ mod tests {
                 assignment: "Нельзя".into(),
             },
             target,
+            None,
         )
         .is_err());
     }
@@ -3072,7 +3424,8 @@ mod tests {
             &format!("http://{address}"),
             Keys::generate(),
         );
-        let result = read_authoritative(&config, &ReadResource::PaymentAnalytics)
+        let settings = config.get_json(SETTINGS_PATH).await.unwrap();
+        let result = read_authoritative(&config, &ReadResource::PaymentAnalytics, &settings)
             .await
             .unwrap();
         assert_eq!(result["locale"], "pt-PT");
@@ -3087,10 +3440,12 @@ mod tests {
             resource.path().as_deref(),
             Some("/api/airhop/staff/v1/site-analytics?days=7")
         );
-        let report = read_authoritative(&config, &resource).await.unwrap();
+        let report = read_authoritative(&config, &resource, &settings)
+            .await
+            .unwrap();
         assert_eq!(report["resource"], "site_analytics");
         let headers = state.0.lock().unwrap();
-        assert_eq!(headers.len(), 4);
+        assert_eq!(headers.len(), 3);
         assert!(headers.iter().all(|headers| headers
             .get("authorization")
             .and_then(|value| value.to_str().ok())
@@ -3228,7 +3583,9 @@ mod tests {
             base64::engine::general_purpose::URL_SAFE_NO_PAD
                 .encode(serde_json::to_vec(&grant).unwrap()),
         );
-        AirhopService::new(config)
+        let service = AirhopService::new(config);
+        service.get_turn_context().await.unwrap();
+        service
             .send_parent_reply(SendParentReplyParams {
                 messages: vec!["Подключаю сотрудника.".into()],
                 consultation: None,

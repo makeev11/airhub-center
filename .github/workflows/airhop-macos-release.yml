@@ -30,6 +30,13 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      AIRHOP_RELEASE_COMMIT: ${{ github.sha }}
+      AIRHOP_UPDATER_PUBLIC_KEY: ${{ secrets.AIRHOP_UPDATER_PUBLIC_KEY }}
+      AIRHOP_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/download/airhop-center-latest/latest.json
+      BUZZ_UPDATER_PUBLIC_KEY: ${{ secrets.AIRHOP_UPDATER_PUBLIC_KEY }}
+      BUZZ_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/download/airhop-center-latest/latest.json
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -40,7 +47,7 @@ jobs:
       - name: Validate release inputs and required credentials
         run: |
           set -euo pipefail
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Version '$VERSION' is not semantic versioning"
             exit 1
           fi
@@ -48,7 +55,7 @@ jobs:
             https://*) ;;
             *) echo "::error::Repository variable AIRHOP_HQ_API_URL must be an HTTPS URL"; exit 1 ;;
           esac
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID AIRHOP_UPDATER_PUBLIC_KEY TAURI_SIGNING_PRIVATE_KEY; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::Required GitHub secret $name is missing"
               exit 1
@@ -58,12 +65,10 @@ jobs:
       - name: Install desktop dependencies
         run: just desktop-install-ci
 
-      - name: Patch application version
+      - name: Validate committed version and configure signed updates
         run: |
-          cd desktop
-          node scripts/set-version-from-tag.mjs "$VERSION"
-          cd src-tauri
-          cargo update --workspace
+          node --input-type=module -e 'import assert from "node:assert/strict"; import { readReleaseIdentity } from "./desktop/scripts/airhop-release-identity.mjs"; assert.equal(readReleaseIdentity(process.cwd(), process.env.GITHUB_SHA).version, process.env.VERSION)'
+          node desktop/scripts/write-airhop-updater-config.mjs "$RUNNER_TEMP/airhop-updater.json"
 
       - name: Install Apple signing certificate
         uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7
@@ -73,7 +78,7 @@ jobs:
 
       - name: Build bundled agent sidecars
         run: |
-          cargo build --release --target "$TARGET" \
+          cargo build --release --locked --target "$TARGET" \
             -p buzz-acp \
             -p buzz-agent \
             -p buzz-dev-mcp \
@@ -94,12 +99,12 @@ jobs:
           tagName: airhop-desktop-v__VERSION__
           releaseName: AirHop Center __VERSION__
           releaseBody: Signed and notarized AirHop Center for Apple Silicon Macs.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           generateReleaseNotes: true
           uploadUpdaterJson: false
           releaseAssetNamePattern: AirHop-Center_[version]_[arch].[ext]
-          args: --target aarch64-apple-darwin --bundles app,dmg --config src-tauri/tauri.airhop-release.conf.json
+          args: --target aarch64-apple-darwin --bundles app,dmg --config src-tauri/tauri.airhop-release.conf.json --config ${{ runner.temp }}/airhop-updater.json -- --locked
 
       - name: Verify the signed application and notarization ticket
         run: |
@@ -133,6 +138,42 @@ jobs:
             --macos-minimum-os "macOS 12 or newer, Apple Silicon" \
             --output "$MANIFEST"
           gh release upload "$TAG" "$MANIFEST" --clobber
+
+      - name: Publish verified release and update feed last
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="airhop-desktop-v${VERSION}"
+          UPDATER_DIR="$RUNNER_TEMP/airhop-updater-assets"
+          mkdir "$UPDATER_DIR"
+          # Download the actual uploaded archives, not similarly named local files.
+          gh release download "$TAG" --pattern '*.app.tar.gz' --pattern '*.app.tar.gz.sig' --dir "$UPDATER_DIR"
+          ARCHIVES=("$UPDATER_DIR"/*.app.tar.gz)
+          [[ ${#ARCHIVES[@]} -eq 1 && -f "${ARCHIVES[0]}.sig" ]]
+          node desktop/scripts/verify-airhop-updater.mjs "${ARCHIVES[0]}" "${ARCHIVES[0]}.sig"
+          mkdir "$UPDATER_DIR/unpacked"
+          tar -xzf "${ARCHIVES[0]}" -C "$UPDATER_DIR/unpacked"
+          UPDATE_APPS=("$UPDATER_DIR/unpacked"/*.app)
+          [[ ${#UPDATE_APPS[@]} -eq 1 && -d "${UPDATE_APPS[0]}" ]]
+          codesign --verify --deep --strict "${UPDATE_APPS[0]}"
+          spctl --assess --type execute "${UPDATE_APPS[0]}"
+          xcrun stapler validate "${UPDATE_APPS[0]}"
+          ARCHIVE_NAME=$(basename "${ARCHIVES[0]}")
+          PREVIOUS=()
+          if gh release view airhop-center-latest --json tagName > /dev/null 2>&1; then
+            gh release download airhop-center-latest --pattern latest.json --dir "$RUNNER_TEMP"
+            PREVIOUS=("$RUNNER_TEMP/latest.json")
+          fi
+          node desktop/scripts/write-airhop-updater-manifest.mjs "$VERSION" \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ARCHIVE_NAME}" \
+            "${ARCHIVES[0]}.sig" "$UPDATER_DIR/latest.json" "${PREVIOUS[@]}"
+          gh release edit "$TAG" --draft=false --latest
+          if ! gh release view airhop-center-latest --json tagName > /dev/null 2>&1; then
+            gh release create airhop-center-latest --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title 'AirHop Center update feed' --notes 'Signed Apple Silicon update feed; versioned packages live in their immutable releases.'
+          fi
+          gh release upload airhop-center-latest "$UPDATER_DIR/latest.json" --clobber
 
       - name: Release summary
         env:

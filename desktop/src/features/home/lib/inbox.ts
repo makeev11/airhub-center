@@ -86,6 +86,8 @@ export type InboxReply = {
    * the signing agent may enable the card.
    */
   signerPubkey?: string;
+  /** Active relay identity used to authenticate relay-authored status cards. */
+  relaySelfPubkey?: string | null;
   tags?: string[][];
   timeLabel?: string;
 };

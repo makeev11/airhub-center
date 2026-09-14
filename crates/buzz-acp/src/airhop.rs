@@ -83,6 +83,8 @@ pub(crate) struct WelcomeRouteDecision {
     pub target_pubkey: String,
     pub reason: String,
     pub replayed: bool,
+    #[serde(default)]
+    pub communication_configured: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -96,6 +98,8 @@ pub(crate) struct WelcomeManifest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RouteGate {
     Accept,
+    /// The relay checked an explicit organization conversation policy.
+    AcceptConfigured,
     Drop,
     DropDuplicate,
     Bypass,
@@ -512,7 +516,7 @@ impl<C: AirhopRouteClient> WelcomeRouteGate<C> {
     }
 
     pub(crate) async fn evaluate(&self, event: &BuzzEvent) -> RouteGate {
-        if !self.enabled || !self.flat_channel_ids.contains(&event.channel_id) {
+        if !self.enabled || self.role == Some(AirhopRole::ParentAdministrator) {
             return RouteGate::Bypass;
         }
 
@@ -522,12 +526,22 @@ impl<C: AirhopRouteClient> WelcomeRouteGate<C> {
         }
 
         if is_kickoff_task(&event.event) {
+            if !self.flat_channel_ids.contains(&event.channel_id) {
+                return RouteGate::Drop;
+            }
             return self.evaluate_kickoff(event, &event_id).await;
         }
         if has_tag(&event.event, "airhop-handoff", None) {
+            if !self.flat_channel_ids.contains(&event.channel_id) {
+                return RouteGate::Drop;
+            }
             return self.evaluate_handoff(event, &event_id).await;
         }
 
+        self.evaluate_claim(event, event_id).await
+    }
+
+    async fn evaluate_claim(&self, event: &BuzzEvent, event_id: String) -> RouteGate {
         match self.client.claim(&event_id).await {
             Ok(decision)
                 if !decision.event_id.eq_ignore_ascii_case(&event_id)
@@ -549,7 +563,12 @@ impl<C: AirhopRouteClient> WelcomeRouteGate<C> {
                     replayed = decision.replayed,
                     "Airhop Welcome route accepted"
                 );
-                self.accept_once(event_id)
+                match self.accept_once(event_id) {
+                    RouteGate::Accept if decision.communication_configured => {
+                        RouteGate::AcceptConfigured
+                    }
+                    result => result,
+                }
             }
             Ok(decision) => {
                 tracing::debug!(
@@ -612,7 +631,7 @@ impl<C: AirhopRouteClient> WelcomeRouteGate<C> {
                         event.event.pubkey.to_hex().eq_ignore_ascii_case(fizz)
                     }) =>
             {
-                self.accept_once(event_id.to_owned())
+                self.evaluate_claim(event, event_id.to_owned()).await
             }
             Ok(_) => RouteGate::Drop,
             Err(error) => {
@@ -1057,6 +1076,7 @@ pub(crate) mod tests {
                     target_pubkey: target_pubkey.to_owned(),
                     reason: "natural_role".to_owned(),
                     replayed: true,
+                    communication_configured: false,
                 },
                 claims: AtomicUsize::new(0),
                 fail,
@@ -1081,14 +1101,32 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn bypasses_non_welcome_and_fails_closed() {
+    async fn ordinary_conversations_are_also_checked_and_fail_closed() {
         let welcome_id = Uuid::new_v4();
         let other_id = Uuid::new_v4();
         let admin = "aa".repeat(32);
         let gate = gate(welcome_id, &admin, &admin, true);
 
-        assert_eq!(gate.evaluate(&event(other_id)).await, RouteGate::Bypass);
+        assert_eq!(gate.evaluate(&event(other_id)).await, RouteGate::Drop);
         assert_eq!(gate.evaluate(&event(welcome_id)).await, RouteGate::Drop);
+    }
+
+    #[tokio::test]
+    async fn explicit_policy_is_authoritative_outside_welcome_but_generic_agents_bypass() {
+        let channel = Uuid::new_v4();
+        let admin = "aa".repeat(32);
+        let mut gate = gate(channel, &admin, &admin, false);
+        gate.flat_channel_ids.clear();
+        gate.client.decision.communication_configured = true;
+        assert_eq!(
+            gate.evaluate(&event(channel)).await,
+            RouteGate::AcceptConfigured
+        );
+        gate.enabled = false;
+        assert_eq!(
+            gate.evaluate(&event(Uuid::new_v4())).await,
+            RouteGate::Bypass
+        );
     }
 
     #[tokio::test]
@@ -1123,6 +1161,7 @@ pub(crate) mod tests {
                         target_pubkey: admin_hex.clone(),
                         reason: "fallback".to_owned(),
                         replayed: false,
+                        communication_configured: false,
                     },
                     claims: AtomicUsize::new(0),
                     fail: false,
@@ -1164,9 +1203,10 @@ pub(crate) mod tests {
                 .sign_with_keys(&fizz)
                 .unwrap(),
         };
-        let handoff_gate = make_gate();
+        let mut handoff_gate = make_gate();
+        handoff_gate.client.decision.event_id = handoff.event.id.to_hex();
         assert_eq!(handoff_gate.evaluate(&handoff).await, RouteGate::Accept);
-        assert_eq!(handoff_gate.client.claims.load(Ordering::SeqCst), 0);
+        assert_eq!(handoff_gate.client.claims.load(Ordering::SeqCst), 1);
 
         let forged = BuzzEvent {
             channel_id,

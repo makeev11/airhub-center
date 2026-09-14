@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { airhopUpdaterConfig } from "../desktop/scripts/airhop-updater-config.mjs";
 import {
   readReleaseIdentity,
   repositoryRoot,
@@ -48,11 +49,19 @@ writeFileSync(
   { flag: "wx" },
 );
 
+const updaterDefaults = json(join(repositoryRoot, "deploy/airhop/desktop-updater.json"));
+const updater = airhopUpdaterConfig({
+  AIRHOP_UPDATER_PUBLIC_KEY: updaterDefaults.publicKey,
+  AIRHOP_UPDATER_ENDPOINT: updaterDefaults.endpoint,
+  ...process.env,
+});
 const env = {
   ...process.env,
   AIRHOP_RELEASE_COMMIT: identity.commit,
   VITE_AIRHOP_PUBLIC_WEB: "0",
   VITE_AIRHOP_PUBLIC_BOOKING_RUNTIME: "",
+  BUZZ_UPDATER_PUBLIC_KEY: updater?.pubkey ?? "",
+  BUZZ_UPDATER_ENDPOINT: updater?.endpoints[0] ?? "",
 };
 const desktop = join(repositoryRoot, "desktop");
 function run(name, command, args, cwd = repositoryRoot, extraEnv = {}) {
@@ -122,6 +131,7 @@ writeFileSync(
   JSON.stringify(
     {
       build: { beforeBuildCommand: null, frontendDist: nativeWeb },
+      ...(updater ? { plugins: { updater } } : {}),
     },
     null,
     2,

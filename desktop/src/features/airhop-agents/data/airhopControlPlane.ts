@@ -2,6 +2,11 @@ import { z } from "zod";
 
 import { getRelayHttpUrl, signRelayEvent } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
+import {
+  agentPolicyEntrySchema,
+  validateAgentPolicy,
+  type AgentPolicyEntry,
+} from "../model/agentPolicy";
 
 const NIP98_KIND = 27235;
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -33,8 +38,14 @@ const connectionsResponseSchema = z.object({
   provisioning: z
     .object({
       telegram: z.object({ available: z.boolean() }),
+      whatsappCloud: z
+        .object({ available: z.boolean() })
+        .default({ available: false }),
     })
-    .default({ telegram: { available: false } }),
+    .default({
+      telegram: { available: false },
+      whatsappCloud: { available: false },
+    }),
 });
 
 const connectionResponseSchema = z.object({
@@ -49,6 +60,41 @@ const telegramConnectionResponseSchema = z.object({
     id: z.string().min(1),
     firstName: z.string().min(1),
     username: z.string().min(1).nullable(),
+  }),
+});
+
+const whatsappCloudConnectionResponseSchema = z.object({
+  schemaVersion: z.literal("airhop.whatsapp-cloud-connection.v1"),
+  connection: channelConnectionSchema,
+  meta: z.object({
+    appId: z.string().regex(/^\d{5,40}$/),
+    wabaId: z.string().regex(/^\d{5,40}$/),
+    phoneNumberId: z.string().regex(/^\d{5,40}$/),
+    displayPhoneNumber: z.string().min(5).max(40),
+    verifiedName: z.string().min(1).max(160).nullable(),
+    qualityRating: z.string().min(1).max(40).nullable(),
+  }),
+  webhook: z.object({
+    callbackUrl: z.string().url(),
+    verifyToken: z.string().regex(/^[0-9a-f]{64}$/),
+    field: z.literal("messages"),
+  }),
+});
+
+const whatsappCloudActivationResponseSchema = z.object({
+  schemaVersion: z.literal("airhop.whatsapp-cloud-activation.v1"),
+  connectionId: z.string().uuid(),
+  subscribed: z.literal(true),
+  status: z.literal("connecting"),
+});
+
+const whatsappCloudCredentialRotationResponseSchema = z.object({
+  schemaVersion: z.literal("airhop.whatsapp-cloud-credential-rotation.v1"),
+  connection: channelConnectionSchema,
+  webhook: z.object({
+    callbackUrl: z.string().url(),
+    verifyToken: z.string().regex(/^[0-9a-f]{64}$/),
+    field: z.literal("messages"),
   }),
 });
 
@@ -86,6 +132,12 @@ export type AirhopConnectionsOverview = z.infer<
 export type AirhopTelegramConnection = z.infer<
   typeof telegramConnectionResponseSchema
 >;
+export type AirhopWhatsAppCloudConnection = z.infer<
+  typeof whatsappCloudConnectionResponseSchema
+>;
+export type AirhopWhatsAppCloudCredentialRotation = z.infer<
+  typeof whatsappCloudCredentialRotationResponseSchema
+>;
 export type AirhopHermesDeployment = z.infer<typeof hermesDeploymentSchema>;
 
 export type PutAirhopChannelConnection = Readonly<{
@@ -104,6 +156,23 @@ export type ConnectionRouting = {
   buzzChannelId: string | null;
   branchId: string | null;
 };
+
+export type ConnectAirhopWhatsAppCloud = Readonly<{
+  routing?: ConnectionRouting;
+  appId: string;
+  appSecret: string;
+  wabaId: string;
+  phoneNumberId: string;
+  accessToken: string;
+}>;
+
+export type RotateAirhopWhatsAppCloudCredential = Readonly<{
+  connectionId: string;
+  appId: string;
+  appSecret: string;
+  accessToken: string;
+  expectedVersion: number;
+}>;
 
 type EventSigner = (input: {
   kind: number;
@@ -196,7 +265,96 @@ export class AirhopControlPlaneClient {
 
   async getPrincipalDirectory(): Promise<unknown> {
     const payload = await this.request("GET", "/api/airhop/staff/v1/settings");
-    return (payload as { principalDirectory?: unknown }).principalDirectory;
+    const data = payload as {
+      principalDirectory?: Record<string, unknown>;
+      agentPolicies?: unknown;
+      organization?: { timeZone?: string };
+    };
+    return {
+      ...data.principalDirectory,
+      agentPolicies: data.agentPolicies ?? null,
+      timeZone: data.organization?.timeZone ?? null,
+    };
+  }
+
+  async saveAgentPolicy(
+    communityId: string,
+    entry: AgentPolicyEntry,
+  ): Promise<AgentPolicyEntry> {
+    const policy = validateAgentPolicy(entry.role, entry.policy);
+    const event = await this.signEvent({
+      kind: 9052,
+      content: JSON.stringify({
+        role: entry.role,
+        expectedVersion: entry.version,
+        policy,
+      }),
+      tags: [
+        ["airhop-community", communityId],
+        ["-"],
+        ["nonce", this.nonceFactory()],
+      ],
+    });
+    const send = () => this.request("POST", "/events", event);
+    let payload: unknown;
+    try {
+      payload = await send();
+    } catch (error) {
+      // Keep the command identity on an uncertain network result; regenerate only NIP-98 auth.
+      if (
+        !(
+          error instanceof TypeError ||
+          (error instanceof DOMException && error.name === "TimeoutError")
+        )
+      )
+        throw error;
+      payload = await send();
+    }
+    const receipt = z
+      .object({ accepted: z.boolean(), message: z.string() })
+      .parse(payload);
+    if (!receipt.accepted) throw new Error(receipt.message);
+    return agentPolicyEntrySchema.parse(JSON.parse(receipt.message));
+  }
+
+  async activateAgentProcedure(
+    communityId: string,
+    role: AgentPolicyEntry["role"],
+    procedureId: string | null,
+    expectedVersion: number,
+  ): Promise<void> {
+    const event = await this.signEvent({
+      kind: 9053,
+      content: JSON.stringify({
+        operation: "activate",
+        role,
+        procedureId,
+        expectedVersion,
+      }),
+      tags: [
+        ["airhop-community", communityId],
+        ["-"],
+        ["nonce", this.nonceFactory()],
+      ],
+    });
+    const send = () => this.request("POST", "/events", event);
+    let response: unknown;
+    try {
+      response = await send();
+    } catch (error) {
+      if (
+        !(
+          error instanceof TypeError ||
+          (error instanceof DOMException && error.name === "TimeoutError")
+        )
+      )
+        throw error;
+      response = await send();
+    }
+    const receipt = z
+      .object({ accepted: z.boolean(), message: z.string() })
+      .parse(response);
+    if (!receipt.accepted) throw new Error(receipt.message);
   }
 
   async listConnections(): Promise<AirhopChannelConnection[]> {
@@ -218,6 +376,45 @@ export class AirhopControlPlaneClient {
       hermesEnabled: true,
     });
     return telegramConnectionResponseSchema.parse(payload);
+  }
+
+  async connectWhatsAppCloud(
+    input: ConnectAirhopWhatsAppCloud,
+  ): Promise<AirhopWhatsAppCloudConnection> {
+    const payload = await this.request(
+      "POST",
+      `${CONNECTIONS_PATH}/whatsapp-cloud`,
+      {
+        ...input,
+        hermesEnabled: true,
+      },
+    );
+    return whatsappCloudConnectionResponseSchema.parse(payload);
+  }
+
+  async activateWhatsAppCloud(connectionId: string): Promise<void> {
+    const payload = await this.request(
+      "POST",
+      `${CONNECTIONS_PATH}/${connectionId}/whatsapp-cloud/activate`,
+      {},
+    );
+    whatsappCloudActivationResponseSchema.parse(payload);
+  }
+
+  async rotateWhatsAppCloudCredential(
+    input: RotateAirhopWhatsAppCloudCredential,
+  ): Promise<AirhopWhatsAppCloudCredentialRotation> {
+    const payload = await this.request(
+      "PUT",
+      `${CONNECTIONS_PATH}/${input.connectionId}/whatsapp-cloud/credential`,
+      {
+        appId: input.appId,
+        appSecret: input.appSecret,
+        accessToken: input.accessToken,
+        expectedVersion: input.expectedVersion,
+      },
+    );
+    return whatsappCloudCredentialRotationResponseSchema.parse(payload);
   }
 
   async putConnection(
@@ -293,6 +490,7 @@ export class AirhopControlPlaneClient {
       this.signEvent,
     );
     const response = await this.fetchImplementation(url, {
+      cache: "no-store",
       method,
       headers: {
         Accept: "application/json",

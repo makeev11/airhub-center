@@ -83,7 +83,7 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         system_prompt: AIRHOP_FIZZ_SYSTEM_PROMPT,
         name_pool: &["Fizz"],
         model: None,
-        runtime: None,
+        runtime: Some("airhop-hermes"),
         default_active: true,
     },
     BuiltInPersona {
@@ -93,7 +93,7 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         system_prompt: AIRHOP_ADMINISTRATOR_SYSTEM_PROMPT,
         name_pool: &["Administrator"],
         model: None,
-        runtime: None,
+        runtime: Some("airhop-hermes"),
         default_active: true,
     },
     BuiltInPersona {
@@ -103,7 +103,7 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         system_prompt: AIRHOP_ANALYST_SYSTEM_PROMPT,
         name_pool: &["Analyst"],
         model: None,
-        runtime: None,
+        runtime: Some("airhop-hermes"),
         default_active: true,
     },
     BuiltInPersona {
@@ -113,7 +113,7 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         system_prompt: AIRHOP_CONTENT_MARKETER_SYSTEM_PROMPT,
         name_pool: &["Content Marketer"],
         model: None,
-        runtime: None,
+        runtime: Some("airhop-hermes"),
         default_active: true,
     },
 ];
@@ -236,6 +236,11 @@ fn merge_personas(mut stored: Vec<AgentDefinition>, now: &str) -> (Vec<AgentDefi
         if let Some(existing) = stored.iter_mut().find(|record| record.id == built_in.id) {
             if !existing.is_builtin {
                 existing.is_builtin = true;
+                changed = true;
+            }
+            if built_in.id.starts_with("builtin:airhop-") && existing.runtime.is_none() {
+                existing.runtime = built_in.runtime.clone();
+                existing.updated_at = now.to_string();
                 changed = true;
             }
             if migrate_airhop_builtin_prompt(existing, &built_in, now) {

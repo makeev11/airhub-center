@@ -112,32 +112,22 @@ test.beforeEach(async ({ page }, testInfo) => {
   await installMockBridge(page, mock);
 });
 
-test("agent owner label identifies the agent and owner", async ({ page }) => {
+test("agent owner label stays hidden in AirHop Center", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("channel-general").click();
 
   const aliceMessage = page
     .getByTestId("message-row")
     .filter({ hasText: "Hey team — checking in." });
-  const ownerTreatment = aliceMessage.getByTestId("message-agent-owner");
-
-  await expect(ownerTreatment.locator("svg")).toBeVisible();
-  await expect(
-    ownerTreatment.getByText("managed by", { exact: true }),
-  ).toBeVisible();
-  await expect(ownerTreatment.locator(".font-semibold")).toHaveText("bob");
-  await expect(ownerTreatment.getByRole("button")).toHaveAccessibleName("bob");
-  await expect(ownerTreatment.locator(".sr-only")).toHaveText(
-    "Agent managed by",
-  );
+  await expect(aliceMessage).toBeVisible();
+  await expect(aliceMessage.getByTestId("message-agent-owner")).toHaveCount(0);
 
   const joinedRow = page
     .getByTestId("system-message-row")
     .filter({ hasText: "alice" })
     .filter({ hasText: "joined the channel" });
-  await expect(joinedRow.getByTestId("message-agent-owner")).toContainText(
-    "managed bybob",
-  );
+  await expect(joinedRow).toBeVisible();
+  await expect(joinedRow.getByTestId("message-agent-owner")).toHaveCount(0);
 });
 
 test("send a message and see it in timeline", async ({ page }) => {

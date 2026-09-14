@@ -572,12 +572,25 @@ export function HomeView({
     );
   }
 
-  const { canDelete, canReact, canReply, disabledReplyReason } =
-    getHomeMessageCapabilities(
-      selectedItem,
-      currentPubkey,
-      availableChannelIds,
-    );
+  const capabilities = getHomeMessageCapabilities(
+    selectedItem,
+    currentPubkey,
+    availableChannelIds,
+  );
+  const contextReadOnly =
+    Boolean(threadContext.unavailable) || threadContext.isCheckingAvailability;
+  const canDelete = capabilities.canDelete && !contextReadOnly;
+  const canReact = capabilities.canReact && !contextReadOnly;
+  const canReply = capabilities.canReply && !contextReadOnly;
+  const disabledReplyReason = contextReadOnly
+    ? isRussian
+      ? threadContext.isCheckingAvailability
+        ? "Проверяем доступность обсуждения…"
+        : "Ответ в недоступное обсуждение невозможен."
+      : threadContext.isCheckingAvailability
+        ? "Checking discussion availability..."
+        : "Replies to this discussion are unavailable."
+    : capabilities.disabledReplyReason;
   const detailMode = isDrafts
     ? "drafts"
     : isReminders
@@ -766,6 +779,7 @@ export function HomeView({
               isSendingReply={isSendingReply}
               isSinglePanelView={isSinglePanelDetailView}
               hasThreadContextLoadError={threadContext.hasLoadError}
+              contextUnavailable={threadContext.unavailable}
               onRetryContext={() => {
                 threadContext.retry();
                 void channelMessagesQuery.refetch();

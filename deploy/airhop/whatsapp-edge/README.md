@@ -62,24 +62,31 @@ rendered Compose configuration because it contains the connector key.
 The currently accepted live gateway checkpoint is:
 
 ```text
-image_ref=airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970
-image_id=sha256:9b433fe2e7cc85b88d7147b2aeb8280aef6c0cbf98fd971a8a60394edd395032
-source_revision=ba9434e6b970a505dec2ef2bc8c045b6807a7a36
+image_ref=airhop-hermes-channel-gateway:credential-rotation-df472bd
+image_id=sha256:95493c6902e902811e668acddb46e0d039da758ca4552f40e804efee9ba4fd76
+source_revision=df472bd18e7956bbd9d24ac5cac411d8aa575bc7
 source_volume=buzz-demo_airhop-telegram-gateway-data
-transfer_archive_sha256=879343f9b9eafaec5d70c357b47ac4a5524d5cce21cd14fee3c61fbb1263869f
+transfer_archive_sha256=82c44230622e63dc6170d7276d10c40ace18f9d0abbe8fcab6a2f47d48062ceb
+base_image_id=sha256:9b433fe2e7cc85b88d7147b2aeb8280aef6c0cbf98fd971a8a60394edd395032
 ```
 
-The accepted 150,239,003-byte archive, checksum, and manifest are staged on the
+The accepted 150,276,756-byte archive, checksum, and manifest are staged on the
 current gateway host under
-`/opt/airhop/backups/whatsapp-edge-ba9434e6b970/`. The archive checksum and a
+`/opt/airhop/backups/whatsapp-edge-df472bd/`. The archive checksum and a
 same-host load test both passed; loading it reproduced the accepted image ID.
+The live gateway and current Relay both run revision `df472bd`; the Relay image
+is `airhub-center-relay:whatsapp-credential-rotation-df472bd` with immutable ID
+`sha256:05aafad2c904288ce9d7b654d43396f533fa45185bf545fc2b9f0b6e1d968d98`,
+and the database remains at migration 69. The gateway-first deployment also
+persisted `whatsapp_webhook_verified_version=1`, so later credential rotations
+must complete a fresh Meta verification for their new revision.
 
 If that image is not published to an authenticated registry, move the exact
 accepted local image without rebuilding it. On the old host:
 
 ```bash
 ./image-transfer.sh export \
-  airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970 \
+  airhop-hermes-channel-gateway:credential-rotation-df472bd \
   /opt/airhop/backups/channel-gateway-image.tar.gz
 ```
 
@@ -89,7 +96,7 @@ VPS over the approved SSH path. Then load it there:
 ```bash
 ./image-transfer.sh load \
   /opt/airhop/backups/channel-gateway-image.tar.gz \
-  airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970
+  airhop-hermes-channel-gateway:credential-rotation-df472bd
 ```
 
 Use the imported tag in `AIRHOP_CHANNEL_GATEWAY_IMAGE`. Do not rebuild during
@@ -118,7 +125,7 @@ stop the old gateway and make the final consistent backup:
 ./state-transfer.sh backup \
   buzz-demo_airhop-telegram-gateway-data \
   /opt/airhop/backups/channel-gateway-state.tar.gz \
-  airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970
+  airhop-hermes-channel-gateway:credential-rotation-df472bd
 ```
 
 Copy the state archive, adjacent `.sha256`, and `.manifest` files to Brazil.
@@ -130,7 +137,7 @@ docker compose --env-file .env -f compose.yml create
 ./state-transfer.sh restore \
   airhop-channel-edge-br_airhop-channel-gateway-state \
   /opt/airhop/backups/channel-gateway-state.tar.gz \
-  airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970
+  airhop-hermes-channel-gateway:credential-rotation-df472bd
 ```
 
 The helper verifies the checksum, refuses a live source volume or a non-empty
@@ -141,7 +148,7 @@ volumes on a host that already has the accepted gateway image:
 
 ```bash
 ./test-state-transfer.sh \
-  airhop-hermes-channel-gateway:whatsapp-e2e-ba9434e6b970
+  airhop-hermes-channel-gateway:credential-rotation-df472bd
 ```
 
 The self-test creates uniquely named temporary volumes, proves file content and

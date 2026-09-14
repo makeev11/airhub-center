@@ -110,9 +110,12 @@ test("Welcome keeps a compact introduction and clips sidebar scrolling below sea
   const intro = page.getByTestId("message-channel-intro");
   await expect(intro).toContainText("Здесь вы познакомитесь с командой центра");
   await expect(intro.getByRole("button")).toHaveCount(0);
-  await expect(
-    page.getByTestId("welcome-composer-persona-mention"),
-  ).toContainText("@Физ");
+  const personaMention = page.getByTestId("welcome-composer-persona-mention");
+  await expect(personaMention).toHaveAttribute("data-active-persona", "Fizz");
+  await expect(personaMention.locator(".sr-only")).toHaveText("Физ");
+  await expect(page.getByTestId("welcome-composer-guide-banner")).toContainText(
+    "Упоминание не нужно",
+  );
   const content = page.getByTestId("sidebar-channel-content");
   await expect(content).toHaveCSS("overflow-y", "hidden");
   const header = await page.getByTestId("sidebar-pinned-header").boundingBox();

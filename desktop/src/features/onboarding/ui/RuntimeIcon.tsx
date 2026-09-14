@@ -24,6 +24,7 @@ export const PRESET_LOGOS: Record<string, string> = {
   kimi: "/harness-logos/kimi.png",
   amp: "/harness-logos/amp.png",
   hermes: "/harness-logos/hermes.png",
+  "airhop-hermes": "/harness-logos/hermes.png",
   openclaw: "/harness-logos/openclaw.svg",
 };
 

@@ -13,6 +13,7 @@ services:
       BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS: ${BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS:?set BUZZ_AIRHOP_CHANNEL_CREDENTIAL_KEYS}
       BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION: ${BUZZ_AIRHOP_CHANNEL_CURRENT_KEY_VERSION:-1}
       BUZZ_AIRHOP_TELEGRAM_CONNECTOR_PUBKEY: ${AIRHOP_TELEGRAM_CONNECTOR_PUBKEY:?set AIRHOP_TELEGRAM_CONNECTOR_PUBKEY}
+      BUZZ_AIRHOP_WHATSAPP_WEBHOOK_BASE_URL: ${AIRHOP_WHATSAPP_WEBHOOK_BASE_URL:-}
 
   hermes-parent-runtime:
     profiles: [hermes]
@@ -66,7 +67,9 @@ services:
     networks: [buzz-net]
 
   telegram-gateway:
-    profiles: [telegram]
+    # Compatibility service name: this image now supervises Telegram and
+    # official WhatsApp Cloud connections for this exact Center deployment.
+    profiles: [telegram, whatsapp, channels]
     image: ${AIRHOP_TELEGRAM_GATEWAY_IMAGE:?set AIRHOP_TELEGRAM_GATEWAY_IMAGE}
     environment:
       AIRHOP_RELAY_URL: ${AIRHOP_GATEWAY_RELAY_URL:?set AIRHOP_GATEWAY_RELAY_URL}
@@ -78,8 +81,20 @@ services:
       TELEGRAM_WEBHOOK_SECRET: ${AIRHOP_TELEGRAM_WEBHOOK_SECRET:-}
       TELEGRAM_WEBHOOK_HOST: 0.0.0.0
       TELEGRAM_WEBHOOK_PORT: "8443"
+      AIRHOP_WHATSAPP_WEBHOOK_HOST: 0.0.0.0
+      AIRHOP_WHATSAPP_WEBHOOK_PORT: "8443"
+      AIRHOP_WHATSAPP_WEBHOOK_MAX_BODY_BYTES: "1048576"
     volumes:
       - airhop-telegram-gateway-data:/var/lib/airhop-channel-gateway
+    labels:
+      traefik.enable: "${AIRHOP_TRAEFIK_ENABLED:-false}"
+      traefik.docker.network: "${AIRHOP_DOCKER_NETWORK:-buzz-net}"
+      traefik.http.routers.airhop-whatsapp.entrypoints: websecure
+      traefik.http.routers.airhop-whatsapp.rule: "Host(`${AIRHOP_PUBLIC_HOST:-demo.example.com}`) && PathPrefix(`/webhooks/whatsapp/`)"
+      traefik.http.routers.airhop-whatsapp.priority: "100"
+      traefik.http.routers.airhop-whatsapp.tls: "true"
+      traefik.http.routers.airhop-whatsapp.tls.certresolver: letsencrypt
+      traefik.http.services.airhop-whatsapp.loadbalancer.server.port: "8443"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

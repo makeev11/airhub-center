@@ -571,7 +571,38 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 64);
+        assert_eq!(migrations.len(), 69);
+        assert_eq!(migrations[68].version, 69);
+        assert!(migrations[68]
+            .sql
+            .as_str()
+            .contains("CREATE FUNCTION airhop_can_read_channel"));
+        assert!(migrations[68]
+            .sql
+            .as_str()
+            .contains("airhop_channel_service_grants"));
+        assert_eq!(migrations[67].version, 68);
+        assert!(migrations[67]
+            .sql
+            .as_str()
+            .contains("provider IN ('telegram', 'whatsapp_cloud')"));
+        assert!(migrations[67].sql.as_str().contains("BETWEEN 17 AND 8192"));
+        assert!(migrations[67].sql.as_str().contains("provider_bot_id"));
+        assert_eq!(migrations[66].version, 67);
+        assert!(migrations[66]
+            .sql
+            .as_str()
+            .contains("CREATE OR REPLACE FUNCTION claim_airhop_agent_reply"));
+        assert_eq!(migrations[65].version, 66);
+        assert!(migrations[65]
+            .sql
+            .as_str()
+            .contains("CREATE TRIGGER airhop_agent_reply_publication"));
+        assert_eq!(migrations[64].version, 65);
+        assert!(migrations[64]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE airhop_agent_policies"));
         assert_eq!(migrations[63].version, 64);
         assert!(migrations[63]
             .sql

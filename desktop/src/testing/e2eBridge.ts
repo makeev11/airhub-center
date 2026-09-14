@@ -568,6 +568,9 @@ type E2eConfig = {
     profileUpdateErrors?: string[];
     searchProfiles?: MockSearchProfileSeed[];
     updateAvailable?: boolean;
+    updateCheckError?: string;
+    updateDownloadError?: string;
+    updateInstallError?: string;
     updateChannelDelayMs?: number;
     updateDownloadDelayMs?: number;
     restartDelayMs?: number;
@@ -603,6 +606,8 @@ type E2eConfig = {
     relayRole?: "owner" | "admin" | "member" | null;
     /** Authoritative directory returned by the isolated AirHop fixture. */
     principalDirectory?: unknown;
+    agentPolicies?: import("@/features/airhop-agents/model/agentPolicy").AgentPolicies;
+    agentPolicyErrors?: string[];
     relayMembers?: Array<{
       pubkey: string;
       role: "owner" | "admin" | "member";
@@ -666,6 +671,8 @@ type E2eConfig = {
     // Event IDs that `get_event` should report as definitively not found.
     // Causes `useDraftRootStatus` to classify as `deleted`.
     deletedEventIds?: string[];
+    /** Per-event transport failures for Inbox availability/retry regressions. */
+    eventLookupErrors?: Record<string, string>;
     // Pending community deep links (buzz://join / buzz://connect / buzz://add-community) seeded into
     // the mocked Rust-side queue. Mirrors the real queue's semantics:
     // `take_pending_community_deep_link` peeks the head and
@@ -4361,6 +4368,16 @@ function emitMockHistory(
 ) {
   const events = getMockMessageStore(channelId)
     .filter((event) => {
+      // Inbox single-event and descendant lookups must see the same filtered
+      // result as the relay, not unrelated cached messages from this channel.
+      if (filter.ids && !filter.ids.includes(event.id)) return false;
+      if (
+        filter["#e"] &&
+        !event.tags.some(
+          (tag) => tag[0] === "e" && filter["#e"]?.includes(tag[1]),
+        )
+      )
+        return false;
       if (filter.kinds && !filter.kinds.includes(event.kind)) {
         return false;
       }
@@ -6849,6 +6866,8 @@ function notifyUpdaterFinished(payload: unknown) {
 }
 
 function handleUpdaterCheck(config: E2eConfig | undefined) {
+  if (config?.mock?.updateCheckError)
+    throw new Error(config.mock.updateCheckError);
   if (!config?.mock?.updateAvailable) {
     return null;
   }
@@ -6869,6 +6888,8 @@ async function handleUpdaterDownload(
   payload: unknown,
   config: E2eConfig | undefined,
 ) {
+  if (config?.mock?.updateDownloadError)
+    throw new Error(config.mock.updateDownloadError);
   const delayMs = config?.mock?.updateDownloadDelayMs ?? 0;
 
   if (delayMs > 0) {
@@ -6879,7 +6900,9 @@ async function handleUpdaterDownload(
   return 43;
 }
 
-function handleUpdaterInstall() {
+function handleUpdaterInstall(config: E2eConfig | undefined) {
+  if (config?.mock?.updateInstallError)
+    throw new Error(config.mock.updateInstallError);
   return null;
 }
 
@@ -9516,6 +9539,8 @@ async function resolveGetEvent(
   const identity = getIdentity(config);
   if (!identity) {
     // Allow test specs to mark specific event IDs as definitively deleted.
+    const lookupError = config?.mock?.eventLookupErrors?.[args.eventId];
+    if (lookupError) throw new Error(lookupError);
     if (config?.mock?.deletedEventIds?.includes(args.eventId)) {
       throw new Error("event not found");
     }
@@ -10080,6 +10105,8 @@ function installMockAirhopWelcomeApi() {
         return new Response(
           JSON.stringify({
             principalDirectory: config.mock.principalDirectory,
+            agentPolicies: config.mock.agentPolicies,
+            organization: { timeZone: "Europe/Moscow" },
           }),
           { headers: { "Content-Type": "application/json" } },
         );
@@ -10087,6 +10114,24 @@ function installMockAirhopWelcomeApi() {
         status: 404,
         headers: { "Content-Type": "application/json" },
       });
+    }
+    if (
+      method === "POST" &&
+      url.pathname === "/events" &&
+      config.mock?.agentPolicies
+    ) {
+      const event =
+        typeof init?.body === "string" ? JSON.parse(init.body) : null;
+      if (event?.kind === 9052 || event?.kind === 9053) {
+        const { applyMockAgentPolicyCommand } = await import(
+          "./airhopAgentPolicyMock"
+        );
+        return applyMockAgentPolicyCommand(
+          config.mock.agentPolicies,
+          event,
+          config.mock.agentPolicyErrors?.shift(),
+        );
+      }
     }
     if (
       method === "PUT" &&
@@ -12854,7 +12899,7 @@ export function maybeInstallE2eTauriMocks() {
       case "plugin:updater|download":
         return handleUpdaterDownload(payload, activeConfig);
       case "plugin:updater|install":
-        return handleUpdaterInstall();
+        return handleUpdaterInstall(activeConfig);
       case "is_auto_update_supported":
         // Default true so all existing tests continue to use the auto-update
         // path. Set mock.autoUpdateSupported: false to simulate a .deb install.

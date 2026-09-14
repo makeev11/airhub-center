@@ -249,10 +249,12 @@ export async function buildWelcomeStarterCreateInput(
       BUZZ_ACP_KINDS: "9,46010,40007,21021",
       BUZZ_ACP_FLAT_CHANNELS: channelId,
       BUZZ_ACP_ROUTE_GATE: "airhop",
+      HERMES_ACP_BUILTIN_TOOLSETS: "",
+      HERMES_ACP_SKIP_CONFIGURED_MCP: "1",
     },
     spawnAfterCreate: false,
     startOnAppLaunch: false,
-    respondTo: "owner-only",
+    respondTo: "anyone",
     respondToAllowlist: [],
   };
 }
@@ -395,7 +397,15 @@ async function provisionWelcomeTeam(
     );
     if (existing) {
       const update = welcomeStarterRuntimeUpdate(existing, desired);
-      if (update?.envVars) changedEnvironments.add(existing.pubkey);
+      // The author gate is a process environment value too. Persisting the new
+      // audience alone would leave an already running worker owner-only.
+      if (
+        update?.envVars ||
+        update?.respondTo !== undefined ||
+        update?.respondToAllowlist !== undefined
+      ) {
+        changedEnvironments.add(existing.pubkey);
+      }
       mutableAgents[starter.role] = update
         ? (await updateManagedAgent(update)).agent
         : existing;

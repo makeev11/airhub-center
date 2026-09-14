@@ -17,6 +17,8 @@ import type {
 } from "@/features/home/lib/inbox";
 import { getProjectInboxReference } from "@/features/home/lib/projectInbox";
 import { ProjectInboxDetail } from "@/features/home/ui/ProjectInboxDetail";
+import { InboxContextUnavailableNotice } from "@/features/home/ui/InboxContextUnavailableNotice";
+import type { InboxContextUnavailable } from "@/features/home/lib/loadInboxThreadContext";
 import { ChannelMembersBar } from "@/features/channels/ui/ChannelMembersBar";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { formatInboxTypeLabel } from "@/features/home/lib/inbox";
@@ -71,6 +73,7 @@ type InboxDetailPaneProps = {
   isSendingReply?: boolean;
   isSinglePanelView?: boolean;
   hasThreadContextLoadError?: boolean;
+  contextUnavailable?: InboxContextUnavailable;
   onRetryContext?: () => void;
   isThreadContextLoading?: boolean;
   item: InboxItem | null;
@@ -143,6 +146,7 @@ function InboxMessageDetailPane({
   isSendingReply = false,
   isSinglePanelView = false,
   hasThreadContextLoadError = false,
+  contextUnavailable = null,
   onRetryContext,
   isThreadContextLoading = false,
   item,
@@ -619,6 +623,9 @@ function InboxMessageDetailPane({
                   </button>
                 ) : null}
               </div>
+            ) : null}
+            {contextUnavailable ? (
+              <InboxContextUnavailableNotice reason={contextUnavailable} />
             ) : null}
             {displayMessages.map((message, index) => {
               const hasUnreadBoundary = message.id === unreadBoundaryEventId;

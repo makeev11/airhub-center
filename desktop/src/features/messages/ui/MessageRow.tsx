@@ -403,6 +403,8 @@ export const MessageRow = React.memo(
 
           return (
             <Markdown
+              agentRequestStatusRelaySelfPubkey={message.relaySelfPubkey}
+              agentRequestStatusSignerPubkey={message.signerPubkey}
               channelNames={channelNames}
               className={cn(
                 "max-w-full text-sm",

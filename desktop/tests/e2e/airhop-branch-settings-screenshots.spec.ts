@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { createInitialDemoBookingWorkspace } from "../../src/features/booking/data/demoBookingRepository";
 import { waitForAnimations } from "../helpers/animations";
@@ -13,7 +13,7 @@ const communityId = "44444444-4444-4444-8444-444444444444";
 const firstPubkey = "11".repeat(32);
 const secondPubkey = "22".repeat(32);
 
-test.beforeEach(async ({ page }) => {
+async function installBranchFixture(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.setItem("airhop.locale.v1", "ru-RU");
     window.localStorage.setItem("buzz:text-scale", "1.2");
@@ -24,25 +24,52 @@ test.beforeEach(async ({ page }) => {
   await installMockBridge(page);
   const demo = createInitialDemoBookingWorkspace();
   const baseBranch = demo.branches[0];
+  const state = {
+    branch: {
+      ...baseBranch,
+      id: branchId,
+      organizationId,
+      name: "Курская",
+      address: "Москва, ул. Земляной Вал, 27, вход со двора",
+      defaultBuzzChannelId: channelId,
+      version: 3,
+    },
+    responsiblePubkeys: [firstPubkey, secondPubkey],
+    routingMode: "modern" as "modern" | "legacy" | "unavailable" | "forbidden",
+    routingQueries: [] as string[],
+    commands: [] as Array<{
+      branchId: string;
+      expectedVersion: number;
+      responsiblePubkeys: string[];
+    }>,
+    branchUpdates: 0,
+  };
 
   await page.route("**/api/airhop/staff/v1/**", async (route) => {
     const url = new URL(route.request().url());
+    if (
+      url.pathname.endsWith(`/branches/${branchId}`) &&
+      route.request().method() === "PUT"
+    ) {
+      const input = route.request().postDataJSON();
+      expect(input.expectedVersion).toBe(state.branch.version);
+      state.branch = {
+        ...state.branch,
+        ...input,
+        version: state.branch.version + 1,
+      };
+      state.branchUpdates++;
+      await route.fulfill({
+        json: { branchId, version: state.branch.version, replayed: false },
+      });
+      return;
+    }
     if (url.pathname.endsWith("/branches")) {
       await route.fulfill({
         json: {
           organization: { ...demo.organization, id: organizationId },
           organizationVersion: 1,
-          items: [
-            {
-              ...baseBranch,
-              id: branchId,
-              organizationId,
-              name: "Курская",
-              address: "Москва, ул. Земляной Вал, 27, вход со двора",
-              defaultBuzzChannelId: channelId,
-              version: 3,
-            },
-          ],
+          items: [state.branch],
           rooms: [],
           groups: [],
           recurrenceRules: [],
@@ -54,6 +81,29 @@ test.beforeEach(async ({ page }) => {
       return;
     }
     if (url.pathname.endsWith("/client-conversations")) {
+      state.routingQueries.push(url.search);
+      if (
+        state.routingMode === "unavailable" ||
+        state.routingMode === "forbidden"
+      ) {
+        await route.fulfill({
+          status: state.routingMode === "forbidden" ? 403 : 503,
+          json: { error: "Staff unavailable" },
+        });
+        return;
+      }
+      if (state.routingMode === "legacy") {
+        if (url.searchParams.has("configurationOnly")) {
+          await route.fulfill({
+            status: 400,
+            json: { error: "Invalid Inbox filters" },
+          });
+          return;
+        }
+        expect(url.searchParams.get("conversationId")).toBe(
+          "00000000-0000-0000-0000-000000000000",
+        );
+      }
       await route.fulfill({
         json: {
           communityId,
@@ -67,8 +117,8 @@ test.beforeEach(async ({ page }) => {
               id: branchId,
               name: "Курская",
               channelId,
-              version: 3,
-              responsiblePubkeys: [firstPubkey, secondPubkey],
+              version: state.branch.version,
+              responsiblePubkeys: state.responsiblePubkeys,
             },
           ],
           staff: [
@@ -123,11 +173,33 @@ test.beforeEach(async ({ page }) => {
     }
     await route.fulfill({ status: 404, json: { error: "Not mocked" } });
   });
-});
+  await page.route("**/events", async (route) => {
+    const event = route.request().postDataJSON();
+    expect(event.kind).toBe(9051);
+    expect(event.tags).toContainEqual(["airhop-community", communityId]);
+    const input = JSON.parse(event.content);
+    expect(input.branchId).toBe(branchId);
+    expect(input.expectedVersion).toBe(state.branch.version);
+    state.commands.push(input);
+    state.responsiblePubkeys = input.responsiblePubkeys;
+    state.branch.version++;
+    await route.fulfill({ json: { accepted: true, message: "{}" } });
+  });
+  return state;
+}
+
+async function openBranch(page: Page) {
+  await page
+    .getByTestId(`airhop-branch-${branchId}`)
+    .getByRole("button", { name: "Редактировать" })
+    .click();
+  return page.getByTestId("airhop-branch-form");
+}
 
 test("branch address, responsibles, and tracked map links stay visually aligned", async ({
   page,
 }) => {
+  await installBranchFixture(page);
   mkdirSync("test-results/branch-settings-preview", { recursive: true });
   await page.setViewportSize({ width: 1280, height: 1000 });
   await page.goto("/#/booking/branches");
@@ -167,4 +239,118 @@ test("branch address, responsibles, and tracked map links stay visually aligned"
   await trackingSettings.screenshot({
     path: "test-results/branch-settings-preview/02-operational-settings.png",
   });
+});
+
+test("legacy relay loads and saves branch responsibles with the refreshed branch version", async ({
+  page,
+}) => {
+  const state = await installBranchFixture(page);
+  state.routingMode = "legacy";
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.goto("/#/booking/branches");
+  const dialog = await openBranch(page);
+  await expect(
+    dialog.getByRole("checkbox", { name: "Анна Петрова" }),
+  ).toBeChecked();
+  await expect(
+    dialog.getByRole("checkbox", { name: "Мария Волкова" }),
+  ).toBeChecked();
+  await dialog.getByRole("checkbox", { name: "Анна Петрова" }).uncheck();
+  await dialog.getByRole("checkbox", { name: "Игорь Соколов" }).check();
+  await dialog
+    .getByTestId("airhop-branch-address")
+    .fill("Москва, Земляной Вал, 27, второй вход");
+  await dialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(state.branchUpdates).toBe(1);
+  expect(state.commands).toHaveLength(1);
+  expect(state.commands[0].expectedVersion).toBe(4);
+  expect(state.responsiblePubkeys).toEqual([secondPubkey, "33".repeat(32)]);
+  await openBranch(page);
+  await expect(
+    dialog.getByRole("checkbox", { name: "Анна Петрова" }),
+  ).not.toBeChecked();
+  await expect(
+    dialog.getByRole("checkbox", { name: "Мария Волкова" }),
+  ).toBeChecked();
+  await expect(
+    dialog.getByRole("checkbox", { name: "Игорь Соколов" }),
+  ).toBeChecked();
+  await expect(dialog.getByTestId("airhop-branch-address")).toHaveValue(
+    "Москва, Земляной Вал, 27, второй вход",
+  );
+  expect(state.routingQueries).toEqual([
+    "?configurationOnly=true",
+    "?conversationId=00000000-0000-0000-0000-000000000000",
+    "?configurationOnly=true",
+    "?conversationId=00000000-0000-0000-0000-000000000000",
+    "?configurationOnly=true",
+    "?conversationId=00000000-0000-0000-0000-000000000000",
+  ]);
+  await waitForAnimations(page);
+  await page
+    .getByTestId("airhop-branch-responsibles")
+    .screenshot({ path: "test-results/branch-responsibles-saved.png" });
+});
+
+test("retrying unavailable staff preserves typed branch settings and restores saved selections", async ({
+  page,
+}) => {
+  const state = await installBranchFixture(page);
+  state.routingMode = "unavailable";
+  await page.goto("/#/booking/branches");
+  const dialog = await openBranch(page);
+  await expect(
+    dialog.getByText(/Список сотрудников сейчас недоступен/),
+  ).toBeVisible();
+  await dialog.getByTestId("airhop-branch-name").fill("Курская — новый зал");
+  await dialog
+    .getByTestId("airhop-branch-address")
+    .fill("Москва, новый вход со двора");
+  state.routingMode = "legacy";
+  await dialog.getByRole("button", { name: "Повторить загрузку" }).click();
+  await expect(
+    dialog.getByRole("checkbox", { name: "Анна Петрова" }),
+  ).toBeChecked();
+  await expect(
+    dialog.getByRole("checkbox", { name: "Мария Волкова" }),
+  ).toBeChecked();
+  await expect(
+    dialog.getByText(/Список сотрудников сейчас недоступен/),
+  ).not.toBeVisible();
+  await expect(dialog.getByTestId("airhop-branch-name")).toHaveValue(
+    "Курская — новый зал",
+  );
+  await expect(dialog.getByTestId("airhop-branch-address")).toHaveValue(
+    "Москва, новый вход со двора",
+  );
+  expect(state.commands).toHaveLength(0);
+  expect(state.branchUpdates).toBe(0);
+  expect(state.routingQueries).toEqual([
+    "?configurationOnly=true",
+    "?configurationOnly=true",
+    "?conversationId=00000000-0000-0000-0000-000000000000",
+  ]);
+});
+
+test("saving an address while staff access fails does not clear existing responsibles", async ({
+  page,
+}) => {
+  const state = await installBranchFixture(page);
+  state.routingMode = "forbidden";
+  await page.goto("/#/booking/branches");
+  const dialog = await openBranch(page);
+  await expect(
+    dialog.getByRole("button", { name: "Повторить загрузку" }),
+  ).toBeVisible();
+  await dialog
+    .getByTestId("airhop-branch-address")
+    .fill("Москва, уточнённый адрес");
+  await dialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(state.branchUpdates).toBe(1);
+  expect(state.branch.address).toBe("Москва, уточнённый адрес");
+  expect(state.commands).toHaveLength(0);
+  expect(state.responsiblePubkeys).toEqual([firstPubkey, secondPubkey]);
+  expect(state.routingQueries).toEqual(["?configurationOnly=true"]);
 });

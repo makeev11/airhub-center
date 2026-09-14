@@ -1,5 +1,9 @@
 import * as React from "react";
 import { loadInboxContextEvent } from "./lib/loadInboxContextEvent";
+import {
+  type InboxContextUnavailable,
+  loadInboxThreadContext,
+} from "./lib/loadInboxThreadContext";
 
 import { isInboxThreadContextEvent } from "@/features/home/lib/inboxViewHelpers";
 import { relayEventFromFeedItem } from "@/features/home/lib/inbox";
@@ -16,6 +20,8 @@ import {
 type InboxThreadContextResult = {
   events: RelayEvent[];
   hasLoadError: boolean;
+  unavailable: InboxContextUnavailable;
+  isCheckingAvailability: boolean;
   isLoading: boolean;
   /** kind:7 events referencing the context messages, fetched by `#e`. */
   reactionEvents: RelayEvent[];
@@ -25,10 +31,10 @@ type InboxThreadContextResult = {
 };
 
 const THREAD_CONTEXT_LIMIT = 100;
-const MAX_ANCESTOR_HOPS = 50;
-const CHANNEL_CONTEXT_EVENT_KINDS = new Set<number>(
-  CHANNEL_TIMELINE_CONTENT_KINDS,
-);
+const CHANNEL_CONTEXT_EVENT_KINDS = new Set<number>([
+  ...CHANNEL_TIMELINE_CONTENT_KINDS,
+  ...HOME_MENTION_EVENT_KINDS,
+]);
 
 function dedupeEvents(events: RelayEvent[]): RelayEvent[] {
   const eventsById = new Map<string, RelayEvent>();
@@ -60,7 +66,11 @@ export function useInboxThreadContext(
   const channelMessagesRef = React.useRef(channelMessages);
   channelMessagesRef.current = channelMessages;
   const [fetchedEvents, setFetchedEvents] = React.useState<RelayEvent[]>([]);
-  const [hasLoadError, setHasLoadError] = React.useState(false);
+  const [loadStatus, setLoadStatus] = React.useState<{
+    selectionKey: string;
+    hasLoadError: boolean;
+    unavailable: InboxContextUnavailable;
+  } | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
 
   const selectedEvent = React.useMemo(
@@ -76,6 +86,7 @@ export function useInboxThreadContext(
     : null;
   const selectedChannelId = item?.channelId ?? null;
   const fullChannel = options.fullChannel === true;
+  const selectionKey = `${selectedChannelId}:${selectedEvent?.id}:${selectedThreadRootId}:${selectedParentId}`;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: retryVersion explicitly restarts a failed context load on user request.
   React.useEffect(() => {
@@ -83,7 +94,7 @@ export function useInboxThreadContext(
 
     if (fullChannel || !selectedEvent || !selectedThreadRootId) {
       setFetchedEvents([]);
-      setHasLoadError(false);
+      setLoadStatus(null);
       setIsLoading(false);
       return () => {
         isCancelled = true;
@@ -98,7 +109,14 @@ export function useInboxThreadContext(
       }
 
       setIsLoading(true);
-      setHasLoadError(false);
+      // Background feed refreshes must not disable a verified composer or
+      // briefly enable an unavailable one. A different selection is fenced
+      // synchronously by selectionKey below.
+      setLoadStatus((previous) =>
+        previous?.selectionKey === selectionKey
+          ? { ...previous, hasLoadError: false }
+          : null,
+      );
 
       try {
         const selection = {
@@ -107,100 +125,48 @@ export function useInboxThreadContext(
           selectedParentId,
           selectedThreadRootId: threadRootId,
         };
-        const ancestorEventsPromise = (async () => {
-          const eventsById = new Map<string, RelayEvent>();
-          let failed = false;
-
-          const fetchEvent = async (eventId: string) => {
-            if (eventId === targetEvent.id || eventsById.has(eventId)) {
-              return eventsById.get(eventId) ?? targetEvent;
-            }
-
-            try {
-              const event = await loadInboxContextEvent({
-                eventId,
-                channelId: selectedChannelId,
-                getCachedEvents: () => channelMessagesRef.current ?? [],
-                fetchEvent: getEventById,
-                fetchChannelEvents: (channelId, id) =>
-                  relayClient.fetchEvents({
-                    ids: [id],
-                    "#h": [channelId],
-                    kinds: [...CHANNEL_TIMELINE_CONTENT_KINDS],
-                    limit: 1,
-                  }),
-              });
-              eventsById.set(event.id, event);
-              return event;
-            } catch (error) {
-              console.error(
-                "Failed to hydrate Inbox ancestor",
-                selectedChannelId,
-                eventId,
-                error,
-              );
-              failed = true;
-              return null;
-            }
-          };
-
-          if (threadRootId !== targetEvent.id) {
-            await fetchEvent(threadRootId);
-          }
-
-          let ancestorId = selectedParentId;
-          const seen = new Set<string>([targetEvent.id]);
-          let hops = 0;
-          while (
-            ancestorId &&
-            !seen.has(ancestorId) &&
-            hops < MAX_ANCESTOR_HOPS
-          ) {
-            seen.add(ancestorId);
-            const ancestor = await fetchEvent(ancestorId);
-            if (!ancestor || ancestorId === threadRootId) {
-              break;
-            }
-            ancestorId = getThreadReference(ancestor.tags).parentId;
-            hops += 1;
-          }
-
-          return { events: [...eventsById.values()], failed };
-        })();
-
-        const descendantEventsPromise =
-          selectedChannelId && threadRootId
-            ? relayClient
-                .fetchEvents({
-                  "#e": [threadRootId],
+        const result = await loadInboxThreadContext({
+          selectedEvent: targetEvent,
+          onError: (error) =>
+            console.error("Failed to load Inbox message context", error),
+          loadEvent: (eventId) =>
+            loadInboxContextEvent({
+              eventId,
+              channelId: selectedChannelId,
+              getCachedEvents: () => channelMessagesRef.current ?? [],
+              requireRemote: true,
+              fetchEvent: getEventById,
+              fetchChannelEvents: (channelId, id) =>
+                relayClient.fetchEvents({
+                  ids: [id],
+                  "#h": [channelId],
+                  kinds: [...CHANNEL_CONTEXT_EVENT_KINDS],
+                  limit: 1,
+                }),
+            }),
+          loadDescendants: (rootId) =>
+            selectedChannelId
+              ? relayClient.fetchEvents({
+                  "#e": [rootId],
                   "#h": [selectedChannelId],
                   kinds: [...HOME_MENTION_EVENT_KINDS],
                   limit: THREAD_CONTEXT_LIMIT,
                 })
-                .then((events) => ({ events, failed: false }))
-                .catch((error) => {
-                  console.error(
-                    "Failed to hydrate Inbox thread context",
-                    selectedChannelId,
-                    threadRootId,
-                    error,
-                  );
-                  return { events: [] as RelayEvent[], failed: true };
-                })
-            : Promise.resolve({ events: [] as RelayEvent[], failed: false });
-        const [ancestorResult, descendantResult] = await Promise.all([
-          ancestorEventsPromise,
-          descendantEventsPromise,
-        ]);
+              : Promise.resolve([]),
+        });
 
         if (isCancelled) {
           return;
         }
 
-        setHasLoadError(ancestorResult.failed || descendantResult.failed);
+        setLoadStatus({
+          selectionKey,
+          hasLoadError: result.hasLoadError,
+          unavailable: result.unavailable,
+        });
         setFetchedEvents(
           dedupeEvents(
-            [...ancestorResult.events, ...descendantResult.events].filter(
+            result.events.filter(
               (event): event is RelayEvent =>
                 event !== null && isInboxThreadContextEvent(event, selection),
             ),
@@ -209,7 +175,11 @@ export function useInboxThreadContext(
       } catch (error) {
         if (!isCancelled) {
           console.error("Failed to load Inbox message context", error);
-          setHasLoadError(true);
+          setLoadStatus({
+            selectionKey,
+            hasLoadError: true,
+            unavailable: null,
+          });
         }
       } finally {
         if (!isCancelled) {
@@ -230,6 +200,7 @@ export function useInboxThreadContext(
     selectedThreadRootId,
     fullChannel,
     retryVersion,
+    selectionKey,
   ]);
 
   const events = React.useMemo(() => {
@@ -340,8 +311,19 @@ export function useInboxThreadContext(
     events,
     hasLoadError: fullChannel
       ? options.hasChannelLoadError === true
-      : hasLoadError,
-    isLoading: fullChannel ? options.isChannelLoading === true : isLoading,
+      : loadStatus?.selectionKey === selectionKey && loadStatus.hasLoadError,
+    unavailable:
+      !fullChannel && loadStatus?.selectionKey === selectionKey
+        ? loadStatus.unavailable
+        : null,
+    isCheckingAvailability:
+      !fullChannel &&
+      selectedEvent !== null &&
+      loadStatus?.selectionKey !== selectionKey,
+    isLoading: fullChannel
+      ? options.isChannelLoading === true
+      : isLoading ||
+        (selectedEvent !== null && loadStatus?.selectionKey !== selectionKey),
     reactionEvents,
     refreshReactions,
     retry,

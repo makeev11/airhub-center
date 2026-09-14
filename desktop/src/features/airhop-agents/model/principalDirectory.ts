@@ -1,8 +1,11 @@
 import { z } from "zod";
+import { agentPoliciesSchema } from "./agentPolicy";
 const key = z.string().regex(/^[0-9a-f]{64}$/);
 export const principalDirectorySchema = z.object({
   communityId: z.string().uuid(),
   organizationId: z.string().uuid(),
+  agentPolicies: agentPoliciesSchema.nullable().default(null),
+  timeZone: z.string().nullable().default(null),
   agents: z.array(
     z.object({
       id: z.string(),

@@ -69,6 +69,29 @@ pub struct ProvisionChannelConnectionInput {
     pub provider_bot_username: Option<String>,
 }
 
+/// Atomic replacement of one existing encrypted provider credential.
+#[derive(Debug, Clone)]
+pub struct RotateChannelCredentialInput {
+    /// Stable connection identity whose routing and conversation history remain unchanged.
+    pub connection_id: Uuid,
+    /// Immutable provider adapter id.
+    pub provider: String,
+    /// Replacement AEAD ciphertext including its authentication tag.
+    pub credential_ciphertext: Vec<u8>,
+    /// Fresh unique 96-bit AEAD nonce.
+    pub credential_nonce: [u8; 12],
+    /// Relay-configured encryption key version used for the replacement.
+    pub credential_key_version: i16,
+    /// Optimistic version of the desired connection state.
+    pub expected_connection_version: i64,
+    /// Optimistic version of the credential being replaced.
+    pub expected_credential_version: i64,
+    /// Public callback URL stored in credential-free capabilities.
+    pub webhook_callback_url: String,
+    /// Authenticated owner/admin applying the rotation.
+    pub updated_by_pubkey: [u8; 32],
+}
+
 /// Encrypted provider credential returned only to Relay for decryption.
 #[derive(Debug, Clone)]
 pub struct EncryptedChannelCredential {
@@ -82,6 +105,8 @@ pub struct EncryptedChannelCredential {
     pub nonce: [u8; 12],
     /// Relay-configured encryption key version.
     pub key_version: i16,
+    /// Optimistic credential revision used to prevent lost rotations.
+    pub version: i64,
 }
 
 /// Safe connector assignment used by the multi-connection gateway supervisor.
@@ -94,6 +119,8 @@ pub struct ChannelGatewayAssignment {
     pub provider: String,
     /// Desired lifecycle state.
     pub status: String,
+    /// Changes only when the encrypted provider credential is replaced.
+    pub credential_version: i64,
 }
 
 /// Safe control-plane projection of a channel connection.
@@ -440,18 +467,20 @@ impl Db {
             "SELECT EXISTS(
                 SELECT 1 FROM airhop_channel_credentials
                 WHERE community_id = $1 AND organization_id = $2
-                  AND provider = $3 AND credential_fingerprint = $4
+                  AND provider = $3
+                  AND (credential_fingerprint = $4 OR provider_bot_id = $5)
              )",
         )
         .bind(community_id)
         .bind(organization_id)
         .bind(input.connection.provider.trim())
         .bind(input.credential_fingerprint.as_slice())
+        .bind(input.provider_bot_id.trim())
         .fetch_one(&mut *tx)
         .await?;
         if duplicate {
             return Err(DbError::InvalidData(
-                "Telegram bot is already connected".to_owned(),
+                "Provider account is already connected".to_owned(),
             ));
         }
 
@@ -503,6 +532,115 @@ impl Db {
 
         let connection =
             routing::configure(&mut tx, community_id, organization_id, &input.connection).await?;
+        tx.commit().await?;
+        Ok(connection)
+    }
+
+    /// Replaces encrypted credentials without changing connection identity or routing.
+    pub async fn rotate_airhop_channel_credential(
+        &self,
+        tenant: &TenantContext,
+        input: &RotateChannelCredentialInput,
+    ) -> Result<ChannelConnection> {
+        validate_credential_rotation(input)?;
+        let community_id = *tenant.community().as_uuid();
+        let mut tx = self.pool.begin().await?;
+        let organization_id = active_organization(&mut tx, community_id).await?;
+        require_owner_or_admin(&mut tx, community_id, input.updated_by_pubkey).await?;
+
+        let connection_row = sqlx::query(
+            "SELECT organization_id, id, provider, display_name, connector_pubkey,
+                    status, hermes_enabled, capabilities, observed_status,
+                    observed_capabilities, last_heartbeat_at, last_error_code, version,
+                    buzz_channel_id, branch_id, routing_mode
+             FROM airhop_channel_connections
+             WHERE community_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(community_id)
+        .bind(input.connection_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| DbError::NotFound("channel connection".to_owned()))?;
+        let current = connection_from_row(&connection_row)?;
+        if current.organization_id != organization_id {
+            return Err(DbError::AccessDenied(
+                "AirHop channel connection belongs to another organization".to_owned(),
+            ));
+        }
+        if current.provider != input.provider.trim() {
+            return Err(DbError::InvalidData(
+                "AirHop channel connection provider is immutable".to_owned(),
+            ));
+        }
+        if current.version != input.expected_connection_version {
+            return Err(DbError::AirhopVersionConflict);
+        }
+
+        let credential_version: i64 = sqlx::query_scalar(
+            "SELECT version
+             FROM airhop_channel_credentials
+             WHERE community_id = $1 AND organization_id = $2
+               AND connection_id = $3 AND provider = $4
+             FOR UPDATE",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(input.connection_id)
+        .bind(input.provider.trim())
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| DbError::NotFound("channel credential".to_owned()))?;
+        if credential_version != input.expected_credential_version {
+            return Err(DbError::AirhopVersionConflict);
+        }
+
+        sqlx::query(
+            "UPDATE airhop_channel_credentials
+             SET credential_ciphertext = $5, credential_nonce = $6,
+                 credential_key_version = $7, version = version + 1,
+                 updated_by_pubkey = $8, updated_at = now()
+             WHERE community_id = $1 AND organization_id = $2
+               AND connection_id = $3 AND provider = $4",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(input.connection_id)
+        .bind(input.provider.trim())
+        .bind(&input.credential_ciphertext)
+        .bind(input.credential_nonce.as_slice())
+        .bind(input.credential_key_version)
+        .bind(input.updated_by_pubkey.as_slice())
+        .execute(&mut *tx)
+        .await?;
+
+        let mut capabilities = current.capabilities;
+        let capability_object = capabilities.as_object_mut().ok_or_else(|| {
+            DbError::InvalidData("AirHop channel capabilities are invalid".to_owned())
+        })?;
+        capability_object.insert(
+            "webhookCallbackUrl".to_owned(),
+            Value::String(input.webhook_callback_url.trim().to_owned()),
+        );
+        let row = sqlx::query(
+            "UPDATE airhop_channel_connections
+             SET capabilities = $4, observed_status = 'connecting',
+                 observed_capabilities = '{}'::jsonb, last_heartbeat_at = NULL,
+                 last_error_code = NULL, version = version + 1,
+                 updated_by_pubkey = $5, updated_at = now()
+             WHERE community_id = $1 AND organization_id = $2 AND id = $3
+             RETURNING organization_id, id, provider, display_name, connector_pubkey,
+                status, hermes_enabled, capabilities, observed_status,
+                observed_capabilities, last_heartbeat_at, last_error_code, version,
+                buzz_channel_id, branch_id, routing_mode",
+        )
+        .bind(community_id)
+        .bind(organization_id)
+        .bind(input.connection_id)
+        .bind(&capabilities)
+        .bind(input.updated_by_pubkey.as_slice())
+        .fetch_one(&mut *tx)
+        .await?;
+        let connection = connection_from_row(&row)?;
         tx.commit().await?;
         Ok(connection)
     }
@@ -562,7 +700,8 @@ impl Db {
         let organization_id = active_organization(&mut tx, community_id).await?;
         require_staff_member(&mut tx, community_id, connector_pubkey).await?;
         let rows = sqlx::query(
-            "SELECT connection.id, connection.provider, connection.status
+            "SELECT connection.id, connection.provider, connection.status,
+                    credential.version AS credential_version
              FROM airhop_channel_connections connection
              JOIN airhop_channel_credentials credential
                ON credential.community_id = connection.community_id
@@ -586,6 +725,7 @@ impl Db {
                     connection_id: row.try_get("id")?,
                     provider: row.try_get("provider")?,
                     status: row.try_get("status")?,
+                    credential_version: row.try_get("credential_version")?,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -607,7 +747,7 @@ impl Db {
         let row = sqlx::query(
             "SELECT credential.connection_id, credential.provider,
                     credential.credential_ciphertext, credential.credential_nonce,
-                    credential.credential_key_version
+                    credential.credential_key_version, credential.version
              FROM airhop_channel_credentials credential
              JOIN airhop_channel_connections connection
                ON connection.community_id = credential.community_id
@@ -636,6 +776,7 @@ impl Db {
             ciphertext: row.try_get("credential_ciphertext")?,
             nonce,
             key_version: row.try_get("credential_key_version")?,
+            version: row.try_get("version")?,
         };
         tx.commit().await?;
         Ok(credential)
@@ -1514,8 +1655,10 @@ fn validate_connection(input: &PutChannelConnectionInput) -> Result<()> {
 }
 
 fn validate_provisioning(input: &ProvisionChannelConnectionInput) -> Result<()> {
-    if input.connection.provider.trim() != "telegram"
-        || !(17..=512).contains(&input.credential_ciphertext.len())
+    if !matches!(
+        input.connection.provider.trim(),
+        "telegram" | "whatsapp_cloud"
+    ) || !(17..=8192).contains(&input.credential_ciphertext.len())
         || input.credential_key_version <= 0
         || input.provider_bot_id.trim().is_empty()
         || input.provider_bot_id.chars().count() > 64
@@ -1526,6 +1669,25 @@ fn validate_provisioning(input: &ProvisionChannelConnectionInput) -> Result<()> 
     {
         return Err(DbError::InvalidData(
             "AirHop channel credential is invalid".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_credential_rotation(input: &RotateChannelCredentialInput) -> Result<()> {
+    let callback = input.webhook_callback_url.trim();
+    if input.connection_id.is_nil()
+        || !matches!(input.provider.trim(), "telegram" | "whatsapp_cloud")
+        || !(17..=8192).contains(&input.credential_ciphertext.len())
+        || input.credential_key_version <= 0
+        || input.expected_connection_version <= 0
+        || input.expected_credential_version <= 0
+        || !callback.starts_with("https://")
+        || callback.chars().any(char::is_whitespace)
+        || callback.len() > 2048
+    {
+        return Err(DbError::InvalidData(
+            "AirHop channel credential rotation is invalid".to_owned(),
         ));
     }
     Ok(())
@@ -1713,7 +1875,7 @@ mod tests {
     }
 
     #[test]
-    fn encrypted_telegram_provisioning_is_bounded() {
+    fn encrypted_provider_provisioning_is_bounded() {
         let mut input = ProvisionChannelConnectionInput {
             connection: connection(),
             credential_ciphertext: vec![7; 64],
@@ -1724,8 +1886,36 @@ mod tests {
             provider_bot_username: Some("airhop_bot".to_owned()),
         };
         assert!(validate_provisioning(&input).is_ok());
+        input.connection.provider = "whatsapp_cloud".to_owned();
+        input.credential_ciphertext = vec![7; 4096];
+        assert!(validate_provisioning(&input).is_ok());
+        input.credential_ciphertext = vec![7; 8193];
+        assert!(validate_provisioning(&input).is_err());
         input.credential_ciphertext.clear();
         assert!(validate_provisioning(&input).is_err());
+    }
+
+    #[test]
+    fn encrypted_credential_rotation_is_versioned_and_https_bound() {
+        let mut input = RotateChannelCredentialInput {
+            connection_id: Uuid::new_v4(),
+            provider: "whatsapp_cloud".to_owned(),
+            credential_ciphertext: vec![7; 4096],
+            credential_nonce: [8; 12],
+            credential_key_version: 2,
+            expected_connection_version: 3,
+            expected_credential_version: 1,
+            webhook_callback_url: "https://hooks.airhop.com.br/webhooks/whatsapp/connection"
+                .to_owned(),
+            updated_by_pubkey: [2; 32],
+        };
+        assert!(validate_credential_rotation(&input).is_ok());
+        input.webhook_callback_url = "http://localhost/webhooks/whatsapp/connection".to_owned();
+        assert!(validate_credential_rotation(&input).is_err());
+        input.webhook_callback_url =
+            "https://hooks.airhop.com.br/webhooks/whatsapp/connection".to_owned();
+        input.expected_credential_version = 0;
+        assert!(validate_credential_rotation(&input).is_err());
     }
 
     #[test]

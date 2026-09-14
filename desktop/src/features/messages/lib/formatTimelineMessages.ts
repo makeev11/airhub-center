@@ -435,6 +435,7 @@ export function formatTimelineMessages(
       createdAt: event.created_at,
       pubkey: authorPubkey,
       signerPubkey: normalizePubkey(event.pubkey),
+      relaySelfPubkey,
       author,
       isAgent,
       ownerPubkey,
