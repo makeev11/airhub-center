@@ -149,8 +149,7 @@ export function PublicBookingFlow({
     service: typeof service;
     promise: Promise<PublicBookingCatalog>;
   } | null>(null);
-  // Public copy currently supports Russian; dates and ages use the same fallback.
-  const locale = "ru-RU";
+  const locale = catalog?.organization.locale ?? "ru-RU";
   const messages = getPublicBookingMessages(locale);
   const purpose =
     configuration?.purpose ??

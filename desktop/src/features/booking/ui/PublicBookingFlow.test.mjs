@@ -54,7 +54,7 @@ test("occurrence actions preserve the localized button and invoke the flow handl
   }
 });
 
-test("public flow finishes its async initialization under React StrictMode", async () => {
+test("public flow uses the organization's Portuguese locale after async initialization", async () => {
   const { StrictMode, createElement } = await import("react");
   const { cleanup, render, waitFor } = await import("@testing-library/react");
   const { PublicBookingProvider } = await import(
@@ -70,7 +70,7 @@ test("public flow finishes its async initialization under React StrictMode", asy
         organization: {
           id: "airhop",
           name: "Каляка Маляка",
-          locale: "ru-RU",
+          locale: "pt-BR",
           timeZone: "Europe/Moscow",
           currentDate: "2026-08-04",
           publicBooking: { purpose: "trial", appearance: "automatic" },
@@ -111,14 +111,16 @@ test("public flow finishes its async initialization under React StrictMode", asy
   );
 
   await waitFor(() =>
-    assert.ok(view.getByRole("heading", { name: "Выберите филиал и возраст" })),
+    assert.ok(
+      view.getByRole("heading", { name: "Escolha a unidade e a idade" }),
+    ),
   );
   assert.equal(catalogCalls, 1);
-  assert.ok(view.getByRole("button", { name: "Меньше года" }));
-  assert.ok(view.getByRole("button", { name: "5 лет" }));
+  assert.ok(view.getByRole("button", { name: "Menos de 1 ano" }));
+  assert.ok(view.getByRole("button", { name: "5 anos" }));
   assert.match(
     view.getByTestId("airhop-public-header").textContent,
-    /Онлайн-запись · Каляка Маляка/,
+    /Agendamento on-line · Каляка Маляка/,
   );
   assert.doesNotMatch(
     view.getByTestId("airhop-public-header").textContent,
@@ -126,7 +128,7 @@ test("public flow finishes its async initialization under React StrictMode", asy
   );
   assert.match(
     view.getByTestId("airhop-public-footer").textContent,
-    /Работает на Airhop/,
+    /Desenvolvido com AirHop/,
   );
   assert.equal(
     view
