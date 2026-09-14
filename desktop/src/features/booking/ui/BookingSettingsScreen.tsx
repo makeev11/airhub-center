@@ -42,6 +42,10 @@ import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { PageHeader } from "@/shared/ui/PageHeader";
+import {
+  isAirHopLocale,
+  persistAirHopLocale,
+} from "@/shared/locale/airhopLocale";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Switch } from "@/shared/ui/switch";
 
@@ -230,6 +234,7 @@ function SettingsFormContent({
         const { revision: _revision, ...draft } = current;
         return { ...draft, organization: parsed.data };
       });
+      if (isAirHopLocale(form.locale)) persistAirHopLocale(form.locale);
       setSaved(true);
     } catch {
       // The provider renders storage and revision failures in a shared banner.

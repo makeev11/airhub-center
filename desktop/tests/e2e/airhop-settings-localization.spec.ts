@@ -98,6 +98,27 @@ test("Brazilian partner sees communication settings in Portuguese", async ({
   await expect(page.getByText(/Connections are available/)).toHaveCount(0);
 });
 
+test("organization language switches an existing employee UI to Portuguese", async ({
+  page,
+}) => {
+  await page.goto("/#/booking/settings?section=organization");
+
+  await page.getByTestId("airhop-settings-locale").selectOption("pt-BR");
+  await page.getByRole("button", { name: "Сохранить", exact: true }).click();
+
+  await expect(
+    page.getByRole("heading", {
+      name: "Configurações do AirHop",
+      exact: true,
+      level: 1,
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole("navigation")).toContainText("Organização");
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("airhop.locale.v1")))
+    .toBe("pt-BR");
+});
+
 test("New Slack is selectable as an opaque Airhop theme", async ({ page }) => {
   await openSettings(page, "appearance");
   await page.getByTestId("appearance-mode-light").click();
