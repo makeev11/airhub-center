@@ -1,6 +1,7 @@
 # AirHop: продукты, окружения и границы выкладки
 
-Проверено чтением сервера **2026-09-12**. Это каноническая карта инфраструктуры
+Основной VPS проверен чтением **2026-09-12**, Hostinger VPS для сайта Бразилии —
+**2026-09-14**. Это каноническая карта инфраструктуры
 для разработчиков и агентов Center, HQ и Site. Название каталога, Docker-образа
 или старый README не определяет продукт и не даёт разрешения на выкладку.
 Конфигурация целей: [`environments.json`](../deploy/airhop/environments.json).
@@ -60,6 +61,30 @@ Standalone HQ API работает в Cloudflare Workers с D1 `airhub-hq-stagin
 deploy worker и публичным readiness API. Он не входит в Docker/systemd этого
 хоста. Региональные серверы, включая WhatsApp edge,
 не обследованы этой инвентаризацией и не являются целями текущей выкладки.
+
+### Отдельный Hostinger VPS: сайт Бразилии
+
+`site-br-production` находится не на описанном выше VPS, а на Hostinger
+`root@187.124.129.75`: hostname `srv1610606`, Docker daemon ID
+`ecd7ebd1-362b-4a1a-86bb-69dd3cb138eb`. Зарегистрированная цель:
+
+| Цель | Домены | Compose / процесс | Данные и связи |
+| --- | --- | --- | --- |
+| `site-br-production` | `airhop.com.br`, `www.airhop.com.br`, preview `airhop-br.srv1610606.hstgr.cloud`, локализованный пример `hygge.airhop.com.br` | `airhop-site-br`, контейнер `airhop-site-br-site-1`, общий Traefik `traefik-mp4t-traefik-1` | `/opt/airhop-site-br/data`; форма использует durable outbox и действующий Cloudflare HQ API |
+
+Источник — репозиторий `airhop-site`, deployment-файлы —
+`deploy/hostinger/airhop-br-site`. Релизы находятся в
+`/opt/airhop-site-br/releases`, приватная конфигурация —
+`/opt/airhop-site-br/runtime.env`, общий lock этой цели —
+`/opt/airhop-infra/deploy.lock`, сеть — `airhop-site-br-edge`.
+
+На снимке 2026-09-14 контейнер здоров на образе
+`airhop-site-br:airhop-br-20260914-fa60b9c-hygge-domain`, image ID
+`sha256:f1d6474f1aca3d2db16fe4a73db0893de9ff021364c8d9417744b2273ce87c5b`.
+Публичный сайт намеренно остаётся `noindex` до подтверждения обязательных
+бизнес-, юридических и privacy-фактов; это не означает, что Hostinger является
+preview-платформой. ChatGPT Sites не является production target или runtime
+dependency этой цели.
 
 ```mermaid
 flowchart TD
