@@ -26,6 +26,26 @@
         "buzz-git-data": "buzz-demo-git-data"
       }
     },
+    "center-demo-br-public": {
+      "product": "AirHop Center public booking",
+      "project": "buzz-demo",
+      "host": "center.airhop.com.br",
+      "container": "buzz-demo-relay-1",
+      "shared_proxy_container": "airhop-site-caddy-1",
+      "shared_proxy_config": "/opt/airhop/site/source/deploy/beget/site/Caddyfile",
+      "lock": "/opt/airhop/buzz-demo/deploy.lock",
+      "deployment_enabled": true,
+      "verified_at": "2026-09-14",
+      "community_id": "b6a10b42-7c2c-4b7f-8e3b-9c4251500001",
+      "organization_id": "b6a10b42-7c2c-4b7f-8e3b-9c4251500002",
+      "locale": "pt-BR",
+      "time_zone": "America/Sao_Paulo",
+      "currency": "BRL",
+      "release_id": "hygge-br-center-a52e478",
+      "backup": "/opt/airhop/backups/hygge-br-center-a52e478",
+      "public_surface": "booking-and-exact-public-api-allowlist",
+      "private_surfaces_exposed": false
+    },
     "hq-legacy-relay": {
       "product": "Retired legacy relay; not the current AirHop HQ",
       "project": "buzz-prod",
@@ -123,7 +143,10 @@
       "lock": "/opt/airhop-infra/deploy.lock",
       "network": "airhop-site-br-edge",
       "shared_proxy_container": "traefik-mp4t-traefik-1",
-      "hq_api_target": "airhub-hq-api-staging.airhub-hq-api.workers.dev"
+      "hq_api_target": "airhub-hq-api-staging.airhub-hq-api.workers.dev",
+      "center_public_booking_target": "center.airhop.com.br",
+      "release_id": "airhop-br-20260914-e2c752b-hygge-center",
+      "image_id": "sha256:700c3401bc124c1f60bc23b7c03535fc2f93dac4e0c52ae0e56c8ec38bbd30de"
     }
   }
 }

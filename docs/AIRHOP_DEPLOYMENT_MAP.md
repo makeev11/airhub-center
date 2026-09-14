@@ -49,6 +49,7 @@ AirHop. `buzz-prod` — исторический идентификатор Comp
 | Цель | Домен | Compose / процесс | Фактическое назначение |
 | --- | --- | --- | --- |
 | `center-demo` | `demo.airhop.ru` | `buzz-demo`, relay `buzz-demo-relay-1` | Демо Center; сюда относятся согласованные проверки сотрудников |
+| `center-demo-br-public` | `center.airhop.com.br` | общий Caddy `airhop-site-caddy-1` → `buzz-demo-relay-1` | Только публичная запись и точный allowlist public API для изолированного tenant Hygge Brasil; staff/admin/operator/pairing/WebSocket не опубликованы |
 | `hq-api` | `airhub-hq-api-staging.airhub-hq-api.workers.dev` | Cloudflare Worker + D1; вне этого VPS | Действующий API установленного AirHop HQ и worker публикации сайтов |
 | `hq-legacy-relay` | `hq.airhop.ru` | Старый `buzz-prod` удалён | HTTP 410 в общем Caddy; данные в закрытом архиве |
 | `site` | `airhop.ru`, `www.airhop.ru` | `airhop-site`, приложение `airhop-site-site-1` | Сайт; `www` перенаправляется на основной домен |
@@ -70,7 +71,7 @@ deploy worker и публичным readiness API. Он не входит в Doc
 
 | Цель | Домены | Compose / процесс | Данные и связи |
 | --- | --- | --- | --- |
-| `site-br-production` | `airhop.com.br`, `www.airhop.com.br`, preview `airhop-br.srv1610606.hstgr.cloud`, локализованный пример `hygge.airhop.com.br` | `airhop-site-br`, контейнер `airhop-site-br-site-1`, общий Traefik `traefik-mp4t-traefik-1` | `/opt/airhop-site-br/data`; форма использует durable outbox и действующий Cloudflare HQ API |
+| `site-br-production` | `airhop.com.br`, `www.airhop.com.br`, preview `airhop-br.srv1610606.hstgr.cloud`, локализованный пример `hygge.airhop.com.br` | `airhop-site-br`, контейнер `airhop-site-br-site-1`, общий Traefik `traefik-mp4t-traefik-1` | `/opt/airhop-site-br/data`; форма использует durable outbox и действующий Cloudflare HQ API; Hygge проксирует только public booking surface в `center.airhop.com.br` |
 
 Источник — репозиторий `airhop-site`, deployment-файлы —
 `deploy/hostinger/airhop-br-site`. Релизы находятся в
@@ -79,8 +80,8 @@ deploy worker и публичным readiness API. Он не входит в Doc
 `/opt/airhop-infra/deploy.lock`, сеть — `airhop-site-br-edge`.
 
 На снимке 2026-09-14 контейнер здоров на образе
-`airhop-site-br:airhop-br-20260914-fa60b9c-hygge-domain`, image ID
-`sha256:f1d6474f1aca3d2db16fe4a73db0893de9ff021364c8d9417744b2273ce87c5b`.
+`airhop-site-br:airhop-br-20260914-e2c752b-hygge-center`, image ID
+`sha256:700c3401bc124c1f60bc23b7c03535fc2f93dac4e0c52ae0e56c8ec38bbd30de`.
 Публичный сайт намеренно остаётся `noindex` до подтверждения обязательных
 бизнес-, юридических и privacy-фактов; это не означает, что Hostinger является
 preview-платформой. ChatGPT Sites не является production target или runtime
@@ -96,10 +97,13 @@ flowchart TD
     public["airhop.ru / www.airhop.ru"] --> proxy
     legacy["hq.airhop.ru"] --> proxy
     hygge["hygge.airhop.ru"] --> proxy
+    centerBr["center.airhop.com.br · public only"] --> proxy
     hermes["hermes.airhop.ru"] --> proxy
     proxy -->|"demo · airhop-demo-relay:3000"| center["buzz-demo-relay-1 · Center"]
     proxy -->|"airhop.ru: страницы сайта"| site["airhop-site-site-1"]
     proxy -->|"airhop.ru и hygge: booking + публичный API"| center
+    brHygge["hygge.airhop.com.br"] --> brSite["Hostinger · airhop-site-br"]
+    brSite -->|"same-origin booking proxy"| centerBr
     proxy -->|"hq · все пути"| retired["HTTP 410 · адрес снят"]
     proxy -->|"/telegram, ASR, бриф"| runtime["airhop-message-bridge / airhop-hermes"]
     center --> demoDb["Только хранилища buzz-demo"]
@@ -113,6 +117,16 @@ flowchart TD
 demo channel gateway. На старом `hq.airhop.ru` все пути, включая `/pair`, отвечают 410.
 Временный `airhop.46-173-25-23.sslip.io` публикует один connection-scoped
 WhatsApp webhook; это дополнительный вход в демо, не ещё один Center.
+
+На `center.airhop.com.br` общий Caddy публикует только `/booking`,
+`/booking/manage/<token>`, `/booking-assets/*`, `robots.txt` и точный allowlist
+`/api/airhop/public/v1/*`. Корень и staff/admin/operator/pairing/WebSocket
+возвращают 404. Host используется отдельным tenant: community
+`b6a10b42-7c2c-4b7f-8e3b-9c4251500001`, organization
+`b6a10b42-7c2c-4b7f-8e3b-9c4251500002`, locale `pt-BR`, timezone
+`America/Sao_Paulo`, currency `BRL`. Активация `hygge-br-center-a52e478`
+сохранена под `/opt/airhop/buzz-demo/releases`; backup —
+`/opt/airhop/backups/hygge-br-center-a52e478`.
 Маршруты `airhop.ru/deployment-pilot/` и `/deployment-whatsapp-e2e/` обслуживают
 статические pilot-артефакты из `/var/www/airhop-hq-*`. Наличие `hq` в имени
 каталога этих артефактов не превращает их в запущенный standalone HQ API.
