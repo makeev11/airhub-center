@@ -100,6 +100,30 @@
       "installed_binary_sha256": "ecc121521e73cf51015aa94a7d74622abc5031f319b3827edad2ac7b60b4ac9b",
       "deployment_enabled": false,
       "note": "Active HQ endpoint despite historical staging name. Not hosted on the shared Docker daemon."
+    },
+    "site-br-production": {
+      "product": "AirHop Site Brasil",
+      "project": "airhop-site-br",
+      "host": "airhop.com.br",
+      "preview_host": "airhop-br.srv1610606.hstgr.cloud",
+      "additional_hosts": [
+        "www.airhop.com.br",
+        "hygge.airhop.com.br"
+      ],
+      "container": "airhop-site-br-site-1",
+      "deployment_enabled": true,
+      "verified_at": "2026-09-14",
+      "source_repository": "airhop-site",
+      "ssh": "root@187.124.129.75",
+      "hostname": "srv1610606",
+      "docker_id": "ecd7ebd1-362b-4a1a-86bb-69dd3cb138eb",
+      "release_root": "/opt/airhop-site-br",
+      "runtime_env": "/opt/airhop-site-br/runtime.env",
+      "data": "/opt/airhop-site-br/data",
+      "lock": "/opt/airhop-infra/deploy.lock",
+      "network": "airhop-site-br-edge",
+      "shared_proxy_container": "traefik-mp4t-traefik-1",
+      "hq_api_target": "airhub-hq-api-staging.airhub-hq-api.workers.dev"
     }
   }
 }
