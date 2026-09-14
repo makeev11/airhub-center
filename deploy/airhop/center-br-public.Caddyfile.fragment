@@ -1,0 +1,71 @@
+# Public-only origin for the isolated Brazil demonstration tenant. Never expose
+# relay root, staff, activation, pairing, operator, admin or WebSocket routes.
+https://center.airhop.com.br {
+  encode zstd gzip
+
+  log {
+    output stdout
+    format json
+  }
+
+  header {
+    X-Robots-Tag "noindex, nofollow, noarchive"
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+    X-Frame-Options SAMEORIGIN
+  }
+
+  handle /robots.txt {
+    respond "User-agent: *\nDisallow: /\n" 200
+  }
+
+  @api path /api/airhop/public/v1/catalog /api/airhop/public/v1/occurrences /api/airhop/public/v1/analytics/events /api/airhop/public/v1/bookings /api/airhop/public/v1/manage /api/airhop/public/v1/manage/cancel /api/airhop/public/v1/manage/transfer-request /api/airhop/public/v1/manage/contact-channel
+  handle @api {
+    header Cache-Control "no-store"
+    route {
+      @foreign_origin {
+        header Origin *
+        not header Origin https://center.airhop.com.br
+      }
+      respond @foreign_origin "Forbidden origin" 403
+      @cross_site header Sec-Fetch-Site cross-site
+      respond @cross_site "Forbidden cross-site request" 403
+      @unproven_write {
+        not method GET HEAD
+        not header Origin https://center.airhop.com.br
+      }
+      respond @unproven_write "Same-origin required" 403
+      reverse_proxy airhop-demo-relay:3000 {
+        header_up Host center.airhop.com.br
+        header_up X-Forwarded-Host center.airhop.com.br
+        header_up -Forwarded
+      }
+    }
+  }
+
+  @booking path_regexp booking ^/booking(/manage/[A-Za-z0-9_-]+)?/?$
+  handle @booking {
+    header Cache-Control "no-store"
+    @not_read not method GET HEAD
+    respond @not_read "Method not allowed" 405
+    reverse_proxy airhop-demo-relay:3000 {
+      header_up Host center.airhop.com.br
+      header_up X-Forwarded-Host center.airhop.com.br
+      header_up -Forwarded
+    }
+  }
+
+  @public_asset path /booking-assets/*
+  handle @public_asset {
+    @not_read not method GET HEAD
+    respond @not_read "Method not allowed" 405
+    reverse_proxy airhop-demo-relay:3000 {
+      header_up Host center.airhop.com.br
+    }
+  }
+
+  handle {
+    respond "Not found" 404
+  }
+}
+
