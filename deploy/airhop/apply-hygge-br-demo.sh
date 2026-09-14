@@ -27,9 +27,9 @@ flock -n 9 || { echo "Center demo deployment lock is busy" >&2; exit 73; }
 
 test "$(docker inspect --format '{{.Id}}' buzz-demo-relay-1)" = "$expected_relay"
 test "$(docker inspect --format '{{.Image}}' buzz-demo-relay-1)" = "$expected_relay_image"
-test "$(docker inspect --format '{{index .Config.Labels \"com.docker.compose.project\"}}' buzz-demo-relay-1)" = buzz-demo
+test "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' buzz-demo-relay-1)" = buzz-demo
 test "$(docker inspect --format '{{.Id}}' airhop-site-caddy-1)" = "$expected_caddy"
-test "$(docker inspect --format '{{index .Config.Labels \"com.docker.compose.project\"}}' airhop-site-caddy-1)" = airhop-site
+test "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' airhop-site-caddy-1)" = airhop-site
 test "$(sha256sum "$target_caddy" | cut -d' ' -f1)" = "$expected_caddy_hash"
 test "$(docker exec buzz-demo-postgres-1 psql -X -U buzz -d buzz -Atc \"SELECT count(*) FROM communities WHERE lower(host)='center.airhop.com.br'\")" = 0
 test ! -e "$backup"
