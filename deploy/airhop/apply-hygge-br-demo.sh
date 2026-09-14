@@ -31,7 +31,8 @@ test "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.proj
 test "$(docker inspect --format '{{.Id}}' airhop-site-caddy-1)" = "$expected_caddy"
 test "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' airhop-site-caddy-1)" = airhop-site
 test "$(sha256sum "$target_caddy" | cut -d' ' -f1)" = "$expected_caddy_hash"
-test "$(docker exec buzz-demo-postgres-1 psql -X -U buzz -d buzz -Atc \"SELECT count(*) FROM communities WHERE lower(host)='center.airhop.com.br'\")" = 0
+community_count=$(docker exec buzz-demo-postgres-1 psql -X -U buzz -d buzz -Atc "SELECT count(*) FROM communities WHERE lower(host)='center.airhop.com.br'")
+test "$community_count" = 0
 test ! -e "$backup"
 
 install -d -m 0700 "$backup"
@@ -59,7 +60,8 @@ test "$(docker inspect --format '{{.Id}}' airhop-site-caddy-1)" = "$expected_cad
 test "$(docker inspect --format '{{.State.Health.Status}}' buzz-demo-relay-1)" = healthy
 test "$(docker inspect --format '{{.State.Health.Status}}' airhop-site-caddy-1)" = healthy
 test "$(sha256sum "$target_caddy" | cut -d' ' -f1)" = "$candidate_caddy_hash"
-test "$(docker exec buzz-demo-postgres-1 psql -X -U buzz -d buzz -Atc \"SELECT count(*) FROM communities c JOIN airhop_organizations o ON o.community_id=c.id WHERE c.host='center.airhop.com.br' AND o.locale='pt-BR' AND o.time_zone='America/Sao_Paulo' AND o.currency='BRL'\")" = 1
+organization_count=$(docker exec buzz-demo-postgres-1 psql -X -U buzz -d buzz -Atc "SELECT count(*) FROM communities c JOIN airhop_organizations o ON o.community_id=c.id WHERE c.host='center.airhop.com.br' AND o.locale='pt-BR' AND o.time_zone='America/Sao_Paulo' AND o.currency='BRL'")
+test "$organization_count" = 1
 
 trap - ERR
 install -d -m 0755 "$(dirname "$record")"
