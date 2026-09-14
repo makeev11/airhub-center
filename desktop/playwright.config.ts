@@ -31,6 +31,7 @@ export default defineConfig({
       testMatch: [
         "**/airhop-staff-invites.spec.ts",
         "**/airhop-updates.spec.ts",
+        "**/airhop-staff-invites.spec.ts",
         "**/airhop-schedule.spec.ts",
         "**/airhop-branch-settings-screenshots.spec.ts",
         "**/airhop-center-analytics.spec.ts",
