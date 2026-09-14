@@ -44,12 +44,12 @@ chmod 0600 "$backup/SHA256SUMS"
 
 restore_caddy() {
   install -m 0644 "$backup/Caddyfile" "$target_caddy"
-  docker exec airhop-site-caddy-1 caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile || true
+  docker exec -i airhop-site-caddy-1 caddy reload --config - --adapter caddyfile <"$target_caddy" || true
 }
 trap restore_caddy ERR
 
 install -m 0644 "$release_dir/Caddyfile.center-br.candidate" "$target_caddy"
-docker exec airhop-site-caddy-1 caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec -i airhop-site-caddy-1 caddy reload --config - --adapter caddyfile <"$target_caddy"
 
 docker cp "$release_dir/hygge-br-demo-seed.sql" buzz-demo-postgres-1:/tmp/hygge-br-demo-seed.sql
 docker exec buzz-demo-postgres-1 psql -X -U buzz -d buzz -v ON_ERROR_STOP=1 -v dry_run=false -f /tmp/hygge-br-demo-seed.sql
