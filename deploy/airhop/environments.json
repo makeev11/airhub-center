@@ -7,6 +7,39 @@
     "docker_id": "dbfb14a9-8404-4f21-ad3e-3481b173ea9a"
   },
   "targets": {
+    "site-docs": {
+      "product": "AirHop public documentation and changelog",
+      "publication_mode": "immutable-exact-route-static",
+      "deployment_enabled": true,
+      "authorization": "User-approved publication of the displayed RU and pt-BR corpus, 2026-09-15",
+      "route_ownership": "Sealed public URL/file map, docs assets, docs-sitemap.xml and scoped robots.txt; preserve all other Site routes",
+      "ru": {
+        "host": "root@46.173.25.23",
+        "hostname": "airhop-prod",
+        "docker_id": "dbfb14a9-8404-4f21-ad3e-3481b173ea9a",
+        "domain": "airhop.ru",
+        "lock": "/opt/airhop/site/deploy.lock",
+        "release_root": "/opt/airhop/demo-test/airhop-docs/releases",
+        "control_root": "/opt/airhop/site/docs-releases",
+        "shared_proxy_container": "airhop-site-caddy-1",
+        "shared_proxy_config": "/opt/airhop/site/source/deploy/beget/site/Caddyfile",
+        "compose_mutations": false
+      },
+      "br": {
+        "host": "root@187.124.129.75",
+        "hostname": "srv1610606",
+        "docker_id": "ecd7ebd1-362b-4a1a-86bb-69dd3cb138eb",
+        "domain": "airhop.com.br",
+        "project": "airhop-docs-static",
+        "service": "docs-static",
+        "container": "airhop-docs-static",
+        "lock": "/opt/airhop-infra/deploy.lock",
+        "release_root": "/opt/airhop-infra/docs-static/releases",
+        "network": "airhop-site-br-edge"
+      },
+      "marketing_deployment_authorized": false,
+      "product_deployment_authorized": false
+    },
     "center-demo": {
       "product": "AirHop Center",
       "project": "buzz-demo",

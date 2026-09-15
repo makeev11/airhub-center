@@ -15,6 +15,39 @@
 [финальный snapshot](deployment/runtime-20260912-after-retirement.json),
 [доказательства адреса HQ](AIRHOP_HQ_DOMAIN_AUDIT_20260912.md).
 
+## Публикация справки: отдельная цель `site-docs`
+
+2026-09-15 пользователь разрешил публикацию показанной клиентской справки и
+журнала изменений: `airhop.ru/docs`, `airhop.ru/changelog` на русском,
+`airhop.com.br/docs`, `airhop.com.br/changelog` на pt-BR. Эта узкая цель
+зарегистрирована отдельно; `site.deployment_enabled:false` не изменяется.
+Регистрация разрешает выкладку, но сама по себе не свидетельствует о live-релизе.
+
+RU использует существующий read-only mount Caddy `/opt/airhop/demo-test` →
+`/srv/demo-test`: только `public/` неизменяемого релиза в
+`airhop-docs/releases/<release-id>`. Конфигурация и резервные копии находятся
+вне публичного дерева — `/opt/airhop/site/docs-releases`. Меняется только
+проверенная вставка в vhost `airhop.ru`; Caddy не пересоздаётся, Compose не
+меняется. Захват `/demo-test/airhop-docs{,/*}` возвращает 404, исключая второй
+публичный адрес хранения. Lock — `/opt/airhop/site/deploy.lock`.
+
+BR работает на `root@187.124.129.75` (`srv1610606`, daemon
+`ecd7ebd1-362b-4a1a-86bb-69dd3cb138eb`). Новый отдельный Compose project
+`airhop-docs-static` содержит только service `docs-static` и использует уже
+существующую сеть `airhop-site-br-edge`. Lock — `/opt/airhop-infra/deploy.lock`.
+Релизы — `/opt/airhop-infra/docs-static/releases/<release-id>`; полный chain
+для этой цели — единственный sealed `control/compose.yml` релиза.
+Существующие marketing container и Traefik не пересоздаются.
+
+Оба рынка получают только точные URL из публичного manifest, `/docs-assets/`
+с хешем конкретного релиза, `/docs-sitemap.xml` и согласованный `robots.txt`.
+Не захватывать весь `/docs/*`: существующий `/docs/dogovor-airhop-site.docx`
+остаётся сайту. BR сохраняет общий `Disallow: /` с точными разрешениями
+только для справки; индексация marketing не включается. Главный sitemap,
+booking, API, demo, HQ, DNS, данные и секреты не входят в эту выкладку.
+Проверка каждого URL включает HTTP, SHA тела, MIME, indexing headers;
+откат возможен только на записанный predecessor под тем же lock.
+
 ## 1. Три продукта и техническое наследие
 
 | Продукт | Репозиторий рядом с Center | Ответственность |
