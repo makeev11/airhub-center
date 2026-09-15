@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
 
+import { publicBookingInitialLocale } from "@/app/publicBookingRoute";
 import type { PublicBookingInitialContext } from "@/features/booking/ui/PublicBookingFlow";
 
 const PublicBookingFlow = React.lazy(async () => {
@@ -22,8 +23,12 @@ function optionalInteger(value: unknown): number | undefined {
   return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
+type PublicBookingSearch = PublicBookingInitialContext & {
+  locale?: "ru-RU" | "pt-BR";
+};
+
 export const Route = createFileRoute("/booking/")({
-  validateSearch: (search): PublicBookingInitialContext => ({
+  validateSearch: (search): PublicBookingSearch => ({
     ...(optionalId(search.branchId)
       ? { branchId: optionalId(search.branchId) }
       : {}),
@@ -39,6 +44,9 @@ export const Route = createFileRoute("/booking/")({
     ...(optionalInteger(search.ageYears) !== undefined
       ? { ageYears: optionalInteger(search.ageYears) }
       : {}),
+    ...(publicBookingInitialLocale(search.locale)
+      ? { locale: publicBookingInitialLocale(search.locale) }
+      : {}),
   }),
   component: PublicBookingRoute,
 });
@@ -51,10 +59,16 @@ function PublicBookingRoute() {
     initialContext.birthYear ?? "",
     initialContext.birthMonth ?? "",
     initialContext.ageYears ?? "",
+    initialContext.locale ?? "",
   ].join(":");
   return (
     <React.Suspense fallback={null}>
       <PublicBookingFlow
+        configuration={
+          initialContext.locale
+            ? { initialLocale: initialContext.locale }
+            : undefined
+        }
         initialContext={initialContext}
         key={flowKey}
         mode="standalone"

@@ -5,6 +5,7 @@ import {
   hashRouterPathname,
   isAirhopPublicWebBuild,
   isPublicBookingPath,
+  publicBookingInitialLocale,
   publicBookingLocationPathname,
 } from "./publicBookingRoute.ts";
 
@@ -39,4 +40,12 @@ test("public web build requires the explicit server bundle flag", () => {
   assert.equal(isAirhopPublicWebBuild("1"), true);
   assert.equal(isAirhopPublicWebBuild("0"), false);
   assert.equal(isAirhopPublicWebBuild(undefined), false);
+});
+
+test("public booking accepts only supported initial locales", () => {
+  assert.equal(publicBookingInitialLocale("pt-BR"), "pt-BR");
+  assert.equal(publicBookingInitialLocale("ru-RU"), "ru-RU");
+  assert.equal(publicBookingInitialLocale("en-US"), undefined);
+  assert.equal(publicBookingInitialLocale("pt-BR<script>"), undefined);
+  assert.equal(publicBookingInitialLocale(null), undefined);
 });

@@ -157,3 +157,74 @@ test("public flow uses the organization's Portuguese locale after async initiali
   );
   cleanup();
 });
+
+test("public flow uses the requested Portuguese locale while the catalog is loading", async () => {
+  const { StrictMode, createElement } = await import("react");
+  const { cleanup, render, waitFor } = await import("@testing-library/react");
+  const { PublicBookingProvider } = await import(
+    "../data/PublicBookingProvider.tsx"
+  );
+  const { PublicBookingFlow } = await import("./PublicBookingFlow.tsx");
+  let resolveCatalog;
+  const catalogPromise = new Promise((resolve) => {
+    resolveCatalog = resolve;
+  });
+  const service = {
+    getCatalog: () => catalogPromise,
+    async findOccurrences() {
+      return [];
+    },
+    async createBooking() {
+      throw new Error("not used");
+    },
+    async getManagementCard() {
+      return null;
+    },
+    async cancelByParent() {
+      return null;
+    },
+    async requestTransfer() {
+      return null;
+    },
+    async setPreferredContactChannel() {
+      return null;
+    },
+  };
+
+  const view = render(
+    createElement(
+      StrictMode,
+      null,
+      createElement(
+        PublicBookingProvider,
+        { service },
+        createElement(PublicBookingFlow, {
+          configuration: { initialLocale: "pt-BR" },
+          mode: "standalone",
+        }),
+      ),
+    ),
+  );
+
+  assert.ok(view.getByText("Carregando aulas disponíveis…"));
+  assert.equal(view.queryByText("Загружаем доступные занятия…"), null);
+  assert.equal(document.documentElement.lang, "pt-BR");
+
+  resolveCatalog({
+    organization: {
+      id: "airhop",
+      name: "Hygge",
+      locale: "pt-BR",
+      timeZone: "America/Sao_Paulo",
+      currentDate: "2026-09-15",
+      publicBooking: { purpose: "trial", appearance: "automatic" },
+    },
+    branches: [],
+  });
+  await waitFor(() =>
+    assert.ok(
+      view.getByRole("heading", { name: "Escolha a unidade e a idade" }),
+    ),
+  );
+  cleanup();
+});

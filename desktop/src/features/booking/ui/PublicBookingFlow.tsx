@@ -66,6 +66,7 @@ export type PublicBookingInitialContext = {
 export type PublicBookingWidgetConfiguration = {
   purpose?: PublicBookingPurpose;
   appearance?: PublicBookingAppearance;
+  initialLocale?: string;
 };
 const STEP_NUMBER: Record<FlowStep, number> = {
   basics: 1,
@@ -149,7 +150,8 @@ export function PublicBookingFlow({
     service: typeof service;
     promise: Promise<PublicBookingCatalog>;
   } | null>(null);
-  const locale = catalog?.organization.locale ?? "ru-RU";
+  const locale =
+    catalog?.organization.locale ?? configuration?.initialLocale ?? "ru-RU";
   const messages = getPublicBookingMessages(locale);
   const purpose =
     configuration?.purpose ??
@@ -163,6 +165,10 @@ export function PublicBookingFlow({
   React.useEffect(() => {
     if (step && flowRef.current) flowRef.current.scrollTop = 0;
   }, [step]);
+
+  React.useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   const loadOccurrences = React.useCallback(
     async (
