@@ -81,6 +81,9 @@ jobs:
               - 'scripts/check-file-sizes-core.mjs'
               - 'scripts/check-file-sizes-core.test.mjs'
               - 'web/**'
+              - 'desktop/tests/helpers/animations.ts'
+              - 'desktop/src/features/channels/readState/readStateFormat.ts'
+              - '.github/workflows/ci.yml'
               - 'pnpm-lock.yaml'
             mobile:
               - 'scripts/check-file-sizes-core.mjs'
@@ -832,6 +835,25 @@ jobs:
         run: just web-check
       - name: Web build
         run: just web-build
+      - name: Browser chat core and transport contracts
+        run: pnpm --filter buzz-web test:chat
+      - name: Isolated browser chat build
+        run: pnpm --filter buzz-web build:chat
+      - name: Install chat test browsers
+        run: pnpm --filter buzz-web exec playwright install --with-deps chromium webkit
+      - name: Browser chat mobile viewport scenarios
+        run: pnpm --filter buzz-web exec playwright test --config playwright.chat.config.ts
+      - name: Interactive local chat demo
+        run: pnpm --filter buzz-web test:e2e:chat-demo
+      - name: Shared app Center isolation
+        run: pnpm --filter buzz-web test:e2e:chat-app
+      - name: Upload browser chat evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: browser-chat-evidence
+          path: web/test-results/
+          retention-days: 7
       - name: Save pnpm store cache
         if: github.event_name == 'push'
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5

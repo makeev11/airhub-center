@@ -1,0 +1,108 @@
+/* Connection/pairing remains separate from the signed-in shell. */
+.chat-center-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+.chat-center-list button {
+  display: grid;
+  gap: 0.3rem;
+  padding: 1rem;
+  min-height: 4rem;
+  text-align: left;
+  border: 1px solid var(--chat-border);
+  border-radius: 0.6rem;
+  background: #fff;
+  cursor: pointer;
+}
+.chat-center-list button:hover {
+  background: #f8f7f9;
+}
+.chat-center-list span {
+  color: #69636c;
+  font-size: 0.875rem;
+}
+.chat-connect {
+  min-height: 100dvh;
+  background: #f8f7f9;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1rem;
+}
+.chat-connect-card {
+  width: 100%;
+  max-width: 28rem;
+  background: #fff;
+  border: 1px solid var(--chat-border);
+  border-radius: 0.75rem;
+  padding: 2rem;
+  box-shadow: 0 0.5rem 2rem #23122508;
+}
+.chat-connect h1 {
+  font-size: 1.65rem;
+  letter-spacing: -0.035em;
+  margin: 0.5rem 0;
+}
+.chat-connect p {
+  margin: 0.6rem 0;
+}
+.chat-origin {
+  font-size: 0.875rem;
+  color: var(--chat-accent);
+  overflow-wrap: anywhere;
+}
+.chat-connect form {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1.25rem;
+}
+.chat-connect label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.chat-connect textarea {
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.chat-instructions {
+  list-style: decimal;
+  padding-left: 1.4rem;
+  font-size: 0.875rem;
+  display: grid;
+  gap: 0.4rem;
+}
+.chat-camera video {
+  width: 100%;
+  max-height: 18rem;
+  border-radius: 0.5rem;
+}
+.chat-camera,
+.chat-pairing {
+  display: grid;
+  gap: 0.75rem;
+}
+.chat-pairing {
+  text-align: center;
+}
+.chat-sas {
+  font-size: 2.8rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2em;
+}
+.chat-forget {
+  margin-top: 1rem;
+}
+.chat-connect .chat-text-button {
+  border: 0;
+  padding-left: 0;
+  color: var(--chat-accent);
+}
+.chat-connect .chat-pilot {
+  font-size: 0.75rem;
+  color: var(--chat-muted);
+  border-top: 1px solid var(--chat-border);
+  padding-top: 1rem;
+  margin-top: 1.3rem;
+}

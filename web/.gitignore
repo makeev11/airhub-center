@@ -6,6 +6,9 @@ pnpm-debug.log*
 
 node_modules
 dist
+dist-chat
+dist-chat-demo
+dist-chat-app
 dist-ssr
 *.local
 playwright-report

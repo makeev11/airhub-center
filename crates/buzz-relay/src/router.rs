@@ -525,11 +525,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     // Serve both bundles from one fallback. The admin host is checked first so
     // it can never fall through to the public web bundle.
     let web_dir = state.config.web_dir.clone();
-    if admin_web_dir.is_some() || web_dir.is_some() {
+    let chat_web_dir = state.config.chat_web_dir.clone();
+    if admin_web_dir.is_some() || web_dir.is_some() || chat_web_dir.is_some() {
         let admin_index = admin_web_dir.as_ref().map(|dir| dir.join("index.html"));
         let admin_files = admin_web_dir.map(ServeDir::new);
         let web_index = web_dir.as_ref().map(|dir| dir.join("index.html"));
         let web_files = web_dir.map(ServeDir::new);
+        let chat_index = chat_web_dir.as_ref().map(|dir| dir.join("index.html"));
+        let chat_files = chat_web_dir.map(ServeDir::new);
         let serve_git_web_gui = state.config.serve_git_web_gui;
         let serve_airhop_public_web = state.config.serve_airhop_public_web;
         let fallback_state = state.clone();
@@ -538,6 +541,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             let admin_files = admin_files.clone();
             let web_index = web_index.clone();
             let web_files = web_files.clone();
+            let chat_index = chat_index.clone();
+            let chat_files = chat_files.clone();
             let state = fallback_state.clone();
             async move {
                 let path = req.uri().path();
@@ -554,6 +559,32 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                     return Ok(StatusCode::NOT_FOUND.into_response());
                 }
 
+                if let (Some(index), Some(files)) = (chat_index, chat_files) {
+                    if is_chat_asset_path(path) {
+                        return files.oneshot(req).await.map(IntoResponse::into_response);
+                    }
+                    if is_chat_spa_path(path) {
+                        let mut response = read_spa_index(&index).await;
+                        let headers = response.headers_mut();
+                        headers.insert(
+                            "cache-control",
+                            axum::http::HeaderValue::from_static("no-store"),
+                        );
+                        headers.insert(
+                            "referrer-policy",
+                            axum::http::HeaderValue::from_static("no-referrer"),
+                        );
+                        headers.insert(
+                            "x-content-type-options",
+                            axum::http::HeaderValue::from_static("nosniff"),
+                        );
+                        headers.insert(
+                            "content-security-policy",
+                            chat_content_security_policy(&req),
+                        );
+                        return Ok(response);
+                    }
+                }
                 if let (Some(index), Some(files)) = (web_index, web_files) {
                     if should_serve_web_asset(path, serve_airhop_public_web) {
                         return files.oneshot(req).await.map(IntoResponse::into_response);
@@ -593,6 +624,47 @@ fn is_admin_spa_path(path: &str) -> bool {
         || path.starts_with("/reports/")
         || path == "/feedback"
         || path.starts_with("/feedback/")
+}
+
+fn is_chat_spa_path(path: &str) -> bool {
+    path == "/chat" || path == "/chat/"
+}
+
+fn is_chat_asset_path(path: &str) -> bool {
+    path.starts_with("/chat-assets/")
+        || matches!(
+            path,
+            "/chat.webmanifest" | "/chat-icon.svg" | "/chat-touch-icon.png" | "/chat-sw.js"
+        )
+}
+
+fn chat_content_security_policy(req: &Request<Body>) -> axum::http::HeaderValue {
+    const BASE: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob: data:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    let authority = req
+        .headers()
+        .get(axum::http::header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .or_else(|| req.uri().authority().map(|value| value.as_str()));
+    // Safari does not consistently include WebSocket schemes in 'self'. Use
+    // only this request's exact authority, never a wildcard or forwarded host.
+    // Strict characters prevent an untrusted Host from injecting CSP syntax.
+    let authority = authority
+        .filter(|host| {
+            !host.is_empty()
+                && host
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b".-:[]".contains(&byte))
+        })
+        .and_then(|host| host.parse::<axum::http::uri::Authority>().ok());
+    let Some(authority) = authority else {
+        return axum::http::HeaderValue::from_static(BASE);
+    };
+    let mut connect = format!("connect-src 'self' wss://{authority}");
+    if matches!(authority.host(), "localhost" | "127.0.0.1" | "[::1]") {
+        connect.push_str(&format!(" ws://{authority}"));
+    }
+    axum::http::HeaderValue::from_str(&BASE.replace("connect-src 'self'", &connect))
+        .unwrap_or_else(|_| axum::http::HeaderValue::from_static(BASE))
 }
 
 fn is_invite_landing_path(path: &str) -> bool {
@@ -905,6 +977,76 @@ mod tests {
         assert!(!is_git_web_gui_path("/repository"));
         assert!(!is_git_web_gui_path("/arbitrary"));
         assert!(!is_git_web_gui_path("/api/invites"));
+    }
+
+    #[test]
+    fn chat_csp_allows_only_exact_host_websocket_and_local_dev_ws() {
+        for host in [
+            "center.example",
+            "center.example:8443",
+            "localhost:3000",
+            "[::1]:3000",
+        ] {
+            let request = Request::builder()
+                .header("host", host)
+                .header("x-forwarded-host", "untrusted.example")
+                .body(Body::empty())
+                .unwrap();
+            let policy = chat_content_security_policy(&request);
+            let policy = policy.to_str().unwrap();
+            assert!(policy.contains(&format!("connect-src 'self' wss://{host}")));
+            assert!(!policy.contains("untrusted.example"));
+            assert_eq!(
+                policy.contains(" ws://"),
+                host.starts_with("localhost") || host.starts_with("[::1]")
+            );
+            assert!(policy.contains("frame-ancestors 'none'"));
+        }
+        for host in [
+            "evil.example; script-src *",
+            "user@evil.example",
+            "*.example",
+            "evil.example/path",
+        ] {
+            let request = Request::builder()
+                .header("host", host)
+                .body(Body::empty())
+                .unwrap();
+            let policy = chat_content_security_policy(&request);
+            let policy = policy.to_str().unwrap();
+            assert!(policy.contains("connect-src 'self';"));
+            assert!(!policy.contains("evil"));
+            assert!(!policy.contains('*'));
+        }
+    }
+
+    #[test]
+    fn employee_chat_routes_do_not_overlap_booking_invite_admin_or_git() {
+        assert!(is_chat_spa_path("/chat"));
+        assert!(is_chat_spa_path("/chat/"));
+        assert!(is_chat_asset_path("/chat-assets/index-123.js"));
+        assert!(is_chat_asset_path("/chat.webmanifest"));
+        assert!(is_chat_asset_path("/chat-sw.js"));
+        assert!(is_chat_asset_path("/chat-icon.svg"));
+        assert!(is_chat_asset_path("/chat-touch-icon.png"));
+        for path in [
+            "/",
+            "/chat-admin",
+            "/chat/secret",
+            "/booking",
+            "/assets/app.js",
+            "/repos",
+            "/invite/code",
+            "/reports",
+            "/events",
+            "/media/file",
+        ] {
+            assert!(!is_chat_spa_path(path));
+            assert!(!is_chat_asset_path(path));
+        }
+        // Without the explicit chat bundle, existing fallback rules stay closed.
+        assert!(!should_serve_spa("/chat", true, true));
+        assert!(!should_serve_web_asset("/chat-assets/app.js", true));
     }
 
     #[test]

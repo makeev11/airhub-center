@@ -1,7 +1,7 @@
 # AirHop: продукты, окружения и границы выкладки
 
-Основной VPS проверен чтением **2026-09-12**, Hostinger VPS для сайта Бразилии —
-**2026-09-14**. Это каноническая карта инфраструктуры
+Основной VPS и цель browser chat проверены чтением **2026-09-15**, Hostinger VPS
+для сайта Бразилии — **2026-09-14**. Это каноническая карта инфраструктуры
 для разработчиков и агентов Center, HQ и Site. Название каталога, Docker-образа
 или старый README не определяет продукт и не даёт разрешения на выкладку.
 Конфигурация целей: [`environments.json`](../deploy/airhop/environments.json).
@@ -15,6 +15,96 @@
 [Архив, точный состав удаления и проверки](AIRHOP_LEGACY_RETIREMENT_20260912.md),
 [финальный snapshot](deployment/runtime-20260912-after-retirement.json),
 [доказательства адреса HQ](AIRHOP_HQ_DOMAIN_AUDIT_20260912.md).
+
+## Браузерный чат: цель `center-chat-app` (пилот опубликован)
+
+15 сентября пользователь поручил публикацию `app.airhop.ru`, подключённую к
+реальным Center. Это отдельная статическая сборка `web/dist-chat-app`, не
+локальное демо. `chat-app-20260915-v2` опубликован 15 сентября; DNS/TLS,
+18/18 файлов и неизменность контейнеров проверены. [Receipt](AIRHOP_CHAT_APP_RELEASE_20260915.md).
+Сотрудник выбирает зарегистрированный Center и привязывает
+свою существующую identity; vault и сессия изолированы по canonical origin.
+
+Первая проверенная staff-цель — `demo.airhop.ru`. `center.airhop.com.br` есть в
+таблице communities, но его публичный root/staff не опубликован (HTTP 404);
+не добавлять такой адрес в список рабочих подключений по одному наличию в БД.
+Новые Центры требуют отдельной проверки origin, pairing, маршрутов и прав.
+
+App использует существующий read-only mount Caddy: релизы в
+`/opt/airhop/demo-test/center-chat-app/releases/<id>/public`, активная ссылка
+`current`. Конфигурация/backup вне публичного корня; общий Site lock плюс demo
+lock защищают подготовку и применение. Изменение main Caddyfile только добавляет
+import собственного фрагмента. Контейнеры/Compose/БД не пересоздаются.
+
+На app-host разрешены только chat shell/assets и фиксированный HTTP bridge
+`/centers/center-demo/` для NIP-11 и подписанного Blossom. Canonical Host жёстко
+равен demo; пути admin, Booking, query и произвольные upstream запрещены.
+WebSocket/NIP-42/pairing идут напрямую к `wss://demo.airhop.ru`; CSP разрешает
+этот точный адрес, CORS существующих Center не расширяется. DNS/TLS, hashes,
+границы bridge и сохранность соседей проверены. Реальная сотрудническая
+переписка после user pairing, физические телефоны и Web Push остаются отдельной
+приёмкой; публикация оболочки не доказывает эти сценарии.
+
+## Публикация справки: отдельная цель `site-docs`
+
+2026-09-15 пользователь разрешил публикацию показанной клиентской справки и
+журнала изменений: `airhop.ru/docs`, `airhop.ru/changelog` на русском,
+`airhop.com.br/docs`, `airhop.com.br/changelog` на pt-BR. Эта узкая цель
+зарегистрирована отдельно; `site.deployment_enabled:false` не изменяется.
+Регистрация разрешает выкладку, но сама по себе не свидетельствует о live-релизе.
+
+RU использует существующий read-only mount Caddy `/opt/airhop/demo-test` →
+`/srv/demo-test`: только `public/` неизменяемого релиза в
+`airhop-docs/releases/<release-id>`. Конфигурация и резервные копии находятся
+вне публичного дерева — `/opt/airhop/site/docs-releases`. Меняется только
+проверенная вставка в vhost `airhop.ru`; Caddy не пересоздаётся, Compose не
+меняется. Захват `/demo-test/airhop-docs{,/*}` возвращает 404, исключая второй
+публичный адрес хранения. Lock — `/opt/airhop/site/deploy.lock`.
+
+BR работает на `root@187.124.129.75` (`srv1610606`, daemon
+`ecd7ebd1-362b-4a1a-86bb-69dd3cb138eb`). Новый отдельный Compose project
+`airhop-docs-static` содержит только service `docs-static` и использует уже
+существующую сеть `airhop-site-br-edge`. Lock — `/opt/airhop-infra/deploy.lock`.
+Релизы — `/opt/airhop-infra/docs-static/releases/<release-id>`; полный chain
+для этой цели — единственный sealed `control/compose.yml` релиза.
+Существующие marketing container и Traefik не пересоздаются.
+
+Оба рынка получают только точные URL из публичного manifest, `/docs-assets/`
+с хешем конкретного релиза, `/docs-sitemap.xml` и согласованный `robots.txt`.
+Не захватывать весь `/docs/*`: существующий `/docs/dogovor-airhop-site.docx`
+остаётся сайту. BR сохраняет общий `Disallow: /` с точными разрешениями
+только для справки; индексация marketing не включается. Главный sitemap,
+booking, API, demo, HQ, DNS, данные и секреты не входят в эту выкладку.
+Проверка каждого URL включает HTTP, SHA тела, MIME, indexing headers;
+откат возможен только на записанный predecessor под тем же lock.
+
+## Бразильские превью: отдельная цель `site-previews-br`
+
+Рабочие версии клиентских сайтов для бразильского рынка размещаются на
+`https://airhop.com.br/preview/<site-id>/`; список доступных версий находится
+на `https://airhop.com.br/preview/`. Это отдельный Compose project
+`airhop-site-previews-br` на `root@187.124.129.75`, service `web`, container
+`airhop-site-previews-br-web-1`. Он использует существующую сеть
+`airhop-site-br-edge`, но не пересоздаёт marketing, Traefik, docs, Center или
+webhook-контейнеры. Общий lock — `/opt/airhop-infra/deploy.lock`, релизы —
+`/opt/airhop-infra/site-previews-br/releases/<release-id>`.
+
+Router владеет только `Host(airhop.com.br)` вместе с точным `/preview` или
+`/preview/*`; более высокий приоритет нужен лишь для отделения от общего
+marketing-router. Хаб и каждый сайт переключаются относительными ссылками
+`current`. Все ответы имеют `X-Robots-Tag: noindex, nofollow, noarchive`;
+это не аутентификация, поэтому секреты и персональные данные запрещены.
+Первый принятый управляющий релиз — `br-previews-20260915-v5`; EMLR доступен
+по `https://airhop.com.br/preview/emlr/`. 15 сентября 2026 контент EMLR
+атомарно обновлён до `br-previews-20260915-v6`: добавлены фиксированная
+мобильная кнопка официального WhatsApp и подтверждённый Instagram. Hub,
+Compose/Nginx control и контейнер остались на v5 без пересоздания. Затем
+content-only release `br-previews-20260915-v7` сделал Google Maps видимой
+на странице контактов с iframe в исходном HTML и нативным `loading=lazy`;
+адрес и обычная внешняя ссылка маршрута сохранены. Click/consent facade —
+только явно зафиксированное privacy/owner исключение. Запись,
+fingerprints, browser evidence и rollback:
+`airhop-site/docs/emlr-br-preview-release-2026-09-15.md`.
 
 ## 1. Три продукта и техническое наследие
 
@@ -53,6 +143,7 @@ AirHop. `buzz-prod` — исторический идентификатор Comp
 | `hq-api` | `airhub-hq-api-staging.airhub-hq-api.workers.dev` | Cloudflare Worker + D1; вне этого VPS | Действующий API установленного AirHop HQ и worker публикации сайтов |
 | `hq-legacy-relay` | `hq.airhop.ru` | Старый `buzz-prod` удалён | HTTP 410 в общем Caddy; данные в закрытом архиве |
 | `site` | `airhop.ru`, `www.airhop.ru` | `airhop-site`, приложение `airhop-site-site-1` | Сайт; `www` перенаправляется на основной домен |
+| `site-previews` | `preview.airhop.ru/<site-id>/` | Статические immutable-релизы через общий Caddy | Закрытые от индексации версии клиентских сайтов для проверки; не production-домены клиентов |
 | Общий HTTPS-вход | Все домены в схеме ниже | `airhop-site-caddy-1` | Общий прокси физически находится в Compose Site; имеет межпродуктовое влияние |
 | Бриф / сообщения | `hermes.airhop.ru` | `airhop-hermes`, `airhop-message-bridge` | Отдельные host-network службы; не путать с Hermes демо Center |
 | Публикация сайтов | Не установлен отдельный публичный домен | systemd `airhop-site-deploy-worker.service` | `/opt/airhop/site-deploy-worker`; не является relay или HQ API |
@@ -95,12 +186,14 @@ flowchart TD
     staff["Сотрудники · приложение Center"] --> demoHost["demo.airhop.ru"]
     demoHost --> proxy["Общий Caddy · airhop-site-caddy-1"]
     public["airhop.ru / www.airhop.ru"] --> proxy
+    previews["preview.airhop.ru / <site-id>/"] --> proxy
     legacy["hq.airhop.ru"] --> proxy
     hygge["hygge.airhop.ru"] --> proxy
     centerBr["center.airhop.com.br · public only"] --> proxy
     hermes["hermes.airhop.ru"] --> proxy
     proxy -->|"demo · airhop-demo-relay:3000"| center["buzz-demo-relay-1 · Center"]
     proxy -->|"airhop.ru: страницы сайта"| site["airhop-site-site-1"]
+    proxy -->|"preview: статические immutable-релизы"| previewFiles["/opt/airhop/demo-test/previews"]
     proxy -->|"airhop.ru и hygge: booking + публичный API"| center
     brHygge["hygge.airhop.com.br"] --> brSite["Hostinger · airhop-site-br"]
     brSite -->|"same-origin booking proxy"| centerBr
@@ -131,6 +224,40 @@ WhatsApp webhook; это дополнительный вход в демо, не
 статические pilot-артефакты из `/var/www/airhop-hq-*`. Наличие `hq` в имени
 каталога этих артефактов не превращает их в запущенный standalone HQ API.
 
+На `preview.airhop.ru` корневая страница перечисляет доступные рабочие просмотры,
+а каждый клиентский сайт обслуживается только под своим префиксом, например
+`/guge/`. Релизы лежат в `/opt/airhop/demo-test/previews/<site-id>/releases`,
+активная версия выбирается относительной ссылкой `current`. Весь origin отдаёт
+`X-Robots-Tag: noindex, nofollow, noarchive`, `robots.txt` запрещает обход, а
+неизвестные префиксы возвращают 404. Это защита от индексации, не аутентификация:
+секреты и персональные данные в preview-артефакты не помещать.
+
+15 сентября 2026 добавлен `/quiet-form/` — выбранный X из эксперимента
+«Тихая форма», самостоятельный статический preview. Форма готовит пример
+только в браузере, без API и серверного хранения. Подключён отдельный handler
+в существующем imported preview fragment; main Caddyfile и контейнеры не
+менялись. Релиз, fingerprints и rollback:
+`airhop-site/docs/quiet-form-preview-release-2026-09-15.md`. Прямой адрес
+работает независимо от списка на главной hub.
+
+15 сентября 2026 добавлен `/emlr/` — автономный статический private preview
+нового сайта Escola de Música Leandro Rocha на португальском. Пять страниц,
+брендированный 404 и все assets остаются внутри собственного path prefix.
+Первый guarded
+release добавил handler в существующий imported fragment без изменения main
+Caddyfile и контейнеров; после внешней responsive-проверки активная ссылка
+атомарно переключена на исправленный `emlr-preview-20260915-v2`. Затем
+контент обновлён до `emlr-preview-20260915-v3`: официальный Instagram виден
+на всех страницах, а на мобильных доступна фиксированная WhatsApp-кнопка.
+Текущий `emlr-preview-20260915-v4` показывает Google Maps на контактах через
+iframe в исходном HTML с нативным `loading=lazy`, зарезервированным размером,
+точным адресом и обычной внешней route-ссылкой. Это основной site-builder
+паттерн для контактной страницы; consent/reveal gate применяется только по
+отдельному privacy или owner требованию. Релиз, fingerprints, browser
+evidence и rollback:
+`airhop-site/docs/emlr-preview-release-2026-09-15.md`. Это noindex preview,
+а не production-домен EMLR или Airhop Brasil.
+
 ## 3. Конфигурация, сети и данные
 
 Столбец legacy ниже — **историческая привязка для чтения архива**. Все перечисленные
@@ -156,6 +283,16 @@ override перенесены в закрытый архив. Не исполь�
 Site: Compose-файлы `/opt/airhop/site/source/deploy/beget/site/compose.yml` и
 `public-hosts.override.yml`; данные приложения `/opt/airhop/site/data`.
 Caddyfile расположен в том же каталоге `deploy/beget/site/`.
+
+Target `site-previews` использует тот же общий Caddy, но не контейнер приложения
+Site. Статические релизы находятся в уже существующем read-only mount
+`/opt/airhop/demo-test` → `/srv/demo-test`; lock цели —
+`/opt/airhop/site/deploy.lock`. Первый релиз зафиксирован в
+`airhop-site/docs/preview-hub-release-2026-09-14.md`. Из-за обнаруженного drift
+file bind mount изменение Caddyfile должно сопровождаться проверкой SHA файла
+внутри контейнера; если inode отличается, после проверенного dry-run разрешено
+узко пересоздать только сервис `caddy` с точной Compose-цепочкой, `--no-deps`,
+`--no-build`, `--pull never` и полным rollback. Остальные сервисы не пересоздавать.
 
 **Исторический drift удалённого HQ:** `/opt/airhop/runtime/deploy/buzz-hq.override.yml`
 использовался частью старых контейнеров, но отличался от

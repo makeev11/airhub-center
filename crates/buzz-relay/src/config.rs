@@ -374,6 +374,9 @@ pub struct Config {
     /// Whether the configured web bundle serves the Airhop public booking SPA.
     /// Defaults to false so a generic Buzz bundle is never exposed as Airhop.
     pub serve_airhop_public_web: bool,
+    /// Optional isolated employee chat bundle, built with `web build:chat`.
+    /// Explicit opt-in; never substitutes the public booking or admin bundle.
+    pub chat_web_dir: Option<std::path::PathBuf>,
 }
 
 fn parse_bind_addr(raw: &str) -> Result<SocketAddr, ConfigError> {
@@ -1249,6 +1252,22 @@ impl Config {
         let serve_airhop_public_web = std::env::var("BUZZ_SERVE_AIRHOP_PUBLIC_WEB")
             .map(|value| value == "true" || value == "1")
             .unwrap_or(false);
+        let chat_web_dir = std::env::var("BUZZ_CHAT_WEB_DIR")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .map(std::path::PathBuf::from);
+        if let Some(ref dir) = chat_web_dir {
+            if !dir.join("index.html").is_file()
+                || !dir.join("chat.webmanifest").is_file()
+                || !dir.join("chat-assets").is_dir()
+            {
+                return Err(ConfigError::InvalidValue(format!(
+                    "BUZZ_CHAT_WEB_DIR={} must contain the isolated build:chat bundle",
+                    dir.display()
+                )));
+            }
+        }
 
         if let Some(ref dir) = web_dir {
             if !dir.join("index.html").is_file() {
@@ -1328,6 +1347,7 @@ impl Config {
             web_dir,
             serve_git_web_gui,
             serve_airhop_public_web,
+            chat_web_dir,
         })
     }
 }

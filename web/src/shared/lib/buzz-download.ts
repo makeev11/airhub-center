@@ -80,9 +80,8 @@ function normalizeArchitecture(
 export async function detectBuzzDownloadPlatform(
   navigatorValue: Navigator,
 ): Promise<BuzzDownloadPlatform> {
-  const userAgentData = (
-    navigatorValue as Navigator & { userAgentData?: UserAgentData }
-  ).userAgentData;
+  const userAgentData = (navigatorValue as { userAgentData?: UserAgentData })
+    .userAgentData;
   const operatingSystem = normalizeOperatingSystem(
     navigatorValue,
     userAgentData,

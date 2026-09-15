@@ -1,10 +1,81 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { chatTextIcon } from "./scripts/chat-text-icon.mjs";
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  build: { assetsDir: mode.startsWith("chat") ? "chat-assets" : "assets" },
   plugins: [
+    {
+      name: "text-only-chat-install-icons",
+      generateBundle() {
+        for (const size of [180, 192, 512])
+          this.emitFile({
+            type: "asset",
+            fileName:
+              size === 180
+                ? "chat-touch-icon.png"
+                : `chat-assets/chat-text-${size}.png`,
+            source: chatTextIcon(size),
+          });
+      },
+    },
+    ["chat", "chat-app", "chat-demo"].includes(mode) && {
+      name: "isolated-center-chat",
+      transformIndexHtml: {
+        order: "pre",
+        handler(html) {
+          return html
+            .replace(
+              "/src/main.tsx",
+              mode === "chat-demo"
+                ? "/src/chat-demo-main.tsx"
+                : "/src/chat-main.tsx",
+            )
+            .replace('lang="en"', 'lang="ru"')
+            .replace(
+              'content="width=device-width, initial-scale=1.0"',
+              'content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"',
+            )
+            .replace(
+              "<title>Buzz</title>",
+              "<title>Чат · AirHop Center</title>",
+            );
+        },
+      },
+      generateBundle(_options, bundle) {
+        // Demo is a separate local-only artifact and never installs a worker.
+        if (mode === "chat-demo") return;
+        for (const output of Object.values(bundle)) {
+          if (
+            output.type === "chunk" &&
+            (output.code.includes("/__demo__/session") ||
+              output.code.includes("Демо чата Center"))
+          )
+            this.error("Local demo code must not enter the Center chat build");
+        }
+        const files = Object.keys(bundle).filter((name) =>
+          name.startsWith("chat-assets/"),
+        );
+        const buildId = createHash("sha256")
+          .update(files.sort().join("\n"))
+          .digest("hex")
+          .slice(0, 16);
+        const source = readFileSync(
+          new URL("./src/features/chat/service-worker.js", import.meta.url),
+          "utf8",
+        )
+          .replace("__CHAT_BUILD_ID__", buildId)
+          .replace(
+            "__CHAT_ASSETS__",
+            JSON.stringify(files.map((name) => `/${name}`)),
+          );
+        this.emitFile({ type: "asset", fileName: "chat-sw.js", source });
+      },
+    },
     tanstackRouter({
       target: "react",
       routesDirectory: "./src/app/routes",
@@ -27,4 +98,4 @@ export default defineConfig({
     port: parseInt(process.env.VITE_PORT || "5173", 10),
     strictPort: true,
   },
-});
+}));
