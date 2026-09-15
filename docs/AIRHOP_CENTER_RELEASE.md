@@ -174,8 +174,10 @@ Center проверяет канал при запуске и затем раз 
 
 ## Исторические кандидаты
 
-Узкий image-only релиз public booking с переходами по Enter, locale-подсказкой
-для нативной даты и проверкой RU/pt-BR записан в
+Актуальный исправляющий image-only релиз public booking с единым маскированным
+полем даты и Enter, работающим при `body` focus в Safari/WebKit, записан в
+[`AIRHOP_PUBLIC_BOOKING_DATE_INPUT_CORRECTION_20260915.md`](AIRHOP_PUBLIC_BOOKING_DATE_INPUT_CORRECTION_20260915.md).
+Он явно заменяет решение о нативном поле даты из исторического
 [`AIRHOP_PUBLIC_BOOKING_ENTER_RELEASE_20260915.md`](AIRHOP_PUBLIC_BOOKING_ENTER_RELEASE_20260915.md).
 
 [Подготовка 0.5.5](AIRHOP_CENTER_ANALYTICS_ROLLOUT_20260908.md) сохранена как
