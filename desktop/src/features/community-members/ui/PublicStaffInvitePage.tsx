@@ -85,12 +85,13 @@ export function PublicStaffInvitePage() {
           <fieldset aria-label={t("Язык", "Language")} className="flex gap-1">
             {(
               [
-                ["en-US", "EN"],
-                ["ru-RU", "RU"],
-                ["pt-BR", "PT-BR"],
+                ["en-US", "EN", "English"],
+                ["ru-RU", "RU", "Русский"],
+                ["pt-BR", "PT-BR", "Português (Brasil)"],
               ] as const
-            ).map(([value, label]) => (
+            ).map(([value, label, accessibleLabel]) => (
               <Button
+                aria-label={accessibleLabel}
                 aria-pressed={locale === value}
                 key={value}
                 onClick={() => setLocale(value)}
