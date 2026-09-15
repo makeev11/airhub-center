@@ -174,6 +174,10 @@ Center проверяет канал при запуске и затем раз 
 
 ## Исторические кандидаты
 
+Узкий image-only релиз public booking с переходами по Enter, locale-подсказкой
+для нативной даты и проверкой RU/pt-BR записан в
+[`AIRHOP_PUBLIC_BOOKING_ENTER_RELEASE_20260915.md`](AIRHOP_PUBLIC_BOOKING_ENTER_RELEASE_20260915.md).
+
 [Подготовка 0.5.5](AIRHOP_CENTER_ANALYTICS_ROLLOUT_20260908.md) сохранена как
 история, но её архив `575a301f…` и локальная сборка заменены этим процессом.
 Скрипт `deploy-analytics-demo-20260907.sh` — исторический rollout миграции 53,
