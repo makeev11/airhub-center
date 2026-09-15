@@ -12,12 +12,14 @@ export function PublicBookingContactFields({
   applicant,
   setApplicant,
   applicantIssues,
+  locale,
   messages,
   maximumBirthDate,
 }: {
   applicant: PublicApplicantDraft;
   setApplicant: Dispatch<SetStateAction<PublicApplicantDraft>>;
   applicantIssues: readonly PublicApplicantValidationIssue[];
+  locale: string;
   messages: PublicBookingMessages;
   maximumBirthDate?: string;
 }) {
@@ -113,7 +115,9 @@ export function PublicBookingContactFields({
         <Input
           className="h-11 sm:h-9"
           id="public-child-birth-date"
+          autoComplete="bday"
           data-empty={!applicant.childBirthDate}
+          lang={locale}
           max={maximumBirthDate}
           onChange={(event) =>
             setApplicant((current) => ({

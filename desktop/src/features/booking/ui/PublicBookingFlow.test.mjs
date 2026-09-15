@@ -54,6 +54,78 @@ test("occurrence actions preserve the localized button and invoke the flow handl
   }
 });
 
+test("plain Enter advances only from safe booking targets", async () => {
+  const { shouldActivatePublicBookingPrimaryAction } = await import(
+    "./usePublicBookingPrimaryAction.ts"
+  );
+  const event = (target, overrides = {}) => ({
+    altKey: false,
+    ctrlKey: false,
+    defaultPrevented: false,
+    isComposing: false,
+    key: "Enter",
+    metaKey: false,
+    repeat: false,
+    shiftKey: false,
+    target,
+    ...overrides,
+  });
+  const selectedChoice = document.createElement("button");
+  selectedChoice.setAttribute("aria-pressed", "true");
+  const unselectedChoice = document.createElement("button");
+  unselectedChoice.setAttribute("aria-pressed", "false");
+  const textInput = document.createElement("input");
+  const textarea = document.createElement("textarea");
+  const backButton = document.createElement("button");
+  const checkedConsent = document.createElement("button");
+  checkedConsent.setAttribute("role", "checkbox");
+  checkedConsent.setAttribute("aria-checked", "true");
+  const primaryAction = document.createElement("button");
+  primaryAction.dataset.airhopPrimaryAction = "true";
+
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(selectedChoice)),
+    true,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(unselectedChoice)),
+    false,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(textInput)),
+    true,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(checkedConsent)),
+    true,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(textarea)),
+    false,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(backButton)),
+    false,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(primaryAction)),
+    false,
+  );
+  for (const overrides of [
+    { altKey: true },
+    { ctrlKey: true },
+    { isComposing: true },
+    { metaKey: true },
+    { repeat: true },
+    { shiftKey: true },
+  ]) {
+    assert.equal(
+      shouldActivatePublicBookingPrimaryAction(event(textInput, overrides)),
+      false,
+    );
+  }
+});
+
 test("public flow uses the organization's Portuguese locale after async initialization", async () => {
   const { StrictMode, createElement } = await import("react");
   const { cleanup, render, waitFor } = await import("@testing-library/react");

@@ -169,16 +169,15 @@ async function createLimitedBooking(page: Page): Promise<string> {
   return href ?? "";
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    window.localStorage.setItem("airhop.locale.v1", "ru-RU");
-  });
+test.beforeEach(async ({ page }, testInfo) => {
+  const locale = testInfo.title.includes("Brazilian Portuguese")
+    ? "pt-BR"
+    : "ru-RU";
   await page.clock.setFixedTime(new Date("2026-08-04T09:00:00.000Z"));
-  // This suite asserts Russian organization and branch data as well as UI copy.
   // Seed the locale before the demo workspace is created by the mock bridge.
-  await page.addInitScript(() => {
-    window.localStorage.setItem("airhop.locale.v1", "ru-RU");
-  });
+  await page.addInitScript((initialLocale) => {
+    window.localStorage.setItem("airhop.locale.v1", initialLocale);
+  }, locale);
   await installMockBridge(page);
 });
 
@@ -280,6 +279,90 @@ test("standalone public booking completes without employee shell or onboarding",
   await expect(card).not.toContainText("+7 999 123-45-67");
 });
 
+test("plain Enter advances and confirms the public booking once", async ({
+  page,
+}) => {
+  await page.goto(PUBLIC_BOOKING_PATH);
+  await page.getByTestId("airhop-public-branch-kurskaya").click();
+  await page.getByTestId("airhop-public-age-5").click();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Выберите направление" }),
+  ).toBeVisible();
+
+  await page.getByTestId("airhop-public-group-robotics-junior").click();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Выберите дату и время" }),
+  ).toBeVisible();
+
+  await page
+    .getByTestId("airhop-public-occurrence-robotics-junior-weekly:2026-08-10")
+    .click();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Контакты для заявки" }),
+  ).toBeVisible();
+
+  const birthDate = page.getByLabel("Точная дата рождения ребёнка");
+  await expect(birthDate).toHaveAttribute("type", "date");
+  await expect(birthDate).toHaveAttribute("lang", "ru-RU");
+  await page.getByLabel("Имя родителя", { exact: true }).fill("Мария");
+  await page.getByLabel("Фамилия родителя").fill("Соколова");
+  await page.getByLabel("Телефон").fill("+7 999 123-45-67");
+  await page.getByLabel("Имя ребёнка").fill("Лев");
+  await birthDate.fill("2020-08-10");
+  await page.getByRole("checkbox").click();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("airhop-public-preview")).toBeVisible();
+
+  await expect(page.getByTestId("airhop-public-submit")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("airhop-public-success")).toBeVisible();
+});
+
+test("Brazilian Portuguese booking keeps Enter, date locale and preview copy localized", async ({
+  page,
+}) => {
+  await page.goto(PUBLIC_BOOKING_PATH);
+  await page.getByTestId("airhop-public-branch-kurskaya").click();
+  await page.getByTestId("airhop-public-age-5").click();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Escolha uma atividade" }),
+  ).toBeVisible();
+
+  await page.getByTestId("airhop-public-group-robotics-junior").click();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Escolha a data e o horário" }),
+  ).toBeVisible();
+
+  await page
+    .getByTestId("airhop-public-occurrence-robotics-junior-weekly:2026-08-10")
+    .click();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Dados de contato" }),
+  ).toBeVisible();
+
+  const birthDate = page.getByLabel("Data de nascimento da criança");
+  await expect(birthDate).toHaveAttribute("type", "date");
+  await expect(birthDate).toHaveAttribute("lang", "pt-BR");
+  await page.getByLabel("Nome do responsável", { exact: true }).fill("Mariana");
+  await page.getByLabel("Sobrenome do responsável").fill("Silva");
+  await page.getByLabel("Telefone").fill("+55 11 91234-5678");
+  await page.getByLabel("Nome da criança").fill("Lucas");
+  await birthDate.fill("2010-08-10");
+  await page.getByRole("checkbox").click();
+  await page.keyboard.press("Enter");
+
+  const preview = page.getByTestId("airhop-public-preview");
+  await expect(preview).toBeVisible();
+  await expect(preview).toContainText("Ainda é possível fazer o agendamento.");
+  await expect(preview).not.toContainText("Записаться всё равно можно.");
+});
+
 test("embedded widget is preselected, closes with Escape and returns focus", async ({
   page,
 }) => {
@@ -310,7 +393,7 @@ test("embedded widget is preselected, closes with Escape and returns focus", asy
 
   await launcher.click();
   await widget.getByTestId("airhop-public-age-8").click();
-  await widget.getByRole("button", { name: "Продолжить" }).click();
+  await page.keyboard.press("Enter");
   await chooseGroup(page, "animation");
   await expect(
     widget.getByTestId("airhop-public-occurrence-animation-weekly:2026-08-10"),
