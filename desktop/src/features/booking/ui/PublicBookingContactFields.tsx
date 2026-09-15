@@ -4,6 +4,7 @@ import type {
   PublicApplicantValidationIssue,
 } from "@/features/booking/model/publicBooking";
 import type { PublicBookingMessages } from "@/features/booking/lib/publicBookingLocale";
+import { AirHopDateInput } from "@/features/booking/ui/AirHopDateInput";
 import { Input } from "@/shared/ui/input";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { FieldError } from "./PublicBookingFlowParts";
@@ -12,12 +13,14 @@ export function PublicBookingContactFields({
   applicant,
   setApplicant,
   applicantIssues,
+  locale,
   messages,
   maximumBirthDate,
 }: {
   applicant: PublicApplicantDraft;
   setApplicant: Dispatch<SetStateAction<PublicApplicantDraft>>;
   applicantIssues: readonly PublicApplicantValidationIssue[];
+  locale: string;
   messages: PublicBookingMessages;
   maximumBirthDate?: string;
 }) {
@@ -110,18 +113,21 @@ export function PublicBookingContactFields({
       </label>
       <label className="block space-y-2" htmlFor="public-child-birth-date">
         <span className="text-sm font-medium">{messages.exactBirthDate}</span>
-        <Input
+        <AirHopDateInput
+          aria-label={messages.exactBirthDate}
+          autoComplete="bday"
           className="h-11 sm:h-9"
-          id="public-child-birth-date"
           data-empty={!applicant.childBirthDate}
+          id="public-child-birth-date"
+          lang={locale}
+          locale={locale}
           max={maximumBirthDate}
-          onChange={(event) =>
+          onChange={(childBirthDate) =>
             setApplicant((current) => ({
               ...current,
-              childBirthDate: event.target.value,
+              childBirthDate,
             }))
           }
-          type="date"
           value={applicant.childBirthDate}
         />
         <FieldError

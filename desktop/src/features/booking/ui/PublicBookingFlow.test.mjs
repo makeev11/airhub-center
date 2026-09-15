@@ -54,6 +54,78 @@ test("occurrence actions preserve the localized button and invoke the flow handl
   }
 });
 
+test("plain Enter advances only from safe booking targets", async () => {
+  const { shouldActivatePublicBookingPrimaryAction } = await import(
+    "./usePublicBookingPrimaryAction.ts"
+  );
+  const event = (target, overrides = {}) => ({
+    altKey: false,
+    ctrlKey: false,
+    defaultPrevented: false,
+    isComposing: false,
+    key: "Enter",
+    metaKey: false,
+    repeat: false,
+    shiftKey: false,
+    target,
+    ...overrides,
+  });
+  const selectedChoice = document.createElement("button");
+  selectedChoice.setAttribute("aria-pressed", "true");
+  const unselectedChoice = document.createElement("button");
+  unselectedChoice.setAttribute("aria-pressed", "false");
+  const textInput = document.createElement("input");
+  const textarea = document.createElement("textarea");
+  const backButton = document.createElement("button");
+  const checkedConsent = document.createElement("button");
+  checkedConsent.setAttribute("role", "checkbox");
+  checkedConsent.setAttribute("aria-checked", "true");
+  const primaryAction = document.createElement("button");
+  primaryAction.dataset.airhopPrimaryAction = "true";
+
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(selectedChoice)),
+    true,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(unselectedChoice)),
+    false,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(textInput)),
+    true,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(checkedConsent)),
+    true,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(textarea)),
+    false,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(backButton)),
+    false,
+  );
+  assert.equal(
+    shouldActivatePublicBookingPrimaryAction(event(primaryAction)),
+    false,
+  );
+  for (const overrides of [
+    { altKey: true },
+    { ctrlKey: true },
+    { isComposing: true },
+    { metaKey: true },
+    { repeat: true },
+    { shiftKey: true },
+  ]) {
+    assert.equal(
+      shouldActivatePublicBookingPrimaryAction(event(textInput, overrides)),
+      false,
+    );
+  }
+});
+
 test("public flow uses the organization's Portuguese locale after async initialization", async () => {
   const { StrictMode, createElement } = await import("react");
   const { cleanup, render, waitFor } = await import("@testing-library/react");
@@ -154,6 +226,77 @@ test("public flow uses the organization's Portuguese locale after async initiali
   assert.equal(
     view.getByTestId("airhop-public-brand-mark").getAttribute("src"),
     "/airhop/mark.png",
+  );
+  cleanup();
+});
+
+test("public flow uses the requested Portuguese locale while the catalog is loading", async () => {
+  const { StrictMode, createElement } = await import("react");
+  const { cleanup, render, waitFor } = await import("@testing-library/react");
+  const { PublicBookingProvider } = await import(
+    "../data/PublicBookingProvider.tsx"
+  );
+  const { PublicBookingFlow } = await import("./PublicBookingFlow.tsx");
+  let resolveCatalog;
+  const catalogPromise = new Promise((resolve) => {
+    resolveCatalog = resolve;
+  });
+  const service = {
+    getCatalog: () => catalogPromise,
+    async findOccurrences() {
+      return [];
+    },
+    async createBooking() {
+      throw new Error("not used");
+    },
+    async getManagementCard() {
+      return null;
+    },
+    async cancelByParent() {
+      return null;
+    },
+    async requestTransfer() {
+      return null;
+    },
+    async setPreferredContactChannel() {
+      return null;
+    },
+  };
+
+  const view = render(
+    createElement(
+      StrictMode,
+      null,
+      createElement(
+        PublicBookingProvider,
+        { service },
+        createElement(PublicBookingFlow, {
+          configuration: { initialLocale: "pt-BR" },
+          mode: "standalone",
+        }),
+      ),
+    ),
+  );
+
+  assert.ok(view.getByText("Carregando aulas disponíveis…"));
+  assert.equal(view.queryByText("Загружаем доступные занятия…"), null);
+  assert.equal(document.documentElement.lang, "pt-BR");
+
+  resolveCatalog({
+    organization: {
+      id: "airhop",
+      name: "Hygge",
+      locale: "pt-BR",
+      timeZone: "America/Sao_Paulo",
+      currentDate: "2026-09-15",
+      publicBooking: { purpose: "trial", appearance: "automatic" },
+    },
+    branches: [],
+  });
+  await waitFor(() =>
+    assert.ok(
+      view.getByRole("heading", { name: "Escolha a unidade e a idade" }),
+    ),
   );
   cleanup();
 });

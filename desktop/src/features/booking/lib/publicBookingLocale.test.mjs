@@ -42,6 +42,10 @@ test("public booking is fully available in Brazilian Portuguese", () => {
   assert.equal(messages.standaloneTitle, "Encontre uma aula experimental");
   assert.equal(messages.chooseBranch, "Escolha uma unidade");
   assert.equal(messages.successTitle, "Solicitação aguardando confirmação");
+  assert.equal(
+    messages.ageNoticeCanContinue,
+    "Ainda é possível fazer o agendamento.",
+  );
   assert.equal(messages.ageYears(1), "1 ano");
   assert.equal(messages.ageYears(5), "5 anos");
   assert.match(

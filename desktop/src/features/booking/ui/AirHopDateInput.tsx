@@ -13,6 +13,7 @@ import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { BookingSelect } from "@/features/booking/ui/BookingSelect";
+import { isAirHopLocale } from "@/shared/locale/airhopLocale";
 import { useAirHopLocale } from "@/shared/locale/useAirHopLocale";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { localePair } from "@/shared/locale/messengerCopy";
@@ -51,6 +52,9 @@ export function AirHopDateInput({
 }: AirHopDateInputProps) {
   const interfaceLocale = useAirHopLocale();
   const calendarLocale = locale ?? interfaceLocale;
+  const copyLocale = isAirHopLocale(calendarLocale)
+    ? calendarLocale
+    : interfaceLocale;
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(() => formatAirHopDateInput(value));
@@ -152,13 +156,13 @@ export function AirHopDateInput({
             setEditing(true);
             onFocus?.(event);
           }}
-          placeholder={localePair("ДД.ММ.ГГГГ", "DD.MM.YYYY")}
+          placeholder={localePair("ДД.ММ.ГГГГ", "DD.MM.YYYY", copyLocale)}
           type="text"
           value={draft}
         />
         <PopoverTrigger asChild>
           <Button
-            aria-label={`${inputProps["aria-label"] ?? localePair("Дата", "Date")}: ${localePair("открыть календарь", "open calendar")}`}
+            aria-label={`${inputProps["aria-label"] ?? localePair("Дата", "Date", copyLocale)}: ${localePair("открыть календарь", "open calendar", copyLocale)}`}
             className="absolute right-1 top-1/2 size-7 -translate-y-1/2"
             disabled={disabled}
             size="icon"
@@ -172,7 +176,11 @@ export function AirHopDateInput({
       <PopoverContent align="start" className="w-[19rem] p-3">
         <div className="flex items-center gap-1">
           <Button
-            aria-label={localePair("Предыдущий месяц", "Previous month")}
+            aria-label={localePair(
+              "Предыдущий месяц",
+              "Previous month",
+              copyLocale,
+            )}
             onClick={() => changeVisibleMonth(-1)}
             size="icon"
             type="button"
@@ -181,7 +189,7 @@ export function AirHopDateInput({
             <ChevronLeft />
           </Button>
           <BookingSelect
-            aria-label={localePair("Месяц", "Month")}
+            aria-label={localePair("Месяц", "Month", copyLocale)}
             className="h-8 rounded-md border-input/60 pr-8 pl-2 font-medium capitalize"
             onChange={(event) => setVisibleMonth(Number(event.target.value))}
             value={visibleMonth}
@@ -194,7 +202,7 @@ export function AirHopDateInput({
             ))}
           </BookingSelect>
           <BookingSelect
-            aria-label={localePair("Год", "Year")}
+            aria-label={localePair("Год", "Year", copyLocale)}
             className="h-8 rounded-md border-input/60 pr-7 pl-2 font-medium"
             onChange={(event) => setVisibleYear(Number(event.target.value))}
             value={visibleYear}
@@ -207,7 +215,7 @@ export function AirHopDateInput({
             ))}
           </BookingSelect>
           <Button
-            aria-label={localePair("Следующий месяц", "Next month")}
+            aria-label={localePair("Следующий месяц", "Next month", copyLocale)}
             onClick={() => changeVisibleMonth(1)}
             size="icon"
             type="button"

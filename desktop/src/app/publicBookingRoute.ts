@@ -1,5 +1,13 @@
 import * as React from "react";
 
+export type PublicBookingInitialLocale = "ru-RU" | "pt-BR";
+
+export function publicBookingInitialLocale(
+  value: unknown,
+): PublicBookingInitialLocale | undefined {
+  return value === "ru-RU" || value === "pt-BR" ? value : undefined;
+}
+
 /** Identifies routes that must render outside employee onboarding and shell. */
 export function isPublicBookingPath(pathname: string): boolean {
   return (

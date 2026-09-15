@@ -170,9 +170,9 @@ deploy worker и публичным readiness API. Он не входит в Doc
 `/opt/airhop-site-br/runtime.env`, общий lock этой цели —
 `/opt/airhop-infra/deploy.lock`, сеть — `airhop-site-br-edge`.
 
-На снимке 2026-09-14 контейнер здоров на образе
-`airhop-site-br:airhop-br-20260914-e2c752b-hygge-center`, image ID
-`sha256:700c3401bc124c1f60bc23b7c03535fc2f93dac4e0c52ae0e56c8ec38bbd30de`.
+На снимке 2026-09-15 контейнер здоров на образе
+`airhop-site-br:airhop-br-20260915-f578972-hygge-booking-ux`, image ID
+`sha256:c8e19812e894ad008e90a244a59c23441fec3c1beb3859eb817a1f4a931f9084`.
 Публичный сайт намеренно остаётся `noindex` до подтверждения обязательных
 бизнес-, юридических и privacy-фактов; это не означает, что Hostinger является
 preview-платформой. ChatGPT Sites не является production target или runtime

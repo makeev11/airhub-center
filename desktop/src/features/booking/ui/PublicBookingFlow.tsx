@@ -54,6 +54,7 @@ import {
 import { PublicBookingSuccess } from "@/features/booking/ui/PublicBookingSuccess";
 import { useBookingHandoffStatus } from "@/features/booking/ui/useBookingHandoffStatus";
 import { usePublicBookingAnalytics } from "@/features/booking/ui/usePublicBookingAnalytics";
+import { useBookingEnter } from "@/features/booking/ui/usePublicBookingPrimaryAction";
 type FlowStep = "basics" | "groups" | "occurrences" | "contact" | "preview";
 type FlowError = "slot_unavailable" | "load_failed" | "generic" | null;
 export type PublicBookingInitialContext = {
@@ -66,6 +67,7 @@ export type PublicBookingInitialContext = {
 export type PublicBookingWidgetConfiguration = {
   purpose?: PublicBookingPurpose;
   appearance?: PublicBookingAppearance;
+  initialLocale?: string;
 };
 const STEP_NUMBER: Record<FlowStep, number> = {
   basics: 1,
@@ -145,11 +147,13 @@ export function PublicBookingFlow({
   const draftReadyRef = React.useRef(false);
   const idempotencyKeyRef = React.useRef<string>(crypto.randomUUID());
   const flowRef = React.useRef<HTMLElement>(null);
+  const { actionRef } = useBookingEnter(step === "preview");
   const catalogRequestRef = React.useRef<{
     service: typeof service;
     promise: Promise<PublicBookingCatalog>;
   } | null>(null);
-  const locale = catalog?.organization.locale ?? "ru-RU";
+  const locale =
+    catalog?.organization.locale ?? configuration?.initialLocale ?? "ru-RU";
   const messages = getPublicBookingMessages(locale);
   const purpose =
     configuration?.purpose ??
@@ -159,10 +163,15 @@ export function PublicBookingFlow({
     configuration?.appearance ??
     catalog?.organization.publicBooking?.appearance ??
     "automatic";
+  const shellProps = { appearance, mode };
 
   React.useEffect(() => {
     if (step && flowRef.current) flowRef.current.scrollTop = 0;
   }, [step]);
+
+  React.useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   const loadOccurrences = React.useCallback(
     async (
@@ -572,7 +581,7 @@ export function PublicBookingFlow({
   }
 
   return (
-    <PublicBookingShell appearance={appearance} mode={mode}>
+    <PublicBookingShell {...shellProps}>
       <PublicBookingHeader
         messages={messages}
         mode={mode}
@@ -821,6 +830,7 @@ export function PublicBookingFlow({
                 applicant={applicant}
                 setApplicant={setApplicant}
                 applicantIssues={applicantIssues}
+                locale={locale}
                 messages={messages}
                 maximumBirthDate={catalog?.organization.currentDate}
               />
@@ -868,7 +878,7 @@ export function PublicBookingFlow({
                   className="pb-3 text-xs leading-5 text-muted-foreground"
                   data-testid="airhop-public-age-notice"
                 >
-                  {ageNotice} Записаться всё равно можно.
+                  {ageNotice} {messages.ageNoticeCanContinue}
                 </div>
               ) : null}
               <SummaryRow
@@ -940,6 +950,7 @@ export function PublicBookingFlow({
         ) : null}
         <Button
           key={step}
+          ref={actionRef}
           className="min-h-11 flex-1"
           type={step === "basics" || step === "contact" ? "submit" : "button"}
           form={
@@ -961,6 +972,7 @@ export function PublicBookingFlow({
                   : step === "preview" && isSubmitting
           }
           data-testid={step === "preview" ? "airhop-public-submit" : undefined}
+          data-airhop-primary-action="true"
           onClick={(event) => {
             if (step !== "basics" && step !== "contact") event.preventDefault();
             if (step === "groups") {

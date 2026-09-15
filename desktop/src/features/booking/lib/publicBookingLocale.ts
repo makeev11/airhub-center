@@ -63,6 +63,7 @@ export type PublicBookingMessages = {
   applicantErrors: Record<PublicApplicantValidationIssue, string>;
   previewTitle: string;
   previewDescription: string;
+  ageNoticeCanContinue: string;
   center: string;
   group: string;
   dateAndTime: string;
@@ -209,6 +210,7 @@ const ruMessages: PublicBookingMessages = {
   previewTitle: "Проверьте заявку",
   previewDescription:
     "Проверьте данные. После отправки мы покажем, как подтвердить запись и оставаться с нами на связи.",
+  ageNoticeCanContinue: "Записаться всё равно можно.",
   center: "Центр",
   group: "Направление",
   dateAndTime: "Дата и время",
@@ -367,6 +369,7 @@ const ptBrMessages: PublicBookingMessages = {
   previewTitle: "Revise a solicitação",
   previewDescription:
     "Confira os dados. Depois do envio, mostraremos como confirmar o agendamento e continuar em contato.",
+  ageNoticeCanContinue: "Ainda é possível fazer o agendamento.",
   center: "Centro",
   group: "Atividade",
   dateAndTime: "Data e horário",
