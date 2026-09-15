@@ -132,7 +132,7 @@
       ],
       "container": "airhop-site-br-site-1",
       "deployment_enabled": true,
-      "verified_at": "2026-09-14",
+      "verified_at": "2026-09-15",
       "source_repository": "airhop-site",
       "ssh": "root@187.124.129.75",
       "hostname": "srv1610606",
@@ -145,8 +145,8 @@
       "shared_proxy_container": "traefik-mp4t-traefik-1",
       "hq_api_target": "airhub-hq-api-staging.airhub-hq-api.workers.dev",
       "center_public_booking_target": "center.airhop.com.br",
-      "release_id": "airhop-br-20260914-e2c752b-hygge-center",
-      "image_id": "sha256:700c3401bc124c1f60bc23b7c03535fc2f93dac4e0c52ae0e56c8ec38bbd30de"
+      "release_id": "airhop-br-20260915-f578972-hygge-booking-ux",
+      "image_id": "sha256:c8e19812e894ad008e90a244a59c23441fec3c1beb3859eb817a1f4a931f9084"
     }
   }
 }
