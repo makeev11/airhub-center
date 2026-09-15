@@ -1,0 +1,239 @@
+/* Phone is the primary surface; desktop chrome does not consume reading space. */
+@media (max-width: 700px) {
+  .chat-viewport {
+    padding-top: env(safe-area-inset-top);
+  }
+  .chat-app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 3rem minmax(0, 1fr);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .chat-app button {
+    touch-action: manipulation;
+  }
+  .chat-topbar {
+    gap: 0.5rem;
+    padding: 0 0.75rem;
+  }
+  .chat-product {
+    width: auto;
+    flex: 1;
+  }
+  .chat-product strong {
+    font-size: 1rem;
+  }
+  .chat-topbar .chat-search {
+    display: none;
+  }
+  .chat-topbar > button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .chat-conversation-open {
+    grid-template-rows: 0 minmax(0, 1fr);
+  }
+  .chat-conversation-open .chat-topbar {
+    display: none;
+  }
+  .chat-conversation-open.chat-search-open {
+    grid-template-rows: 3.5rem minmax(0, 1fr);
+  }
+  .chat-search-open .chat-topbar {
+    display: flex;
+  }
+  .chat-search-open .chat-search {
+    display: flex;
+    margin: 0;
+    height: 2.75rem;
+    width: 100%;
+  }
+  .chat-search input {
+    font-size: 1rem;
+  }
+  .chat-search-open .chat-product,
+  .chat-search-open .chat-top-settings {
+    display: none;
+  }
+  .chat-search-open .chat-search-close {
+    display: inline-flex;
+  }
+  .chat-search button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .chat-sidebar {
+    border: 0;
+    padding: 0 0.6rem;
+  }
+  .chat-sidebar-brand {
+    padding-top: 0.8rem;
+  }
+  .chat-sidebar-brand strong {
+    font-size: 1.25rem;
+  }
+  .chat-sidebar .chat-channel {
+    min-height: 4rem;
+    font-size: 1rem;
+    gap: 0.75rem;
+    padding: 0.5rem 0.65rem;
+  }
+  .chat-channel-preview {
+    display: block;
+    font-size: 0.8125rem;
+    color: #ffffffb3;
+    font-weight: 400;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 0.15rem;
+  }
+  .chat-dm-avatar {
+    width: 1.875rem;
+    height: 1.875rem;
+    font-size: 0.875rem;
+  }
+  .chat-sidebar .chat-section-toggle {
+    min-height: 2.75rem;
+    font-size: 0.875rem;
+  }
+  .chat-sidebar footer button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .chat-main {
+    display: none;
+  }
+  .chat-conversation-open .chat-sidebar,
+  .chat-settings-open .chat-sidebar {
+    display: none;
+  }
+  .chat-conversation-open .chat-main,
+  .chat-settings-open .chat-main {
+    display: flex;
+  }
+  .chat-app .chat-mobile-back,
+  .chat-app .chat-mobile-search {
+    display: inline-flex;
+    border: 0;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0.35rem;
+  }
+  .chat-conversation-header {
+    padding: 0.3rem 0.5rem;
+    min-height: 3.5rem;
+    gap: 0.35rem;
+  }
+  .chat-conversation-header h1,
+  .chat-conversation-header h2 {
+    font-size: 1rem;
+  }
+  .chat-member-count {
+    display: none;
+  }
+  .chat-thread-open .chat-channel-pane {
+    display: none;
+  }
+  .chat-thread-pane {
+    width: 100%;
+    flex: 1;
+    border: 0;
+  }
+  .chat-conversation-header .chat-icon-button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .chat-thread-pane .chat-conversation-header {
+    padding-left: 1rem;
+  }
+  .chat-message {
+    padding: 0.5rem 0.75rem 0.15rem;
+    gap: 0.6rem;
+  }
+  .chat-avatar {
+    width: 2rem;
+    height: 2rem;
+    font-size: 0.875rem;
+  }
+  .chat-message-actions .chat-hover-action {
+    opacity: 1;
+  }
+  .chat-message-actions button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .chat-composer {
+    margin: 0.2rem 0.5rem 0.3rem;
+    border-radius: 0.65rem;
+  }
+  .chat-composer textarea {
+    min-height: 2.75rem;
+    max-height: min(7rem, 24dvh);
+    resize: none;
+    padding: 0.65rem 0.75rem;
+    font-size: 1rem;
+  }
+  .chat-composer .chat-format-tools {
+    display: none;
+  }
+  .chat-composer-format-open .chat-format-tools {
+    display: flex;
+    padding: 0 0.35rem;
+  }
+  .chat-format-tools button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .chat-composer-tools {
+    padding: 0 0.3rem 0.2rem;
+  }
+  .chat-composer-tools button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .chat-composer-tools .chat-primary {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .chat-app .chat-format-toggle {
+    display: inline-flex;
+  }
+  .chat-composer-tools .chat-emoji-button,
+  .chat-send-hint {
+    display: none;
+  }
+  .chat-reply-to,
+  .chat-file-chip {
+    padding: 0.1rem 0.6rem;
+  }
+  .chat-reply-to button,
+  .chat-file-chip button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .chat-pilot-strip {
+    padding-bottom: 0.2rem;
+  }
+  .chat-connect-card {
+    padding: 1.5rem;
+  }
+  .chat-connect input,
+  .chat-connect textarea {
+    font-size: 1rem;
+  }
+  .chat-connect button {
+    min-height: 2.75rem;
+  }
+  .chat-settings {
+    padding: 1rem;
+  }
+  .chat-settings button {
+    min-height: 2.75rem;
+  }
+  .chat-viewport[data-keyboard="true"] .chat-pilot-strip {
+    display: none;
+  }
+  .chat-viewport[data-keyboard="true"] .chat-app {
+    padding-bottom: 0;
+  }
+}

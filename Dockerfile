@@ -115,8 +115,9 @@ COPY web/package.json web/
 COPY admin-web/package.json admin-web/
 RUN pnpm install --frozen-lockfile --filter buzz-web --filter buzz-admin-web
 COPY web/ web/
+COPY desktop/public/airhop/apple-touch-icon.png desktop/public/airhop/apple-touch-icon.png
 COPY admin-web/ admin-web/
-RUN pnpm -C web build && pnpm -C admin-web build
+RUN pnpm -C web build && pnpm -C web build:chat && pnpm -C admin-web build
 
 # ─── Stage 4b: Airhop public booking bundle ─────────────────────────────────
 # This is intentionally a separate build from Buzz Web. It reuses the exact
@@ -176,6 +177,7 @@ RUN apt-get update \
                 --create-home --shell /usr/sbin/nologin buzz
 
 COPY --from=web-builder /build/web/dist                 /srv/buzz/web
+COPY --from=web-builder /build/web/dist-chat            /srv/buzz/chat
 COPY --from=web-builder /build/admin-web/dist           /srv/buzz/admin-web
 
 # The invite landing page is always served from the bundled web UI. Repository
@@ -183,6 +185,9 @@ COPY --from=web-builder /build/admin-web/dist           /srv/buzz/admin-web
 # admin bundle is inert until BUZZ_ADMIN_HOST is configured.
 ENV BUZZ_WEB_DIR=/srv/buzz/web \
     BUZZ_ADMIN_WEB_DIR=/srv/buzz/admin-web
+
+# Employee chat is bundled but deliberately disabled. A reviewed pilot may opt
+# in with BUZZ_CHAT_WEB_DIR=/srv/buzz/chat; it does not replace public booking.
 
 # 3000: app (WS + REST)  ·  8080: /_liveness, /_readiness  ·  9102: /metrics
 EXPOSE 3000 8080 9102

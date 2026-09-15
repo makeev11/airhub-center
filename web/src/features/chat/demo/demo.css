@@ -1,0 +1,61 @@
+.chat-demo-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.chat-demo-root .chat-app,
+.chat-demo-root .chat-connect {
+  position: relative;
+  inset: auto;
+  height: auto;
+  min-height: 0;
+  flex: 1;
+}
+.chat-demo-banner {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.65rem;
+  justify-content: space-between;
+  padding: 0.35rem 0.875rem;
+  color: #59415d;
+  background: #f5f0f6;
+  border-bottom: 1px solid #e6dfe9;
+  font:
+    0.6875rem / 1.5 Inter,
+    sans-serif;
+}
+.chat-demo-banner strong {
+  margin-right: 0.8rem;
+}
+.chat-demo-banner details {
+  flex-shrink: 0;
+  position: relative;
+}
+.chat-demo-banner summary {
+  cursor: pointer;
+  text-decoration: underline;
+}
+.chat-demo-banner details p {
+  position: absolute;
+  right: 0;
+  z-index: 10;
+  width: min(24rem, 85vw);
+  background: white;
+  padding: 1rem;
+  border: 1px solid #e6dfe9;
+  border-radius: 0.8rem;
+  box-shadow: 0 0.4rem 1.2rem #18313820;
+}
+@media (max-width: 640px) {
+  .chat-demo-banner {
+    padding: 0.3rem 0.65rem;
+  }
+  .chat-demo-banner strong,
+  .chat-demo-banner span {
+    display: block;
+  }
+  .chat-demo-banner span {
+    display: none;
+  }
+}

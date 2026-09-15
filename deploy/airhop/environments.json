@@ -1,12 +1,30 @@
 {
   "schema_version": 1,
-  "verified_at": "2026-09-12",
+  "verified_at": "2026-09-15",
   "host": {
     "ssh": "root@46.173.25.23",
     "hostname": "airhop-prod",
     "docker_id": "dbfb14a9-8404-4f21-ad3e-3481b173ea9a"
   },
   "targets": {
+    "center-chat-app": {
+      "product": "AirHop Center browser chat",
+      "domain": "app.airhop.ru",
+      "deployment_enabled": true,
+      "authorization": "User explicitly requested app.airhop.ru connected to real AirHop Centers on 2026-09-15",
+      "publication_mode": "immutable-static-client-and-fixed-center-http-bridge",
+      "shared_proxy_container": "airhop-site-caddy-1",
+      "shared_proxy_config": "/opt/airhop/site/source/deploy/beget/site/Caddyfile",
+      "lock": "/opt/airhop/site/deploy.lock",
+      "center_lock": "/opt/airhop/buzz-demo/deploy.lock",
+      "release_root": "/opt/airhop/demo-test/center-chat-app",
+      "control_root": "/opt/airhop/site/chat-app-releases",
+      "compose_mutations": false,
+      "registered_centers": ["https://demo.airhop.ru"],
+      "active_release": "chat-app-20260915-v2",
+      "release_receipt": "docs/AIRHOP_CHAT_APP_RELEASE_20260915.md",
+      "route_ownership": "Only app.airhop.ru; public static client and fixed NIP-11/Blossom bridge to demo.airhop.ru, unchanged Center authentication; no arbitrary upstream or admin proxy"
+    },
     "site-docs": {
       "product": "AirHop public documentation and changelog",
       "publication_mode": "immutable-exact-route-static",
@@ -119,6 +137,57 @@
       "shared_proxy_container": "airhop-site-caddy-1",
       "shared_proxy_config": "/opt/airhop/site/source/deploy/beget/site/Caddyfile",
       "deployment_enabled": false
+    },
+    "site-previews": {
+      "product": "AirHop client-site previews",
+      "project": "airhop-site",
+      "host": "preview.airhop.ru",
+      "path_root": "/opt/airhop/demo-test/previews",
+      "shared_proxy_container": "airhop-site-caddy-1",
+      "shared_proxy_config": "/opt/airhop/site/source/deploy/beget/site/Caddyfile",
+      "lock": "/opt/airhop/site/deploy.lock",
+      "publication_mode": "manual-immutable-static-releases",
+      "indexing": "disabled",
+      "deployment_enabled": true,
+      "release_record": "airhop-site/docs/preview-hub-release-2026-09-14.md",
+      "path_prefixes": [
+        "/guge/",
+        "/quiet-form/",
+        "/emlr/"
+      ],
+      "additional_release_records": [
+        "airhop-site/docs/quiet-form-preview-release-2026-09-15.md",
+        "airhop-site/docs/emlr-preview-release-2026-09-15.md"
+      ],
+      "active_releases": {
+        "emlr": "emlr-preview-20260915-v4"
+      }
+    },
+    "site-previews-br": {
+      "product": "AirHop Brazilian client-site previews",
+      "project": "airhop-site-previews-br",
+      "service": "web",
+      "host": "root@187.124.129.75",
+      "hostname": "srv1610606",
+      "docker_id": "ecd7ebd1-362b-4a1a-86bb-69dd3cb138eb",
+      "domain": "airhop.com.br",
+      "url_root": "https://airhop.com.br/preview/",
+      "path_root": "/opt/airhop-infra/site-previews-br",
+      "container": "airhop-site-previews-br-web-1",
+      "lock": "/opt/airhop-infra/deploy.lock",
+      "network": "airhop-site-br-edge",
+      "publication_mode": "path-scoped-immutable-static-releases",
+      "route_ownership": "Host(airhop.com.br) and only /preview or /preview/*; preserve marketing, docs, Center and webhook routes",
+      "indexing": "disabled",
+      "deployment_enabled": true,
+      "release_record": "airhop-site/docs/emlr-br-preview-release-2026-09-15.md",
+      "path_prefixes": [
+        "/preview/emlr/"
+      ],
+      "active_release": "br-previews-20260915-v7",
+      "control_release": "br-previews-20260915-v5",
+      "active_content_link": "emlr/current -> ../releases/br-previews-20260915-v7/emlr",
+      "active_container_id": "4fac240f9eb50ff87bd38fcd6375360b796f2b6e6fbc3a3ada9e632fbb567c95"
     },
     "hq-api": {
       "product": "AirHop HQ",

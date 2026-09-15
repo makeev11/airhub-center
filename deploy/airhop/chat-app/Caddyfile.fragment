@@ -1,0 +1,87 @@
+# Public application shell plus a fixed, authenticated HTTP bridge for the registered Center.
+# Never derive an upstream, Host, or relay from user input.
+(airhop_chat_demo_http) {
+  reverse_proxy airhop-demo-relay:3000 {
+    header_up Host demo.airhop.ru
+    header_up X-Forwarded-Host demo.airhop.ru
+    header_up -Forwarded
+    header_up -Cookie
+    header_down -Set-Cookie
+  }
+}
+
+https://app.airhop.ru {
+  encode zstd gzip
+  root * /srv/demo-test/center-chat-app/current/public
+  header {
+    X-Content-Type-Options nosniff
+    X-Frame-Options DENY
+    Referrer-Policy no-referrer
+    X-Robots-Tag "noindex, nofollow, noarchive"
+    Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+    Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' wss://demo.airhop.ru; worker-src 'self' blob:; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+    Cache-Control "no-store"
+  }
+
+  # HTTP only. NIP-42 and pairing WebSockets use the Center's canonical wss origin.
+  # Signed Blossom authorization is passed to the existing relay, not bypassed.
+  route {
+  handle_path /centers/center-demo/* {
+    route {
+      @foreign_origin {
+        header Origin *
+        not header Origin https://app.airhop.ru
+      }
+      respond @foreign_origin "Forbidden origin" 403
+      @cross_site header Sec-Fetch-Site cross-site
+      respond @cross_site "Forbidden cross-site request" 403
+      @metadata {
+        path /
+        method GET HEAD
+      }
+      handle @metadata {
+        request_header Accept application/nostr+json
+        import airhop_chat_demo_http
+      }
+      @media {
+        path_regexp chat_blob ^/media/[a-f0-9]{64}(\.[a-z0-9]+)?$
+        method GET HEAD
+      }
+      handle @media {
+        import airhop_chat_demo_http
+      }
+      @upload {
+        path /upload /media/upload
+        method PUT
+        header Origin https://app.airhop.ru
+      }
+      handle @upload {
+        import airhop_chat_demo_http
+      }
+      respond "Not found" 404
+    }
+  }
+  @not_read not method GET HEAD
+  respond @not_read "Method not allowed" 405
+  redir / /chat 302
+  handle /robots.txt {
+    respond "User-agent: *\nDisallow: /\n" 200
+  }
+  @chat_page path /chat /chat/
+  handle @chat_page {
+    rewrite * /index.html
+    file_server
+  }
+  @public_files path /chat.webmanifest /chat-touch-icon.png /chat-sw.js /chat-centers.json
+  handle @public_files {
+    file_server
+  }
+  handle /chat-assets/* {
+    header Cache-Control "public, max-age=86400"
+    file_server
+  }
+  handle {
+    respond "Not found" 404
+  }
+  }
+}
