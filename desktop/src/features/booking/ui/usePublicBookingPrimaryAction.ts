@@ -79,8 +79,8 @@ export function useBookingEnter(focusPrimaryAction: boolean) {
     }
   }, [focusPrimaryAction]);
 
-  const onEnter = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
+  React.useEffect(() => {
+    const onEnter = (event: KeyboardEvent) => {
       const primaryAction = actionRef.current;
       if (
         !primaryAction ||
@@ -89,7 +89,7 @@ export function useBookingEnter(focusPrimaryAction: boolean) {
           altKey: event.altKey,
           ctrlKey: event.ctrlKey,
           defaultPrevented: event.defaultPrevented,
-          isComposing: event.nativeEvent.isComposing,
+          isComposing: event.isComposing,
           key: event.key,
           metaKey: event.metaKey,
           repeat: event.repeat,
@@ -101,9 +101,14 @@ export function useBookingEnter(focusPrimaryAction: boolean) {
       }
       event.preventDefault();
       primaryAction.click();
-    },
-    [],
-  );
+    };
 
-  return { actionRef, onEnter };
+    // Safari does not focus buttons after a mouse click, so the next keydown
+    // can target <body> instead of the React booking tree. Listen at window
+    // level to keep plain Enter reliable in standalone pages and iframes.
+    window.addEventListener("keydown", onEnter, { capture: true });
+    return () => window.removeEventListener("keydown", onEnter, true);
+  }, []);
+
+  return { actionRef };
 }

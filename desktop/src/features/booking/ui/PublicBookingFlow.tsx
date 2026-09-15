@@ -147,7 +147,7 @@ export function PublicBookingFlow({
   const draftReadyRef = React.useRef(false);
   const idempotencyKeyRef = React.useRef<string>(crypto.randomUUID());
   const flowRef = React.useRef<HTMLElement>(null);
-  const { actionRef, onEnter } = useBookingEnter(step === "preview");
+  const { actionRef } = useBookingEnter(step === "preview");
   const catalogRequestRef = React.useRef<{
     service: typeof service;
     promise: Promise<PublicBookingCatalog>;
@@ -163,7 +163,7 @@ export function PublicBookingFlow({
     configuration?.appearance ??
     catalog?.organization.publicBooking?.appearance ??
     "automatic";
-  const shellProps = { appearance, mode, onKeyDownCapture: onEnter };
+  const shellProps = { appearance, mode };
 
   React.useEffect(() => {
     if (step && flowRef.current) flowRef.current.scrollTop = 0;

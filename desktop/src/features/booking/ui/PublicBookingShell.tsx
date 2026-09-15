@@ -57,13 +57,11 @@ export function PublicBookingShell({
   appearance = "automatic",
   children,
   mode,
-  onKeyDownCapture,
   testId,
 }: {
   appearance?: PublicBookingAppearance;
   children: React.ReactNode;
   mode: "standalone" | "embedded";
-  onKeyDownCapture?: React.KeyboardEventHandler<HTMLDivElement>;
   testId?: string;
 }) {
   return (
@@ -74,7 +72,6 @@ export function PublicBookingShell({
       )}
       data-airhop-appearance={appearance}
       data-testid={testId ?? `airhop-public-${mode}`}
-      onKeyDownCapture={onKeyDownCapture}
       style={
         appearance === "light"
           ? LIGHT_STYLE

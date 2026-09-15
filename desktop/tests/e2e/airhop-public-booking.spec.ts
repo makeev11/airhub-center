@@ -146,7 +146,10 @@ async function fillApplicant(
   await page.getByLabel("Фамилия родителя").fill("Соколова");
   await page.getByLabel("Телефон").fill("+7 999 123-45-67");
   await page.getByLabel("Имя ребёнка").fill("Лев");
-  await page.getByLabel("Точная дата рождения ребёнка").fill(childBirthDate);
+  const [year, month, day] = childBirthDate.split("-");
+  await page
+    .getByRole("textbox", { name: "Точная дата рождения ребёнка", exact: true })
+    .fill(`${day}.${month}.${year}`);
   await page.getByRole("checkbox").click();
   await page.getByRole("button", { name: "Продолжить" }).click();
   await expect(page.getByTestId("airhop-public-preview")).toBeVisible();
@@ -236,10 +239,12 @@ test("standalone public booking completes without employee shell or onboarding",
     ),
   ).toContainText("Понедельник, 10 августа · 10:00–11:00");
   await chooseOccurrence(page, "robotics-junior-weekly", "2026-08-10");
-  await expect(page.getByLabel("Точная дата рождения ребёнка")).toHaveAttribute(
-    "max",
-    "2026-08-04",
-  );
+  await expect(
+    page.getByRole("textbox", {
+      name: "Точная дата рождения ребёнка",
+      exact: true,
+    }),
+  ).toHaveAttribute("placeholder", "ДД.ММ.ГГГГ");
   await fillApplicant(page, "2020-08-10");
 
   const preview = page.getByTestId("airhop-public-preview");
@@ -285,6 +290,10 @@ test("plain Enter advances and confirms the public booking once", async ({
   await page.goto(PUBLIC_BOOKING_PATH);
   await page.getByTestId("airhop-public-branch-kurskaya").click();
   await page.getByTestId("airhop-public-age-5").click();
+  await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+  await expect
+    .poll(() => page.evaluate(() => document.activeElement?.tagName))
+    .toBe("BODY");
   await page.keyboard.press("Enter");
   await expect(
     page.getByRole("heading", { name: "Выберите направление" }),
@@ -304,14 +313,18 @@ test("plain Enter advances and confirms the public booking once", async ({
     page.getByRole("heading", { name: "Контакты для заявки" }),
   ).toBeVisible();
 
-  const birthDate = page.getByLabel("Точная дата рождения ребёнка");
-  await expect(birthDate).toHaveAttribute("type", "date");
-  await expect(birthDate).toHaveAttribute("lang", "ru-RU");
+  const birthDate = page.getByRole("textbox", {
+    name: "Точная дата рождения ребёнка",
+    exact: true,
+  });
+  await expect(birthDate).toHaveAttribute("type", "text");
+  await expect(birthDate).toHaveAttribute("placeholder", "ДД.ММ.ГГГГ");
   await page.getByLabel("Имя родителя", { exact: true }).fill("Мария");
   await page.getByLabel("Фамилия родителя").fill("Соколова");
   await page.getByLabel("Телефон").fill("+7 999 123-45-67");
   await page.getByLabel("Имя ребёнка").fill("Лев");
-  await birthDate.fill("2020-08-10");
+  await birthDate.fill("10.08.2020");
+  await expect(birthDate).toHaveValue("10.08.2020");
   await page.getByRole("checkbox").click();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("airhop-public-preview")).toBeVisible();
@@ -346,14 +359,37 @@ test("Brazilian Portuguese booking keeps Enter, date locale and preview copy loc
     page.getByRole("heading", { name: "Dados de contato" }),
   ).toBeVisible();
 
-  const birthDate = page.getByLabel("Data de nascimento da criança");
-  await expect(birthDate).toHaveAttribute("type", "date");
-  await expect(birthDate).toHaveAttribute("lang", "pt-BR");
+  // The public catalog owns this form's locale. A Russian interface locale in
+  // the surrounding browser must not leak Russian date copy into pt-BR.
+  await page.evaluate(() => {
+    localStorage.setItem("airhop.locale.v1", "ru-RU");
+    window.dispatchEvent(
+      new CustomEvent("airhop:locale-change", { detail: "ru-RU" }),
+    );
+  });
+
+  const birthDate = page.getByRole("textbox", {
+    name: "Data de nascimento da criança",
+    exact: true,
+  });
+  await expect(birthDate).toHaveAttribute("type", "text");
+  await expect(birthDate).toHaveAttribute("placeholder", "DD.MM.AAAA");
   await page.getByLabel("Nome do responsável", { exact: true }).fill("Mariana");
   await page.getByLabel("Sobrenome do responsável").fill("Silva");
   await page.getByLabel("Telefone").fill("+55 11 91234-5678");
   await page.getByLabel("Nome da criança").fill("Lucas");
-  await birthDate.fill("2010-08-10");
+  await birthDate.fill("10.08.2010");
+  await expect(birthDate).toHaveValue("10.08.2010");
+  await page
+    .getByRole("button", {
+      name: "Data de nascimento da criança: abrir calendário",
+    })
+    .click();
+  await expect(page.getByRole("combobox", { name: "Mês" })).toHaveValue("8");
+  await expect(
+    page.getByRole("combobox", { name: "Mês" }).locator("option:checked"),
+  ).toHaveText("agosto");
+  await page.keyboard.press("Escape");
   await page.getByRole("checkbox").click();
   await page.keyboard.press("Enter");
 
