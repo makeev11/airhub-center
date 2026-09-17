@@ -15,6 +15,20 @@
 [финальный snapshot](deployment/runtime-20260912-after-retirement.json),
 [доказательства адреса HQ](AIRHOP_HQ_DOMAIN_AUDIT_20260912.md).
 
+## Напоминания Гермеса: `center-demo`, 17 сентября 2026
+
+Текущий relay — `airhub-center-relay:hermes-return-reminders-20260917-v1`,
+image ID `sha256:f28d470666e6923281292c6b58cd3e6c68bfab9a0a28c613fa438ce74209a239`,
+source `a51571b81e6f9d3e245f1e05e4ddab23d67d2dfd`, schema 71. Обновлён только
+relay project `buzz-demo`; после каждого третьего внешнего ручного ответа
+появляется внутреннее напоминание с `@Гермес продолжай`, без авто-возврата
+и без сообщения родителю. Сохранены ASR/Web Push predecessor и полный chain
+из 33 Compose entries. Под общим demo-lock проверены fresh DB70 backup/restore,
+migration71 preflight, exact image/binary, healthy/0 restarts, HTTPS health,
+авторизация и неизменность 14 соседних контейнеров. Physical staff-client →
+messenger scenario остаётся отдельной приёмкой; клиентские статьи не опубликованы.
+[Receipt, точные runners, backup и rollback](AIRHOP_HERMES_RETURN_REMINDERS_RELEASE_20260917.md).
+
 ## Браузерный чат: цель `center-chat-app` (пилот опубликован)
 
 15 сентября пользователь поручил публикацию `app.airhop.ru`, подключённую к

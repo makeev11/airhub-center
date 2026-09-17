@@ -1,0 +1,4 @@
+FROM airhub-center-relay:web-push-20260917-v3
+COPY --chmod=0555 buzz-relay /usr/local/bin/buzz-relay
+LABEL org.opencontainers.image.revision="a51571b81e6f9d3e245f1e05e4ddab23d67d2dfd" \
+      ru.airhop.release="airhop-center-hermes-return-reminders-20260917-v1"

@@ -70,6 +70,9 @@
       "network": "buzz-demo_buzz-net",
       "proxy_network": "airhop-web",
       "proxy_alias": "airhop-demo-relay",
+      "active_relay_image": "sha256:f28d470666e6923281292c6b58cd3e6c68bfab9a0a28c613fa438ce74209a239",
+      "hermes_return_reminders_release": "/opt/airhop/hermes-return-reminders-20260917-v1",
+      "hermes_return_reminders_receipt": "docs/AIRHOP_HERMES_RETURN_REMINDERS_RELEASE_20260917.md",
       "volumes": {
         "buzz-postgres-data": "buzz-demo-postgres-data",
         "buzz-redis-data": "buzz-demo-redis-data",

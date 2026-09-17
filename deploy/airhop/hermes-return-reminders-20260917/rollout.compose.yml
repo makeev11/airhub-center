@@ -1,0 +1,6 @@
+services:
+  relay:
+    image: airhub-center-relay:hermes-return-reminders-20260917-v1
+    labels:
+      ru.airhop.release: airhop-center-hermes-return-reminders-20260917-v1
+      ru.airhop.hermes-return-reminders: every-three-staff-outbound

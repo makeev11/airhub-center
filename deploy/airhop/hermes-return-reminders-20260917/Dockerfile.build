@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1.7
+ARG RUST_VERSION=1.95
+ARG DEBIAN_VERSION=bookworm
+
+FROM rust:${RUST_VERSION}-${DEBIAN_VERSION} AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential pkg-config libssl-dev ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY . .
+ENV CARGO_BUILD_JOBS=1 \
+    CARGO_PROFILE_RELEASE_DEBUG=0
+RUN cargo build --release --locked -p buzz-relay --bin buzz-relay \
+    && strip target/release/buzz-relay
+
+FROM debian:${DEBIAN_VERSION}-slim
+COPY --from=builder /build/target/release/buzz-relay /out/buzz-relay
+LABEL org.opencontainers.image.revision="a51571b81e6f9d3e245f1e05e4ddab23d67d2dfd" \
+      ru.airhop.release="hermes-return-reminders-20260917-v1"
