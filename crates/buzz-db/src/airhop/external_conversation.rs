@@ -2,7 +2,7 @@
 
 use buzz_core::{StoredEvent, TenantContext};
 use chrono::{DateTime, Utc};
-use nostr::Event;
+use nostr::{Event, Keys};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::Row;
@@ -396,6 +396,7 @@ impl Db {
     pub async fn insert_airhop_external_conversation_event(
         &self,
         tenant: &TenantContext,
+        service_keys: &Keys,
         event: &Event,
         channel_id: Uuid,
         thread_meta: Option<ThreadMetadataParams<'_>>,
@@ -598,26 +599,25 @@ impl Db {
             }));
         }
 
-        let projection = if is_parent {
-            super::client_threads::record_inbound(&mut tx, community_id, &mut conversation).await?;
-            let enabled: bool = row.try_get("deployment_enabled")?;
-            let deployment_paused: bool = row.try_get("deployment_paused")?;
-            let connection_status: Option<String> = row.try_get("connection_status")?;
-            let route_status: Option<String> = row.try_get("route_status")?;
-            let connection_hermes_enabled: Option<bool> =
-                row.try_get("connection_hermes_enabled")?;
-            let connection_allows_hermes = connection_status
+        let deployment_enabled: bool = row.try_get("deployment_enabled")?;
+        let deployment_paused: bool = row.try_get("deployment_paused")?;
+        let connection_status: Option<String> = row.try_get("connection_status")?;
+        let route_status: Option<String> = row.try_get("route_status")?;
+        let connection_hermes_enabled: Option<bool> = row.try_get("connection_hermes_enabled")?;
+        let connection_allows_hermes = connection_status
+            .as_deref()
+            .is_none_or(|status| status == "active")
+            && route_status
                 .as_deref()
                 .is_none_or(|status| status == "active")
-                && route_status
-                    .as_deref()
-                    .is_none_or(|status| status == "active")
-                && connection_hermes_enabled.unwrap_or(true);
+            && connection_hermes_enabled.unwrap_or(true);
+        let hermes_available = deployment_enabled && !deployment_paused && connection_allows_hermes;
+
+        let projection = if is_parent {
+            super::client_threads::record_inbound(&mut tx, community_id, &mut conversation).await?;
             let trigger = conversation.owner == ConversationOwner::Hermes
                 && !conversation.hermes_paused
-                && enabled
-                && !deployment_paused
-                && connection_allows_hermes;
+                && hermes_available;
             sqlx::query(
                 "INSERT INTO airhop_external_inbound_receipts (
                     community_id, organization_id, conversation_id, event_id,
@@ -689,9 +689,10 @@ impl Db {
                 row.try_get::<Option<String>, _>("agent_display_name")?
                     .as_deref(),
                 event,
+                hermes_available,
             )
             .await?;
-            if projection == StaffEventProjection::ExternalOutbound {
+            if let StaffEventProjection::ExternalOutbound { reminder_ordinal } = projection {
                 enqueue_external_message(
                     &mut tx,
                     community_id,
@@ -703,6 +704,44 @@ impl Db {
                     1,
                 )
                 .await?;
+                if let Some(ordinal) = reminder_ordinal {
+                    let root = conversation
+                        .root_event_id
+                        .as_deref()
+                        .map(hex::decode)
+                        .transpose()
+                        .map_err(|_| {
+                            DbError::InvalidData("invalid stored conversation root".into())
+                        })?;
+                    let reminder_event_id = super::client_threads::store_internal_notice(
+                        &mut tx,
+                        tenant,
+                        service_keys,
+                        conversation.channel_id,
+                        root.as_deref(),
+                        super::client_threads::InternalNotice {
+                            recipients: &[event.pubkey.to_bytes().to_vec()],
+                            purpose: "hermes-return-reminder",
+                            content: "Если уже закончили отвечать родителю, можете вернуть разговор Гермесу: напишите `@Гермес продолжай`. Тогда со следующего сообщения родителя ответит Гермес.",
+                        },
+                    )
+                    .await?;
+                    sqlx::query(
+                        "INSERT INTO airhop_human_takeover_reminders (
+                            community_id, organization_id, conversation_id, cycle_id,
+                            ordinal, source_event_id, reminder_event_id
+                         ) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                    )
+                    .bind(community_id)
+                    .bind(conversation.organization_id)
+                    .bind(conversation.id)
+                    .bind(conversation.current_cycle_id)
+                    .bind(ordinal)
+                    .bind(event.id.as_bytes().as_slice())
+                    .bind(reminder_event_id)
+                    .execute(&mut *tx)
+                    .await?;
+                }
             }
             ExternalConversationEventProjection::StoredOnly
         };
@@ -1200,7 +1239,7 @@ fn uuid_batch_key(id: Uuid) -> [u8; 32] {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StaffEventProjection {
-    ExternalOutbound,
+    ExternalOutbound { reminder_ordinal: Option<i64> },
     InternalOnly,
 }
 
@@ -1211,6 +1250,7 @@ async fn apply_staff_control(
     agent_pubkey: &[u8],
     agent_display_name: Option<&str>,
     event: &Event,
+    hermes_available: bool,
 ) -> Result<StaffEventProjection> {
     let mentions = mentioned_pubkeys(event);
     let mentions_hermes = mentions
@@ -1238,7 +1278,15 @@ async fn apply_staff_control(
         .execute(&mut **tx)
         .await?;
     }
-    apply_staff_control_decision(tx, community_id, conversation, event, control).await
+    apply_staff_control_decision(
+        tx,
+        community_id,
+        conversation,
+        event,
+        control,
+        hermes_available,
+    )
+    .await
 }
 
 async fn apply_staff_control_decision(
@@ -1247,6 +1295,7 @@ async fn apply_staff_control_decision(
     conversation: &ExternalConversation,
     event: &Event,
     control: Option<HermesControl>,
+    hermes_available: bool,
 ) -> Result<StaffEventProjection> {
     let mentions = mentioned_pubkeys(event);
     let projection = match control {
@@ -1288,6 +1337,7 @@ async fn apply_staff_control_decision(
             sqlx::query(
                 "UPDATE airhop_external_conversations
                  SET owner = 'hermes', hermes_paused = FALSE,
+                     human_staff_outbound_count = 0,
                      current_cycle_id = $3, control_version = control_version + 1,
                      updated_at = now()
                  WHERE community_id = $1 AND id = $2",
@@ -1322,8 +1372,17 @@ async fn apply_staff_control_decision(
             StaffEventProjection::InternalOnly
         }
         None if mentions.is_empty() => {
-            take_over(tx, community_id, conversation, "human_takeover").await?;
-            StaffEventProjection::ExternalOutbound
+            let outbound_count = take_over_staff_outbound(
+                tx,
+                community_id,
+                conversation,
+                "human_takeover",
+                hermes_available,
+            )
+            .await?;
+            StaffEventProjection::ExternalOutbound {
+                reminder_ordinal: outbound_count.filter(|ordinal| ordinal % 3 == 0),
+            }
         }
         None => {
             // Unified product rule: any mentioned person/agent makes this an
@@ -1343,21 +1402,56 @@ async fn take_over(
     take_over_conversation(tx, community_id, conversation.id, reason).await
 }
 
+async fn take_over_staff_outbound(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    community_id: Uuid,
+    conversation: &ExternalConversation,
+    reason: &str,
+    count_for_reminder: bool,
+) -> Result<Option<i64>> {
+    let ordinal = take_over_conversation_inner(
+        tx,
+        community_id,
+        conversation.id,
+        reason,
+        count_for_reminder,
+    )
+    .await?;
+    Ok(count_for_reminder.then_some(ordinal))
+}
+
 pub(super) async fn take_over_conversation(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     community_id: Uuid,
     conversation_id: Uuid,
     reason: &str,
 ) -> Result<()> {
-    sqlx::query(
+    take_over_conversation_inner(tx, community_id, conversation_id, reason, false).await?;
+    Ok(())
+}
+
+async fn take_over_conversation_inner(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    community_id: Uuid,
+    conversation_id: Uuid,
+    reason: &str,
+    count_staff_outbound: bool,
+) -> Result<i64> {
+    let outbound_count: i64 = sqlx::query_scalar(
         "UPDATE airhop_external_conversations
          SET owner = 'human', hermes_paused = TRUE,
+             human_staff_outbound_count = CASE
+                 WHEN $3 THEN human_staff_outbound_count + 1
+                 ELSE 0
+             END,
              control_version = control_version + 1, updated_at = now()
-         WHERE community_id = $1 AND id = $2",
+         WHERE community_id = $1 AND id = $2
+         RETURNING human_staff_outbound_count",
     )
     .bind(community_id)
     .bind(conversation_id)
-    .execute(&mut **tx)
+    .bind(count_staff_outbound)
+    .fetch_one(&mut **tx)
     .await?;
     sqlx::query(
         "UPDATE airhop_external_conversation_cycles
@@ -1369,7 +1463,8 @@ pub(super) async fn take_over_conversation(
     .bind(reason)
     .execute(&mut **tx)
     .await?;
-    cancel_active_turns(tx, community_id, conversation_id, reason).await
+    cancel_active_turns(tx, community_id, conversation_id, reason).await?;
+    Ok(outbound_count)
 }
 
 async fn cancel_active_turns(

@@ -289,6 +289,7 @@ impl Fixture {
         self.db
             .insert_airhop_external_conversation_event(
                 &self.tenant,
+                &self.relay,
                 event,
                 route.channel_id,
                 Some(ThreadMetadataParams {

@@ -20,6 +20,7 @@ struct Fixture {
     owner: Keys,
     hermes: Keys,
     parent: Keys,
+    service: Keys,
     channel: Uuid,
     conversation: Uuid,
     connection: Uuid,
@@ -136,6 +137,7 @@ impl Fixture {
             owner,
             hermes,
             parent,
+            service: Keys::generate(),
             channel,
             conversation,
             connection,
@@ -179,6 +181,7 @@ impl Fixture {
         self.db
             .insert_airhop_external_conversation_event(
                 &self.tenant,
+                &self.service,
                 event,
                 self.channel,
                 Some(ThreadMetadataParams {
@@ -233,6 +236,261 @@ impl Fixture {
         sqlx::query_scalar("SELECT count(*) FROM airhop_external_message_outbox WHERE community_id=$1 AND conversation_id=$2")
             .bind(self.tenant.community().as_uuid()).bind(self.conversation).fetch_one(&self.db.pool).await.unwrap()
     }
+
+    async fn send_staff_messages(&self, prefix: &str, count: usize) {
+        for index in 1..=count {
+            self.insert(&self.event(&self.owner, &format!("{prefix} {index}"), vec![]))
+                .await;
+        }
+    }
+
+    async fn reminder_rows(&self) -> Vec<(Uuid, i64, String, Value, Vec<u8>, bool)> {
+        let rows = sqlx::query(
+            "SELECT reminder.cycle_id, reminder.ordinal, event.content, event.tags,
+                    event.pubkey, reminder.dispatched_at IS NULL AS pending
+             FROM airhop_human_takeover_reminders reminder
+             JOIN events event
+               ON event.community_id=reminder.community_id
+              AND event.id=reminder.reminder_event_id
+             WHERE reminder.community_id=$1 AND reminder.conversation_id=$2
+             ORDER BY reminder.created_at, reminder.cycle_id, reminder.ordinal",
+        )
+        .bind(self.tenant.community().as_uuid())
+        .bind(self.conversation)
+        .fetch_all(&self.db.pool)
+        .await
+        .unwrap();
+        rows.iter()
+            .map(|row| {
+                (
+                    row.try_get("cycle_id").unwrap(),
+                    row.try_get("ordinal").unwrap(),
+                    row.try_get("content").unwrap(),
+                    row.try_get("tags").unwrap(),
+                    row.try_get("pubkey").unwrap(),
+                    row.try_get("pending").unwrap(),
+                )
+            })
+            .collect()
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
+async fn human_takeover_reminder_repeats_every_three_external_staff_messages() {
+    let f = Fixture::new().await;
+    f.send_staff_messages("Ответ сотрудника", 2).await;
+    let third = f.event(&f.owner, "Ответ сотрудника 3", vec![]);
+    assert!(f.insert(&third).await.was_inserted);
+    assert!(!f.insert(&third).await.was_inserted);
+
+    let internal = f.event(
+        &f.owner,
+        "Гермес, это внутренняя заметка, не команда",
+        vec![Tag::parse(["p", &f.hermes.public_key().to_hex()]).unwrap()],
+    );
+    f.insert(&internal).await;
+    f.insert(&f.event(&f.parent, "Дополнение родителя", vec![]))
+        .await;
+    f.send_staff_messages("Ещё ответ сотрудника", 3).await;
+
+    let reminders = f.reminder_rows().await;
+    assert_eq!(
+        reminders
+            .iter()
+            .map(|(_, ordinal, ..)| *ordinal)
+            .collect::<Vec<_>>(),
+        vec![3, 6]
+    );
+    for (_, _, content, tags, pubkey, pending) in reminders {
+        assert_eq!(
+            content,
+            "Если уже закончили отвечать родителю, можете вернуть разговор Гермесу: напишите `@Гермес продолжай`. Тогда со следующего сообщения родителя ответит Гермес."
+        );
+        assert_eq!(pubkey, f.service.public_key().to_bytes());
+        assert!(pending);
+        let tags = tags.as_array().unwrap();
+        assert!(tags
+            .iter()
+            .any(|tag| tag == &json!(["p", f.owner.public_key().to_hex()])));
+        assert!(tags
+            .iter()
+            .any(|tag| tag == &json!(["airhop-internal", "hermes-return-reminder"])));
+    }
+    let pending =
+        f.db.pending_client_notifications()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|notice| notice.community_id == f.tenant.community())
+            .collect::<Vec<_>>();
+    assert_eq!(pending.len(), 2);
+    f.db.complete_client_notification(f.tenant.community(), &pending[0].event_id)
+        .await
+        .unwrap();
+    let dispatched: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM airhop_human_takeover_reminders
+         WHERE community_id=$1 AND conversation_id=$2 AND dispatched_at IS NOT NULL",
+    )
+    .bind(f.tenant.community().as_uuid())
+    .bind(f.conversation)
+    .fetch_one(&f.db.pool)
+    .await
+    .unwrap();
+    assert_eq!(dispatched, 1);
+    let state: (String, bool, i64) = sqlx::query_as(
+        "SELECT owner,hermes_paused,human_staff_outbound_count
+         FROM airhop_external_conversations WHERE community_id=$1 AND id=$2",
+    )
+    .bind(f.tenant.community().as_uuid())
+    .bind(f.conversation)
+    .fetch_one(&f.db.pool)
+    .await
+    .unwrap();
+    assert_eq!(state, ("human".into(), true, 6));
+    assert_eq!(f.delivery_count().await, 6);
+}
+
+#[tokio::test]
+#[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
+async fn staff_resume_resets_the_human_takeover_reminder_interval() {
+    let f = Fixture::new().await;
+    f.send_staff_messages("Первый интервал", 3).await;
+    let first_cycle = f.reminder_rows().await[0].0;
+    let resume = f.event(
+        &f.owner,
+        "@Администратор Гермес, продолжай",
+        vec![Tag::parse(["p", &f.hermes.public_key().to_hex()]).unwrap()],
+    );
+    f.insert(&resume).await;
+    let reset_count: i64 = sqlx::query_scalar(
+        "SELECT human_staff_outbound_count FROM airhop_external_conversations
+         WHERE community_id=$1 AND id=$2",
+    )
+    .bind(f.tenant.community().as_uuid())
+    .bind(f.conversation)
+    .fetch_one(&f.db.pool)
+    .await
+    .unwrap();
+    assert_eq!(reset_count, 0);
+
+    f.send_staff_messages("Второй интервал", 2).await;
+    assert_eq!(f.reminder_rows().await.len(), 1);
+    f.send_staff_messages("Порог второго интервала", 1).await;
+    let reminders = f.reminder_rows().await;
+    assert_eq!(reminders.len(), 2);
+    assert_eq!(reminders[0].1, 3);
+    assert_eq!(reminders[1].1, 3);
+    assert_ne!(reminders[1].0, first_cycle);
+}
+
+#[tokio::test]
+#[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
+async fn reopened_conversation_resets_the_human_takeover_reminder_interval() {
+    let f = Fixture::new().await;
+    f.send_staff_messages("До закрытия", 2).await;
+    let previous_cycle: Uuid = sqlx::query_scalar(
+        "SELECT current_cycle_id FROM airhop_external_conversations
+         WHERE community_id=$1 AND id=$2",
+    )
+    .bind(f.tenant.community().as_uuid())
+    .bind(f.conversation)
+    .fetch_one(&f.db.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE airhop_external_conversations SET queue_status='resolved'
+         WHERE community_id=$1 AND id=$2",
+    )
+    .bind(f.tenant.community().as_uuid())
+    .bind(f.conversation)
+    .execute(&f.db.pool)
+    .await
+    .unwrap();
+
+    f.insert(&f.event(&f.parent, "Новый вопрос после закрытия", vec![]))
+        .await;
+    let reopened: (Uuid, i64) = sqlx::query_as(
+        "SELECT current_cycle_id,human_staff_outbound_count
+         FROM airhop_external_conversations WHERE community_id=$1 AND id=$2",
+    )
+    .bind(f.tenant.community().as_uuid())
+    .bind(f.conversation)
+    .fetch_one(&f.db.pool)
+    .await
+    .unwrap();
+    assert_ne!(reopened.0, previous_cycle);
+    assert_eq!(reopened.1, 0);
+
+    f.send_staff_messages("После открытия", 2).await;
+    assert!(f.reminder_rows().await.is_empty());
+    f.send_staff_messages("Порог после открытия", 1).await;
+    let reminders = f.reminder_rows().await;
+    assert_eq!(reminders.len(), 1);
+    assert_eq!(reminders[0].0, reopened.0);
+    assert_eq!(reminders[0].1, 3);
+}
+
+#[tokio::test]
+#[ignore = "requires dedicated BUZZ_TEST_DATABASE_URL"]
+async fn unavailable_hermes_does_not_count_or_defer_return_reminders() {
+    for unavailable_update in [
+        "UPDATE airhop_agent_deployments SET enabled=false WHERE community_id=$1",
+        "UPDATE airhop_agent_deployments SET paused=true WHERE community_id=$1",
+        "UPDATE airhop_external_conversation_routes SET status='paused' WHERE community_id=$1",
+        "UPDATE airhop_channel_connections SET status='paused' WHERE community_id=$1",
+        "UPDATE airhop_channel_connections SET hermes_enabled=false WHERE community_id=$1",
+    ] {
+        let f = Fixture::new().await;
+        sqlx::query(unavailable_update)
+            .bind(f.tenant.community().as_uuid())
+            .execute(&f.db.pool)
+            .await
+            .unwrap();
+        f.send_staff_messages("Гермес недоступен", 3).await;
+        assert!(f.reminder_rows().await.is_empty(), "{unavailable_update}");
+        let count: i64 = sqlx::query_scalar(
+            "SELECT human_staff_outbound_count FROM airhop_external_conversations
+             WHERE community_id=$1 AND id=$2",
+        )
+        .bind(f.tenant.community().as_uuid())
+        .bind(f.conversation)
+        .fetch_one(&f.db.pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0, "{unavailable_update}");
+    }
+
+    let f = Fixture::new().await;
+    f.send_staff_messages("До отключения", 2).await;
+    sqlx::query("UPDATE airhop_channel_connections SET hermes_enabled=false WHERE community_id=$1")
+        .bind(f.tenant.community().as_uuid())
+        .execute(&f.db.pool)
+        .await
+        .unwrap();
+    f.send_staff_messages("Во время отключения", 1).await;
+    let disabled_count: i64 = sqlx::query_scalar(
+        "SELECT human_staff_outbound_count FROM airhop_external_conversations
+         WHERE community_id=$1 AND id=$2",
+    )
+    .bind(f.tenant.community().as_uuid())
+    .bind(f.conversation)
+    .fetch_one(&f.db.pool)
+    .await
+    .unwrap();
+    assert_eq!(disabled_count, 0);
+    sqlx::query("UPDATE airhop_channel_connections SET hermes_enabled=true WHERE community_id=$1")
+        .bind(f.tenant.community().as_uuid())
+        .execute(&f.db.pool)
+        .await
+        .unwrap();
+    f.send_staff_messages("После повторного включения", 2).await;
+    assert!(f.reminder_rows().await.is_empty());
+    f.send_staff_messages("Порог после повторного включения", 1)
+        .await;
+    let reminders = f.reminder_rows().await;
+    assert_eq!(reminders.len(), 1);
+    assert_eq!(reminders[0].1, 3);
 }
 
 #[tokio::test]

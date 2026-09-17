@@ -3032,6 +3032,7 @@ async fn ingest_event_inner(
                     .db
                     .insert_airhop_external_conversation_event(
                         tenant,
+                        &state.relay_keypair,
                         &event,
                         parent_channel_id,
                         thread_meta.as_ref().map(|metadata| metadata.as_params()),

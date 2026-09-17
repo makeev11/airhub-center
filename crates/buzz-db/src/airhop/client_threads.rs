@@ -361,7 +361,7 @@ pub(super) async fn record_inbound(
         let cycle = Uuid::new_v4();
         sqlx::query("INSERT INTO airhop_external_conversation_cycles (community_id,organization_id,conversation_id,id,sequence,started_by) SELECT $1,$2,$3,$4,COALESCE(max(sequence),0)+1,'parent_reopened' FROM airhop_external_conversation_cycles WHERE community_id=$1 AND conversation_id=$3")
             .bind(community).bind(conversation.organization_id).bind(conversation.id).bind(cycle).execute(&mut **tx).await?;
-        sqlx::query("UPDATE airhop_external_conversations SET current_cycle_id=$3,control_version=control_version+1 WHERE community_id=$1 AND id=$2")
+        sqlx::query("UPDATE airhop_external_conversations SET current_cycle_id=$3,human_staff_outbound_count=0,control_version=control_version+1 WHERE community_id=$1 AND id=$2")
             .bind(community).bind(conversation.id).bind(cycle).execute(&mut **tx).await?;
         conversation.current_cycle_id = cycle;
         conversation.control_version += 1;
@@ -441,11 +441,40 @@ async fn store_notice(
     recipients: &[Vec<u8>],
     content: &str,
 ) -> Result<Vec<u8>> {
+    store_internal_notice(
+        tx,
+        tenant,
+        keys,
+        channel,
+        root,
+        InternalNotice {
+            recipients,
+            purpose: "client-routing",
+            content,
+        },
+    )
+    .await
+}
+
+pub(super) struct InternalNotice<'a> {
+    pub recipients: &'a [Vec<u8>],
+    pub purpose: &'a str,
+    pub content: &'a str,
+}
+
+pub(super) async fn store_internal_notice(
+    tx: &mut Transaction<'_, Postgres>,
+    tenant: &TenantContext,
+    keys: &Keys,
+    channel: Uuid,
+    root: Option<&[u8]>,
+    notice: InternalNotice<'_>,
+) -> Result<Vec<u8>> {
     let mut tags = vec![
         Tag::parse(["nonce", &Uuid::new_v4().to_string()])
             .map_err(|e| DbError::InvalidData(e.to_string()))?,
         Tag::parse(["h", &channel.to_string()]).map_err(|e| DbError::InvalidData(e.to_string()))?,
-        Tag::parse(["airhop-internal", "client-routing"])
+        Tag::parse(["airhop-internal", notice.purpose])
             .map_err(|e| DbError::InvalidData(e.to_string()))?,
     ];
     if let Some(root) = root {
@@ -456,7 +485,7 @@ async fn store_notice(
             );
         }
     }
-    for recipient in recipients {
+    for recipient in notice.recipients {
         tags.push(
             Tag::parse(["p", &hex::encode(recipient)])
                 .map_err(|e| DbError::InvalidData(e.to_string()))?,
@@ -464,7 +493,7 @@ async fn store_notice(
     }
     let event = EventBuilder::new(
         Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16),
-        content,
+        notice.content,
     )
     .tags(tags)
     .sign_with_keys(keys)
@@ -531,8 +560,32 @@ impl Db {
         &self,
         community: Option<CommunityId>,
     ) -> Result<Vec<ClientNotification>> {
-        let rows=sqlx::query("SELECT n.community_id,host.host,n.notification_event_id,l.channel_id AS archived_channel_id FROM airhop_conversation_changes n JOIN communities host ON host.id=n.community_id LEFT JOIN airhop_conversation_legacy_locations l ON l.community_id=n.community_id AND l.new_root_event_id=n.notification_event_id WHERE n.notification_event_id IS NOT NULL AND n.notification_dispatched_at IS NULL AND ($1::uuid IS NULL OR n.community_id=$1) ORDER BY n.created_at LIMIT 100")
-            .bind(community.map(|id| *id.as_uuid())).fetch_all(&self.pool).await?;
+        let rows = sqlx::query(
+            "SELECT pending.community_id, host.host, pending.notification_event_id,
+                    pending.archived_channel_id
+             FROM (
+                 SELECT n.community_id, n.notification_event_id,
+                        l.channel_id AS archived_channel_id, n.created_at
+                 FROM airhop_conversation_changes n
+                 LEFT JOIN airhop_conversation_legacy_locations l
+                   ON l.community_id=n.community_id
+                  AND l.new_root_event_id=n.notification_event_id
+                 WHERE n.notification_event_id IS NOT NULL
+                   AND n.notification_dispatched_at IS NULL
+                 UNION ALL
+                 SELECT reminder.community_id, reminder.reminder_event_id,
+                        NULL::uuid AS archived_channel_id, reminder.created_at
+                 FROM airhop_human_takeover_reminders reminder
+                 WHERE reminder.dispatched_at IS NULL
+             ) pending
+             JOIN communities host ON host.id=pending.community_id
+             WHERE ($1::uuid IS NULL OR pending.community_id=$1)
+             ORDER BY pending.created_at
+             LIMIT 100",
+        )
+        .bind(community.map(|id| *id.as_uuid()))
+        .fetch_all(&self.pool)
+        .await?;
         rows.iter()
             .map(|r| {
                 Ok(ClientNotification {
@@ -554,6 +607,8 @@ impl Db {
         sqlx::query("UPDATE airhop_conversation_changes SET notification_dispatched_at=now() WHERE community_id=$1 AND notification_event_id=$2 AND notification_dispatched_at IS NULL")
             .bind(community.as_uuid()).bind(event_id).execute(&self.pool).await?;
         sqlx::query("UPDATE airhop_client_inbound_notifications SET notification_dispatched_at=now() WHERE community_id=$1 AND notification_event_id=$2 AND notification_dispatched_at IS NULL").bind(community.as_uuid()).bind(event_id).execute(&self.pool).await?;
+        sqlx::query("UPDATE airhop_human_takeover_reminders SET dispatched_at=now() WHERE community_id=$1 AND reminder_event_id=$2 AND dispatched_at IS NULL")
+            .bind(community.as_uuid()).bind(event_id).execute(&self.pool).await?;
         Ok(())
     }
 }

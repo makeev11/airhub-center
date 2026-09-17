@@ -164,6 +164,7 @@ impl Db {
                         &conversation,
                         &event,
                         Some(HermesControl::Resume),
+                        true,
                     )
                     .await?;
                     // Parent inputs may arrive while classification is running.
@@ -203,6 +204,7 @@ impl Db {
                             &conversation,
                             &event,
                             Some(HermesControl::Pause),
+                            true,
                         )
                         .await?;
                     }
