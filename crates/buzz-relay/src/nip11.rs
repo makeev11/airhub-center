@@ -212,7 +212,7 @@ fn push_descriptor(
         ],
         "push_kinds": crate::handlers::push_lease::PUSH_KINDS,
         "urgent_kinds": crate::handlers::push_lease::URGENT_KINDS,
-        "h_grammar": "uuid-v4-lowercase",
+        "h_grammar": "canonical-uuid-v4-or-v5-lowercase",
         "class_support": {"apns": ["silent", "default", "time_sensitive"]},
         "limitation": {
             "max_lease_ttl": 2592000,
@@ -247,21 +247,32 @@ pub(crate) async fn nip11_document(state: &crate::state::AppState, raw_host: &st
         state.config.max_frame_bytes,
         state.config.pairing_relay_url.as_deref(),
     );
-    let tenant_host = if state.config.push_gateway_delivery_url.is_some() {
-        crate::tenant::bind_community(&state.db, raw_host)
-            .await
-            .ok()
-            .map(|tenant| tenant.host().to_owned())
-    } else {
-        None
-    };
-    if let Some(push) = push_descriptor(
-        state.config.push_gateway_delivery_url.is_some(),
+    let tenant_host =
+        if state.config.push_gateway_delivery_url.is_some() || state.config.web_push.is_some() {
+            crate::tenant::bind_community(&state.db, raw_host)
+                .await
+                .ok()
+                .map(|tenant| tenant.host().to_owned())
+        } else {
+            None
+        };
+    if let Some(mut push) = push_descriptor(
+        state.config.push_gateway_delivery_url.is_some() || state.config.web_push.is_some(),
         &state.config.relay_url,
         &state.config.push_executor_key_id,
         &state.relay_keypair,
         tenant_host.as_deref(),
     ) {
+        if state.config.push_gateway_delivery_url.is_none() {
+            push["app_profiles"] = serde_json::json!([]);
+            push["class_support"] = serde_json::json!({});
+        }
+        if let Some(config) = &state.config.web_push {
+            if let Some(profiles) = push["app_profiles"].as_array_mut() {
+                profiles.push(serde_json::json!({ "id": crate::web_push::PROFILE, "transport": "webpush", "application_server_key": config.public_key }));
+            }
+            push["class_support"]["webpush"] = serde_json::json!(["default"]);
+        }
         info.supported_extensions
             .get_or_insert_default()
             .push("nip-pl".to_string());
@@ -353,6 +364,7 @@ mod tests {
         let descriptor = push_descriptor(true, "ws://relay", "key", &keys, Some("tenant.example"))
             .expect("configured push descriptor");
         assert_eq!(descriptor["origin"], "ws://tenant.example");
+        assert_eq!(descriptor["h_grammar"], "canonical-uuid-v4-or-v5-lowercase");
         assert_eq!(
             descriptor["push_kinds"],
             serde_json::json!(crate::handlers::push_lease::PUSH_KINDS)

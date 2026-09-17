@@ -114,6 +114,52 @@ pub struct AirhopChannelGatewayConfig {
     whatsapp_webhook_base_url: Option<String>,
 }
 
+/// Opt-in signer and fixed transport policy for short-lived ASR upload tickets.
+///
+/// The private key is parsed once at startup and its `Debug` implementation is
+/// redacted by `jsonwebtoken`. The browser receives only a single-use JWT; it
+/// never receives the signing key or a general Center credential.
+#[derive(Debug, Clone)]
+pub struct AirhopTranscriptionConfig {
+    issuer: String,
+    audience: String,
+    environment: String,
+    upload_url: String,
+    key_id: String,
+    signing_key: jsonwebtoken::EncodingKey,
+    tickets_per_minute: u64,
+}
+
+impl AirhopTranscriptionConfig {
+    pub(crate) fn issuer(&self) -> &str {
+        &self.issuer
+    }
+
+    pub(crate) fn audience(&self) -> &str {
+        &self.audience
+    }
+
+    pub(crate) fn environment(&self) -> &str {
+        &self.environment
+    }
+
+    pub(crate) fn upload_url(&self) -> &str {
+        &self.upload_url
+    }
+
+    pub(crate) fn key_id(&self) -> &str {
+        &self.key_id
+    }
+
+    pub(crate) const fn signing_key(&self) -> &jsonwebtoken::EncodingKey {
+        &self.signing_key
+    }
+
+    pub(crate) const fn tickets_per_minute(&self) -> u64 {
+        self.tickets_per_minute
+    }
+}
+
 impl AirhopChannelGatewayConfig {
     pub(crate) const fn credential_index_key(&self) -> &[u8; 32] {
         &self.credential_index_key.0
@@ -191,6 +237,9 @@ pub struct Config {
     pub airhop_public_booking: Option<AirhopPublicBookingConfig>,
     /// Encrypted self-service messaging credential configuration.
     pub airhop_channel_gateway: Option<AirhopChannelGatewayConfig>,
+    /// Short-lived upload ticket configuration for the separate ASR service.
+    /// Absent keeps the ticket endpoint disabled.
+    pub airhop_transcription: Option<AirhopTranscriptionConfig>,
     /// Whether REST API requests must present a valid token. Independent of
     /// WebSocket protocol auth, which is *always* required by REQ/EVENT/COUNT.
     pub require_auth_token: bool,
@@ -356,6 +405,8 @@ pub struct Config {
     pub push_gateway_delivery_url: Option<url::Url>,
     /// Hard timeout for one gateway delivery request.
     pub push_gateway_timeout: Duration,
+    /// Optional standards-based browser push using the same durable NIP-PL queue.
+    pub web_push: Option<crate::web_push::WebPushConfig>,
 
     /// Optional relay-hosted policy shown on join surfaces. Disabled when no
     /// documents or age attestation are configured.
@@ -635,6 +686,131 @@ fn airhop_channel_gateway_config_from_env(
         telegram_connector_pubkey,
         whatsapp_webhook_base_url,
     }))
+}
+
+fn airhop_transcription_config_from_env() -> Result<Option<AirhopTranscriptionConfig>, ConfigError>
+{
+    const ISSUER_ENV: &str = "BUZZ_AIRHOP_TRANSCRIPTION_ISSUER";
+    const AUDIENCE_ENV: &str = "BUZZ_AIRHOP_TRANSCRIPTION_AUDIENCE";
+    const ENVIRONMENT_ENV: &str = "BUZZ_AIRHOP_TRANSCRIPTION_ENVIRONMENT";
+    const UPLOAD_URL_ENV: &str = "BUZZ_AIRHOP_TRANSCRIPTION_UPLOAD_URL";
+    const KEY_FILE_ENV: &str = "BUZZ_AIRHOP_TRANSCRIPTION_SIGNING_KEY_FILE";
+    const KEY_ID_ENV: &str = "BUZZ_AIRHOP_TRANSCRIPTION_KEY_ID";
+    const RATE_LIMIT_ENV: &str = "BUZZ_AIRHOP_TRANSCRIPTION_TICKETS_PER_MINUTE";
+
+    let issuer = optional_unicode_env(ISSUER_ENV)?;
+    let audience = optional_unicode_env(AUDIENCE_ENV)?;
+    let environment = optional_unicode_env(ENVIRONMENT_ENV)?;
+    let upload_url = optional_unicode_env(UPLOAD_URL_ENV)?;
+    let key_file = optional_unicode_env(KEY_FILE_ENV)?;
+    let key_id = optional_unicode_env(KEY_ID_ENV)?;
+    let rate_limit = optional_unicode_env(RATE_LIMIT_ENV)?;
+    if issuer.is_none()
+        && audience.is_none()
+        && environment.is_none()
+        && upload_url.is_none()
+        && key_file.is_none()
+        && key_id.is_none()
+        && rate_limit.is_none()
+    {
+        return Ok(None);
+    }
+
+    let missing = || {
+        ConfigError::InvalidValue(format!(
+            "{ISSUER_ENV}, {AUDIENCE_ENV}, {ENVIRONMENT_ENV}, {UPLOAD_URL_ENV}, {KEY_FILE_ENV}, and {KEY_ID_ENV} must be configured together"
+        ))
+    };
+    let issuer = parse_https_origin(ISSUER_ENV, &issuer.ok_or_else(missing)?)?;
+    let audience = parse_https_origin(AUDIENCE_ENV, &audience.ok_or_else(missing)?)?;
+    let environment = environment.ok_or_else(missing)?;
+    if environment.len() > 64
+        || !environment.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || (index > 0 && matches!(byte, b'-' | b'_'))
+        })
+    {
+        return Err(ConfigError::InvalidValue(format!(
+            "{ENVIRONMENT_ENV} must be 1-64 lowercase ASCII letters, digits, hyphens, or underscores"
+        )));
+    }
+
+    let upload_url = upload_url.ok_or_else(missing)?;
+    let parsed_upload = url::Url::parse(&upload_url).map_err(|_| {
+        ConfigError::InvalidValue(format!("{UPLOAD_URL_ENV} must be an absolute HTTPS URL"))
+    })?;
+    if parsed_upload.scheme() != "https"
+        || parsed_upload.host_str().is_none()
+        || !parsed_upload.username().is_empty()
+        || parsed_upload.password().is_some()
+        || parsed_upload.query().is_some()
+        || parsed_upload.fragment().is_some()
+        || parsed_upload.path() != "/v1/transcriptions"
+    {
+        return Err(ConfigError::InvalidValue(format!(
+            "{UPLOAD_URL_ENV} must be an HTTPS URL ending exactly in /v1/transcriptions without credentials, query, or fragment"
+        )));
+    }
+    if parsed_upload.origin().ascii_serialization() != audience {
+        return Err(ConfigError::InvalidValue(format!(
+            "{UPLOAD_URL_ENV} must use the exact {AUDIENCE_ENV} origin"
+        )));
+    }
+
+    let key_id = key_id.ok_or_else(missing)?;
+    if key_id.is_empty()
+        || key_id.len() > 128
+        || !key_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(ConfigError::InvalidValue(format!(
+            "{KEY_ID_ENV} must be 1-128 ASCII letters, digits, dots, hyphens, or underscores"
+        )));
+    }
+
+    let key_file = std::path::PathBuf::from(key_file.ok_or_else(missing)?);
+    let pem = std::fs::read(&key_file).map_err(|error| {
+        ConfigError::InvalidValue(format!(
+            "{KEY_FILE_ENV}={} could not be read: {error}",
+            key_file.display()
+        ))
+    })?;
+    let signing_key = jsonwebtoken::EncodingKey::from_ec_pem(&pem).map_err(|_| {
+        ConfigError::InvalidValue(format!(
+            "{KEY_FILE_ENV} must contain a PKCS#8 P-256 private key"
+        ))
+    })?;
+
+    Ok(Some(AirhopTranscriptionConfig {
+        issuer,
+        audience,
+        environment,
+        upload_url: parsed_upload.to_string(),
+        key_id,
+        signing_key,
+        tickets_per_minute: positive_u64_from_env(RATE_LIMIT_ENV, 20)?,
+    }))
+}
+
+fn parse_https_origin(name: &str, raw: &str) -> Result<String, ConfigError> {
+    let parsed = url::Url::parse(raw).map_err(|_| {
+        ConfigError::InvalidValue(format!("{name} must be an absolute HTTPS origin"))
+    })?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(ConfigError::InvalidValue(format!(
+            "{name} must be an HTTPS origin without credentials, path, query, or fragment"
+        )));
+    }
+    Ok(parsed.origin().ascii_serialization())
 }
 
 fn rate_limit_config_from_env() -> Result<buzz_auth::RateLimitConfig, ConfigError> {
@@ -974,6 +1150,7 @@ impl Config {
         };
         let airhop_public_booking = airhop_public_booking_config_from_env()?;
         let airhop_channel_gateway = airhop_channel_gateway_config_from_env()?;
+        let airhop_transcription = airhop_transcription_config_from_env()?;
 
         if !require_auth_token {
             warn!(
@@ -1171,6 +1348,8 @@ impl Config {
             Err(_) => 2_000,
         };
         let push_gateway_timeout = Duration::from_millis(push_gateway_timeout_millis);
+        let web_push =
+            crate::web_push::WebPushConfig::from_env().map_err(ConfigError::InvalidValue)?;
 
         const MAX_POLICY_MARKDOWN_BYTES: usize = 256 * 1024;
         let read_policy_markdown = |name: &str| -> Result<Option<String>, ConfigError> {
@@ -1308,6 +1487,7 @@ impl Config {
             auth,
             airhop_public_booking,
             airhop_channel_gateway,
+            airhop_transcription,
             require_auth_token,
             cors_origins,
             relay_private_key,
@@ -1342,6 +1522,7 @@ impl Config {
             push_executor_key_id,
             push_gateway_delivery_url,
             push_gateway_timeout,
+            web_push,
             join_policy,
             admin,
             web_dir,
@@ -1375,6 +1556,7 @@ mod tests {
         assert_eq!(config.max_frame_bytes, DEFAULT_MAX_FRAME_BYTES);
         assert!(config.airhop_public_booking.is_none());
         assert!(config.airhop_channel_gateway.is_none());
+        assert!(config.airhop_transcription.is_none());
         assert!(config.slow_client_grace_limit > 0);
         assert!(
             !config.pubkey_allowlist_enabled,
@@ -1552,6 +1734,79 @@ mod tests {
         assert!(!debug.contains(&second_key));
         assert!(debug.contains("REDACTED"));
 
+        for (name, value) in names.into_iter().zip(previous) {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+
+    #[test]
+    fn airhop_transcription_is_opt_in_strict_and_redacts_the_signing_key() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let names = [
+            "BUZZ_AIRHOP_TRANSCRIPTION_ISSUER",
+            "BUZZ_AIRHOP_TRANSCRIPTION_AUDIENCE",
+            "BUZZ_AIRHOP_TRANSCRIPTION_ENVIRONMENT",
+            "BUZZ_AIRHOP_TRANSCRIPTION_UPLOAD_URL",
+            "BUZZ_AIRHOP_TRANSCRIPTION_SIGNING_KEY_FILE",
+            "BUZZ_AIRHOP_TRANSCRIPTION_KEY_ID",
+            "BUZZ_AIRHOP_TRANSCRIPTION_TICKETS_PER_MINUTE",
+        ];
+        let previous = names.map(std::env::var_os);
+        for name in names {
+            std::env::remove_var(name);
+        }
+        std::env::set_var("BUZZ_AIRHOP_TRANSCRIPTION_ENVIRONMENT", "pilot");
+        assert!(airhop_transcription_config_from_env().is_err());
+        std::env::remove_var("BUZZ_AIRHOP_TRANSCRIPTION_ENVIRONMENT");
+
+        const PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgEULG2DvGCcYnGJnF\n\
+kpgS/8qGXAc6vgrpqzGvG6TVJHyhRANCAATv5MOuYOj1fn+wld0ZHtG88njR+8i4\n\
+ryjMSf94sKH0iv6LCbz6Mk5j/RHKtAOfjEMYdtNO8G1//4mPlgnTNsqB\n\
+-----END PRIVATE KEY-----\n";
+        let path = std::env::temp_dir().join(format!(
+            "airhop-transcription-test-{}.pem",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&path, PRIVATE_KEY).expect("write test key");
+        std::env::set_var("BUZZ_AIRHOP_TRANSCRIPTION_ISSUER", "https://center.example");
+        std::env::set_var(
+            "BUZZ_AIRHOP_TRANSCRIPTION_AUDIENCE",
+            "https://transcribe.example",
+        );
+        std::env::set_var("BUZZ_AIRHOP_TRANSCRIPTION_ENVIRONMENT", "pilot");
+        std::env::set_var(
+            "BUZZ_AIRHOP_TRANSCRIPTION_UPLOAD_URL",
+            "https://transcribe.example/v1/transcriptions",
+        );
+        std::env::set_var("BUZZ_AIRHOP_TRANSCRIPTION_SIGNING_KEY_FILE", &path);
+        std::env::set_var("BUZZ_AIRHOP_TRANSCRIPTION_KEY_ID", "pilot-2026-09");
+        std::env::set_var("BUZZ_AIRHOP_TRANSCRIPTION_TICKETS_PER_MINUTE", "7");
+
+        let config = airhop_transcription_config_from_env()
+            .expect("valid transcription config")
+            .expect("transcription enabled");
+        assert_eq!(config.issuer(), "https://center.example");
+        assert_eq!(config.audience(), "https://transcribe.example");
+        assert_eq!(config.environment(), "pilot");
+        assert_eq!(
+            config.upload_url(),
+            "https://transcribe.example/v1/transcriptions"
+        );
+        assert_eq!(config.key_id(), "pilot-2026-09");
+        assert_eq!(config.tickets_per_minute(), 7);
+        assert!(!format!("{config:?}").contains("EULG2DvGCcYnGJnF"));
+
+        std::env::set_var(
+            "BUZZ_AIRHOP_TRANSCRIPTION_UPLOAD_URL",
+            "https://different.example/v1/transcriptions",
+        );
+        assert!(airhop_transcription_config_from_env().is_err());
+
+        std::fs::remove_file(path).expect("remove test key");
         for (name, value) in names.into_iter().zip(previous) {
             match value {
                 Some(value) => std::env::set_var(name, value),

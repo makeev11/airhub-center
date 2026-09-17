@@ -305,7 +305,11 @@ fn validate_filter(
     for value in h.into_iter().flatten() {
         check_string(value, limits.max_string_len)?;
         let uuid = uuid::Uuid::parse_str(value).map_err(|_| "invalid h tag".to_string())?;
-        if uuid.get_version_num() != 4 || uuid.to_string() != *value {
+        // Center owns both random channel ids (v4) and stable seeded channel ids
+        // (v5, for example the default `general` channel). Both are canonical
+        // UUID channel addresses; rejecting v5 makes an otherwise valid lease
+        // fail as soon as a followed thread adds all member channels.
+        if !matches!(uuid.get_version_num(), 4 | 5) || uuid.to_string() != *value {
             return Err("invalid h tag".into());
         }
     }
@@ -477,7 +481,7 @@ pub async fn accept(
     const MAX_CONTENT: usize = 65_536;
     const MAX_PLAINTEXT: usize = 32_768;
     const MAX_ACTIVE_LEASES: i64 = 16;
-    if state.config.push_gateway_delivery_url.is_none() {
+    if state.config.push_gateway_delivery_url.is_none() && state.config.web_push.is_none() {
         return Err(AcceptError::Validation("push not supported".to_string()));
     }
     let envelope = validate_envelope(event, now, ALLOWED_SKEW, MAX_LEASE_TTL, MAX_CONTENT)?;
@@ -493,10 +497,9 @@ pub async fn accept(
     let body = parse_plaintext(&plaintext, MAX_PLAINTEXT)?;
     let origin = canonical_origin(&state.config.relay_url, tenant.host())?;
     let author_hex = event.pubkey.to_hex();
-    let limits = LeaseLimits {
-        expected_origin: &origin,
-        author_hex: &author_hex,
-        app_profiles: &[
+    let mut app_profiles = Vec::new();
+    if state.config.push_gateway_delivery_url.is_some() {
+        app_profiles.extend([
             AppProfile {
                 id: "buzz-ios-production",
                 transport: "apns",
@@ -505,7 +508,18 @@ pub async fn accept(
                 id: "buzz-ios-sandbox",
                 transport: "apns",
             },
-        ],
+        ]);
+    }
+    if state.config.web_push.is_some() {
+        app_profiles.push(AppProfile {
+            id: crate::web_push::PROFILE,
+            transport: "webpush",
+        });
+    }
+    let limits = LeaseLimits {
+        expected_origin: &origin,
+        author_hex: &author_hex,
+        app_profiles: &app_profiles,
         supported_classes: &["silent", "default", "time_sensitive"],
         push_kinds: PUSH_KINDS,
         urgent_kinds: URGENT_KINDS,
@@ -532,7 +546,29 @@ pub async fn accept(
     let capability;
     let active = if body.active {
         let endpoint = body.endpoint.as_deref().expect("validated active endpoint");
-        endpoint_hash = sha2::Sha256::digest(endpoint.as_bytes()).to_vec();
+        let browser = body.transport.as_deref() == Some("webpush");
+        if browser {
+            let validated = crate::web_push::validate_endpoint(endpoint, now)?;
+            if validated.origin != origin {
+                return Err("browser origin mismatch".to_string().into());
+            }
+            if body
+                .subscriptions
+                .as_ref()
+                .is_some_and(|subs| subs.iter().any(|sub| sub.class != "default"))
+            {
+                return Err("browser push must be user visible".to_string().into());
+            }
+            endpoint_hash =
+                sha2::Sha256::digest(validated.subscription.endpoint.as_bytes()).to_vec();
+            capability = format!("{}{endpoint}", crate::web_push::CAPABILITY_PREFIX);
+        } else {
+            if endpoint.starts_with(crate::web_push::CAPABILITY_PREFIX) {
+                return Err("reserved endpoint prefix".to_string().into());
+            }
+            endpoint_hash = sha2::Sha256::digest(endpoint.as_bytes()).to_vec();
+            capability = endpoint.to_owned();
+        }
         let max_class = body
             .subscriptions
             .as_ref()
@@ -541,7 +577,6 @@ pub async fn accept(
             .map(|sub| sub.class.as_str())
             .max_by_key(|class| class_rank(class))
             .expect("non-empty subscriptions");
-        capability = endpoint.to_owned();
         subscriptions = serde_json::to_value(
             body.subscriptions
                 .as_ref()
@@ -710,6 +745,32 @@ mod tests {
     }
 
     #[test]
+    fn browser_subscriptions_match_the_real_nip_pl_policy() {
+        // This exact fixture is also asserted against the TypeScript client's output.
+        let subscriptions: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../web/scripts/fixtures/web-push-subscriptions.json"
+        ))
+        .unwrap();
+        let body = parse_plaintext(
+            &serde_json::json!({
+                "v": 1, "origin": "o", "generation": 1, "active": true,
+                "app_profile": "airhop-web-v1", "transport": "webpush",
+                "endpoint": "capability-validated-separately", "subscriptions": subscriptions
+            })
+            .to_string(),
+            32768,
+        )
+        .unwrap();
+        let mut policy = limits();
+        policy.author_hex = "989c0b76cb563971fdc9bef31ec06c3560f3249d6ee9e5d83c57625596e05f6f";
+        policy.app_profiles = &[AppProfile {
+            id: "airhop-web-v1",
+            transport: "webpush",
+        }];
+        assert!(validate_plaintext(&body, &policy).is_ok());
+    }
+
+    #[test]
     fn active_filter_requires_narrowing_and_self_p_tag() {
         let body = parse_plaintext(r##"{"v":1,"origin":"o","generation":1,"active":true,"app_profile":"p","transport":"apns","endpoint":"token","subscriptions":[{"filter":{"kinds":[9]},"class":"default"}]}"##, 4096).unwrap();
         assert_eq!(
@@ -738,12 +799,38 @@ mod tests {
     }
 
     #[test]
-    fn h_uses_its_advertised_limit_not_the_generic_tag_limit() {
-        let body = parse_plaintext(r##"{"v":1,"origin":"o","generation":1,"active":true,"app_profile":"p","transport":"apns","endpoint":"token","subscriptions":[{"filter":{"kinds":[9],"#h":["123e4567-e89b-42d3-a456-426614174000","123e4567-e89b-42d3-a456-426614174001"]},"class":"default"}]}"##, 4096).unwrap();
+    fn h_accepts_canonical_v4_and_v5_ids_at_its_advertised_limit() {
+        let body = parse_plaintext(r##"{"v":1,"origin":"o","generation":1,"active":true,"app_profile":"p","transport":"apns","endpoint":"token","subscriptions":[{"filter":{"kinds":[9],"#h":["123e4567-e89b-42d3-a456-426614174000","85323a13-1cf3-565f-9f8b-96278bff3694"]},"class":"default"}]}"##, 4096).unwrap();
         let mut limits = limits();
         limits.max_h = 2;
         limits.max_tag_values = 1;
         assert!(validate_plaintext(&body, &limits).is_ok());
+    }
+
+    #[test]
+    fn h_rejects_non_channel_uuid_versions_and_non_canonical_text() {
+        for channel in [
+            "00000000-0000-0000-0000-000000000000",
+            "85323A13-1CF3-565F-9F8B-96278BFF3694",
+        ] {
+            let body = parse_plaintext(
+                &serde_json::json!({
+                    "v": 1, "origin": "o", "generation": 1, "active": true,
+                    "app_profile": "p", "transport": "apns", "endpoint": "token",
+                    "subscriptions": [{
+                        "filter": {"kinds": [9], "#h": [channel]},
+                        "class": "default"
+                    }]
+                })
+                .to_string(),
+                4096,
+            )
+            .unwrap();
+            assert_eq!(
+                validate_plaintext(&body, &limits()).unwrap_err(),
+                "invalid h tag"
+            );
+        }
     }
 
     #[test]

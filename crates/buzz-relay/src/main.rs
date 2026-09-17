@@ -278,12 +278,16 @@ async fn main() -> anyhow::Result<()> {
                 }
                 Err(e) => {
                     if config.require_relay_membership {
-                        error!("Fatal: failed to ensure deployment community with membership enforcement enabled: {e}");
+                        error!(
+                            "Fatal: failed to ensure deployment community with membership enforcement enabled: {e}"
+                        );
                         return Err(anyhow::anyhow!(
                             "Failed to ensure deployment community (required when BUZZ_REQUIRE_RELAY_MEMBERSHIP=true): {e}"
                         ));
                     }
-                    error!("Failed to ensure deployment community (non-fatal, membership not required): {e}");
+                    error!(
+                        "Failed to ensure deployment community (non-fatal, membership not required): {e}"
+                    );
                     None
                 }
             }
@@ -346,7 +350,9 @@ async fn main() -> anyhow::Result<()> {
                         // Membership enforcement is on — a missing owner means no one
                         // can administer the relay. Fail fast rather than silently start
                         // in a broken state.
-                        error!("Fatal: failed to bootstrap relay owner with membership enforcement enabled: {e}");
+                        error!(
+                            "Fatal: failed to bootstrap relay owner with membership enforcement enabled: {e}"
+                        );
                         return Err(anyhow::anyhow!(
                             "Failed to bootstrap relay owner (required when BUZZ_REQUIRE_RELAY_MEMBERSHIP=true): {e}"
                         ));
@@ -841,7 +847,7 @@ async fn main() -> anyhow::Result<()> {
     // NIP-PL matcher and worker are enabled as one unit. Lease acceptance is
     // already disabled without the exact gateway URL, so discovery and runtime
     // cannot advertise or accumulate work for an undeliverable configuration.
-    if state.config.push_gateway_delivery_url.is_some() {
+    if state.config.push_gateway_delivery_url.is_some() || state.config.web_push.is_some() {
         tokio::spawn(buzz_relay::push_runtime::run_matcher(Arc::clone(&state)));
         tokio::spawn(buzz_relay::push_runtime::run_delivery_worker(Arc::clone(
             &state,

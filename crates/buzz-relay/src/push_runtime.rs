@@ -312,6 +312,7 @@ fn push_filter_authorized_for_event(
 pub async fn run_delivery_worker(state: Arc<AppState>) {
     let http = reqwest::Client::builder()
         .timeout(state.config.push_gateway_timeout)
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .expect("push HTTP client");
     let mut idle_delay = Duration::from_millis(500);
@@ -418,6 +419,47 @@ async fn deliver_one(
             return;
         }
     };
+    if let Some(raw) = outcome
+        .endpoint_grant
+        .strip_prefix(crate::web_push::CAPABILITY_PREFIX)
+    {
+        use crate::web_push::Delivery;
+        let delivery = match &state.config.web_push {
+            Some(config) => crate::web_push::send(config, http, raw, &outcome).await,
+            None => Delivery::Failed,
+        };
+        match delivery {
+            Delivery::Accepted => {
+                let _ = state
+                    .db
+                    .complete_push_wake(outcome.community, outcome.id, outcome.claim_id)
+                    .await;
+            }
+            Delivery::Retry => retry_or_fail(state, &outcome, 2).await,
+            Delivery::Gone => {
+                let _ = state
+                    .db
+                    .disable_push_endpoint(
+                        outcome.community,
+                        &outcome.author,
+                        &outcome.installation_id,
+                        outcome.lease_generation,
+                    )
+                    .await;
+                let _ = state
+                    .db
+                    .fail_push_wake(outcome.community, outcome.id, outcome.claim_id)
+                    .await;
+            }
+            Delivery::Paused | Delivery::Failed => {
+                let _ = state
+                    .db
+                    .fail_push_wake(outcome.community, outcome.id, outcome.claim_id)
+                    .await;
+            }
+        }
+        return;
+    }
     let Some(url) = state.config.push_gateway_delivery_url.as_ref() else {
         return;
     };

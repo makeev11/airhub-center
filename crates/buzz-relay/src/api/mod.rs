@@ -12,6 +12,7 @@ pub mod airhop_knowledge;
 mod airhop_locations;
 pub mod airhop_public;
 pub mod airhop_staff;
+pub mod airhop_transcription;
 pub mod bridge;
 pub mod events;
 pub mod git;

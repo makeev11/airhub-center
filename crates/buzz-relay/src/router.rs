@@ -163,6 +163,17 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .with_state(state.clone());
 
+    let airhop_transcription_router = Router::new()
+        .route(
+            "/api/airhop/v1/transcription-tickets",
+            post(api::airhop_transcription::issue_ticket),
+        )
+        .layer(RequestBodyLimitLayer::new(4 * 1024))
+        .layer(axum::middleware::map_response(
+            api::airhop_transcription::private_response,
+        ))
+        .with_state(state.clone());
+
     let airhop_knowledge_router = Router::new()
         .route(
             "/api/airhop/staff/v1/client-conversations",
@@ -514,6 +525,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .merge(git_router)
         .merge(git_policy_router)
         .merge(airhop_activation_router)
+        .merge(airhop_transcription_router)
         .merge(airhop_agents_router)
         .merge(airhop_public_router)
         .merge(airhop_staff_router);
