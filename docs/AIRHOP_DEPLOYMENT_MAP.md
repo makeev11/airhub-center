@@ -156,18 +156,20 @@ deploy worker и публичным readiness API. Он не входит в Doc
 и постоянно включил выкладку цели `hq-api`. Для релизов с миграциями сначала
 применяется проверенная D1 migration, затем Worker; установленный predecessor
 `/Applications/AirHub HQ.app` сохраняется до замены и live-проверки клиента.
-В тот же день выпущен единый Telegram-канал организации: Worker version
-`089d1fcb-7e23-4087-8e04-815387b4e19a`, D1 schema `19`, executable
-установленного приложения
-`baf9852d61706a0edec84444186aa517b48ccf77aee5049578982997a5d55b80`.
-Readiness и D1 integrity после релиза прошли; receipt —
-`airhop-hq/docs/AIRHOP_HQ_TELEGRAM_UNIFIED_CHANNEL_RELEASE_20260917.md`.
+17 сентября вслед за единым Telegram-каналом выпущен расширенный персональный
+бриф: Worker version `3b8746ed-86e4-4ed0-93fc-7e31f679ba03`, D1 schema `20`,
+private R2 bucket `airhub-hq-brief-assets-staging` и executable установленного
+приложения
+`62d410c34247268e757e0c11ac1460009f25c02d3301520c067c6225b2a93fca`.
+Readiness, D1 integrity, R2 binding и live UI после релиза прошли; receipt —
+`airhop-hq/docs/AIRHOP_HQ_RICH_BRIEF_ASSETS_RELEASE_20260917.md`.
 
 ```mermaid
 flowchart TD
     hqApp["Приложение AirHop HQ"] --> hqApi["Cloudflare · airhub-hq-api-staging…workers.dev"]
     deployWorker["VPS · site-deploy-worker"] --> hqApi
     hqApi --> hqDb["D1 · airhub-hq-staging"]
+    hqApi --> hqAssets["Private R2 · airhub-hq-brief-assets-staging"]
     staff["Сотрудники · приложение Center"] --> demoHost["demo.airhop.ru"]
     demoHost --> proxy["Общий Caddy · airhop-site-caddy-1"]
     public["airhop.ru / www.airhop.ru"] --> proxy
