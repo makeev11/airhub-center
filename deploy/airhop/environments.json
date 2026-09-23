@@ -219,9 +219,18 @@
       "configured_database": "airhub-hq-staging",
       "configured_database_platform": "Cloudflare D1",
       "installed_app": "/Applications/AirHub HQ.app",
-      "installed_binary_sha256": "ecc121521e73cf51015aa94a7d74622abc5031f319b3827edad2ac7b60b4ac9b",
-      "deployment_enabled": false,
-      "note": "Active HQ endpoint despite historical staging name. Not hosted on the shared Docker daemon."
+      "installed_binary_sha256": "41a231aad212159801b106876d632c4893af1466c1350bd44192fe37cad709fd",
+      "installed_predecessor_binary_sha256": "e240bf8ace73beac0375ff1e24adc19e08069ad629636a4e3240c63138e21ac7",
+      "installed_predecessor_backup": "/private/tmp/hq-site-content-editing-desktop-20260923/AirHub HQ.app.previous-install",
+      "active_worker_version_id": "88c347be-6c3f-4b33-ae86-25c6f066773d",
+      "database_schema_version": 28,
+      "released_at": "2026-09-23",
+      "release_receipt": "airhop-hq/docs/AIRHOP_HQ_SITE_CONTENT_EDITING_RELEASE_20260923.md",
+      "deployment_enabled": true,
+      "authorization": "User explicitly approved the Cloudflare Wrangler authorization and permanently enabled hq-api deployment on 2026-09-17",
+      "note": "Active HQ endpoint despite historical staging name. Not hosted on the shared Docker daemon. Apply reviewed D1 migrations before the Worker and preserve the installed desktop predecessor for rollback.",
+      "pending_migrations": [],
+      "unified_hermes_brief": "Telegram and WhatsApp HQ scoped turn; conditional trust, promotion and visual-reference fields; contextual Site Light interview; provisional lead promotion requires explicit consent"
     },
     "site-br-production": {
       "product": "AirHop Site Brasil",
