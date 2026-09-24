@@ -16,6 +16,23 @@
 [финальный snapshot](deployment/runtime-20260912-after-retirement.json),
 [доказательства адреса HQ](AIRHOP_HQ_DOMAIN_AUDIT_20260912.md).
 
+## HQ: приглашения внутренней команды, 24 сентября 2026
+
+Действующий `hq-api`: Worker version
+`35b217da-2e4a-46fe-98a5-28029be75cc8` (100%), D1 schema 29,
+readiness `ready`; предшественник Worker
+`b5d34eaa-b8c1-45c3-a2f3-e840c8f84656`. Установленная сборка
+`/Applications/AirHub HQ.app` имеет executable SHA-256
+`a7e27efcea1d8a4091025d526726b194ac4a324af539a613c8633c9ff63cbf3b`;
+предшественник с SHA-256
+`29a0d9a1f61688211ef06fd9747c3c55dd52c5cb323cca92314e87727d4f5e4b`
+сохранён в `/private/tmp/hq-team-release-20260924/`. Миграция 0029
+добавила одноразовые коды и полный одинаковый доступ приглашённых людей.
+Передаваемый ZIP для Apple Silicon сохранён в HQ `dist/` и требует ручного
+разрешения запуска macOS из-за ad-hoc подписи. Установка на втором реальном
+Mac ещё не проверена.
+[Receipt, хеши и откат](../../airhop-hq/docs/AIRHOP_HQ_TEAM_INVITES_20260924.md).
+
 ## HQ: единый Telegram-диалог Гермеса и оператора, 24 сентября 2026
 
 Действующий `hq-api`: Worker version
