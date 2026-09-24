@@ -16,13 +16,27 @@
 [финальный snapshot](deployment/runtime-20260912-after-retirement.json),
 [доказательства адреса HQ](AIRHOP_HQ_DOMAIN_AUDIT_20260912.md).
 
-## HQ: режим правок контента после запуска, 23 сентября 2026
+## HQ: единый Telegram-диалог Гермеса и оператора, 24 сентября 2026
 
-Действующий `hq-api`: Worker version `88c347be-6c3f-4b33-ae86-25c6f066773d`
-(100%), D1 schema 28, readiness `ready`. Установленное нативное приложение
-имеет executable SHA-256
+Действующий `hq-api`: Worker version
+`b5d34eaa-b8c1-45c3-a2f3-e840c8f84656` (100%), D1 schema 28,
+readiness `ready`; предшественник
+`88c347be-6c3f-4b33-ae86-25c6f066773d`. Установленное приложение
+`/Applications/AirHub HQ.app` имеет executable SHA-256
+`29a0d9a1f61688211ef06fd9747c3c55dd52c5cb323cca92314e87727d4f5e4b`;
+предыдущая установка сохранена локально с SHA-256
+`41a231aad212159801b106876d632c4893af1466c1350bd44192fe37cad709fd`.
+Схема и данные не менялись. Живой HQ показывает один связанный Telegram-диалог
+с 16 сообщениями из обоих потоков.
+[Receipt и откат](../../airhop-hq/docs/AIRHOP_HQ_TELEGRAM_DIALOGUE_UNIFICATION_RELEASE_20260924.md).
+
+## HQ: предыдущий выпуск режима правок контента, 23 сентября 2026
+
+На момент выпуска `hq-api`: Worker version `88c347be-6c3f-4b33-ae86-25c6f066773d`
+(100%), D1 schema 28, readiness `ready`. Тогда установленное нативное приложение
+имело executable SHA-256
 `41a231aad212159801b106876d632c4893af1466c1350bd44192fe37cad709fd`
-и работает с HTTPS API. Предшественники: Worker `9f9a8a6e-9d09-4801-8f1c-9bb0fc0c8182`,
+и работало с HTTPS API. Предшественники: Worker `9f9a8a6e-9d09-4801-8f1c-9bb0fc0c8182`,
 app `e240bf8ace73beac0375ff1e24adc19e08069ad629636a4e3240c63138e21ac7`.
 На момент выпуска ready production targets нет: проверка живой правки через
 бота до публичной страницы остаётся отдельной приёмкой.
